@@ -106,6 +106,29 @@ Não muda nada deste plano. Fica registrado porque é exatamente o que a seção
 de `crescimento.sql` existe para responder, e porque um número que muda entre
 duas leituras merece ser dito, não arredondado.
 
+### 1.3 De onde veio o churn — medido em 15/09/2026
+
+`crescimento.sql` respondeu, e o número reenquadra tudo:
+
+| | |
+|---|--:|
+| Importações vivas | **3**, somando 2.351 kB de `.xlsx` |
+| Importações excluídas | **37** |
+| Idade do acervo | **7 dias** |
+
+**92,5% de todas as importações que já existiram foram excluídas**, e nada de
+agosto sobreviveu. `EMPURRADA_Cavalo.xlsx` foi excluído 6 vezes e está vivo na
+sétima — mesmo SHA-256, sete leituras completas do zero.
+
+Isto não desmente nada da evidência acima; muda a história dela. O inchaço não é
+subproduto de operação em regime: é resíduo de **uma semana de iteração**. O que
+melhora o caso da reindexação — limpar uma vez tem chance de resolver por um bom
+tempo — e desloca a pergunta estrutural de "quanto tempo até 100 GB" para "o
+ciclo de excluir-e-reimportar vai continuar?".
+
+Detalhe completo, e os dois erros que aquela rodada expôs nas minhas próprias
+consultas: **`docs/CRESCIMENTO-MEDIDO.md`**.
+
 ### O mecanismo
 
 ```

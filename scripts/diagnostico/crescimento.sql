@@ -125,17 +125,27 @@ BEGIN READ ONLY;
 -- run. É a única memória de quanto já entrou e saiu — e é ela que explica o
 -- inchaço de índice, porque cada exclusão esvazia páginas de btree que não
 -- voltam para o sistema.
+--
+-- AS CHAVES DO `removed` SÃO camelCase, e não os nomes das tabelas. A primeira
+-- versão desta consulta usou 'raw_cell', 'fact' e 'staged_fact' e devolveu uma
+-- coluna inteira de zeros em produção — sem erro, porque `->>` de chave ausente
+-- é NULL, e o `coalesce` transformava em 0. Os nomes vêm de
+-- `ImportDeletionCounts` (lib/ingest/src/deletion.ts:43): rawCells, facts,
+-- stagedFacts, snapshots, rawRows, rawSheets, changes, entities.
+--
+-- Zero silencioso é pior que erro: a leitura de 15/09 concluiu "nada foi
+-- removido" de um banco onde 37 importações tinham sido excluídas.
 SELECT filename,
        left(content_sha256, 8)                  AS sha,
        count(*)                                 AS exclusoes,
        min(deleted_at)::date                    AS primeira,
        max(deleted_at)::date                    AS ultima,
-       sum(coalesce((removed->>'raw_cell')::bigint, 0))    AS celulas_removidas,
-       sum(coalesce((removed->>'fact')::bigint, 0))        AS fatos_removidos,
-       sum(coalesce((removed->>'staged_fact')::bigint, 0)) AS staged_removidos
+       sum(coalesce((removed->>'rawCells')::bigint, 0))    AS celulas_removidas,
+       sum(coalesce((removed->>'facts')::bigint, 0))        AS fatos_removidos,
+       sum(coalesce((removed->>'stagedFacts')::bigint, 0)) AS staged_removidos
   FROM import_deletion
  GROUP BY filename, content_sha256
- ORDER BY count(*) DESC, sum(coalesce((removed->>'raw_cell')::bigint, 0)) DESC
+ ORDER BY count(*) DESC, sum(coalesce((removed->>'rawCells')::bigint, 0)) DESC
  LIMIT 30;
 
 COMMIT;
@@ -147,9 +157,9 @@ BEGIN READ ONLY;
 SELECT date_trunc('month', deleted_at)::date              AS mes,
        count(*)                                           AS exclusoes,
        count(DISTINCT content_sha256)                     AS arquivos_distintos,
-       sum(coalesce((removed->>'raw_cell')::bigint, 0))   AS celulas_removidas,
-       sum(coalesce((removed->>'fact')::bigint, 0))       AS fatos_removidos,
-       sum(coalesce((removed->>'staged_fact')::bigint,0)) AS staged_removidos
+       sum(coalesce((removed->>'rawCells')::bigint, 0))   AS celulas_removidas,
+       sum(coalesce((removed->>'facts')::bigint, 0))       AS fatos_removidos,
+       sum(coalesce((removed->>'stagedFacts')::bigint,0)) AS staged_removidos
   FROM import_deletion
  GROUP BY 1
  ORDER BY 1;
@@ -163,9 +173,9 @@ BEGIN READ ONLY;
 -- Lado a lado, o que o acervo vivo tem e o que já passou por ele. A diferença
 -- entre "removidas" e o que está vivo é a massa que abriu páginas de índice.
 SELECT (SELECT sum(raw_cell_count) FROM import_run)                              AS celulas_vivas_contador,
-       (SELECT sum(coalesce((removed->>'raw_cell')::bigint, 0)) FROM import_deletion)    AS celulas_ja_removidas,
+       (SELECT sum(coalesce((removed->>'rawCells')::bigint, 0)) FROM import_deletion)    AS celulas_ja_removidas,
        (SELECT sum(staged_fact_count) FROM import_run)                           AS staged_vivos_contador,
-       (SELECT sum(coalesce((removed->>'staged_fact')::bigint, 0)) FROM import_deletion) AS staged_ja_removidos,
+       (SELECT sum(coalesce((removed->>'stagedFacts')::bigint, 0)) FROM import_deletion) AS staged_ja_removidos,
        (SELECT count(*) FROM import_run)                                         AS runs_vivos,
        (SELECT count(*) FROM import_deletion)                                    AS runs_excluidos;
 
@@ -192,6 +202,27 @@ COMMIT;
 BEGIN READ ONLY;
 
 \echo ''
+\echo ''
+\echo '--- [3e] AS CHAVES QUE O `removed` REALMENTE TEM -----------------------'
+-- A trava contra o zero silencioso da seção 3. Em vez de confiar que os nomes
+-- que escrevi batem com os que o código grava, esta consulta LÊ os nomes do
+-- banco. Se as três chaves das seções acima não aparecerem aqui, aquelas
+-- colunas estão zeradas por engano — não porque nada foi removido.
+SELECT chave,
+       count(*)                                   AS exclusoes_que_a_trazem,
+       sum((valor)::bigint)                       AS soma,
+       CASE WHEN chave IN ('rawCells','facts','stagedFacts')
+            THEN '← usada nas seções 3, 3b e 3c' ELSE '' END AS observacao
+  FROM import_deletion d
+  CROSS JOIN LATERAL jsonb_each_text(d.removed) AS kv(chave, valor)
+ WHERE valor ~ '^[0-9]+$'
+ GROUP BY chave
+ ORDER BY sum((valor)::bigint) DESC;
+
+COMMIT;
+
+BEGIN READ ONLY;
+
 \echo '=== [4] JANELA DE VIDA DO ACERVO ========================================'
 SELECT (SELECT min(started_at)::date  FROM import_run)     AS primeira_importacao,
        (SELECT max(started_at)::date  FROM import_run)     AS ultima_importacao,
@@ -208,28 +239,79 @@ BEGIN READ ONLY;
 
 \echo ''
 \echo '=== [5] PROJEÇÃO GROSSEIRA =============================================='
--- Bytes por célula medidos no acervo atual, aplicados ao ritmo dos últimos 90
--- dias. É aritmética de guardanapo, e serve para uma pergunta só: em que ordem
--- de grandeza o limite de 100 GB entra no horizonte.
+-- Aritmética de guardanapo para uma pergunta só: em que ordem de grandeza o
+-- limite de 100 GB entra no horizonte.
 --
--- NÃO extrapola inchaço de índice: se os índices forem reconstruídos, o
--- `bytes_por_celula` cai junto e esta projeção passa a superestimar.
-WITH acervo AS (
-  SELECT sum(raw_cell_count)::numeric AS celulas FROM import_run
-), ritmo AS (
-  SELECT sum(raw_cell_count)::numeric AS celulas_90d
+-- A JANELA É A DO ACERVO, não um número fixo. A primeira versão desta seção
+-- dividia por 90 dias fixos; rodada num acervo de 7 dias, ela espalhou uma
+-- semana de importação por um trimestre e subestimou o ritmo em ~13x. Agora a
+-- janela sai de `min(started_at)`, e quando ela é curta demais para extrapolar,
+-- a consulta diz isso em vez de devolver um número com cara de projeção.
+--
+-- E o `bytes_por_celula` NÃO é o custo de uma célula: ele divide o banco INTEIRO
+-- — inclusive o espaço vazio deixado pelas importações já excluídas — pelas
+-- células vivas. É por isso que ele serve de termômetro de inchaço: num banco
+-- recém-reindexado ele cai, sem que nenhuma célula tenha mudado de tamanho.
+WITH janela AS (
+  SELECT min(started_at)                                   AS inicio,
+         max(started_at)                                   AS fim,
+         greatest(
+           extract(epoch FROM (now() - min(started_at))) / 86400,
+           1)::numeric                                     AS dias,
+         sum(raw_cell_count)::numeric                      AS celulas
     FROM import_run
-   WHERE started_at >= now() - interval '90 days'
 )
-SELECT pg_size_pretty(pg_database_size(current_database()))                 AS hoje,
-       acervo.celulas                                                        AS celulas_no_acervo,
-       round(pg_database_size(current_database()) / nullif(acervo.celulas,0), 0) AS bytes_por_celula,
-       ritmo.celulas_90d                                                     AS celulas_ultimos_90d,
+SELECT pg_size_pretty(pg_database_size(current_database()))       AS hoje,
+       j.inicio::date                                             AS acervo_desde,
+       round(j.dias, 1)                                           AS dias_de_acervo,
+       j.celulas                                                  AS celulas_vivas,
+       round(pg_database_size(current_database()) / nullif(j.celulas, 0), 0)
+                                                                  AS bytes_por_celula,
+       round(j.celulas / j.dias, 0)                               AS celulas_por_dia,
+       CASE
+         WHEN j.dias < 30 THEN
+           'JANELA CURTA (' || round(j.dias)::text || ' dias) — extrapolar daqui '
+           || 'diz mais sobre a semana medida que sobre o ano. Trate como ordem '
+           || 'de grandeza, não como previsão.'
+         ELSE 'janela suficiente para uma estimativa grosseira'
+       END                                                        AS ressalva,
        pg_size_pretty((
-         ritmo.celulas_90d / 90 * 365
-         * (pg_database_size(current_database()) / nullif(acervo.celulas, 0))
-       )::bigint)                                                            AS crescimento_anual_estimado
-  FROM acervo, ritmo;
+         j.celulas / j.dias * 365
+         * (pg_database_size(current_database()) / nullif(j.celulas, 0))
+       )::bigint)                                                 AS se_o_ritmo_se_mantiver
+  FROM janela j;
+
+COMMIT;
+
+BEGIN READ ONLY;
+
+\echo ''
+\echo '--- [5b] O mesmo ritmo, já descontado o inchaço -------------------------'
+-- A projeção acima carrega o inchaço atual para dentro do futuro. Esta desconta:
+-- usa só o heap (dados de verdade) por célula viva, que é o que o banco ocuparia
+-- se os índices estivessem saudáveis. As duas juntas dão o intervalo.
+WITH janela AS (
+  SELECT greatest(extract(epoch FROM (now() - min(started_at))) / 86400, 1)::numeric AS dias,
+         sum(raw_cell_count)::numeric AS celulas
+    FROM import_run
+), camada AS (
+  SELECT sum(pg_relation_size(c.oid))  AS heap,
+         sum(pg_indexes_size(c.oid))   AS indices
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+   WHERE c.relkind IN ('r','p','m')
+     AND n.nspname NOT IN ('pg_catalog','information_schema','pg_toast')
+)
+SELECT pg_size_pretty(camada.heap)                                AS heap_hoje,
+       pg_size_pretty(camada.indices)                             AS indices_hoje,
+       round(camada.heap / nullif(j.celulas, 0), 0)               AS bytes_heap_por_celula,
+       pg_size_pretty((j.celulas / j.dias * 365
+                       * (camada.heap / nullif(j.celulas, 0)))::bigint)
+                                                                  AS heap_em_um_ano,
+       pg_size_pretty((j.celulas / j.dias * 365
+                       * (camada.heap / nullif(j.celulas, 0)) * 3)::bigint)
+                                                                  AS com_indices_saudaveis
+  FROM janela j, camada;
 
 COMMIT;
 
