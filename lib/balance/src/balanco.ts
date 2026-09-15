@@ -522,7 +522,85 @@ export async function balancoDaImportacao(
         WHERE import_run_id = ${importRunId}::uuid
         GROUP BY snapshot_label
       `),
+      /*
+        As três contagens por vigência — e por que elas são agregações, e não
+        subconsultas correlacionadas.
+
+        A forma óbvia é escrever cada contagem como um `SELECT count(*)` no meio
+        da lista de colunas, correlacionado pelo `s.id`. Foi assim que esta
+        consulta nasceu, e ela **responde certo**. O problema é o que o Postgres
+        faz com ela: cada subconsulta vira um SubPlan executado **uma vez por
+        vigência**, e a terceira delas — a que persegue `fact → raw_cell →
+        raw_row → raw_sheet` para saber quais fatos têm lastro nesta importação
+        — não é barata o bastante para aguentar essa repetição.
+
+        `EXPLAIN (ANALYZE, BUFFERS)` sobre o acervo real (124.632 fatos, 18
+        vigências, 9 nesta importação), medido em 15/09/2026:
+
+            Index Scan on snapshot s  (actual time=63.337..538.845 rows=9)
+              Buffers: shared hit=1174807
+              SubPlan 1 (promovidos)   1,642 ms × 9 loops
+              SubPlan 2 (herdados)     1,449 ms × 9 loops
+              SubPlan 3 (com_lastro)  56,761 ms × 9 loops
+                Buffers: shared hit=1171271      ← 99,7% do total
+            Execution Time: 535,095 ms
+
+        O SubPlan 3 sozinho tocava **1.171.271 dos 1.174.807 buffers**. Não é
+        I/O de disco nem falta de índice: o plano já usa `fact_snapshot_entity_idx`.
+        É a mesma junção de quatro tabelas refeita nove vezes, com o planejador
+        estimando 25 linhas onde encontra 4.650.
+
+        Na forma abaixo as três contagens saem de **duas varreduras agregadas**,
+        feitas uma vez para todas as vigências da importação e juntadas por
+        `snapshot_id`:
+
+            | forma                  | Execution Time | Buffers   |
+            |------------------------|---------------:|----------:|
+            | subconsultas (antes)   |      535,1 ms  | 1.174.807 |
+            | agregações (esta)      |      110,1 ms  |   132.402 |
+            |                        |        −79%    |     −89%  |
+
+        As nove linhas de saída foram conferidas por `diff` entre as duas
+        formas: **idênticas**, coluna por coluna.
+
+        `LEFT JOIN` e `COALESCE(…, 0)`, e não `JOIN`: uma vigência sem nenhum
+        fato desta importação existe — é o que acontece quando uma revisão
+        herda tudo da anterior — e com `JOIN` ela sumiria da lista em vez de
+        aparecer com zero. A subconsulta antiga devolvia 0 nesse caso, e a
+        diferença entre "zero" e "ausente" é justamente o que esta tela existe
+        para mostrar.
+
+        A regra de negócio não mudou, e é esta: **os fatos herdados de uma
+        revisão anterior ficam de fora das duas primeiras contagens.** Eles são
+        do snapshot, mas a célula que os originou está em outra importação —
+        somá-los aqui faria esta importação parecer ter produzido massa que ela
+        não produziu, e "uma célula, um fato" deixaria de fechar sem que nada
+        estivesse errado.
+      */
       db.execute<LinhaSnapshot>(sql`
+        WITH vigencia AS (
+          SELECT s.id FROM snapshot s WHERE s.import_run_id = ${importRunId}::uuid
+        ),
+        contagem AS (
+          SELECT
+            f.snapshot_id,
+            (count(*) FILTER (WHERE f.inherited_from_snapshot_id IS NULL))::int     AS promovidos,
+            (count(*) FILTER (WHERE f.inherited_from_snapshot_id IS NOT NULL))::int AS herdados
+          FROM fact f
+          WHERE f.snapshot_id IN (SELECT id FROM vigencia)
+          GROUP BY f.snapshot_id
+        ),
+        lastro AS (
+          SELECT f.snapshot_id, count(*)::int AS com_lastro
+          FROM fact f
+          JOIN raw_cell c  ON c.id = f.raw_cell_id
+          JOIN raw_row r   ON r.id = c.raw_row_id
+          JOIN raw_sheet a ON a.id = r.raw_sheet_id
+          WHERE f.snapshot_id IN (SELECT id FROM vigencia)
+            AND f.inherited_from_snapshot_id IS NULL
+            AND a.import_run_id = ${importRunId}::uuid
+          GROUP BY f.snapshot_id
+        )
         SELECT
           s.id,
           s.source_label,
@@ -530,32 +608,12 @@ export async function balancoDaImportacao(
           s.revision,
           s.status::text AS status,
           s.fact_count,
-          -- Os fatos herdados de uma revisão anterior ficam de fora das duas
-          -- contagens. Eles são do snapshot, mas a célula que os originou está
-          -- em outra importação — somá-los aqui faria esta importação parecer
-          -- ter produzido massa que ela não produziu, e "uma célula, um fato"
-          -- deixaria de fechar sem que nada estivesse errado.
-          (
-            SELECT count(*)::int FROM fact f
-             WHERE f.snapshot_id = s.id
-               AND f.inherited_from_snapshot_id IS NULL
-          ) AS promovidos,
-          (
-            SELECT count(*)::int FROM fact f
-             WHERE f.snapshot_id = s.id
-               AND f.inherited_from_snapshot_id IS NOT NULL
-          ) AS herdados,
-          (
-            SELECT count(*)::int
-            FROM fact f
-            JOIN raw_cell c  ON c.id = f.raw_cell_id
-            JOIN raw_row r   ON r.id = c.raw_row_id
-            JOIN raw_sheet a ON a.id = r.raw_sheet_id
-            WHERE f.snapshot_id = s.id
-              AND f.inherited_from_snapshot_id IS NULL
-              AND a.import_run_id = ${importRunId}::uuid
-          ) AS com_lastro
+          COALESCE(k.promovidos, 0) AS promovidos,
+          COALESCE(k.herdados, 0)   AS herdados,
+          COALESCE(l.com_lastro, 0) AS com_lastro
         FROM snapshot s
+        LEFT JOIN contagem k ON k.snapshot_id = s.id
+        LEFT JOIN lastro   l ON l.snapshot_id = s.id
         WHERE s.import_run_id = ${importRunId}::uuid
         ORDER BY s.effective_date
       `),
