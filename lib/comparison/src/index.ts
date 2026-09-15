@@ -8,6 +8,7 @@ export * from "./gerencial";
 export * from "./query";
 export * from "./consolidated";
 export * from "./composition";
+export * from "./finame";
 export * from "./deduplicacao";
 export * from "./vinculos";
 export * from "./impacto-apurado";
