@@ -16,6 +16,7 @@ import {
   linhaSemAlteracao,
   linhasDeFiname,
   listChanges,
+  frotaPorTipo,
   listComparableSnapshots,
   operacaoDoSnapshot,
   resumirFiname,
@@ -219,6 +220,7 @@ router.get("/finame/comparacao", async (req, res, next): Promise<void> => {
     const snapshotA = vigencias.find((v) => v.id === base);
     const snapshotB = vigencias.find((v) => v.id === comparada);
     const frota = frotaDoPar(resumo, snapshotB?.entityCount ?? 0);
+    const frotaPorEquipamento = await frotaPorTipo(db, resumo.id, comparada);
 
     let todas = linhas;
     if (comSemAlteracao && snapshotA && snapshotB) {
@@ -260,6 +262,39 @@ router.get("/finame/comparacao", async (req, res, next): Promise<void> => {
       resumo: resumirFiname(linhas, frota),
       alteracoesPorVariavel: alteracoesPorVariavel(linhas),
       distribuicaoPorEstado: distribuicaoPorEstado(linhas, frota),
+      /*
+        Os mesmos três agregados, um por tipo de equipamento — o que as abas
+        Cavalo e Carreta mostram.
+
+        Calculados **aqui**, com as mesmas três funções, e não recompostos no
+        navegador. A tela recebe as linhas e poderia filtrá-las sozinha; o que
+        ela não tem é o denominador — "veículos comparados" sai do acervo
+        (`frotaPorTipo`), nunca da lista de alterações, porque um veículo em que
+        nada mudou não produz linha nenhuma. Uma aba que derivasse o número da
+        lista diria zero comparados sobre 135 veículos parados.
+
+        E são as mesmas funções de propósito: a aba "Cavalo" e o total precisam
+        contar do mesmo jeito. Duas réguas dariam, mais cedo ou mais tarde, uma
+        soma de abas que não fecha com o número que a tela publica ao lado.
+      */
+      porTipo: Object.fromEntries(
+        (["CAVALO", "CARRETA"] as const).map((tipo) => {
+          const doTipo = linhas.filter((l) => l.entityType === tipo);
+          const frotaDoTipo = frotaPorEquipamento[tipo] ?? {
+            comparados: 0,
+            novos: 0,
+            ausentes: 0,
+          };
+          return [
+            tipo,
+            {
+              resumo: resumirFiname(doTipo, frotaDoTipo),
+              alteracoesPorVariavel: alteracoesPorVariavel(doTipo),
+              distribuicaoPorEstado: distribuicaoPorEstado(doTipo, frotaDoTipo),
+            },
+          ];
+        }),
+      ),
       linhas: todas,
     });
   } catch (err) {

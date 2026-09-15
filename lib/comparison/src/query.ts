@@ -5,6 +5,7 @@ import {
   attributeTable,
   changeSetTable,
   changeTable,
+  snapshotEntityTypeTable,
   snapshotTable,
 } from "@workspace/db";
 import type { EscopoDeFrota } from "./escopo";
@@ -1218,4 +1219,102 @@ export async function contagemPorTipo(
     .groupBy(changeTable.changeSetId, changeTable.entityType);
 
   return rows;
+}
+
+
+// ---------------------------------------------------------------------------
+// A frota de cada tipo — o denominador das abas Cavalo e Carreta
+// ---------------------------------------------------------------------------
+
+/** Os veículos de um tipo nas duas pontas, como as quatro auditorias os contam. */
+export interface FrotaDoTipo {
+  comparados: number;
+  novos: number;
+  ausentes: number;
+}
+
+/**
+ * A frota do par, aberta por tipo de equipamento.
+ *
+ * ---------------------------------------------------------------------------
+ * Por que ela não podia ser uma conta na tela
+ * ---------------------------------------------------------------------------
+ * Porque "veículos comparados" não sai da lista de alterações. Um veículo em
+ * que nada mudou não produz alteração nenhuma, e derivar o número da lista
+ * daria zero justamente na comparação em que nada se moveu — que é quando ele
+ * mais importa. É a mesma armadilha que `frotaDoPar` documenta nas rotas, e a
+ * razão de o denominador vir do acervo e não do `change_set`.
+ *
+ * ---------------------------------------------------------------------------
+ * Por que ela dá exatamente o mesmo total que a tela já publica
+ * ---------------------------------------------------------------------------
+ * Porque é a mesma régua, aplicada por tipo, e não uma segunda:
+ *
+ * - `snapshot_entity_type.entity_count` conta as entidades distintas de um tipo
+ *   com pelo menos um fato na vigência — o mesmo critério de
+ *   `snapshot.entity_count`, que é o que `frotaDoPar` usa hoje, só que separado
+ *   por tipo. Ela é escrita na promoção, com os fatos à mão, e poupa um
+ *   `count(DISTINCT)` sobre a fact table.
+ * - `entitiesAdded` e `entitiesRemoved` do resumo são a contagem crua das
+ *   linhas `FLEET_CHANGE` (`engine.ts`), uma por entidade que entrou ou saiu, e
+ *   cada uma carrega o `entity_type`. Contá-las por tipo é a mesma soma,
+ *   agrupada.
+ *
+ * Então a soma das abas é o número de "Todos", e não um segundo total que
+ * discorda dele por um veículo. Numa tela de auditoria, duas contagens da mesma
+ * frota que fecham diferente valem menos que nenhuma.
+ *
+ * `count(*)`, e não `count(DISTINCT entity_label)`: a placa pode faltar — o
+ * `LEFT JOIN` de `entity_identifier` deixa `entity_label` nulo — e o motor
+ * contou linhas, uma por entidade. Contar placas distintas perderia as sem
+ * placa e faria a aba fechar abaixo do total.
+ */
+export async function frotaPorTipo(
+  db: Database,
+  changeSetId: string,
+  snapshotComparadaId: string,
+): Promise<Record<string, FrotaDoTipo>> {
+  const [presentes, movimentos] = await Promise.all([
+    db
+      .select({
+        entityType: snapshotEntityTypeTable.entityType,
+        entityCount: snapshotEntityTypeTable.entityCount,
+      })
+      .from(snapshotEntityTypeTable)
+      .where(eq(snapshotEntityTypeTable.snapshotId, snapshotComparadaId)),
+    db
+      .select({
+        entityType: changeTable.entityType,
+        changeType: changeTable.changeType,
+        quantos: sql<number>`count(*)`.mapWith(Number),
+      })
+      .from(changeTable)
+      .where(
+        and(
+          eq(changeTable.changeSetId, changeSetId),
+          inArray(changeTable.changeType, ["ENTITY_ADDED", "ENTITY_REMOVED"]),
+        )!,
+      )
+      .groupBy(changeTable.entityType, changeTable.changeType),
+  ]);
+
+  const frota: Record<string, FrotaDoTipo> = {};
+  const doTipo = (tipo: string): FrotaDoTipo =>
+    (frota[tipo] ??= { comparados: 0, novos: 0, ausentes: 0 });
+
+  for (const linha of presentes) {
+    doTipo(linha.entityType).comparados = linha.entityCount;
+  }
+  for (const linha of movimentos) {
+    if (linha.entityType === null) continue;
+    const f = doTipo(linha.entityType);
+    if (linha.changeType === "ENTITY_ADDED") f.novos = linha.quantos;
+    else f.ausentes = linha.quantos;
+  }
+  /* Presentes nas duas pontas = os da vigência comparada menos os que entraram
+     nela. A subtração acontece depois porque as duas leituras são paralelas. */
+  for (const f of Object.values(frota)) {
+    f.comparados = Math.max(0, f.comparados - f.novos);
+  }
+  return frota;
 }

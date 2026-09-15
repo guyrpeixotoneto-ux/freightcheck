@@ -12,6 +12,7 @@ import {
   linhaDeLucroFixoSemAlteracao,
   linhasDeLucroFixo,
   listChanges,
+  frotaPorTipo,
   listComparableSnapshots,
   operacaoDoSnapshot,
   resumirLucroFixo,
@@ -164,6 +165,7 @@ router.get("/lucro-fixo/comparacao", async (req, res, next): Promise<void> => {
     const snapshotA = vigencias.find((v) => v.id === base);
     const snapshotB = vigencias.find((v) => v.id === comparada);
     const frota = frotaDoPar(resumo, snapshotB?.entityCount ?? 0);
+    const frotaPorEquipamento = await frotaPorTipo(db, resumo.id, comparada);
 
     let todas = linhas;
     if (comSemAlteracao && snapshotA && snapshotB) {
@@ -193,6 +195,35 @@ router.get("/lucro-fixo/comparacao", async (req, res, next): Promise<void> => {
       resumo: resumirLucroFixo(linhas, frota),
       alteracoesPorVariavel: alteracoesPorVariavelDeLucroFixo(linhas),
       distribuicaoPorEstado: distribuicaoPorEstadoDeLucroFixo(linhas, frota),
+      /*
+        Os mesmos três agregados, um por tipo de equipamento — o que as abas
+        Cavalo e Carreta mostram.
+
+        Calculados aqui, com as mesmas três funções, e não recompostos no
+        navegador: "veículos comparados" sai do acervo (`frotaPorTipo`), nunca
+        da lista de alterações, porque um veículo em que nada mudou não produz
+        linha nenhuma. E são as mesmas funções de propósito — a aba e o total
+        precisam contar do mesmo jeito, ou a soma das abas deixa de fechar com
+        o número publicado ao lado delas.
+      */
+      porTipo: Object.fromEntries(
+        (["CAVALO", "CARRETA"] as const).map((tipo) => {
+          const doTipo = linhas.filter((l) => l.entityType === tipo);
+          const frotaDoTipo = frotaPorEquipamento[tipo] ?? {
+            comparados: 0,
+            novos: 0,
+            ausentes: 0,
+          };
+          return [
+            tipo,
+            {
+              resumo: resumirLucroFixo(doTipo, frotaDoTipo),
+              alteracoesPorVariavel: alteracoesPorVariavelDeLucroFixo(doTipo),
+              distribuicaoPorEstado: distribuicaoPorEstadoDeLucroFixo(doTipo, frotaDoTipo),
+            },
+          ];
+        }),
+      ),
       linhas: todas,
     });
   } catch (err) {

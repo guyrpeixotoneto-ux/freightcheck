@@ -21,6 +21,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { SeletorDoPar, type VigenciaEscolhivel } from "@/components/comparacao/seletor-do-par";
+import {
+  RecorteDeEquipamento,
+  type RecorteDeTipo,
+} from "@/components/comparacao/recorte-de-equipamento";
 import { CartoesDeFiname } from "@/components/finame/cartoes";
 import {
   AlteracoesPorVariavel,
@@ -302,6 +306,50 @@ export default function AuditoriaDeFiname() {
    * justificativa é o comentário sobre ele.
    */
   const linhas = useMemo(() => comparacao.data?.linhas ?? [], [comparacao.data]);
+
+  /**
+   * O recorte aberto — e de onde saem os números que a tela publica.
+   *
+   * `filtros.tipo` continua sendo o mecanismo: a tabela, a contagem das abas de
+   * estado e o CSV já o respeitavam, e reescrever aquilo em nome de um controle
+   * novo seria trocar uma régua que funciona por outra igual. O que muda é
+   * quem o comanda — um segmento no topo da tela, e não um seletor perdido
+   * entre os filtros da tabela — e o que ele alcança: daqui para frente,
+   * também os cartões e os gráficos.
+   *
+   * Os agregados do recorte vêm prontos do servidor (`porTipo`). A tela escolhe
+   * qual ler; não soma nada.
+   */
+  const recorteDeTipo = (filtros.tipo === "TODOS" ? "TODOS" : filtros.tipo) as RecorteDeTipo;
+  const agregados =
+    recorteDeTipo === "TODOS"
+      ? comparacao.data
+      : comparacao.data?.porTipo?.[recorteDeTipo];
+
+  /**
+   * Quantos veículos cada recorte tem — o número ao lado de cada aba.
+   *
+   * Comparados + novos + ausentes: os três estados da frota no par, que é o
+   * mesmo universo que o cartão "Veículos comparados" abre. Zero desabilita a
+   * aba, porque uma vigência sem carreta não tem tela de carreta para mostrar.
+   */
+  const contagensDoRecorte = useMemo(() => {
+    const quantos = (a: { resumo: { veiculosComparados: number; novosNaVigencia: number; ausentesNaComparada: number } } | undefined) =>
+      a ? a.resumo.veiculosComparados + a.resumo.novosNaVigencia + a.resumo.ausentesNaComparada : 0;
+    return {
+      TODOS: quantos(comparacao.data),
+      CAVALO: quantos(comparacao.data?.porTipo?.CAVALO),
+      CARRETA: quantos(comparacao.data?.porTipo?.CARRETA),
+    } as Record<RecorteDeTipo, number>;
+  }, [comparacao.data]);
+
+  /** Os totais do gráfico, no recorte aberto — a série já vem por tipo. */
+  const totaisDoRecorte = useMemo(() => {
+    const todos = totais.data?.totais ?? [];
+    return recorteDeTipo === "TODOS"
+      ? todos
+      : todos.filter((t) => t.entityType === recorteDeTipo);
+  }, [totais.data, recorteDeTipo]);
   const filtradas = useMemo(() => filtrar(linhas, filtros), [linhas, filtros]);
   const contagens = useMemo(
     () => contagemPorAba(linhas, { ...filtros, estado: "TODAS" }),
@@ -447,12 +495,19 @@ export default function AuditoriaDeFiname() {
 
         {comparacao.data && (
           <>
-            <CartoesDeFiname resumo={comparacao.data.resumo} />
+            <RecorteDeEquipamento
+              valor={recorteDeTipo}
+              onValor={(tipo) => setFiltros((f) => ({ ...f, tipo }))}
+              contagens={contagensDoRecorte}
+              idPrefixo="finame"
+            />
 
-            {comparacao.data.resumo.impacto.cobertasPorParcelas > 0 && (
+            <CartoesDeFiname resumo={(agregados ?? comparacao.data).resumo} />
+
+            {(agregados ?? comparacao.data).resumo.impacto.cobertasPorParcelas > 0 && (
               <p className="text-xs text-muted-foreground">
-                {formatNumber(comparacao.data.resumo.impacto.cobertasPorParcelas, 0)}{" "}
-                {comparacao.data.resumo.impacto.cobertasPorParcelas === 1
+                {formatNumber((agregados ?? comparacao.data).resumo.impacto.cobertasPorParcelas, 0)}{" "}
+                {(agregados ?? comparacao.data).resumo.impacto.cobertasPorParcelas === 1
                   ? "parcela saiu"
                   : "parcelas saíram"}{" "}
                 do total por já estarem representadas nas partes — o mesmo dinheiro não é
@@ -462,16 +517,20 @@ export default function AuditoriaDeFiname() {
 
             <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
               <TotalPorVigencia
-                totais={totais.data?.totais ?? []}
+                totais={totaisDoRecorte}
                 rotuloBase={rotuloBase}
                 rotuloComparada={rotuloComparada}
               />
-              <AlteracoesPorVariavel dados={comparacao.data.alteracoesPorVariavel} />
-              <DistribuicaoPorEstado dados={comparacao.data.distribuicaoPorEstado} />
+              <AlteracoesPorVariavel
+                dados={(agregados ?? comparacao.data).alteracoesPorVariavel}
+              />
+              <DistribuicaoPorEstado
+                dados={(agregados ?? comparacao.data).distribuicaoPorEstado}
+              />
             </div>
 
             <EvolucaoEntreVigencias
-              totais={totais.data?.totais ?? []}
+              totais={totaisDoRecorte}
               rotuloBase={rotuloBase}
               rotuloComparada={rotuloComparada}
             />
@@ -516,20 +575,14 @@ export default function AuditoriaDeFiname() {
                 />
               </div>
 
-              <Select
-                value={filtros.tipo}
-                onValueChange={(tipo) => setFiltros((f) => ({ ...f, tipo }))}
-              >
-                <SelectTrigger className="w-[9.5rem]" aria-label="Tipo de equipamento">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="TODOS">Todos os tipos</SelectItem>
-                  <SelectItem value="CAVALO">Cavalo</SelectItem>
-                  <SelectItem value="CARRETA">Carreta</SelectItem>
-                </SelectContent>
-              </Select>
-
+              {/*
+                O seletor "Tipo de equipamento" morava aqui e subiu para o topo
+                da tela (`RecorteDeEquipamento`). Duas caixas comandando o mesmo
+                `filtros.tipo` seriam duas respostas possíveis para "qual
+                recorte está aberto" — e a de baixo, por estar entre filtros de
+                tabela, sugeriria que o recorte é da tabela, quando ele agora
+                governa os cartões e os gráficos também.
+              */}
               <Select
                 value={filtros.variavel}
                 onValueChange={(variavel) => setFiltros((f) => ({ ...f, variavel }))}

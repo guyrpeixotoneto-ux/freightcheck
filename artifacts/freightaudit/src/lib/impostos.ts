@@ -31,10 +31,15 @@ import { formatBrl, formatNumber } from "@/lib/format";
  */
 
 /** O que a API de `/impostos/comparacao` devolve. */
-export interface ComparacaoDeImpostos {
-  changeSetId: string;
-  base: { id: string; sourceLabel: string | null; effectiveDate: string | null };
-  comparada: { id: string; sourceLabel: string | null; effectiveDate: string | null };
+/**
+ * Os três agregados que os cartões e os gráficos leem.
+ *
+ * Tipo próprio porque agora vem quatro vezes na mesma resposta: uma para a
+ * comparação inteira e uma por tipo de equipamento (`porTipo`), que é o que as
+ * abas Cavalo e Carreta mostram. A mesma forma nos dois é o que permite a tela
+ * trocar de recorte sem trocar de código.
+ */
+export interface AgregadosDeImpostos {
   resumo: {
     veiculosComparados: number;
     semAlteracao: number;
@@ -64,6 +69,20 @@ export interface ComparacaoDeImpostos {
     veiculos: number;
     fracao: number;
   }[];
+}
+
+export interface ComparacaoDeImpostos extends AgregadosDeImpostos {
+  changeSetId: string;
+  base: { id: string; sourceLabel: string | null; effectiveDate: string | null };
+  comparada: { id: string; sourceLabel: string | null; effectiveDate: string | null };
+  /**
+   * Os mesmos agregados, um por tipo — calculados no servidor.
+   *
+   * Não é a tela que os recompõe a partir de `linhas`: "veículos comparados"
+   * sai do acervo (`frotaPorTipo`, em `query.ts`) e não da lista de alterações,
+   * porque um veículo em que nada mudou não produz linha nenhuma.
+   */
+  porTipo: Record<string, AgregadosDeImpostos>;
   linhas: LinhaDeImpostos[];
 }
 
