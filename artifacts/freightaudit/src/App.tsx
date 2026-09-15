@@ -64,6 +64,7 @@ import RadarTrechos from '@/pages/radar-trechos';
 import QlpAdministrativo from '@/pages/qlp-administrativo';
 import AuditoriaDeFiname from '@/pages/custo-fixo-finame';
 import AuditoriaDeIpva from '@/pages/custo-fixo-ipva';
+import AuditoriaDeLucroFixo from '@/pages/custo-fixo-lucro-fixo';
 import Remunerado from '@/pages/remunerado';
 import Justificativas from '@/pages/justificativas';
 import JustificativasPlaca from '@/pages/justificativas-placa';
@@ -515,6 +516,18 @@ function RotasDaAuditoria() {
         catálogo.
       */}
       <Route path="/custo-fixo-ipva" component={AuditoriaDeIpva} />
+      {/*
+        Lucro Fixo sai de `TELAS_EM_PREPARO` pelo caminho das outras duas, e com
+        a ressalva de sempre: o percentual contratado continua não existindo no
+        acervo, então a tela diz o que **mudou** na remuneração, nunca se ela é a
+        devida. O que o acervo sustenta é melhor do que um percentual — lucro
+        fixo e amortização nunca coexistem (558 linhas, zero coexistências), e o
+        ciclo diz qual dos dois está valendo. A tela mostra quem virou.
+
+        É também a primeira das três auditorias de rubrica que trata de
+        **receita**, e não de custo: subir é verde aqui.
+      */}
+      <Route path="/custo-fixo-lucro-fixo" component={AuditoriaDeLucroFixo} />
       {/*
         QLP Administrativo saiu de `TELAS_EM_PREPARO` quando a importação
         passou a receber o export próprio dele (tipo QLP_ADMINISTRATIVO) — o

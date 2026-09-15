@@ -31,13 +31,21 @@
 // O que uma variável mede
 // ---------------------------------------------------------------------------
 
-/** O que a variável mede — e, por consequência, como a tela a escreve. */
+/**
+ * O que a variável mede — e, por consequência, como a tela a escreve.
+ *
+ * `CICLO` entrou com a Auditoria de Lucro Fixo, e podia ter sido evitado: o
+ * ciclo é 1 ou 2, e `ANO` já escreveria "1" e "2" na tela. Seria o número certo
+ * sob o rótulo errado — a mesma armadilha que este produto documenta em toda
+ * parte. Ciclo não é ano, e a tela escreve "Ciclo 2", não "2".
+ */
 export type MedidaDaVariavel =
   | "DINHEIRO"
   | "PERCENTUAL"
   | "MESES"
   | "ANO"
-  | "DATA";
+  | "DATA"
+  | "CICLO";
 
 // ---------------------------------------------------------------------------
 // Os seis estados
