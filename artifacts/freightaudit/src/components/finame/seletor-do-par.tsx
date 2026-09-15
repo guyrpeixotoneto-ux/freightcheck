@@ -17,13 +17,19 @@ export interface VigenciaEscolhivel {
   /**
    * De qual unidade/operador é esta vigência.
    *
-   * Está aqui porque o rótulo não distingue: duas unidades importadas do mesmo
-   * arquivo têm o mesmo `sourceLabel` e a mesma data, e as duas linhas do
-   * seletor ficam idênticas. Comparar uma com a outra é o que o motor recusa
-   * (`engine.ts`), e era o que o par padrão desta tela fazia sozinho. Quem
-   * recorta pela unidade aberta é a página; o campo precisa chegar até lá.
+   * Está aqui porque o rótulo sozinho não distingue: um arquivo da Ambev traz
+   * as cinco unidades juntas, então uma importação produz cinco vigências com o
+   * **mesmo** `sourceLabel` e a **mesma** data — cinco linhas idênticas no
+   * seletor. Comparar uma com a outra é o que o motor recusa (`engine.ts`), e
+   * era o que o par padrão desta tela fazia sozinho.
+   *
+   * Quem recorta a lista pela unidade aberta é a página; quem escreve a unidade
+   * no rótulo é `rotulosDasVigencias` (`lib/finame.ts`). O campo precisa chegar
+   * aos dois.
    */
   scopeHash: string;
+  /** A revisão da importação — o último desempate de rótulo. */
+  revision?: number | null;
 }
 
 /**
@@ -47,6 +53,7 @@ export interface VigenciaEscolhivel {
  */
 export function SeletorDoPar({
   vigencias,
+  rotulos,
   base,
   comparada,
   onBase,
@@ -55,6 +62,15 @@ export function SeletorDoPar({
   carregando = false,
 }: {
   vigencias: VigenciaEscolhivel[];
+  /**
+   * O texto de cada vigência, por id — já desempatado por quem o montou.
+   *
+   * Vem de fora e não é calculado aqui porque desempatar é uma decisão sobre a
+   * **lista inteira**: só olhando as outras dá para saber se esta precisa dizer
+   * a unidade. Um componente que escrevesse o rótulo linha a linha é
+   * exatamente o que produzia cinco `EMPURRADA_1_6_2026 · 01/06/2026` seguidas.
+   */
+  rotulos: ReadonlyMap<string, string>;
   base: string;
   comparada: string;
   onBase: (id: string) => void;
@@ -63,6 +79,7 @@ export function SeletorDoPar({
   carregando?: boolean;
 }) {
   const rotulo = (v: VigenciaEscolhivel) =>
+    rotulos.get(v.id) ??
     `${v.sourceLabel} · ${v.effectiveDate.split("-").reverse().join("/")}`;
 
   return (

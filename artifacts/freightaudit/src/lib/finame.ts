@@ -337,3 +337,85 @@ export function parDePartida<T extends VigenciaEmparelhavel>(
   }
   return null;
 }
+
+// ---------------------------------------------------------------------------
+// Os rótulos do seletor — o que distingue uma linha da outra
+// ---------------------------------------------------------------------------
+
+/** O que se precisa de uma vigência para escrever o rótulo dela. */
+export interface VigenciaRotulavel extends VigenciaEmparelhavel {
+  sourceLabel: string;
+  revision?: number | null;
+}
+
+/** `2026-08-16` → `16/08/2026`. */
+function dataBr(effectiveDate: string): string {
+  return effectiveDate.split("-").reverse().join("/");
+}
+
+/**
+ * O rótulo de cada vigência, **distinto por construção**.
+ *
+ * O seletor escrevia `sourceLabel · data` e nada mais, e o resultado medido foi
+ * uma lista de cinco `EMPURRADA_1_6_2026 · 01/06/2026` seguidas, uma por
+ * unidade. Escolher ali é adivinhar: as cinco linhas são a mesma frase, e a
+ * recusa do motor — "cobrem unidades/operadores distintos" — só aparece depois
+ * do clique, explicando algo que a lista tinha escondido.
+ *
+ * A régua é **acrescentar só o que desempata**, na ordem em que a pessoa
+ * pensa:
+ *
+ * 1. `sourceLabel · data` — o que já existia, e o que basta na maioria dos
+ *    casos;
+ * 2. **a unidade**, quando duas linhas iguais são de unidades diferentes. É o
+ *    caso desta tela, e é a informação que faltava;
+ * 3. **a cobertura**, quando a mesma unidade entregou cavalo e carreta na mesma
+ *    data — duas séries que compartilham as datas, e que o motor também não
+ *    compara entre si;
+ * 4. **a revisão**, o último desempate possível, para o que sobrar.
+ *
+ * Nada é acrescentado a quem já é único: um rótulo que carrega sempre as quatro
+ * coisas é uma linha ilegível, e ilegível também esconde.
+ */
+export function rotulosDasVigencias<T extends VigenciaRotulavel>(
+  vigencias: readonly T[],
+  /** O nome da unidade de um escopo, quando se conhece — `/contexts` o sabe. */
+  nomeDoEscopo: (scopeHash: string) => string | null = () => null,
+): Map<string, string> {
+  const sufixos: ((v: T) => string | null)[] = [
+    (v) => nomeDoEscopo(v.scopeHash),
+    (v) => v.entityTypeSet || null,
+    (v) => (v.revision == null ? null : `rev. ${v.revision}`),
+  ];
+
+  const rotulos = new Map<string, string>();
+
+  /** Desempata um grupo que hoje divide o mesmo texto, um sufixo por vez. */
+  const resolver = (grupo: readonly T[], texto: string, nivel: number): void => {
+    if (grupo.length === 1 || nivel >= sufixos.length) {
+      for (const v of grupo) rotulos.set(v.id, texto);
+      return;
+    }
+    const porSufixo = new Map<string, T[]>();
+    for (const v of grupo) {
+      const sufixo = sufixos[nivel](v);
+      const chave = sufixo === null ? texto : `${texto} · ${sufixo}`;
+      porSufixo.set(chave, [...(porSufixo.get(chave) ?? []), v]);
+    }
+    /* O sufixo não separou ninguém: não vale escrevê-lo, só o nível seguinte. */
+    if (porSufixo.size === 1) {
+      resolver(grupo, texto, nivel + 1);
+      return;
+    }
+    for (const [chave, subgrupo] of porSufixo) resolver(subgrupo, chave, nivel + 1);
+  };
+
+  const porBase = new Map<string, T[]>();
+  for (const v of vigencias) {
+    const base = `${v.sourceLabel} · ${dataBr(v.effectiveDate)}`;
+    porBase.set(base, [...(porBase.get(base) ?? []), v]);
+  }
+  for (const [base, grupo] of porBase) resolver(grupo, base, 0);
+
+  return rotulos;
+}
