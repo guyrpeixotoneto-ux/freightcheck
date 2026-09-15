@@ -186,8 +186,21 @@ export function SeletorDoPar({
 
   return (
     <section className="superficie px-4 py-3" aria-label="Par de vigências">
-      <div className="flex flex-wrap items-end gap-3">
-        <div className="flex min-w-[15rem] flex-1 flex-col gap-1.5">
+      {/*
+        Uma coluna no celular, uma linha a partir de `sm` — e não uma linha que
+        quebra sozinha.
+
+        `flex-wrap` puro dava o pior dos dois: "De" e Inverter cabiam juntos na
+        primeira linha e o "Para" descia sozinho, largo, desalinhado do campo
+        que ele emparelha. Empilhado de propósito, os dois campos têm a mesma
+        largura e o botão fica entre eles, que é a ordem em que a frase é lida
+        — de X para Y — e também a ordem do foco.
+
+        A largura mínima dos campos só vale na linha: empilhados, `min-w` não
+        segura nada e ainda estoura a tela mais estreita.
+      */}
+      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+        <div className="flex flex-col gap-1.5 sm:min-w-[15rem] sm:flex-1">
           <label
             htmlFor={`${idPrefixo}-base`}
             className="text-[0.65rem] font-bold uppercase tracking-[0.1em] text-muted-foreground"
@@ -240,13 +253,13 @@ export function SeletorDoPar({
           onClick={onInverter}
           disabled={carregando || !base || !comparada}
           aria-label="Inverter: trocar a vigência de origem com a de destino"
-          className="gap-2"
+          className="w-full gap-2 sm:w-auto"
         >
           <ArrowLeftRight className="h-4 w-4" aria-hidden="true" />
           Inverter
         </Button>
 
-        <div className="flex min-w-[15rem] flex-1 flex-col gap-1.5">
+        <div className="flex flex-col gap-1.5 sm:min-w-[15rem] sm:flex-1">
           <label
             htmlFor={`${idPrefixo}-comparada`}
             className="text-[0.65rem] font-bold uppercase tracking-[0.1em] text-muted-foreground"
