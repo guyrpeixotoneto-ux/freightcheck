@@ -185,39 +185,60 @@ export default function AuditoriaDeIpva() {
    */
   const recorteDeTipo = (filtros.tipo === "TODOS" ? "TODOS" : filtros.tipo) as RecorteDeTipo;
 
-  const daUnidade = useMemo(
+  /**
+   * As vigências de equipamento da unidade — **antes** da aba.
+   *
+   * Existe separada da lista que o seletor oferece porque três coisas precisam
+   * do acervo inteiro da unidade, e não do recorte de uma aba: o rótulo de cada
+   * vigência, quais abas habilitar, e nada mais. Recortar antes delas foi o
+   * defeito que esta separação conserta — ver `rotulos`, logo abaixo.
+   */
+  const daUnidadeTodas = useMemo(
     () =>
       unidadeResolvida
         ? vigenciasQueCobrem(
             vigenciasDaUnidade(vigencias.data ?? [], escopoAberto),
-            /* A aba escolhe a série: Cavalo oferece quem tem cavalo — inclusive
-               as vigências que trazem os dois —, Carreta idem, e "Cavalo +
-               Carreta" o acervo de equipamento inteiro. Quem garante que as
-               duas pontas do par continuam comparáveis dentro da aba é o
-               seletor (`vigenciasCompativeisCom`): a cobertura da vigência
-               ainda tem de bater exatamente, e uma série de cavalo puro não
-               casa com uma de cavalo mais carreta. */
-            recorteDeTipo === "TODOS" ? TIPOS_DE_EQUIPAMENTO : [recorteDeTipo],
+            TIPOS_DE_EQUIPAMENTO,
           )
         : [],
-    [vigencias.data, escopoAberto, unidadeResolvida, recorteDeTipo],
+    [vigencias.data, escopoAberto, unidadeResolvida],
+  );
+
+  /**
+   * A lista que o seletor do par oferece — a da aba aberta.
+   *
+   * A aba escolhe a série: Cavalo oferece quem tem cavalo — inclusive as
+   * vigências que trazem os dois —, Carreta idem, e "Cavalo + Carreta" o acervo
+   * de equipamento inteiro. Quem garante que as duas pontas do par continuam
+   * comparáveis dentro da aba é o seletor (`vigenciasCompativeisCom`): a
+   * cobertura da vigência ainda tem de bater exatamente, e uma série de cavalo
+   * puro não casa com uma de cavalo mais carreta.
+   */
+  const daUnidade = useMemo(
+    () =>
+      recorteDeTipo === "TODOS"
+        ? daUnidadeTodas
+        : vigenciasQueCobrem(daUnidadeTodas, [recorteDeTipo]),
+    [daUnidadeTodas, recorteDeTipo],
   );
 
   /**
    * Quais séries esta unidade tem — o que habilita cada aba.
    *
    * Sai da lista de vigências, e não da comparação: a aba precisa estar certa
-   * antes de existir par escolhido. `daUnidade` não serve porque ele já está
-   * recortado pela aba aberta — a pergunta aqui é sobre o acervo da unidade.
+   * antes de existir par escolhido. E sai de `daUnidadeTodas`, não de
+   * `daUnidade` — este já está recortado pela aba aberta, e a pergunta aqui é
+   * sobre o acervo da unidade.
    */
-  const disponiveis = useMemo(() => {
-    const todas = vigenciasDaUnidade(vigencias.data ?? [], escopoAberto);
-    return {
-      TODOS: true,
-      CAVALO: vigenciasQueCobrem(todas, ["CAVALO"]).length > 0,
-      CARRETA: vigenciasQueCobrem(todas, ["CARRETA"]).length > 0,
-    } as Record<RecorteDeTipo, boolean>;
-  }, [vigencias.data, escopoAberto]);
+  const disponiveis = useMemo(
+    () =>
+      ({
+        TODOS: true,
+        CAVALO: vigenciasQueCobrem(daUnidadeTodas, ["CAVALO"]).length > 0,
+        CARRETA: vigenciasQueCobrem(daUnidadeTodas, ["CARRETA"]).length > 0,
+      }) as Record<RecorteDeTipo, boolean>,
+    [daUnidadeTodas],
+  );
 
   /**
    * O texto de cada opção do seletor, distinto por construção.
@@ -226,9 +247,20 @@ export default function AuditoriaDeIpva() {
    * unidade —, e escolher ali é adivinhar. `rotulosDasVigencias` acrescenta só o
    * que desempata, e só onde desempata.
    */
+  /*
+    Sobre `daUnidadeTodas`, e nunca sobre a lista da aba.
+
+    `rotulosDasVigencias` decide a marca da quinzena olhando as **outras datas
+    da lista** que recebe: uma entrega sozinha no mês é "agosto/2026", duas no
+    mesmo mês viram "1ª quinzena" e "2ª quinzena". Alimentado com a lista já
+    recortada pela aba, o mesmo `snapshot` mudava de nome conforme a aba aberta
+    — medido: "agosto/2026 · 1ª quinzena" na lista inteira e "agosto/2026" na
+    aba Carreta, quando a outra quinzena do mês não tem carreta. O nome de uma
+    vigência não pode depender de onde se está olhando.
+  */
   const rotulos = useMemo(
-    () => rotulosDasVigencias(daUnidade, (hash) => nomePorEscopo.get(hash) ?? null),
-    [daUnidade, nomePorEscopo],
+    () => rotulosDasVigencias(daUnidadeTodas, (hash) => nomePorEscopo.get(hash) ?? null),
+    [daUnidadeTodas, nomePorEscopo],
   );
 
   /**

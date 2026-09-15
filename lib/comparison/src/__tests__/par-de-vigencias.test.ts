@@ -35,6 +35,14 @@ import {
 const PERNAMBUCO = "scope-pernambuco";
 const CAMACARI = "scope-camacari";
 
+/** Uma vigência rotulável, para os casos que olham o texto do seletor. */
+const comRotuloSimples = (
+  id: string,
+  effectiveDate: string,
+  entityTypeSet: string,
+  scopeHash = PERNAMBUCO,
+) => ({ id, sourceLabel: id.toUpperCase(), effectiveDate, entityTypeSet, scopeHash });
+
 const vigencia = (
   id: string,
   effectiveDate: string,
@@ -492,5 +500,43 @@ describe("como o arquivo veio composto", () => {
     expect(tituloDaComposicao("CAVALO")).toBe("Como o cavalo veio na vigência");
     expect(tituloDaComposicao("CARRETA")).toBe("Como a carreta veio na vigência");
     expect(tituloDaComposicao(null)).toBe("Como o equipamento veio na vigência");
+  });
+});
+
+/**
+ * O NOME DE UMA VIGÊNCIA NÃO DEPENDE DE ONDE SE ESTÁ OLHANDO.
+ *
+ * O defeito, relatado em 15/09/2026 com um print do campo "Para": *"lembre-se
+ * que quero esse tipo de formatação dentro do filtro"*. As abas de equipamento
+ * passaram a recortar a lista de vigências, e o recorte foi entregue também a
+ * `rotulosDasVigencias` — que decide a marca da quinzena olhando as **outras
+ * datas da lista**. Resultado medido: a mesma vigência era "agosto/2026 · 1ª
+ * quinzena" na aba Cavalo + Carreta e virava "agosto/2026" na aba Carreta,
+ * porque a outra quinzena do mês não tem carreta e sumia da lista.
+ *
+ * A função está certa — a marca só existe para desempatar, e sem empate ela não
+ * deve aparecer. Errado era o que se entregava a ela. A correção está nas quatro
+ * páginas: os rótulos saem de `daUnidadeTodas`, o acervo de equipamento da
+ * unidade, e só a lista do seletor é recortada pela aba.
+ *
+ * Este caso é a régua daquela decisão: ele demonstra a diferença que o recorte
+ * produz, para que ninguém volte a alimentar o rótulo com a lista da aba.
+ */
+describe("o rótulo e a lista que o produz", () => {
+  const acervo = [
+    comRotuloSimples("ago1", "2026-08-01", "CARRETA+CAVALO"),
+    comRotuloSimples("ago2", "2026-08-16", "CAVALO"),
+    comRotuloSimples("jul", "2026-07-16", "CARRETA+CAVALO"),
+  ];
+
+  it("marca a quinzena quando o acervo da unidade tem as duas entregas", () => {
+    expect(rotulosDasVigencias(acervo).get("ago1")).toBe("agosto/2026 · 1ª quinzena");
+  });
+
+  /* A lista da aba Carreta: a outra quinzena de agosto não tem carreta. */
+  it("perde a marca se receber a lista já recortada pela aba", () => {
+    const daAba = vigenciasQueCobrem(acervo, ["CARRETA"]);
+
+    expect(rotulosDasVigencias(daAba).get("ago1")).toBe("agosto/2026");
   });
 });
