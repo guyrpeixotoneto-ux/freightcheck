@@ -911,7 +911,22 @@ export interface AlteracoesDaVariavel {
   alteracoes: number;
 }
 
-/** Quantas alterações cada variável teve, da maior para a menor. */
+/**
+ * Quantas alterações cada variável teve, da maior para a menor.
+ *
+ * **Percorre o catálogo inteiro — o da tabela e o do detalhe.** A barra existe
+ * para a variável que se moveu, e não para a variável que a tabela mostra: a
+ * TJLP muda para a frota toda de uma vez, e enquanto esta função só olhava
+ * `VARIAVEIS_DE_FINAME` aquelas alterações não apareciam em barra nenhuma. O
+ * efeito era o cartão dizer "31 variáveis alteradas" ao lado de um gráfico que
+ * somava 19, sobre exatamente as mesmas linhas — a diferença eram as doze
+ * alterações de variável de detalhe, caladas por um filtro.
+ *
+ * Com o catálogo inteiro, a soma das barras é a mesma `variaveisAlteradas` do
+ * cartão, que é o que quem lê supõe ao ver os dois lado a lado. O total
+ * composto da carreta continua fora, mas por onde sempre esteve: ele nem chega
+ * a virar linha ({@link linhaDaAlteracao}).
+ */
 export function alteracoesPorVariavel(
   linhas: readonly LinhaDeFiname[],
 ): AlteracoesDaVariavel[] {
@@ -920,7 +935,7 @@ export function alteracoesPorVariavel(
     if (l.estado !== "ALTERADO" || l.variavel === "veiculo") continue;
     contagem.set(l.variavel, (contagem.get(l.variavel) ?? 0) + 1);
   }
-  return VARIAVEIS_DE_FINAME.filter((v) => contagem.has(v.chave))
+  return TODAS.filter((v) => contagem.has(v.chave))
     .map((v) => ({
       variavel: v.chave,
       rotulo: v.rotulo,

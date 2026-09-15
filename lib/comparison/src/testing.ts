@@ -95,6 +95,18 @@ export interface FixtureOptions {
    */
   canal?: string;
   /**
+   * O `entity_type_set` da vigência, quando ele não é só o tipo montado.
+   *
+   * O padrão é o próprio `entityType`, que é o que uma fixture de um tipo só
+   * significa. A exceção é o trecho: uma vigência cujo conjunto é `'TRECHO'`
+   * puro é a **casca** que `listContexts` deixa de fora de propósito — ela não
+   * é uma entrega da unidade —, e por isso um acervo montado só de trechos não
+   * tem contexto nenhum. Na operação o mesmo arquivo entrega cavalo, carreta e
+   * trecho juntos; `'CAVALO,TRECHO'` é como se escreve isso aqui, já que o
+   * `snapshot` é imutável e não admite correção depois do fato.
+   */
+  entityTypeSet?: string;
+  /**
    * A família do dataset — o contrato da importação, não o que veio no arquivo.
    *
    * O padrão é a remuneração de equipamento porque é o que toda fixture deste
@@ -269,7 +281,7 @@ export async function buildFixture(
         sourceLabel: spec.label,
         effectiveDate: spec.effectiveDate,
         scopeHash,
-        entityTypeSet: entityType,
+        entityTypeSet: options.entityTypeSet ?? entityType,
         datasetFamily,
         canal,
         canonicalScope,

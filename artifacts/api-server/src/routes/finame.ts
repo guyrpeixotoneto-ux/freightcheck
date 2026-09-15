@@ -24,9 +24,11 @@ import {
   VARIAVEIS_DE_FINAME,
   type ContextoDoVeiculo,
   type LinhaDeFiname,
+  type RequestedContext,
 } from "@workspace/comparison";
 import { classificarFalha } from "../lib/classificar-falha";
 import { exigirOperacaoDoRecurso, operacaoDaConsulta } from "../lib/operacao";
+import { contextoDoPar } from "../lib/recorte-do-par";
 import { comTetoDeRota } from "../lib/timeout-de-rota";
 import { candidatasDoPar, TETO_DE_CANDIDATAS_MS } from "../lib/candidatas-do-par";
 
@@ -84,6 +86,7 @@ async function linhasIguais(
   snapshotA: { id: string; effectiveDate: string },
   snapshotB: { id: string; effectiveDate: string },
   jaListadas: Set<string>,
+  contexto: RequestedContext | undefined,
 ): Promise<LinhaDeFiname[]> {
   const linhas: LinhaDeFiname[] = [];
   for (const entityType of ["CAVALO", "CARRETA"] as const) {
@@ -93,8 +96,8 @@ async function linhasIguais(
     if (codigos.length === 0) continue;
 
     const [a, b] = await Promise.all([
-      getEntityTable(db, entityType, codigos, undefined, snapshotA.effectiveDate),
-      getEntityTable(db, entityType, codigos, undefined, snapshotB.effectiveDate),
+      getEntityTable(db, entityType, codigos, contexto, snapshotA.effectiveDate),
+      getEntityTable(db, entityType, codigos, contexto, snapshotB.effectiveDate),
     ]);
     if (!a || !b) continue;
 
@@ -138,6 +141,7 @@ async function linhasIguais(
  */
 async function contextoDaVigencia(
   snapshot: { effectiveDate: string } | undefined,
+  recorte: RequestedContext | undefined,
 ): Promise<ContextoDoVeiculo[]> {
   if (!snapshot || CODIGOS_DO_CONTEXTO.length === 0) return [];
   const contexto: ContextoDoVeiculo[] = [];
@@ -153,7 +157,7 @@ async function contextoDaVigencia(
       db,
       entityType,
       codigos,
-      undefined,
+      recorte,
       snapshot.effectiveDate,
     );
     if (!tabela) continue;
@@ -221,15 +225,18 @@ router.get("/finame/comparacao", async (req, res, next): Promise<void> => {
       const jaListadas = new Set(
         linhas.map((l) => `${l.entityLabel}\u001f${l.entityType}\u001f${l.attributeCode}`),
       );
-      todas = [...linhas, ...(await linhasIguais(snapshotA, snapshotB, jaListadas))];
+      todas = [
+        ...linhas,
+        ...(await linhasIguais(snapshotA, snapshotB, jaListadas, contextoDoPar(snapshotB, req))),
+      ];
     }
 
     /* As colunas de contexto: o prazo, a data de cadastro e o fim do contrato
        do veículo na vigência comparada, com a base respondendo pelos que
        saíram. Duas leituras de três atributos. */
     const [contextoDaBase, contextoDaComparada] = await Promise.all([
-      contextoDaVigencia(snapshotA),
-      contextoDaVigencia(snapshotB),
+      contextoDaVigencia(snapshotA, contextoDoPar(snapshotA, req)),
+      contextoDaVigencia(snapshotB, contextoDoPar(snapshotB, req)),
     ]);
     todas = comContextoDoVeiculo(todas, {
       base: contextoDaBase,
@@ -274,6 +281,12 @@ router.get("/finame/comparacao", async (req, res, next): Promise<void> => {
  * leituras de vigência, somando só a parcela — nunca os juros, nunca a
  * amortização e nunca o total composto da carreta, que embute a parcela do
  * cavalo vinculado.
+ *
+ * E lê **a unidade do par**, e não a primeira do acervo: ver
+ * {@link contextoDoPar}. Sem isso, este total era o único número da tela que
+ * podia estar respondendo por outra unidade — e é justamente o número que a
+ * Evolução subtrai, o que fazia a diferença do gráfico não reconciliar com
+ * nada.
  */
 router.get("/finame/totais", async (req, res): Promise<void> => {
   const base = typeof req.query.base === "string" ? req.query.base : "";
@@ -301,32 +314,43 @@ router.get("/finame/totais", async (req, res): Promise<void> => {
     valor: number | null;
   }[] = [];
 
-  for (const { ponta, snapshot } of pontas) {
-    if (!snapshot) continue;
-    for (const entityType of ["CAVALO", "CARRETA"] as const) {
-      /* O código da parcela sai do catálogo, e não de uma segunda lista aqui:
-         a decisão de qual coluna é "a parcela" da carreta é uma só, e mora lá. */
-      const code = PARCELA?.codigo[entityType];
-      if (!code) continue;
-      const tabela = await getEntityTable(
-        db,
-        entityType,
-        [code],
-        undefined,
-        snapshot.effectiveDate,
-      );
-      if (!tabela) continue;
-      for (const linha of tabela.rows) {
-        const bruto = linha.values[code]?.value ?? null;
-        const numero = bruto === null ? null : Number(bruto);
-        valores.push({
-          ponta,
+  try {
+    for (const { ponta, snapshot } of pontas) {
+      if (!snapshot) continue;
+      for (const entityType of ["CAVALO", "CARRETA"] as const) {
+        /* O código da parcela sai do catálogo, e não de uma segunda lista aqui:
+           a decisão de qual coluna é "a parcela" da carreta é uma só, e mora lá. */
+        const code = PARCELA?.codigo[entityType];
+        if (!code) continue;
+        const tabela = await getEntityTable(
+          db,
           entityType,
-          attributeCode: code,
-          valor: numero !== null && Number.isFinite(numero) ? numero : null,
-        });
+          [code],
+          contextoDoPar(snapshot, req),
+          snapshot.effectiveDate,
+        );
+        if (!tabela) continue;
+        for (const linha of tabela.rows) {
+          const bruto = linha.values[code]?.value ?? null;
+          const numero = bruto === null ? null : Number(bruto);
+          valores.push({
+            ponta,
+            entityType,
+            attributeCode: code,
+            valor: numero !== null && Number.isFinite(numero) ? numero : null,
+          });
+        }
       }
     }
+  } catch (err) {
+    /* Pedir o escopo do par é pedir um recorte que pode não ter contexto — e a
+       recusa de recorte é frase para quem opera, não 500. A mesma tradução de
+       `/finame/comparacao`, pela mesma razão. */
+    const desfecho = classificarFalha(err);
+    if (desfecho.tipo !== "REGRA") throw err;
+    req.log.warn({ err }, "Totais de FINAME recusados");
+    res.status(422).json({ error: desfecho.mensagem });
+    return;
   }
 
   res.json({ totais: totaisPorVigencia(valores) });

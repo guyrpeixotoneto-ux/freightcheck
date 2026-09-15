@@ -20,9 +20,11 @@ import {
   VARIAVEIS_DE_IPVA,
   type LinhaDeIpva,
   type ValorDeIpva,
+  type RequestedContext,
 } from "@workspace/comparison";
 import { classificarFalha } from "../lib/classificar-falha";
 import { exigirOperacaoDoRecurso, operacaoDaConsulta } from "../lib/operacao";
+import { contextoDoPar } from "../lib/recorte-do-par";
 import { comTetoDeRota } from "../lib/timeout-de-rota";
 import { candidatasDoPar, TETO_DE_CANDIDATAS_MS } from "../lib/candidatas-do-par";
 
@@ -81,6 +83,7 @@ async function linhasIguais(
   snapshotA: { id: string; effectiveDate: string },
   snapshotB: { id: string; effectiveDate: string },
   jaListadas: Set<string>,
+  recorte: RequestedContext | undefined,
 ): Promise<LinhaDeIpva[]> {
   const linhas: LinhaDeIpva[] = [];
   for (const entityType of ["CAVALO", "CARRETA"] as const) {
@@ -90,8 +93,8 @@ async function linhasIguais(
     if (codigos.length === 0) continue;
 
     const [a, b] = await Promise.all([
-      getEntityTable(db, entityType, codigos, undefined, snapshotA.effectiveDate),
-      getEntityTable(db, entityType, codigos, undefined, snapshotB.effectiveDate),
+      getEntityTable(db, entityType, codigos, recorte, snapshotA.effectiveDate),
+      getEntityTable(db, entityType, codigos, recorte, snapshotB.effectiveDate),
     ]);
     if (!a || !b) continue;
 
@@ -175,7 +178,10 @@ router.get("/ipva/comparacao", async (req, res, next): Promise<void> => {
       const jaListadas = new Set(
         linhas.map((l) => `${l.entityLabel}${l.entityType}${l.attributeCode}`),
       );
-      todas = [...linhas, ...(await linhasIguais(snapshotA, snapshotB, jaListadas))];
+      todas = [
+        ...linhas,
+        ...(await linhasIguais(snapshotA, snapshotB, jaListadas, contextoDoPar(snapshotB, req))),
+      ];
     }
 
     res.json({
@@ -241,34 +247,45 @@ router.get("/ipva/totais", async (req, res): Promise<void> => {
 
   const valores: ValorDeIpva[] = [];
 
-  for (const { ponta, snapshot } of pontas) {
-    if (!snapshot) continue;
-    for (const entityType of ["CAVALO", "CARRETA"] as const) {
-      /* Os dois códigos saem do catálogo, e não de uma segunda lista aqui: a
-         decisão de qual coluna é "o IPVA" e qual é a base da alíquota é uma só,
-         e mora lá. */
-      const code = IPVA?.codigo[entityType];
-      const codeBase = IPVA?.base?.[entityType];
-      if (!code) continue;
-      const colunas = codeBase ? [code, codeBase] : [code];
-      const tabela = await getEntityTable(
-        db,
-        entityType,
-        colunas,
-        undefined,
-        snapshot.effectiveDate,
-      );
-      if (!tabela) continue;
-      for (const linha of tabela.rows) {
-        valores.push({
-          ponta,
+  try {
+    for (const { ponta, snapshot } of pontas) {
+      if (!snapshot) continue;
+      for (const entityType of ["CAVALO", "CARRETA"] as const) {
+        /* Os dois códigos saem do catálogo, e não de uma segunda lista aqui: a
+           decisão de qual coluna é "o IPVA" e qual é a base da alíquota é uma só,
+           e mora lá. */
+        const code = IPVA?.codigo[entityType];
+        const codeBase = IPVA?.base?.[entityType];
+        if (!code) continue;
+        const colunas = codeBase ? [code, codeBase] : [code];
+        const tabela = await getEntityTable(
+          db,
           entityType,
-          entityLabel: linha.label,
-          ipva: comoNumero(linha.values[code]?.value ?? null),
-          valorNf: codeBase ? comoNumero(linha.values[codeBase]?.value ?? null) : null,
-        });
+          colunas,
+          contextoDoPar(snapshot, req),
+          snapshot.effectiveDate,
+        );
+        if (!tabela) continue;
+        for (const linha of tabela.rows) {
+          valores.push({
+            ponta,
+            entityType,
+            entityLabel: linha.label,
+            ipva: comoNumero(linha.values[code]?.value ?? null),
+            valorNf: codeBase ? comoNumero(linha.values[codeBase]?.value ?? null) : null,
+          });
+        }
       }
     }
+  } catch (err) {
+    /* Pedir o escopo do par é pedir um recorte que pode não ter contexto — e a
+       recusa de recorte é frase para quem opera, não 500. A mesma tradução da
+       rota de comparação, pela mesma razão. */
+    const desfecho = classificarFalha(err);
+    if (desfecho.tipo !== "REGRA") throw err;
+    req.log.warn({ err }, "Totais recusados");
+    res.status(422).json({ error: desfecho.mensagem });
+    return;
   }
 
   res.json({

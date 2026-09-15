@@ -405,6 +405,52 @@ describe("os indicadores e as séries", () => {
     ]);
   });
 
+  /*
+    O defeito que este caso prende: o cartão dizia "31 variáveis alteradas" ao
+    lado de um gráfico cuja legenda somava 19, sobre as mesmas linhas. As doze
+    que faltavam eram de variáveis que só o detalhe mostra — a TJLP, que se move
+    para a frota inteira de uma vez —, descartadas por um filtro que só olhava o
+    catálogo da tabela.
+  */
+  it("conta também as variáveis que só o detalhe mostra, e fecha com o cartão", () => {
+    const linhas = linhasDeFiname([
+      alteracao(),
+      alteracao({ entityLabel: "DEF2G45" }),
+      alteracao({
+        attributeCode: "cavalo.tjlp",
+        impactConfidence: "NOT_CALCULABLE",
+        impactAmount: null,
+        impactPeriodicity: null,
+      }),
+      alteracao({
+        entityLabel: "DEF2G45",
+        attributeCode: "cavalo.tjlp",
+        impactConfidence: "NOT_CALCULABLE",
+        impactAmount: null,
+        impactPeriodicity: null,
+      }),
+    ]);
+    const barras = alteracoesPorVariavel(linhas);
+    expect(barras.map((b) => [b.variavel, b.alteracoes])).toEqual([
+      ["parcela", 2],
+      ["tjlp", 2],
+    ]);
+    // A legenda do gráfico e o cartão contam a mesma coisa — sempre.
+    expect(barras.reduce((acc, b) => acc + b.alteracoes, 0)).toBe(
+      resumirFiname(linhas, frota).variaveisAlteradas,
+    );
+  });
+
+  /* O total composto da carreta continua fora, e por onde sempre esteve: ele
+     não chega a virar linha. */
+  it("não dá barra ao total composto da carreta", () => {
+    const linhas = linhasDeFiname([
+      alteracao({ entityType: "CARRETA", attributeCode: "carreta.finame" }),
+    ]);
+    expect(linhas).toHaveLength(0);
+    expect(alteracoesPorVariavel(linhas)).toEqual([]);
+  });
+
   it("dá um estado por veículo, e as fatias fecham no total", () => {
     const linhas = linhasDeFiname([
       alteracao(),
