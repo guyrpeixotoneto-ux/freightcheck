@@ -368,3 +368,71 @@ describe("o CSV", () => {
     expect(celulas[7]).toBe("Alterado");
   });
 });
+
+/**
+ * O veredito de taxa fixa nasceu de um defeito visto na primeira renderização
+ * da tela, e não de uma hipótese: a carreta aparecia como "calculado veículo a
+ * veículo" — exatamente o contrário do que acontece com ela. Ninguém calcula
+ * nada por carreta; é a mesma taxa de licenciamento para todas, e são as notas
+ * que variam. Uma taxa fixa sobre notas diferentes produz alíquotas diferentes,
+ * e a dispersão do percentual sozinha não distingue as duas coisas.
+ */
+describe("a taxa fixa, que a alíquota espalhada escondia", () => {
+  /** Uma carreta: R$ 150 de licenciamento sobre um implemento de valor próprio. */
+  const carreta = (valorNf: number, ipva = 150): ValorDeIpva => ({
+    ponta: "BASE",
+    entityType: "CARRETA",
+    entityLabel: `C${valorNf}`,
+    ipva,
+    valorNf,
+  });
+
+  it("lê R$ 140–152 sobre notas diferentes como taxa fixa, não como cálculo por ativo", () => {
+    const [a] = aliquotaImplicita([
+      carreta(156000, 140.34),
+      carreta(283000, 140.34),
+      carreta(198000, 150),
+      carreta(221000, 150),
+      carreta(174000, 152),
+      carreta(240000, 150),
+    ]);
+    // A alíquota se espalha — de ~0,050% a ~0,097% — e mesmo assim não houve
+    // cálculo nenhum por veículo: o que é constante é o valor em reais.
+    expect(a.desvio).toBeGreaterThan(0.005);
+    expect(a.veredito).toBe("VALOR_FIXO");
+  });
+
+  it("não chama de taxa fixa o percentual único, em que os reais variam com a nota", () => {
+    const [a] = aliquotaImplicita(
+      [200000, 350000, 480000, 260000, 310000, 420000].map((nf) => ({
+        ponta: "BASE" as const,
+        entityType: "CAVALO",
+        entityLabel: `P${nf}`,
+        valorNf: nf,
+        ipva: nf * 0.01,
+      })),
+    );
+    expect(a.veredito).toBe("FORMULA_UNICA");
+  });
+
+  it("continua chamando de cálculo por ativo o que não é fixo dos dois lados", () => {
+    // Jul/2026: nem percentual único, nem taxa única — alguém olhou cada placa.
+    const [a] = aliquotaImplicita(
+      [
+        [200000, 0.535],
+        [350000, 0.62],
+        [480000, 0.651],
+        [260000, 0.7],
+        [310000, 1.193],
+        [420000, 0.58],
+      ].map(([nf, p]) => ({
+        ponta: "BASE" as const,
+        entityType: "CAVALO",
+        entityLabel: `P${nf}`,
+        valorNf: nf,
+        ipva: nf * (p / 100),
+      })),
+    );
+    expect(a.veredito).toBe("POR_VEICULO");
+  });
+});

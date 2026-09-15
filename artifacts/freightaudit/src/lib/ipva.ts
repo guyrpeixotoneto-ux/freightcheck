@@ -190,9 +190,15 @@ export const SELO_DO_ESTADO: Record<EstadoDaLinhaDeIpva, string> = {
  * zero pareça o retrato de um dado impecável. É o contrário: um percentual único
  * aplicado a toda a frota quer dizer que ninguém calculou placa a placa, e a
  * queda que vier junto com ele é troca de critério, não economia.
+ *
+ * `VALOR_FIXO` fica em tinta neutra, e não em aviso, porque é o único dos quatro
+ * que pode ser simplesmente **o que a rubrica é**: na carreta, o licenciamento é
+ * uma taxa fixa de R$ 140–152, e semirreboque é isento de IPVA na maior parte
+ * dos estados. Pintá-lo de laranja acusaria todo mês uma coisa que está certa.
  */
 export const SELO_DO_VEREDITO: Record<VereditoDaAliquota, string> = {
   FORMULA_UNICA: "bg-warning/15 text-warning-foreground border border-warning/40",
+  VALOR_FIXO: "bg-muted text-foreground border border-border",
   POR_VEICULO: "bg-brand/10 text-brand border border-brand/25",
   BASE_INSUFICIENTE: "bg-muted text-muted-foreground border border-dashed border-border",
 };

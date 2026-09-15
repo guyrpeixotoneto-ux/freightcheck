@@ -695,11 +695,13 @@ export function totaisDeIpvaPorVigencia(
  */
 export type VereditoDaAliquota =
   | "FORMULA_UNICA"
+  | "VALOR_FIXO"
   | "POR_VEICULO"
   | "BASE_INSUFICIENTE";
 
 export const ROTULO_DO_VEREDITO: Record<VereditoDaAliquota, string> = {
   FORMULA_UNICA: "Percentual único da nota",
+  VALOR_FIXO: "Taxa fixa por ativo",
   POR_VEICULO: "Calculado veículo a veículo",
   BASE_INSUFICIENTE: "Base insuficiente",
 };
@@ -730,6 +732,26 @@ export interface AliquotaDaVigencia {
  */
 const DESVIO_DE_FORMULA = 0.005;
 
+/**
+ * Abaixo deste coeficiente de variação, o **valor em reais** é que é fixo.
+ *
+ * É o veredito simétrico ao de cima, e ele existe porque sem ele a carreta era
+ * lida errado. `carreta.ipva_licenciamento` é praticamente constante em
+ * R$ 140–152 por carreta — 438 de 657 linhas são exatamente R$ 150,00 —,
+ * independente de o implemento valer R$ 156 mil ou R$ 283 mil. Uma taxa fixa
+ * sobre notas diferentes produz percentuais diferentes, e sem este teste a
+ * alíquota espalhada dizia "calculado veículo a veículo": exatamente o
+ * contrário do que acontece, porque ninguém calculou nada por veículo — é a
+ * mesma taxa para todos. É também o que a rubrica da carreta de fato é:
+ * licenciamento, não IPVA, coerente com semirreboque isento na maior parte dos
+ * estados.
+ *
+ * Cinco por cento de dispersão sobre a média separa os dois casos com folga: a
+ * carreta fica perto de 3%, e um IPVA que é percentual de notas que vão de
+ * R$ 156 mil a R$ 283 mil fica muito acima disso.
+ */
+const VARIACAO_DE_TAXA_FIXA = 0.05;
+
 /** Quantos ativos uma ponta precisa ter para o veredito significar algo. */
 const MINIMO_PARA_VEREDITO = 5;
 
@@ -751,19 +773,24 @@ const MINIMO_PARA_VEREDITO = 5;
 export function aliquotaImplicita(
   valores: readonly ValorDeIpva[],
 ): AliquotaDaVigencia[] {
-  const porPonta = new Map<string, { ponta: "BASE" | "COMPARADA"; entityType: string; percentuais: number[] }>();
+  const porPonta = new Map<
+    string,
+    { ponta: "BASE" | "COMPARADA"; entityType: string; percentuais: number[]; reais: number[] }
+  >();
 
   for (const v of valores) {
     if (v.ipva === null || v.valorNf === null || v.valorNf === 0) continue;
     const chave = `${v.ponta}${v.entityType}`;
     const atual =
-      porPonta.get(chave) ?? { ponta: v.ponta, entityType: v.entityType, percentuais: [] };
+      porPonta.get(chave) ??
+      { ponta: v.ponta, entityType: v.entityType, percentuais: [], reais: [] };
     atual.percentuais.push((v.ipva / v.valorNf) * 100);
+    atual.reais.push(v.ipva);
     porPonta.set(chave, atual);
   }
 
   return [...porPonta.values()]
-    .map(({ ponta, entityType, percentuais }) => {
+    .map(({ ponta, entityType, percentuais, reais }) => {
       const veiculos = percentuais.length;
       if (veiculos === 0) {
         return {
@@ -781,12 +808,33 @@ export function aliquotaImplicita(
       const desvio = Math.sqrt(
         percentuais.reduce((acc, p) => acc + (p - media) ** 2, 0) / veiculos,
       );
+      /*
+        A ordem dos três testes é o que os torna verdadeiros.
+
+        O percentual decide primeiro: quando ele é único, o valor em reais varia
+        junto com a nota, e chamar isso de taxa fixa seria o erro inverso. Só
+        depois se pergunta pelos reais — e é essa segunda pergunta que salva a
+        carreta de ser lida como cálculo por veículo. "Calculado veículo a
+        veículo" é o que sobra: nem um percentual único, nem uma taxa única, e
+        por isso alguém de fato olhou cada ativo.
+      */
+      const mediaEmReais = reais.reduce((acc, r) => acc + r, 0) / veiculos;
+      const desvioEmReais = Math.sqrt(
+        reais.reduce((acc, r) => acc + (r - mediaEmReais) ** 2, 0) / veiculos,
+      );
+      const variacaoEmReais =
+        mediaEmReais === 0
+          ? Number.POSITIVE_INFINITY
+          : desvioEmReais / Math.abs(mediaEmReais);
+
       const veredito: VereditoDaAliquota =
         veiculos < MINIMO_PARA_VEREDITO
           ? "BASE_INSUFICIENTE"
           : desvio <= DESVIO_DE_FORMULA
             ? "FORMULA_UNICA"
-            : "POR_VEICULO";
+            : variacaoEmReais <= VARIACAO_DE_TAXA_FIXA
+              ? "VALOR_FIXO"
+              : "POR_VEICULO";
       return {
         ponta,
         entityType,
