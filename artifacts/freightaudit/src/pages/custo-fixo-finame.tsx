@@ -53,7 +53,9 @@ import type { JustificativaEstruturada } from "@workspace/comparison/justificati
 import {
   parDePartida,
   rotulosDasVigencias,
+  TIPOS_DE_EQUIPAMENTO,
   vigenciasDaUnidade,
+  vigenciasQueCobrem,
 } from "@workspace/comparison/recorte-de-rubrica";
 import { lerRecorte } from "@/lib/recorte";
 import { contextoAberto, unidadeDe, useContextosDaCasca } from "@/lib/contextos";
@@ -196,9 +198,24 @@ export default function AuditoriaDeFiname() {
   const unidadeResolvida = recorte.scopeHash !== null || !contextosCarregando;
 
   /** As vigências da unidade aberta — a lista que o seletor oferece. */
+  /**
+   * As vigências que o seletor oferece: as da unidade aberta **que cobrem
+   * equipamento**.
+   *
+   * O segundo filtro não é refinamento: esta tela lê placa, e o acervo entrega
+   * o arquivo de trecho como vigência separada (`entity_type_set = TRECHO`).
+   * Sem ele a lista oferecia uma ponta que esta tela não sabe ler — e escolhê-la
+   * é a recusa do motor em tela ("Coberturas diferentes") ou zero linhas sem
+   * explicação, nas duas vezes por um erro que não é de quem clicou.
+   */
   const daUnidade = useMemo(
     () =>
-      unidadeResolvida ? vigenciasDaUnidade(vigencias.data ?? [], escopoAberto) : [],
+      unidadeResolvida
+        ? vigenciasQueCobrem(
+            vigenciasDaUnidade(vigencias.data ?? [], escopoAberto),
+            TIPOS_DE_EQUIPAMENTO,
+          )
+        : [],
     [vigencias.data, escopoAberto, unidadeResolvida],
   );
 
