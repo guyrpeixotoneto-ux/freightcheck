@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearch } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { Download, Receipt, Search, SlidersHorizontal } from "lucide-react";
@@ -40,7 +40,7 @@ import {
 import { TabelaDeIpva } from "@/components/ipva/tabela";
 import { DetalheDoVeiculo } from "@/components/ipva/detalhe";
 import { fetchJson, salvarArquivo } from "@/lib/api";
-import { type CandidatosDoPar } from "@/lib/candidatos";
+import { useCandidatosDoPar } from "@/hooks/use-candidatos-do-par";
 import { csvComoBlob, paraNomeDeArquivo } from "@/lib/csv";
 import { formatNumber } from "@/lib/format";
 import {
@@ -206,42 +206,12 @@ export default function AuditoriaDeIpva() {
   /**
    * Os números de cada candidata a "De", contra o "Para" aberto.
    *
-   * Três decisões, e nenhuma é de estilo — são as mesmas da Auditoria de
-   * FINAME, e é de propósito que sejam: a pergunta é a mesma, e duas telas
-   * irmãs respondendo com cadências diferentes seria diferença sem motivo.
-   *
-   * **Assim que há um "Para".** A pergunta sai com a tela, e não na abertura do
-   * menu: esperar o clique fazia o menu abrir com esqueletos cinza no lugar dos
-   * números, bem no instante em que se escolhe. Quem abre o seletor já o
-   * encontra preenchido, e a chamada é a mesma que o primeiro clique faria.
-   *
-   * **A chave carrega o Para e a unidade.** Trocar qualquer um dos dois é
-   * pergunta nova, então é chave nova — não há invalidação manual a esquecer.
-   *
-   * **Os pendentes voltam.** O servidor calcula o que couber no orçamento dele
-   * e diz quantas ficaram de fora; pergunta-se de novo enquanto a fila andar, e
-   * a chamada seguinte continua de onde a anterior parou, porque o que foi
-   * calculado ficou gravado. Uma fila que não anda encerra a pergunta.
+   * A pergunta, a chave e a cadência moram em `useCandidatosDoPar`, com as
+   * outras duas auditorias: a pergunta é a mesma, e telas irmãs respondendo com
+   * fôlegos diferentes seria diferença sem motivo. O que esta tela decide é só
+   * o que é dela — a rubrica, o "Para" aberto e a unidade do recorte.
    */
-  /** Quantas ficaram pendentes na resposta anterior — a régua do progresso. */
-  const pendentesAnteriores = useRef<number | null>(null);
-  const candidatos = useQuery({
-    queryKey: ["ipva", "candidatos", escopoAberto, comparada],
-    enabled: Boolean(comparada),
-    staleTime: 5 * 60_000,
-    queryFn: () => fetchJson<CandidatosDoPar>(`/ipva/candidatos?para=${comparada}`),
-    refetchInterval: (query) => {
-      const dados = query.state.data;
-      if (!dados || dados.pendentes === 0) {
-        pendentesAnteriores.current = null;
-        return false;
-      }
-      const anterior = pendentesAnteriores.current;
-      pendentesAnteriores.current = dados.pendentes;
-      if (anterior === null) return 1_500;
-      return dados.pendentes < anterior ? 1_500 : false;
-    },
-  });
+  const candidatos = useCandidatosDoPar("ipva", comparada, escopoAberto);
 
   const comparacao = useQuery({
     queryKey: ["ipva", "comparacao", base, comparada, comSemAlteracao],

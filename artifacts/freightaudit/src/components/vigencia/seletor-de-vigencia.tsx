@@ -200,8 +200,6 @@ export function MenuDeVigencias({
   opcoes,
   ativa,
   onEscolher,
-  aberto,
-  onAbrir,
 }: {
   rotulo: string;
   className?: string;
@@ -230,11 +228,16 @@ export function MenuDeVigencias({
   }[];
   ativa: string | null;
   onEscolher: (valor: string) => void;
-  aberto?: boolean;
-  onAbrir?: (aberto: boolean) => void;
 }) {
+  /*
+    O menu não é controlado, e não tem por que ser: nada aqui depende de ele
+    estar aberto. Ele **era** — a abertura era o gatilho da leitura dos números,
+    e o estado existia só para disparar a consulta. Com a leitura saindo junto
+    com a tela, o que sobrava era um `useState` que reabria a discussão toda vez
+    que alguém lesse este arquivo.
+  */
   return (
-    <DropdownMenu open={aberto} onOpenChange={onAbrir}>
+    <DropdownMenu>
       <DropdownMenuTrigger className={className}>
         <CalendarDays className="w-4 h-4" />
         {rotulo}
