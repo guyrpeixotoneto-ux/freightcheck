@@ -9,6 +9,7 @@ import {
   HardHat,
   Gauge,
   History,
+  Landmark,
   Percent,
   Receipt,
   Route,
@@ -173,31 +174,17 @@ export const TELAS_EM_PREPARO: TelaEmPreparo[] = [
     equipamento e à vigência a que pertence. O que muda de um verbete para o
     outro é a segunda linha, que é a do dado próprio da rubrica.
   */
-  {
-    href: "/custo-fixo-finame",
-    label: "Finame",
-    icon: Banknote,
-    cor: "text-nav-custo-fixo",
-    pergunta:
-      "Quanto do principal do financiamento do ativo esta vigência carrega, por equipamento, e o que mudou desde a vigência anterior.",
-    depende: [
-      "A rubrica de Finame separada do resto do custo fixo na base: enquanto ela chegar somada a outras parcelas, o total seria o de um bloco, e não o do financiamento.",
-      "O contrato por trás da parcela — valor financiado, prazo e o que já foi amortizado —, sem o qual a tela mostra o que se paga na quinzena e não o que se deve.",
-    ],
-    hoje: [
-      {
-        href: "/composicao",
-        label: "Composição",
-        porque:
-          "O valor montado de um equipamento, parcela a parcela — é onde a linha do financiamento aparece hoje.",
-      },
-      {
-        href: "/alteracoes",
-        label: "Alterações",
-        porque: "O delta de cada parâmetro na vigência aberta, que é de onde a variação da parcela sai.",
-      },
-    ],
-  },
+  /*
+    `/custo-fixo-finame` saiu deste catálogo: a rota abre a Auditoria de FINAME,
+    que compara o financiamento de cada veículo entre duas vigências — parcela,
+    juros, amortização, taxa, prazo, carência, entrada e base de compra —, sobre
+    o motor de comparação que já existe.
+
+    O que o verbete dizia faltar continua faltando, e não é pouco: o contrato por
+    trás da parcela — valor financiado, prazo e o que já foi amortizado. Sem ele
+    a tela diz o que **mudou** no que se paga, nunca o que ainda se deve. A
+    distinção está escrita na própria tela.
+  */
   {
     href: "/custo-fixo-juros-finame",
     label: "Juros Finame",
@@ -270,6 +257,32 @@ export const TELAS_EM_PREPARO: TelaEmPreparo[] = [
         label: "Composição",
         porque:
           "O valor montado de um equipamento, parcela a parcela, onde a linha do lucro aparece.",
+      },
+    ],
+  },
+
+  {
+    href: "/custo-fixo-impostos",
+    label: "Impostos",
+    icon: Landmark,
+    cor: "text-nav-custo-fixo",
+    pergunta:
+      "Quanto desta vigência é imposto — ICMS, PIS e COFINS —, por equipamento e por unidade, e o que mudou desde a vigência anterior.",
+    depende: [
+      "A alíquota **medida**, e não a declarada: o export traz o percentual que o trecho declara e o imposto que ele carrega em reais, e os dois discordam. A razão entre dois valores em reais não tem ambiguidade de escala; uma coluna de percentual pode vir em pontos ou em fração, e não há como saber qual sem adivinhar.",
+      "A separação entre o imposto da compra do ativo — que já está na base, em `valor_icms` e `valor_pis_cofins` — e o imposto do frete, que é o que pesa todo mês. Somados sob um rótulo só, o total seria de duas grandezas diferentes.",
+    ],
+    hoje: [
+      {
+        href: "/custo-fixo-finame",
+        label: "Finame",
+        porque:
+          "O ICMS e o PIS/COFINS da nota de compra entram na comparação entre vigências, ao lado do valor de NF — é a metade que a base já sustenta.",
+      },
+      {
+        href: "/composicao",
+        label: "Composição",
+        porque: "O valor montado de um equipamento, parcela a parcela, onde as linhas de imposto aparecem hoje.",
       },
     ],
   },
@@ -378,6 +391,32 @@ export const TELAS_EM_PREPARO: TelaEmPreparo[] = [
         href: "/remunerado",
         label: "Remunerado",
         porque: "O que a vigência remunera, como a própria tabela o declara.",
+      },
+    ],
+  },
+
+  {
+    href: "/custo-variavel-lucro-variavel",
+    label: "Lucro Variável",
+    icon: TrendingUp,
+    cor: "text-nav-custo-variavel",
+    pergunta:
+      "Quanto do lucro desta vigência é variável — o que o modelo paga por produção, e não por ter o ativo à disposição —, por equipamento e por unidade.",
+    depende: [
+      "O realizado da operação por equipamento: a base traz o lucro variável **previsto** (`lucroVariavelPrevisto`), e previsto menos realizado é a pergunta desta tela. Sem o realizado, ela mostraria a previsão com o nome de resultado.",
+      "A regra que liga a previsão à produção — a mesma quilometragem e o mesmo atendimento de que Km Rodado e TMA dependem —, sem a qual não há como conferir o variável pago contra o variável devido.",
+    ],
+    hoje: [
+      {
+        href: "/remunerado",
+        label: "Remunerado",
+        porque: "O lucro variável previsto, como a própria tabela da vigência o declara.",
+      },
+      {
+        href: "/composicao",
+        label: "Composição",
+        porque:
+          "O valor montado de um equipamento, parcela a parcela — é onde a linha do lucro variável previsto aparece hoje.",
       },
     ],
   },

@@ -11,6 +11,7 @@
     "./nome-de-unidade": "./src/nome-de-unidade.ts",
     "./painel-de-justificativas-escopo": "./src/painel-de-justificativas-escopo.ts",
     "./composition": "./src/composition.ts",
+    "./finame": "./src/finame.ts",
     "./tipos": "./src/tipos.ts",
     "./tipos-da-vigencia": "./src/tipos-da-vigencia.ts",
     "./visao-geral-de-parametros": "./src/visao-geral-de-parametros.ts"

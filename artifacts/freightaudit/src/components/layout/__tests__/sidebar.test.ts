@@ -662,12 +662,29 @@ describe("o catálogo de telas em preparo", () => {
     chamando o fornecedor numa agenda. Isso não voltou ao catálogo: não é uma
     tela que falta, é uma capacidade, e ela está descrita em
     `docs/INTEGRACOES.md` em vez de virar item de menu que promete o que não faz.
+
+    E caiu de vinte para dezenove quando **Finame** ficou pronta — a baixa mais
+    instrutiva das que este número já mediu, porque o verbete não foi atendido:
+    o contrato por trás da parcela continua não existindo no acervo, e por isso
+    a tela não diz quanto ainda se deve. O que mudou foi a pergunta. "Quanto do
+    principal esta vigência carrega" precisa do contrato; "o que mudou no
+    financiamento deste veículo entre duas vigências" precisa de duas planilhas
+    e do motor de comparação, e as duas coisas já estavam aqui. A tela nasceu da
+    segunda pergunta, e escreve na própria cara o que a primeira ainda espera.
+
+    E subiu de dezenove para vinte e um com **Impostos**, no Custo Fixo, e
+    **Lucro Variável**, no Custo Variável. Os dois entram como o catálogo manda:
+    com o nome no menu e o verbete aqui dizendo o que falta. No de Impostos o
+    que falta é a alíquota medida, e não a declarada — o export traz as duas e
+    elas discordam; no de Lucro Variável é o realizado da operação, porque a
+    base traz a previsão, e previsão apresentada como resultado é exatamente o
+    número que este produto não mostra.
   */
   it("descreve, para cada tela, o que falta antes de ela mostrar um número", () => {
     const catalogo = fonte("pages/telas-em-preparo.ts");
     const telas = [...catalogo.matchAll(/^\s{4}href:\s*"([^"]+)"/gm)].length;
 
-    expect(telas).toBe(20);
+    expect(telas).toBe(21);
     expect([...catalogo.matchAll(/^\s{4}depende:\s*\[/gm)]).toHaveLength(telas);
     expect([...catalogo.matchAll(/^\s{4}pergunta:/gm)]).toHaveLength(telas);
   });

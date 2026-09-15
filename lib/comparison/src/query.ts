@@ -40,6 +40,20 @@ export interface ChangeFilters {
   impactConfidence?: string;
   attributeCode?: string;
   /**
+   * Vários atributos de uma vez — o recorte de um assunto, não de uma coluna.
+   *
+   * `attributeCode` responde "o que mudou nesta coluna"; esta responde "o que
+   * mudou no financiamento", que são catorze colunas entre cavalo e carreta
+   * (ver `finame.ts`). A alternativa era catorze requisições e uma soma no
+   * cliente — e uma soma no cliente sobre páginas de 200 linhas devolve o total
+   * da página, não o do recorte.
+   *
+   * Lista vazia é tratada como ausência de filtro, e não como "nenhum
+   * atributo": um recorte que não sobrou nada tem de ser decidido por quem
+   * chama, não virar silenciosamente uma tela vazia.
+   */
+  attributeCodes?: string[];
+  /**
    * CAVALO | CARRETA — o equipamento da linha.
    *
    * Recorte de **linha**, e não de comparação: `entityTypeSet` escolhe qual
@@ -131,6 +145,19 @@ export function condicoesDoFiltro(f: ChangeFilters): SQL[] {
   if (f.impactConfidence)
     parts.push(eq(changeTable.impactConfidence, f.impactConfidence));
   if (f.attributeCode) parts.push(eq(changeTable.attributeCode, f.attributeCode));
+  if (f.attributeCodes && f.attributeCodes.length > 0) {
+    /*
+      A entrada e a saída de ativo não citam atributo — o motor as grava uma vez
+      por veículo, no eixo da frota. Recortar só por `attribute_code IN (…)` as
+      deixaria de fora, e a tela de FINAME diria que nenhum veículo entrou na
+      vigência num mês em que cinco entraram. O recorte é por assunto; o assunto
+      inclui o ativo que chegou com ele.
+    */
+    parts.push(
+      sql`(${inArray(changeTable.attributeCode, f.attributeCodes)}
+           OR ${changeTable.attributeCode} IS NULL)`,
+    );
+  }
   if (f.entityType) parts.push(eq(changeTable.entityType, f.entityType));
   if (f.entityLabel) parts.push(eq(changeTable.entityLabel, f.entityLabel));
   if (f.minAbsImpact !== undefined) {

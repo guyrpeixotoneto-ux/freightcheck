@@ -62,6 +62,7 @@ import Configuracoes from '@/pages/configuracoes';
 import Frota360 from '@/pages/frota-360';
 import RadarTrechos from '@/pages/radar-trechos';
 import QlpAdministrativo from '@/pages/qlp-administrativo';
+import AuditoriaDeFiname from '@/pages/custo-fixo-finame';
 import Remunerado from '@/pages/remunerado';
 import Justificativas from '@/pages/justificativas';
 import JustificativasPlaca from '@/pages/justificativas-placa';
@@ -493,6 +494,15 @@ function RotasDaAuditoria() {
       */}
       <Route path="/radar-trechos" component={RadarTrechos} />
       <Route path="/comparar" component={Comparar} />
+      {/*
+        Finame saiu de `TELAS_EM_PREPARO` sem que o banco ganhasse uma coluna.
+        O verbete dizia depender do contrato por trás da parcela — e depende, para
+        responder "quanto ainda se deve". A pergunta que esta tela responde é
+        outra e o acervo já a sustenta: **o que mudou no financiamento entre duas
+        vigências**, que é o motor de `change_set` recortado nas catorze colunas
+        de FINAME. O menu não mudou uma vírgula, como manda o catálogo.
+      */}
+      <Route path="/custo-fixo-finame" component={AuditoriaDeFiname} />
       {/*
         QLP Administrativo saiu de `TELAS_EM_PREPARO` quando a importação
         passou a receber o export próprio dele (tipo QLP_ADMINISTRATIVO) — o

@@ -27,6 +27,7 @@ import {
   Headset,
   History,
   House,
+  Landmark,
   Layers,
   LayoutDashboard,
   Percent,
@@ -385,9 +386,9 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
         linhas lidas por outro eixo, e um item solto dentro da Frota faria a
         leitura por rubrica parecer um recorte de placa.
 
-        **São seis módulos, e eles se leem em dois blocos.** Primeiro as quatro
+        **São sete módulos, e eles se leem em dois blocos.** Primeiro as cinco
         rubricas do ativo: Finame e Juros Finame — o principal do financiamento
-        e o que ele cobra de juros —, IPVA e Lucro Fixo. Depois as duas de
+        e o que ele cobra de juros —, IPVA, Lucro Fixo e Impostos. Depois as duas de
         gente: QLP Operacional e QLP Administrativo, o quadro de lotação que o
         modelo remunera, nas duas alturas em que o Freightech o publica.
 
@@ -422,6 +423,7 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
         { href: "/custo-fixo-juros-finame", label: "Juros Finame", icon: Percent },
         { href: "/custo-fixo-ipva", label: "IPVA", icon: Receipt },
         { href: "/custo-fixo-lucro-fixo", label: "Lucro Fixo", icon: TrendingUp },
+        { href: "/custo-fixo-impostos", label: "Impostos", icon: Landmark },
         { href: "/qlp-operacional", label: "QLP Operacional", icon: HardHat },
         { href: "/qlp-administrativo", label: "QLP Administrativo", icon: Briefcase },
       ],
@@ -432,8 +434,9 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
         mesma conta: ali, o que se paga por **ter** o ativo; aqui, o que se paga
         por **rodar** com ele.
 
-        **São quatro módulos**: Km Rodado e Velocidade Média — o quanto se rodou
-        e como se rodou —, TMA e Salário Variável. Como os quatro do Custo Fixo,
+        **São cinco módulos**: Km Rodado e Velocidade Média — o quanto se rodou
+        e como se rodou —, TMA, Salário Variável e Lucro Variável. Como os do
+        Custo Fixo,
         eles entram hoje só com o nome, e abrem telas em preparo: cada verbete em
         `pages/telas-em-preparo.ts` diz o que falta no banco para a rubrica virar
         número e para onde ir enquanto isso.
@@ -448,6 +451,7 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
         { href: "/custo-variavel-velocidade-media", label: "Velocidade Média", icon: Gauge },
         { href: "/custo-variavel-tma", label: "TMA", icon: Timer },
         { href: "/custo-variavel-salario-variavel", label: "Salário Variável", icon: Wallet },
+        { href: "/custo-variavel-lucro-variavel", label: "Lucro Variável", icon: TrendingUp },
       ],
     },
     {
