@@ -1623,3 +1623,115 @@ podendo inverter a prioridade de tudo o que vem depois.
 O maior item isolado da auditoria — **E1, o code splitting** — segue intocado. O
 bundle continua em 849 KB gzip num chunk só, e continua sendo o que decide a
 primeira carga em qualquer rede real.
+
+---
+
+# Parte III — E1, o code splitting
+
+**Data:** 15/09/2026 · mesmo ambiente das Partes I e II.
+
+O maior item isolado da auditoria ([§4 Gargalo 1](#gargalo-1--bundle-único-de-849-kb-sem-divisão-por-rota)),
+e o único cuja previsão a implementação **confirmou** em vez de corrigir.
+
+## 25. O que mudou
+
+As 58 páginas eram `import` estático em `App.tsx`. Agora cada rota é um
+`import()`, com um `<Suspense>` só, no `Gate`, usando o mesmo spinner que ele já
+mostrava enquanto conferia a sessão.
+
+Quatro continuam adiantados, e cada um por um motivo declarado no arquivo:
+`Login` (é decidido fora do `<Suspense>`, e é a tela de quem precisa dela
+imediatamente), `NotFound` (é o fundo do `Switch`), e os catálogos
+`TELAS_EM_PREPARO` e `etapasDoFechamento`, que são **dado e não tela** — o
+roteador os percorre para montar as rotas, antes de qualquer navegação.
+
+**`manualChunks` não foi usado, e não resolveria.** Ele agruparia as bibliotecas
+em pedaços nomeados, mas continuaria mandando todos eles na primeira carga,
+porque o grafo estático não muda: quem importa tudo estaticamente baixa tudo, em
+um arquivo ou em oito. O que tira um módulo do caminho crítico é ele deixar de
+ser **alcançável a partir da entrada**. O Rollup cuida do compartilhamento
+sozinho — um módulo que duas rotas usam vira um pedaço comum, baixado uma vez —
+e por isso não há lista de chunks aqui para envelhecer.
+
+## 26. Resultado
+
+| | Antes | Depois | Ganho |
+|---|--:|--:|--:|
+| Pedaço de entrada (cru) | 3.166.845 B | **548.777 B** | **−83%** |
+| Pedaço de entrada (gzip) | 848.948 B | **174.782 B** | **−79%** |
+| Número de pedaços | 1 | 184 | — |
+| JS na primeira carga (rede) | 829 KB | **353 KB** | **−57%** |
+
+Primeira carga num Chromium real, com o estático comprimido, medindo
+`/resumo-executivo`:
+
+| Rede | FCP antes | FCP depois | Ganho | Tela pronta antes | depois |
+|---|--:|--:|--:|--:|--:|
+| sem limite | 272 ms | **64 ms** | **−76%** | 2.425 ms | 1.020 ms |
+| 20 Mb/s | 520 ms | **160 ms** | **−69%** | 1.213 ms | 1.094 ms |
+| 4G (4 Mb/s) | 1.976 ms | **596 ms** | **−70%** | 2.783 ms | 1.992 ms |
+| 3G (1,6 Mb/s) | 4.776 ms | **1.384 ms** | **−71%** | 5.767 ms | 3.952 ms |
+
+E a tela de login — a primeira de quem chega sem sessão — passou a baixar
+**1 pedaço de JS** em vez do produto inteiro.
+
+### A distribuição dos pedaços
+
+| Pedaço | gzip | O que é |
+|---|--:|---|
+| `index` (entrada) | 174.782 B | React, roteador, casca, `components/ui` |
+| `generateCategoricalChart` | 101.012 B | Recharts — compartilhado, só quem tem gráfico puxa |
+| `ApresentacaoVideo` | 46.452 B | a tela de vídeo |
+| `parametros` | 31.002 B | a maior página |
+| `configuracoes` | 29.372 B | Configurações, que antes viajava para todo mundo |
+| mediana dos 184 | **1.255 B** | — |
+
+## 27. Regressão
+
+**Um `lazy()` quebrado não falha no build nem no typecheck: falha no clique, e
+só naquela rota.** Por isso a conferência foi rota a rota, com o mesmo harness
+contra os dois builds — 55 rotas, incluindo as quatro auditorias prefixadas
+(`/auditoria-rota/…`, `/auditoria-as/…`) e o Fechamento:
+
+| | Renderizaram | Mudaram de estado | 404 de chunk |
+|---|--:|--:|--:|
+| sem code splitting | **55/55** | — | — |
+| com code splitting | **55/55** | **0** | **0** |
+
+O critério não é "não explodiu": é **ter renderizado** — sem erro de página, sem
+erro de console que não seja 404 de API, com conteúdo na tela, e sem cair no
+`NotFound`.
+
+As 8 respostas 404 observadas são todas de `/api` e **idênticas nos dois lados**:
+são as telas sem dado no seed ([§3.6](#36-o-que-não-foi-possível-medir-neste-ambiente))
+— QLP Administrativo, Radar de Trechos, Conciliação de Chamados — mais um achado
+novo, registrado e **não corrigido aqui**: a tela de Integrações pede
+`/api/api/integracoes`, com o prefixo duplicado. Ele já existia antes desta
+mudança.
+
+Além disso: o caminho de quem **não** tem sessão foi conferido à parte, porque o
+`Login` é a única tela que ficou fora do `<Suspense>` — abre, mostra o campo de
+senha, zero erros de console, 1 pedaço de JS.
+
+`@workspace/freightaudit`: **133 arquivos, 1.795 testes, todos passando**.
+Typecheck do workspace inteiro limpo.
+
+## 28. O que sobra, e o que isto não resolve
+
+**O pedaço de entrada ainda tem 174.782 bytes gzip**, e o Recharts virou um
+compartilhado de 101.012 que toda tela com gráfico puxa. Os dois são os próximos
+alvos naturais, e nenhum é urgente perto do que esta mudança já resolveu: a meta
+do [§18](#18-performance-alvo) era **≤ 350 KB** de chunk inicial, e o resultado é
+metade disso.
+
+**O que continua sem orçamento é o crescimento.** O bundle cresceu 24,6% em três
+semanas sem ninguém notar, e nada impede que os 184 pedaços voltem a inchar —
+basta um `import` estático de página entrar em `App.tsx` por distração. **E6 (o
+orçamento de bundle no CI) é o que trava isto, e não foi implementado.** Sem ele,
+esta Parte III tem prazo de validade.
+
+**E a Fase 0 continua sem resposta.** As duas medições de dez minutos contra
+produção — RTT até o Neon, e **se o estático do Replit comprime** — continuam
+pendentes. A segunda vale ainda mais agora: todos os números do §26 são com o
+estático comprimido; sem compressão, 353 KB de JS viram ~1,2 MB na rede, e boa
+parte do ganho desta mudança some antes de chegar ao usuário.
