@@ -263,3 +263,77 @@ export function escreverImpacto(
       bruto: valor,
     }));
 }
+
+// ---------------------------------------------------------------------------
+// O par de vigências — qual unidade, e quais duas pontas
+// ---------------------------------------------------------------------------
+
+/**
+ * O mínimo que se precisa saber de uma vigência para emparelhá-la.
+ *
+ * Estrutural de propósito: quem chama é a tela, com o que `/snapshots`
+ * devolveu (`VigenciaEscolhivel`), e este módulo não precisa do resto.
+ */
+export interface VigenciaEmparelhavel {
+  id: string;
+  effectiveDate: string;
+  entityTypeSet: string;
+  scopeHash: string;
+}
+
+/**
+ * As vigências da unidade aberta — e todas quando não há unidade aberta.
+ *
+ * `/snapshots` responde pela operação inteira: dentro dela, PERNAMBUCO e
+ * CAMAÇARI importadas do mesmo arquivo têm o **mesmo rótulo e a mesma data**, e
+ * viram duas linhas idênticas no seletor. Sem este recorte, a tela oferecia as
+ * duas sem dizer qual é qual, e a lateral, ao lado, nomeava uma delas.
+ *
+ * Sem `scopeHash` a lista sai inteira, e é deliberado: é o caso de quem abriu a
+ * tela sem escolher unidade nenhuma, e esconder vigência de quem não filtrou
+ * seria inventar um recorte que ninguém pediu.
+ */
+export function vigenciasDaUnidade<T extends VigenciaEmparelhavel>(
+  vigencias: readonly T[],
+  scopeHash: string | null,
+): T[] {
+  if (!scopeHash) return [...vigencias];
+  return vigencias.filter((v) => v.scopeHash === scopeHash);
+}
+
+/**
+ * O par de partida: as duas vigências mais recentes que **formam par de
+ * verdade** — mesma unidade e mesma cobertura.
+ *
+ * As duas condições são a recusa do motor antecipada: `engine.ts` não compara
+ * escopos diferentes nem coberturas diferentes, e a tela que oferece um par
+ * assim abre num erro que não é de quem abriu. A cobertura já estava aqui — era
+ * o que impedia cavalo de casar com carreta; o escopo faltava, e era o que
+ * fazia a tela abrir recusada assim que duas unidades dividiam a mesma data.
+ *
+ * **Procura, em vez de olhar só a primeira linha.** Sem unidade aberta, a
+ * vigência mais recente do acervo pode ser de uma unidade que só tem aquela —
+ * e parar ali diria "não há par" com nove pares disponíveis logo abaixo. A
+ * ponta comparada é a mais recente que tem com quem se comparar.
+ *
+ * Devolve `null` quando não há par nenhum: uma unidade com uma vigência só não
+ * tem comparação, e isso é uma tela vazia com a frase que explica — nunca um
+ * pedido ao servidor que já se sabe que vai ser recusado.
+ */
+export function parDePartida<T extends VigenciaEmparelhavel>(
+  vigencias: readonly T[],
+): { base: T; comparada: T } | null {
+  const ordenadas = [...vigencias].sort((a, b) =>
+    b.effectiveDate.localeCompare(a.effectiveDate),
+  );
+  for (const comparada of ordenadas) {
+    const base = ordenadas.find(
+      (v) =>
+        v.id !== comparada.id &&
+        v.entityTypeSet === comparada.entityTypeSet &&
+        v.scopeHash === comparada.scopeHash,
+    );
+    if (base) return { base, comparada };
+  }
+  return null;
+}

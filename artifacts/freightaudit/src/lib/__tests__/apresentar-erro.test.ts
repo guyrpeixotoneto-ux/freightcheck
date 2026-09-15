@@ -217,6 +217,39 @@ describe("apresentar", () => {
     ).toBe(true);
   });
 
+  /**
+   * A recusa que o servidor escreveu ocupa a linha principal.
+   *
+   * O sintoma: a Auditoria de FINAME abria com um par de vigências de unidades
+   * diferentes, o motor recusava com a frase dele — e a tela dizia "não foi
+   * possível determinar a causa desta falha", com a explicação inteira dobrada
+   * dentro de "Detalhes técnicos", fechado por padrão. A causa estava
+   * determinada; era só a apresentação que a escondia.
+   */
+  it("um 4xx com frase própria é explicação, e não mistério", () => {
+    const recusa =
+      'Escopos diferentes: "EMPURRADA_2_8_2026" e "EMPURRADA_2_8_2026" cobrem ' +
+      "unidades/operadores distintos e não são comparáveis.";
+    const vista = apresentar(new ApiError(recusa, 422));
+
+    expect(vista.principal).toBe(recusa);
+    /* Uma explicação só: a frase não volta como "Resposta do servidor". */
+    expect(vista.mensagemCrua).toBeNull();
+    expect(vista.detalhes.filter((d) => d.texto === recusa)).toHaveLength(0);
+  });
+
+  /* O `requestId` continua vindo junto — ele não é opinião sobre nada. */
+  it("a recusa não engole o identificador da requisição", () => {
+    const vista = apresentar(
+      new ApiError("Informe base e comparada.", 400, undefined, {
+        requestId: "req-42",
+      }),
+    );
+
+    expect(vista.principal).toBe("Informe base e comparada.");
+    expect(vista.requestId).toBe("req-42");
+  });
+
   it("erro que nem é Error também é apresentável", () => {
     const vista = apresentar("caiu");
 

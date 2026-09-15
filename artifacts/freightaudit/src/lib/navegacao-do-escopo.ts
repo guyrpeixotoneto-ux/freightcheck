@@ -153,6 +153,25 @@ export const TELAS_QUE_HONRAM_ESCOPO = new Set<string>([
     seria a promessa vazia que esta lista existe para recusar.
   */
   "/conciliacao-de-chamados",
+  /*
+    A Auditoria de FINAME. Entra pela mesma reclamação das três de cima, dita
+    uma terceira vez — *"eu tento mudar de PERNAMBUCO para CAMAÇARI e saio do
+    módulo"* —, e ela era literal aqui: sem esta linha, trocar de unidade dentro
+    do FINAME desviava para Parâmetros, e quem só queria ver o financiamento de
+    Camaçari perdia a tela.
+
+    Ela cumpre a promessa por onde a promessa é feita: `/snapshots` devolve o
+    `scope_hash` de cada vigência, e a tela (`pages/custo-fixo-finame.tsx`)
+    recorta a lista do seletor pela unidade aberta antes de escolher o par. Uma
+    unidade sem duas vigências abre vazia, dizendo isso — que é o contrário do
+    que acontecia antes, quando o par padrão podia casar duas unidades
+    diferentes de mesma data e a tela abria na recusa do motor.
+
+    Fica **fora** de `TELAS_QUE_HONRAM_VISAO_GERAL`, e é o motivo de sempre: o
+    motor recusa comparar vigências de escopos distintos (`engine.ts`), então
+    "todas as unidades de uma vez" não é uma comparação que exista aqui.
+  */
+  "/custo-fixo-finame",
 ]);
 
 /**

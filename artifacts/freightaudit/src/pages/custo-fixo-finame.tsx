@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useSearch } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { Banknote, Download, Search, SlidersHorizontal } from "lucide-react";
 import type { LinhaDeFiname } from "@workspace/comparison/finame";
@@ -38,10 +39,13 @@ import {
   contagemPorAba,
   filtrar,
   linhasDoCsv,
+  parDePartida,
+  vigenciasDaUnidade,
   type ComparacaoDeFiname,
   type FiltrosDeFiname,
   type TotaisDeFiname,
 } from "@/lib/finame";
+import { lerRecorte } from "@/lib/recorte";
 import { cn } from "@/lib/utils";
 
 /**
@@ -68,6 +72,22 @@ import { cn } from "@/lib/utils";
  * de Comparar vigências, de modo que as duas telas respondem o mesmo número
  * para o mesmo par. As recusas do motor — escopo diferente, cobertura diferente,
  * canal diferente — chegam com a frase dele.
+ *
+ * ---------------------------------------------------------------------------
+ * E a tela é **de uma unidade por vez**
+ * ---------------------------------------------------------------------------
+ * `/snapshots` responde pela operação inteira, e dentro dela duas unidades
+ * importadas do mesmo arquivo têm o mesmo rótulo e a mesma data: no seletor,
+ * duas linhas idênticas. Enquanto esta tela não lia a unidade aberta, o par
+ * padrão podia casar uma com a outra — o único par que o motor recusa por
+ * construção — e a tela abria num aviso de erro sem ninguém ter escolhido nada.
+ *
+ * Agora ela lê `scopeHash` da URL, recorta a lista por ele e escolhe o par
+ * dentro do recorte (`vigenciasDaUnidade` e `parDePartida`, em `lib/finame.ts`).
+ * É o que a põe em `TELAS_QUE_HONRAM_ESCOPO` (`lib/navegacao-do-escopo.ts`):
+ * trocar de unidade na lateral troca o dado desta tela em vez de expulsar quem
+ * trocou para Parâmetros. Uma unidade sem duas vigências abre **vazia, dizendo
+ * isso** — que é a resposta certa, e não uma falha.
  */
 export default function AuditoriaDeFiname() {
   const [base, setBase] = useState("");
@@ -87,27 +107,53 @@ export default function AuditoriaDeFiname() {
   });
 
   /**
-   * O par de partida: as duas vigências mais recentes **da mesma série**.
+   * A unidade aberta na lateral — e por que esta tela precisa saber dela.
    *
-   * Pegar as duas últimas linhas da lista emparelharia cavalo com carreta assim
-   * que as duas séries existirem — elas compartilham as mesmas datas. O motor
-   * recusaria o par, corretamente, e a tela abriria num erro que não é do
-   * usuário. A mesma correção já foi feita em Comparar.
+   * Sem isto, trocar de unidade aqui não trocava o dado: trocava de tela.
+   * `enderecoDe` (`lib/navegacao-do-escopo.ts`) desvia para Parâmetros toda tela
+   * que não sabe ler o recorte, e esta não sabia — *"eu tento mudar de
+   * PERNAMBUCO para CAMAÇARI e saio do módulo"*. Estar naquela lista é uma
+   * promessa, e o que a cumpre é o recorte abaixo.
+   */
+  const recorte = lerRecorte(useSearch());
+
+  /** As vigências da unidade aberta — a lista que o seletor oferece. */
+  const daUnidade = useMemo(
+    () => vigenciasDaUnidade(vigencias.data ?? [], recorte.scopeHash),
+    [vigencias.data, recorte.scopeHash],
+  );
+
+  /**
+   * O par aberto, mantido dentro da unidade aberta.
+   *
+   * Duas coisas num efeito só porque são a mesma: **o par tem de existir dentro
+   * desta lista**. Ao trocar de unidade, o par anterior deixa de estar nela — e
+   * mantê-lo faria a tela responder por Pernambuco sob a palavra CAMAÇARI. Ao
+   * abrir sem par nenhum, é `parDePartida` quem escolhe, com as duas recusas do
+   * motor antecipadas (mesma cobertura, mesmo escopo).
+   *
+   * Sem par possível, as duas pontas ficam vazias e a consulta nem sai: uma
+   * unidade com uma vigência só não tem comparação, e pedi-la ao servidor
+   * traria a recusa dele para uma tela onde ninguém escolheu nada.
    */
   useEffect(() => {
-    const lista = vigencias.data;
-    if (!lista || lista.length < 2 || base || comparada) return;
-    const ordenadas = [...lista].sort((a, b) =>
-      b.effectiveDate.localeCompare(a.effectiveDate),
-    );
-    const ultima = ordenadas[0];
-    const anterior = ordenadas.find(
-      (v) => v.entityTypeSet === ultima.entityTypeSet && v.id !== ultima.id,
-    );
-    if (!anterior) return;
-    setBase(anterior.id);
-    setComparada(ultima.id);
-  }, [vigencias.data, base, comparada]);
+    if (!vigencias.data) return;
+    const naLista = (id: string) => daUnidade.some((v) => v.id === id);
+    if (base && comparada && naLista(base) && naLista(comparada)) return;
+    const par = parDePartida(daUnidade);
+    setBase(par?.base.id ?? "");
+    setComparada(par?.comparada.id ?? "");
+  }, [vigencias.data, daUnidade, base, comparada]);
+
+  /**
+   * A unidade já respondeu e não tem duas vigências para comparar.
+   *
+   * Sai da lista, e não de "as duas pontas estão vazias": o par é escolhido num
+   * efeito, que roda **depois** da renderização — ler o estado aqui piscaria a
+   * tela vazia por um quadro em toda unidade que tem par.
+   */
+  const semParPossivel =
+    Boolean(vigencias.data) && parDePartida(daUnidade) === null;
 
   const comparacao = useQuery({
     queryKey: ["finame", "comparacao", base, comparada, comSemAlteracao],
@@ -177,7 +223,7 @@ export default function AuditoriaDeFiname() {
           />
         ) : (
           <SeletorDoPar
-            vigencias={vigencias.data ?? []}
+            vigencias={daUnidade}
             base={base}
             comparada={comparada}
             onBase={setBase}
@@ -187,6 +233,26 @@ export default function AuditoriaDeFiname() {
               setComparada(base);
             }}
             carregando={comparacao.isFetching}
+          />
+        )}
+
+        {/*
+          A unidade sem par não é uma falha, e não deve chegar como uma: é a
+          resposta certa para "o que mudou no FINAME de Camaçari?" quando
+          Camaçari entregou uma vigência só. Antes desta tela recortar por
+          unidade, o mesmo caso abria na recusa do motor — um aviso âmbar
+          dizendo que a comparação falhou, sobre uma comparação que nunca
+          existiu.
+        */}
+        {semParPossivel && (
+          <EstadoVazio
+            icone={Banknote}
+            titulo="Esta unidade não tem duas vigências para comparar"
+            descricao={
+              recorte.scopeHash
+                ? "A comparação de FINAME precisa de duas vigências da mesma unidade. Escolha outra unidade na lateral ou importe a vigência seguinte."
+                : "O acervo ainda não tem duas vigências da mesma unidade e da mesma cobertura para comparar."
+            }
           />
         )}
 

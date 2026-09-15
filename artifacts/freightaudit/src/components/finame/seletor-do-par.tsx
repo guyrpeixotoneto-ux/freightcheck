@@ -14,6 +14,16 @@ export interface VigenciaEscolhivel {
   sourceLabel: string;
   effectiveDate: string;
   entityTypeSet: string;
+  /**
+   * De qual unidade/operador é esta vigência.
+   *
+   * Está aqui porque o rótulo não distingue: duas unidades importadas do mesmo
+   * arquivo têm o mesmo `sourceLabel` e a mesma data, e as duas linhas do
+   * seletor ficam idênticas. Comparar uma com a outra é o que o motor recusa
+   * (`engine.ts`), e era o que o par padrão desta tela fazia sozinho. Quem
+   * recorta pela unidade aberta é a página; o campo precisa chegar até lá.
+   */
+  scopeHash: string;
 }
 
 /**

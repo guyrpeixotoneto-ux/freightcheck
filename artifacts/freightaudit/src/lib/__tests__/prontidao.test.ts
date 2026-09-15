@@ -145,8 +145,16 @@ describe("as três falhas da tela de login, distinguidas", () => {
     const vista = apresentar(credencialErrada, vermelha);
 
     expect(vista.orientacao).toBeNull();
-    expect(vista.mensagemCrua).toBe("E-mail ou senha incorretos.");
-    expect(vista.principal).toBeNull();
+    /*
+      A frase do servidor **é** a linha principal, e não um detalhe técnico.
+      Ela já era a única coisa que a tela mostrava aqui (todo consumidor lê
+      `principal ?? mensagemCrua`), mas ocupava o campo de quem não sabe
+      explicar — e quem desenha o aviso âmbar lia esse `null` ao pé da letra e
+      escrevia "não foi possível determinar a causa desta falha" por cima de
+      uma recusa perfeitamente explicada.
+    */
+    expect(vista.principal).toBe("E-mail ou senha incorretos.");
+    expect(vista.mensagemCrua).toBeNull();
   });
 
   it("banco fora diz que é o ambiente — em português, sem comando na frase", () => {
