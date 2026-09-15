@@ -175,9 +175,18 @@ function FragmentoDoVeiculo({
   onAbrir: () => void;
 }) {
   const diferenca = v.parcela?.diferenca ?? null;
-  /* Justificar é sobre uma alteração do motor: a linha "sem alteração" não tem
-     `change.id`, e portanto não entra nem no numerador nem no denominador. */
-  const justificaveis = v.linhas.filter((l) => l.id !== null);
+  /*
+    O que se justifica nesta tela é **o que se moveu**.
+
+    Duas exclusões, e as duas pela mesma razão: uma justificativa explica uma
+    alteração. A linha "sem alteração" não tem `change.id` — não há alteração
+    sobre a qual gravar. E conflito e dado incompleto não são alterações: são a
+    recusa do motor em afirmar que houve uma, e o que elas pedem é o conserto do
+    dado, não uma frase. Contá-las no denominador poria a placa em "2 de 5" para
+    sempre, com três linhas que ninguém pode fechar — e a coluna deixaria de
+    dizer o que falta fazer.
+  */
+  const justificaveis = v.linhas.filter((l) => l.id !== null && l.estado === "ALTERADO");
   const justificadas = justificaveis.filter((l) => justificadaPor?.has(l.id!)).length;
 
   return (
@@ -288,9 +297,16 @@ function FragmentoDoVeiculo({
                     e.stopPropagation();
                     onJustificar(justificaveis.map(alvoDaLinha));
                   }}
-                  aria-label={`Justificar as ${justificaveis.length} alterações de ${
-                    v.entityLabel ?? "veículo sem placa"
-                  }`}
+                  aria-label={
+                    /* Singular e plural, porque a placa de uma alteração só é
+                       comum: "Justificar as 1 alterações" é o tipo de frase que
+                       um leitor de tela lê inteira, em voz alta. */
+                    `${
+                      justificaveis.length === 1
+                        ? "Justificar a 1 alteração"
+                        : `Justificar as ${justificaveis.length} alterações`
+                    } de ${v.entityLabel ?? "veículo sem placa"}`
+                  }
                   className="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[0.7rem] font-semibold hover:bg-muted"
                 >
                   <MessageSquarePlus className="h-3.5 w-3.5" aria-hidden="true" />
@@ -471,6 +487,13 @@ function AlteracoesDoVeiculo({
  *   anterior — o histórico é o que torna a justificativa auditável —, e por isso
  *   o diálogo abre com o texto atual à vista, dizendo o que vai substituir.
  *
+ * **Só a linha alterada ganha botão**, a mesma régua da contagem da placa: um
+ * conflito ou um dado incompleto é a recusa do motor em afirmar que houve
+ * alteração, e o que ele pede é o conserto do dado. Se o botão existisse aqui, o
+ * numerador da placa contaria uma linha que o denominador não conta — "4 de 3".
+ * O texto já gravado numa dessas linhas continua à vista, só de leitura, porque
+ * apagá-lo da tela seria esconder o histórico.
+ *
  * Sem `onJustificar` a célula é só de leitura: é o que mantém a tabela usável
  * onde justificar não faz sentido, sem um botão que não grava.
  */
@@ -483,14 +506,19 @@ function CelulaDeJustificativa({
   justificativa: Justificativa | undefined;
   onJustificar?: AbrirJustificativa;
 }) {
+  /* Nem toda linha é justificável: ver o cabeçalho. A que não é não escreve
+     "Sem justificativa" — não há pendência ali para ser cobrada. */
   if (l.id === null) return null;
+  const alterada = l.estado === "ALTERADO";
+  const abrir = alterada ? onJustificar : undefined;
 
   if (!justificativa) {
-    if (!onJustificar) return <span className="text-muted-foreground/70">Sem justificativa</span>;
+    if (!alterada) return null;
+    if (!abrir) return <span className="text-muted-foreground/70">Sem justificativa</span>;
     return (
       <button
         type="button"
-        onClick={() => onJustificar([alvoDaLinha(l)])}
+        onClick={() => abrir([alvoDaLinha(l)])}
         aria-label={`Justificar ${l.rotuloDaVariavel} de ${l.entityLabel ?? "veículo sem placa"}`}
         className="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[0.7rem] font-semibold hover:bg-muted"
       >
@@ -512,11 +540,11 @@ function CelulaDeJustificativa({
     </Tooltip>
   );
 
-  if (!onJustificar) return texto;
+  if (!abrir) return texto;
   return (
     <button
       type="button"
-      onClick={() => onJustificar([alvoDaLinha(l)], justificativa)}
+      onClick={() => abrir([alvoDaLinha(l)], justificativa)}
       aria-label={`Reescrever a justificativa de ${l.rotuloDaVariavel} de ${
         l.entityLabel ?? "veículo sem placa"
       }`}

@@ -210,3 +210,65 @@ describe("justificar direto na tabela", () => {
     expect(screen.queryByRole("button", { name: /^Justificar/ })).toBeNull();
   });
 });
+
+describe("o que conta como justificável", () => {
+  /* A mesma placa com uma alteração e um conflito: o conflito é a recusa do
+     motor em afirmar que houve alteração, e o que ele pede é o conserto do
+     dado. Contá-lo poria a placa em "1 de 2" para sempre. */
+  const COM_CONFLITO = [
+    linha(),
+    linha({
+      id: 9,
+      variavel: "taxa",
+      rotuloDaVariavel: "Taxa FINAME",
+      attributeCode: "cavalo.taxa_finame",
+      medida: "PERCENTUAL",
+      diferenca: null,
+      variacao: null,
+      estado: "CONFLITO",
+      motivo: "O tipo do valor mudou entre os dois snapshots.",
+    }),
+  ];
+
+  const renderizarComConflito = (onJustificar = vi.fn()) => {
+    render(
+      <TooltipProvider>
+        <TabelaDeFiname
+          veiculos={agruparPorVeiculo(COM_CONFLITO)}
+          justificadaPor={new Map([[1, { ...JUSTIFICADA, changeId: 1 }]])}
+          onAbrir={vi.fn()}
+          onJustificar={onJustificar}
+        />
+      </TooltipProvider>,
+    );
+    return onJustificar;
+  };
+
+  it("conta só as alteradas — o conflito fica fora do denominador", () => {
+    renderizarComConflito();
+    const placa = screen.getByRole("button", {
+      name: /Abrir as alterações de QYW6D15/,
+    });
+    expect(within(placa).getByText("1 de 1")).toBeTruthy();
+  });
+
+  it("justifica em massa só as alteradas da placa", () => {
+    const onJustificar = renderizarComConflito();
+    fireEvent.click(
+      screen.getByRole("button", { name: /Justificar a 1 alteração de QYW6D15/ }),
+    );
+    expect(onJustificar.mock.calls[0]![0]).toEqual([expect.objectContaining({ id: 1 })]);
+  });
+
+  it("não oferece o botão na linha em conflito, nem a cobra de pendência", () => {
+    renderizarComConflito();
+    fireEvent.click(
+      screen.getByRole("button", { name: /Abrir as alterações de QYW6D15/ }),
+    );
+    expect(screen.getByText("Taxa FINAME")).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: /Justificar Taxa FINAME/ }),
+    ).toBeNull();
+    expect(screen.queryByText("Sem justificativa")).toBeNull();
+  });
+});
