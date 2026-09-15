@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearch } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { Download, Receipt, Search, SlidersHorizontal } from "lucide-react";
@@ -40,6 +40,7 @@ import {
 import { TabelaDeIpva } from "@/components/ipva/tabela";
 import { DetalheDoVeiculo } from "@/components/ipva/detalhe";
 import { fetchJson, salvarArquivo } from "@/lib/api";
+import { type CandidatosDoPar } from "@/lib/candidatos";
 import { csvComoBlob, paraNomeDeArquivo } from "@/lib/csv";
 import { formatNumber } from "@/lib/format";
 import {
@@ -202,6 +203,47 @@ export default function AuditoriaDeIpva() {
   const semParPossivel =
     Boolean(vigencias.data) && unidadeResolvida && parDePartida(daUnidade) === null;
 
+  /**
+   * Os números de cada candidata a "De", contra o "Para" aberto.
+   *
+   * Três decisões, e nenhuma é de estilo — são as mesmas da Auditoria de
+   * FINAME, e é de propósito que sejam: a pergunta é a mesma, e duas telas
+   * irmãs respondendo com cadências diferentes seria diferença sem motivo.
+   *
+   * **Só quando o menu abre.** Calcular comparações para quem nunca abriu o
+   * seletor seria cobrar do banco por uma pergunta que ninguém fez. E a
+   * abertura não espera a resposta: o menu aparece inteiro na hora, os números
+   * entram depois.
+   *
+   * **A chave carrega o Para e a unidade.** Trocar qualquer um dos dois é
+   * pergunta nova, então é chave nova — não há invalidação manual a esquecer.
+   *
+   * **Os pendentes voltam.** O servidor calcula o que couber no orçamento dele
+   * e diz quantas ficaram de fora; pergunta-se de novo enquanto a fila andar, e
+   * a chamada seguinte continua de onde a anterior parou, porque o que foi
+   * calculado ficou gravado. Uma fila que não anda encerra a pergunta.
+   */
+  const [menuDeAberto, setMenuDeAberto] = useState(false);
+  /** Quantas ficaram pendentes na resposta anterior — a régua do progresso. */
+  const pendentesAnteriores = useRef<number | null>(null);
+  const candidatos = useQuery({
+    queryKey: ["ipva", "candidatos", escopoAberto, comparada],
+    enabled: menuDeAberto && Boolean(comparada),
+    staleTime: 5 * 60_000,
+    queryFn: () => fetchJson<CandidatosDoPar>(`/ipva/candidatos?para=${comparada}`),
+    refetchInterval: (query) => {
+      const dados = query.state.data;
+      if (!dados || dados.pendentes === 0) {
+        pendentesAnteriores.current = null;
+        return false;
+      }
+      const anterior = pendentesAnteriores.current;
+      pendentesAnteriores.current = dados.pendentes;
+      if (anterior === null) return 1_500;
+      return dados.pendentes < anterior ? 1_500 : false;
+    },
+  });
+
   const comparacao = useQuery({
     queryKey: ["ipva", "comparacao", base, comparada, comSemAlteracao],
     enabled: Boolean(base && comparada),
@@ -283,6 +325,12 @@ export default function AuditoriaDeIpva() {
             rotulos={rotulos}
             carregando={comparacao.isFetching}
             idPrefixo="ipva"
+            candidatos={candidatos.data}
+            carregandoCandidatos={candidatos.isFetching}
+            onAbrirDe={setMenuDeAberto}
+            erroDosCandidatos={
+              candidatos.error instanceof Error ? candidatos.error.message : null
+            }
           />
         )}
 

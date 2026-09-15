@@ -25,11 +25,16 @@ export interface CandidatosDoPar {
     id: string;
     numeros: {
       alteracoes: number;
-      impacto: {
-        porPeriodicidade: Record<string, number>;
-        naoCalculavel: number;
-        cobertasPorParcelas: number;
-      };
+      /*
+        Só `porPeriodicidade`, e é o que a linha precisa.
+
+        A primeira versão deste tipo copiou o impacto do FINAME inteiro, com
+        `cobertasPorParcelas` junto — e o IPVA, que chama o mesmo campo de
+        `foraDaSoma`, não caberia aqui sem inventar uma conversão. Pedir só o
+        que se lê é o que torna esta forma comum de verdade: cada rubrica
+        acrescenta o que quiser no resto, e nada disso chega ao menu.
+      */
+      impacto: { porPeriodicidade: Record<string, number> };
     } | null;
   }[];
   /** Quantas candidatas não couberam no orçamento desta chamada. */
