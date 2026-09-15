@@ -341,6 +341,10 @@ function FragmentoDoVeiculo({
  * diferença na unidade certa, o status e a justificativa), sem as do veículo:
  * placa, tipo, prazo e data de cadastro já estão na linha de cima, e repeti-las
  * aqui seria escrevê-las catorze vezes.
+ *
+ * A ordem das linhas é a do catálogo, e `agruparPorVeiculo` já a aplica: a
+ * parcela FINAME primeiro, juros e amortização logo abaixo. A parcela é a soma
+ * dos dois, e lê-la no meio deles convidava a somar as três.
  */
 function AlteracoesDoVeiculo({
   linhas,

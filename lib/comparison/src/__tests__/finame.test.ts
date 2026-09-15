@@ -629,6 +629,25 @@ describe("o agrupamento por veículo", () => {
     expect(abc.alteracoesEmDinheiro).toBe(2);
   });
 
+  it("põe a parcela FINAME antes das duas parcelas que a compõem", () => {
+    /* A ordem do motor punha o total entre as duas metades dele — "Amortização,
+       Parcela FINAME, Juros" —, e quem lia somava as três. O catálogo manda:
+       primeiro a parcela, depois juros e amortização. */
+    const foraDeOrdem = linhasDeFiname([
+      alteracao({ entityLabel: "QYW6D15", attributeCode: "cavalo.amortizacao_cavalo" }),
+      alteracao({ entityLabel: "QYW6D15", attributeCode: "cavalo.data_fim_contrato" }),
+      alteracao({ entityLabel: "QYW6D15", attributeCode: "cavalo.finame_cavalo" }),
+      alteracao({ entityLabel: "QYW6D15", attributeCode: "cavalo.juros_finame_cavalo" }),
+    ]);
+    const [veiculo] = agruparPorVeiculo(foraDeOrdem);
+    expect(veiculo!.linhas.map((l) => l.variavel)).toEqual([
+      "parcela",
+      "juros",
+      "amortizacao",
+      "data_fim_contrato",
+    ]);
+  });
+
   it("mostra a parcela FINAME da placa — e não a soma das monetárias dela", () => {
     const abc = agruparPorVeiculo(recorte()).find((v) => v.entityLabel === "ABC1D23")!;
     expect(abc.parcela).toEqual({
