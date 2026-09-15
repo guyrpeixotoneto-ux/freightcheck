@@ -687,6 +687,13 @@
       "when": 1789501100000,
       "tag": "0097_cancelar_importacao",
       "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1789501200000,
+      "tag": "0098_justificativa_estruturada",
+      "breakpoints": true
     }
   ]
 }

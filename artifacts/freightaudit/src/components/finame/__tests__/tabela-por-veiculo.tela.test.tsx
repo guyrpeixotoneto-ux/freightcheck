@@ -16,6 +16,7 @@ import { agruparPorVeiculo } from "@workspace/comparison/finame";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 import { TabelaDeFiname } from "../tabela";
+import type { Justificativa } from "@/lib/justificativas";
 
 /*
   `TooltipProvider` está aqui porque está em `App.tsx`, na raiz da aplicação: a
@@ -76,13 +77,18 @@ const RECORTE = [
   }),
 ];
 
-const JUSTIFICADA = {
+const JUSTIFICADA: Justificativa = {
   id: "j1",
   changeSetId: "cs1",
   changeId: 2,
   entityLabel: "QYW6D15",
   entityType: "CAVALO",
-  texto: "Contrato encerrado em julho.",
+  texto: "Conforme a regra: o valor acompanha o contrato de financiamento.",
+  formula: "Amortização mensal = Valor financiado ÷ Prazo",
+  regra: "O valor acompanha o contrato de financiamento.",
+  conforme: true,
+  motivoExcecao: null,
+  responsavelAprovacao: null,
   criadoPor: "gestor@ambev.com.br",
   criadoEm: "2026-09-01T12:00:00.000Z",
 };
@@ -252,10 +258,14 @@ describe("justificar direto na tabela", () => {
         name: "Reescrever a justificativa de Amortização de QYW6D15",
       }),
     );
-    // O texto atual viaja junto: o diálogo abre com ele, dizendo o que substitui.
+    // A justificativa atual viaja junto: o diálogo abre com ela nos campos,
+    // dizendo o que se está substituindo.
     expect(onJustificar).toHaveBeenCalledWith(
       [expect.objectContaining({ id: 2 })],
-      expect.objectContaining({ texto: "Contrato encerrado em julho." }),
+      expect.objectContaining({
+        regra: "O valor acompanha o contrato de financiamento.",
+        conforme: true,
+      }),
     );
   });
 

@@ -49,6 +49,7 @@ import {
   type AlvoDaJustificativa,
 } from "@/components/justificativas/justificar-dialog";
 import { useJustificadaPor, type Justificativa } from "@/lib/justificativas";
+import type { JustificativaEstruturada } from "@workspace/comparison/justificativa-estruturada";
 import {
   parDePartida,
   rotulosDasVigencias,
@@ -346,14 +347,14 @@ export default function AuditoriaDeFiname() {
   const [justificativaAtual, setJustificativaAtual] = useState<Justificativa | null>(null);
 
   const gravarJustificativa = useMutation({
-    mutationFn: (input: { changeIds: number[]; texto: string }) =>
+    mutationFn: (input: { changeIds: number[]; justificativa: JustificativaEstruturada }) =>
       fetchJson<{ justificativas: Justificativa[] }>("/justificativas", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           changeSetId: comparacao.data?.changeSetId,
           changeIds: input.changeIds,
-          texto: input.texto,
+          ...input.justificativa,
         }),
       }),
     onSuccess: () => {
@@ -682,10 +683,10 @@ export default function AuditoriaDeFiname() {
                 setAlvo(null);
                 setJustificativaAtual(null);
               }}
-              onConfirmar={(texto) =>
+              onConfirmar={(justificativa) =>
                 gravarJustificativa.mutate({
                   changeIds: (alvo ?? []).map((a) => a.id),
-                  texto,
+                  justificativa,
                 })
               }
             />

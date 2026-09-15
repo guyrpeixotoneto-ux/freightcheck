@@ -20,7 +20,19 @@ export interface Justificativa {
   changeId: number;
   entityLabel: string;
   entityType: string | null;
+  /** O resumo legível, derivado no servidor dos campos abaixo — ver `resumoDaJustificativa`. */
   texto: string;
+  /*
+    A justificativa estruturada, de `0098` em diante. Anuláveis porque as
+    gravadas antes dela têm só `texto`: a tela que as lê mostra a frase e
+    deixa os campos em branco, em vez de inventar uma regra que ninguém
+    escreveu.
+  */
+  formula: string | null;
+  regra: string | null;
+  conforme: boolean | null;
+  motivoExcecao: string | null;
+  responsavelAprovacao: string | null;
   criadoPor: string;
   criadoEm: string;
 }
