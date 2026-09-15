@@ -66,6 +66,7 @@ import AuditoriaDeFiname from '@/pages/custo-fixo-finame';
 import AuditoriaDeIpva from '@/pages/custo-fixo-ipva';
 import AuditoriaDeLucroFixo from '@/pages/custo-fixo-lucro-fixo';
 import AuditoriaDeImpostos from '@/pages/custo-fixo-impostos';
+import AuditoriaDeKmRodado from '@/pages/custo-variavel-km-rodado';
 import Remunerado from '@/pages/remunerado';
 import Justificativas from '@/pages/justificativas';
 import JustificativasPlaca from '@/pages/justificativas-placa';
@@ -545,6 +546,23 @@ function RotasDaAuditoria() {
         não mudou uma vírgula, como manda o catálogo.
       */}
       <Route path="/custo-fixo-impostos" component={AuditoriaDeImpostos} />
+      {/*
+        Km Rodado sai de `TELAS_EM_PREPARO` e é a **primeira tela de custo
+        variável** — e a primeira de grão trecho. As quatro de custo fixo são por
+        placa; custo variável é provocado por rodar, e o que roda é um percurso.
+
+        O verbete pedia a quilometragem **realizada** por ativo, e ela continua
+        não existindo: o que chega é a tabela de preço por trecho, não o
+        apontamento de viagens. A tela não multiplica R$/km por uma quilometragem
+        que ninguém importou — diz isso no cartão de impacto e no rodapé.
+
+        O que o acervo sustentava e ninguém tinha conferido são duas identidades
+        do próprio dicionário da tabela de frete: ida + volta = km do ciclo, e
+        R$/viagem ÷ R$/km = esse mesmo km. A segunda enxerga um preço montado
+        sobre outra distância (`docs/ACHADO-KM-RODADO.md`). O menu não mudou uma
+        vírgula, como manda o catálogo.
+      */}
+      <Route path="/custo-variavel-km-rodado" component={AuditoriaDeKmRodado} />
       {/*
         QLP Administrativo saiu de `TELAS_EM_PREPARO` quando a importação
         passou a receber o export próprio dele (tipo QLP_ADMINISTRATIVO) — o

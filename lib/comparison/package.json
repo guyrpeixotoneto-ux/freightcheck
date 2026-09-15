@@ -13,6 +13,7 @@
     "./composition": "./src/composition.ts",
     "./finame": "./src/finame.ts",
     "./impostos": "./src/impostos.ts",
+    "./km-rodado": "./src/km-rodado.ts",
     "./ipva": "./src/ipva.ts",
     "./lucro-fixo": "./src/lucro-fixo.ts",
     "./recorte-de-rubrica": "./src/recorte-de-rubrica.ts",

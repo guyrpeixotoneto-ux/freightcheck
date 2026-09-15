@@ -211,6 +211,17 @@ export const TELAS_QUE_HONRAM_ESCOPO = new Set<string>([
     comparar vigências de escopos distintos.
   */
   "/custo-fixo-impostos",
+  /*
+    A Auditoria de Km Rodado, pelo mesmo mecanismo das quatro acima e com um
+    filtro a mais: a tela (`pages/custo-variavel-km-rodado.tsx`) recorta a lista
+    do seletor pela unidade aberta **e** pelas vigências que cobrem trecho, que é
+    o grão do custo variável. Sem o segundo filtro, trocar de unidade levaria a
+    um par de vigências de equipamento e a tela abriria vazia sem dizer por quê.
+
+    Fora de `TELAS_QUE_HONRAM_VISAO_GERAL` pelo motivo de sempre: o motor recusa
+    comparar vigências de escopos distintos.
+  */
+  "/custo-variavel-km-rodado",
 ]);
 
 /**

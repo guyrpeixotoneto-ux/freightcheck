@@ -716,12 +716,22 @@ describe("o catálogo de telas em preparo", () => {
     achado que o verbete não previa: o montante de ICMS é zero nas 1.215 linhas
     do acervo, com as alíquotas declaradas em todas elas — coluna sem dado, e não
     imposto zero.
+
+    E de dezessete para dezesseis com **Km Rodado**, a quinta — e a primeira de
+    **custo variável**, que é o que a torna diferente das quatro anteriores: o
+    grão deixa de ser a placa e passa a ser o trecho, porque custo variável é
+    provocado por rodar e o que roda é um percurso. A metade que falta é a mesma
+    que o verbete anunciava, e ela não encolheu: a quilometragem **realizada** por
+    quinzena continua não existindo, e a tela recusa multiplicar R$/km por uma
+    distância que ninguém importou. O que o acervo já sustentava são duas contas
+    do próprio dicionário da tabela de frete que ninguém tinha conferido — ida +
+    volta contra o km do ciclo, e R$/viagem ÷ R$/km contra esse mesmo km.
   */
   it("descreve, para cada tela, o que falta antes de ela mostrar um número", () => {
     const catalogo = fonte("pages/telas-em-preparo.ts");
     const telas = [...catalogo.matchAll(/^\s{4}href:\s*"([^"]+)"/gm)].length;
 
-    expect(telas).toBe(17);
+    expect(telas).toBe(16);
     expect([...catalogo.matchAll(/^\s{4}depende:\s*\[/gm)]).toHaveLength(telas);
     expect([...catalogo.matchAll(/^\s{4}pergunta:/gm)]).toHaveLength(telas);
   });
