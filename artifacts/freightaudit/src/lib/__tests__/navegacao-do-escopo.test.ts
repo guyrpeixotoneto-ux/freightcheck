@@ -311,8 +311,51 @@ describe("o que a caixa da lateral mostra", () => {
  * CAMAÇARI e clicava em "Monitoramento de Chamados" chegava lá em PERNAMBUCO,
  * com a lateral trocando sozinha a unidade que ela mesma tinha escrito.
  */
+/**
+ * A Auditoria de FINAME — a tela que motivou esta rodada.
+ *
+ * Duas coisas: trocar de unidade dentro dela não pode trocar de tela, e "Visão
+ * Geral" continua desviando, porque o motor não compara vigências de unidades
+ * diferentes (`engine.ts`) — uma soma de todas as unidades não é uma comparação
+ * que exista aqui.
+ */
+describe("a Auditoria de FINAME", () => {
+  const FINAME = "/custo-fixo-finame";
+
+  it("não expulsa quem troca de unidade", () => {
+    const destino = enderecoDe(CAMACARI, FINAME, "?period=2026-08-16");
+
+    expect(tela(destino)).toBe(FINAME);
+    expect(consulta(destino)).toEqual({
+      scopeHash: "scope-camacari",
+      canal: "EMPURRADA",
+      period: "2026-08-16",
+    });
+  });
+
+  it("desvia quem escolhe a Visão Geral, que não existe para uma comparação", () => {
+    expect(tela(enderecoDeVisaoGeral(FINAME, ""))).not.toBe(FINAME);
+  });
+});
+
 describe("clicar num item do menu", () => {
   const COM_CAMACARI = "?scopeHash=scope-camacari&canal=EMPURRADA";
+
+  /*
+    A Auditoria de FINAME, pela mesma porta e pela mesma reclamação dita uma
+    terceira vez: *"eu tento mudar de PERNAMBUCO para CAMAÇARI e saio do
+    módulo"*. Ela saía mesmo — sem estar na lista, trocar de unidade no FINAME
+    desviava para Parâmetros.
+  */
+  it("leva a unidade aberta para a Auditoria de FINAME", () => {
+    const destino = enderecoDoMenu("/custo-fixo-finame", "/parametros", COM_CAMACARI);
+
+    expect(tela(destino)).toBe("/custo-fixo-finame");
+    expect(consulta(destino)).toEqual({
+      scopeHash: "scope-camacari",
+      canal: "EMPURRADA",
+    });
+  });
 
   it("leva a unidade aberta para o Monitoramento de Chamados", () => {
     const destino = enderecoDoMenu(

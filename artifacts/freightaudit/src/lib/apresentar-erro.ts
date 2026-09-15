@@ -53,9 +53,10 @@ export interface Apresentacao {
   /**
    * A mensagem do servidor, crua.
    *
-   * Só é preenchida quando **não** há orientação — erro não tipado, um bundle
-   * antigo ainda no ar, uma rota que não passa por `responderSchemaAusente`. Aí
-   * ela é a única coisa que se tem, e não uma opinião concorrente.
+   * Só é preenchida quando ninguém soube explicar — nem orientação, nem recusa
+   * do servidor: um erro não tipado, um bundle antigo ainda no ar, uma rota que
+   * não passa por `responderSchemaAusente`. Aí ela é a única coisa que se tem,
+   * e não uma opinião concorrente.
    */
   mensagemCrua: string | null;
   /**
@@ -72,9 +73,10 @@ export interface Apresentacao {
   /**
    * A frase principal — a linha que se lê com pressa.
    *
-   * Sai do `humano` da orientação quando há uma, e é sempre uma frase em
-   * português sobre o que houve: nenhum nome de migration, nenhum comando,
-   * nenhum SQLSTATE, nenhum endereço de rota. Sem orientação, é `null` e a tela
+   * Sai do `humano` da orientação quando há uma, e da frase da recusa quando o
+   * servidor respondeu 4xx dizendo por quê. É sempre uma frase em português
+   * sobre o que houve: nenhum nome de migration, nenhum comando, nenhum
+   * SQLSTATE, nenhum endereço de rota. Sem nenhuma das duas é `null`, e a tela
    * cai no que sobrou — a mensagem crua e o `requestId`.
    *
    * **Este campo substitui `mostrarLinkHealthz`.** Aquele booleano era a
@@ -93,6 +95,27 @@ export interface Apresentacao {
    * cada um com um rótulo, e nenhum deles disputando a linha principal.
    */
   detalhes: { rotulo: string; texto: string; comando?: boolean }[];
+}
+
+/**
+ * Uma recusa que o servidor escreveu de propósito — um 4xx com frase própria.
+ *
+ * Não é ausência de explicação: é a explicação, dita pela única camada que sabe
+ * por que o pedido não vale. "Escopos diferentes: ... cobrem unidades distintas
+ * e não são comparáveis" é uma frase completa sobre o que houve, e quem a lê
+ * sabe o que fazer com ela.
+ *
+ * O diagnóstico exclui: um 4xx que carrega o estado do banco é o caso em que
+ * uma camada mais funda já explicou melhor, e a regra de uma orientação só
+ * continua valendo.
+ */
+function ehRecusaDoServidor(error: unknown): error is ApiError {
+  return (
+    error instanceof ApiError &&
+    error.status >= 400 &&
+    error.status < 500 &&
+    !ehDiagnostico(error.diagnostico)
+  );
 }
 
 /**
@@ -155,9 +178,7 @@ function escolherOrientacao(
     espelho do defeito que este arquivo corrige, e seria pior: manda quem errou
     a senha esperar um conserto que não vai mudar nada para ela.
   */
-  if (error instanceof ApiError && error.status >= 400 && error.status < 500) {
-    return null;
-  }
+  if (ehRecusaDoServidor(error)) return null;
 
   /*
     O terceiro degrau: o que a própria tela foi perguntar.
@@ -241,12 +262,32 @@ export function apresentar(
     error instanceof ApiError && error.contexto ? error.contexto : null;
   const mensagem = error instanceof Error ? error.message : String(error);
 
+  /*
+    A recusa vira a linha principal — e é o defeito que esta linha corrige.
+
+    Um 4xx não tem orientação, por decisão de `escolherOrientacao`: o ambiente
+    não explica uma recusa. Só que `principal` saía **só** da orientação, então
+    toda recusa caía no texto de quem não sabe explicar — "não foi possível
+    determinar a causa desta falha" — com a frase do servidor dobrada dentro de
+    "Detalhes técnicos", fechado. Foi assim que "estas duas vigências são de
+    unidades diferentes" chegou à tela do FINAME como um mistério.
+
+    O que não muda é a regra de uma orientação só: a recusa ocupa `principal`
+    exatamente quando não há orientação nenhuma, nunca ao lado de uma.
+  */
+  const recusa = ehRecusaDoServidor(error) && mensagem ? mensagem : null;
+
   return {
     // Sem orientação o contexto viria sozinho e sem remédio — a mensagem crua
     // já o contém por inteiro, e repetir metade dela não ajuda ninguém.
     contexto: orientacao ? contexto : null,
     orientacao,
-    mensagemCrua: orientacao ? null : mensagem,
+    /*
+      A recusa também tira a mensagem crua daqui: ela **é** a mensagem, e já
+      está na linha principal. Repeti-la em "Resposta do servidor" seria a
+      mesma frase duas vezes na mesma caixa.
+    */
+    mensagemCrua: orientacao || recusa ? null : mensagem,
     /*
       Não entra na regra de "uma orientação só": ele não é opinião sobre o que
       houve, é o endereço da linha de log. Convive com qualquer desfecho, e é
@@ -255,16 +296,17 @@ export function apresentar(
     */
     requestId: error instanceof ApiError ? (error.requestId ?? null) : null,
     /*
-      A frase principal sai da orientação e de nenhum outro lugar. Sem
-      orientação ela é `null` — e `null` é uma afirmação: **ninguém sabe
-      explicar isto**. A tela responde a esse caso mostrando a mensagem crua e o
+      A frase principal sai da orientação — ou da recusa que o servidor
+      escreveu, que é a outra forma de alguém saber explicar. Sem nenhuma das
+      duas ela é `null`, e `null` é uma afirmação: **ninguém sabe explicar
+      isto**. A tela responde a esse caso mostrando a mensagem crua e o
       identificador da requisição, que é o que de fato se tem; inventar uma
       frase tranquilizadora ali seria a versão educada de não responder.
     */
-    principal: orientacao ? (orientacao.humano ?? orientacao.resumo) : null,
+    principal: orientacao ? (orientacao.humano ?? orientacao.resumo) : recusa,
     detalhes: detalhesTecnicos(
       orientacao,
-      orientacao ? null : mensagem,
+      orientacao || recusa ? null : mensagem,
       error instanceof ApiError ? (error.requestId ?? null) : null,
     ),
   };
