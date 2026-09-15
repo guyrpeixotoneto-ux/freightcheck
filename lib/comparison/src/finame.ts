@@ -316,6 +316,34 @@ export interface LinhaDeFiname {
   estado: EstadoDaLinhaDeFiname;
   /** A frase da recusa, quando há. Vem do motor, não é escrita aqui. */
   motivo: string | null;
+  /**
+   * O prazo do financiamento deste veículo, em meses — contexto da linha, não
+   * comparação.
+   *
+   * Uma amortização que cai para R$ 0,00 e um prazo de 60 meses contados desde
+   * 2019 são a mesma frase: o contrato acabou. Sem o período ao lado, quem lê a
+   * tabela tem de abrir o detalhe de cada placa para saber se a queda é o fim
+   * do financiamento ou um erro de digitação da planilha.
+   *
+   * Vem da leitura da vigência comparada (`periodo_finame`), com a base como
+   * segunda opção para o veículo que saiu — e **nulo quando nenhuma das duas
+   * pontas declarou o prazo**, porque ausência aqui também não vira zero. Quem
+   * o preenche é {@link comContextoDoVeiculo}; as duas fábricas de linha nascem
+   * com ele nulo, já que o `change_set` sozinho não conhece o prazo de um
+   * veículo cuja linha de prazo não mudou.
+   */
+  periodoFiname: string | null;
+  /**
+   * A data de cadastro do veículo — a entrada dele na frota, como a fonte a
+   * entregou (`cavalo.data` / `carreta.data`).
+   *
+   * Contexto pela mesma razão do prazo, e lida do mesmo jeito: a idade do
+   * cadastro é o que diz se a parcela que sumiu pertence a um veículo de 2019 —
+   * financiamento no fim — ou a um que entrou no mês passado, onde a mesma queda
+   * é suspeita de erro de planilha. Nula quando nenhuma das duas pontas declarou
+   * a data.
+   */
+  dataDeCadastro: string | null;
   impactoAmount: number | null;
   impactoPeriodicidade: string | null;
   impactoCalculado: boolean;
@@ -351,6 +379,8 @@ export function linhaDaAlteracao(a: AlteracaoDoMotor): LinhaDeFiname | null {
       variacao: null,
       estado: estadoDaAlteracao(a),
       motivo: a.inconclusiveReason ?? null,
+      periodoFiname: null,
+      dataDeCadastro: null,
       impactoAmount: null,
       impactoPeriodicidade: null,
       impactoCalculado: false,
@@ -372,6 +402,8 @@ export function linhaDaAlteracao(a: AlteracaoDoMotor): LinhaDeFiname | null {
     variacao: numero(a.deltaPercent),
     estado: estadoDaAlteracao(a),
     motivo: a.inconclusiveReason ?? null,
+    periodoFiname: null,
+    dataDeCadastro: null,
     impactoAmount: numero(a.impactAmount),
     impactoPeriodicidade: a.impactPeriodicity ?? null,
     impactoCalculado: a.impactConfidence === "CALCULATED",
@@ -418,10 +450,92 @@ export function linhaSemAlteracao(par: {
     variacao: null,
     estado: "SEM_ALTERACAO",
     motivo: null,
+    periodoFiname: null,
+    dataDeCadastro: null,
     impactoAmount: null,
     impactoPeriodicidade: null,
     impactoCalculado: false,
   };
+}
+
+// ---------------------------------------------------------------------------
+// O contexto do veículo — as duas colunas que não são comparação
+// ---------------------------------------------------------------------------
+
+/** As duas variáveis de contexto. Lidas do catálogo, nunca redigitadas. */
+const PRAZO = VARIAVEIS_DE_FINAME.find((v) => v.chave === "prazo");
+const DATA_DE_CADASTRO = VARIAVEIS_DE_FINAME.find((v) => v.chave === "data_de_entrada");
+
+/**
+ * Os códigos do `periodo_finame` e da data de entrada, por tipo de equipamento.
+ *
+ * É o recorte que a rota lê das duas vigências para preencher as duas colunas:
+ * dois atributos, e não a tabela inteira.
+ */
+export const CODIGOS_DO_CONTEXTO: string[] = codigosDe(
+  [PRAZO, DATA_DE_CADASTRO].filter((v): v is VariavelDeFiname => v !== undefined),
+);
+
+/** O código do prazo de um tipo de equipamento, quando ele o tem. */
+export function codigoDoPeriodo(entityType: string): string | undefined {
+  return PRAZO ? codigoDaVariavel(PRAZO, entityType) : undefined;
+}
+
+/** O código da data de cadastro de um tipo de equipamento, quando ele o tem. */
+export function codigoDaDataDeCadastro(entityType: string): string | undefined {
+  return DATA_DE_CADASTRO ? codigoDaVariavel(DATA_DE_CADASTRO, entityType) : undefined;
+}
+
+/** O contexto de um veículo, do jeito que a leitura da vigência o entrega. */
+export interface ContextoDoVeiculo {
+  entityLabel: string | null;
+  entityType: string;
+  /** `null` quando a vigência não declarou o prazo daquele veículo. */
+  periodo: string | null;
+  /** `null` quando a vigência não declarou a data de cadastro. */
+  dataDeCadastro: string | null;
+}
+
+/**
+ * As linhas com o prazo e a data de cadastro de cada veículo ao lado.
+ *
+ * Duas listas, e não uma: a comparada manda, e a base entra só onde a comparada
+ * não tem o veículo — é o caso do `AUSENTE_NA_COMPARADA`, cuja linha ficaria sem
+ * contexto justamente quando o contexto explica a saída. A ordem das linhas não
+ * muda, e nenhuma linha é criada ou removida aqui: a função só preenche duas
+ * colunas.
+ *
+ * Um campo que nenhuma das duas pontas declarou continua nulo. Escrever "0
+ * meses" ali diria que o financiamento acabou — que é exatamente a leitura que
+ * esta coluna existe para sustentar, e que ninguém pode sustentar sobre um campo
+ * em branco.
+ */
+export function comContextoDoVeiculo(
+  linhas: readonly LinhaDeFiname[],
+  contexto: {
+    comparada: readonly ContextoDoVeiculo[];
+    base?: readonly ContextoDoVeiculo[];
+  },
+): LinhaDeFiname[] {
+  const periodos = new Map<string, string>();
+  const datas = new Map<string, string>();
+  /* A base primeiro, a comparada por cima: quem está nas duas fica com o valor
+     da comparada, e quem só está na base conserva o dela. */
+  for (const c of [...(contexto.base ?? []), ...contexto.comparada]) {
+    const chave = chaveDoVeiculo(c);
+    if (c.periodo !== null && c.periodo !== "") periodos.set(chave, c.periodo);
+    if (c.dataDeCadastro !== null && c.dataDeCadastro !== "") {
+      datas.set(chave, c.dataDeCadastro);
+    }
+  }
+  return linhas.map((l) => {
+    const chave = chaveDoVeiculo(l);
+    return {
+      ...l,
+      periodoFiname: periodos.get(chave) ?? null,
+      dataDeCadastro: datas.get(chave) ?? null,
+    };
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -731,6 +845,8 @@ export function totaisPorVigencia(
 export const COLUNAS_DO_CSV = [
   "Veículo",
   "Tipo",
+  "Período FINAME",
+  "Data de cadastro",
   "Variável",
   "Vigência Base",
   "Vigência Comparada",
@@ -738,20 +854,31 @@ export const COLUNAS_DO_CSV = [
   "Variação %",
   "Status",
   "Motivo",
+  "Justificativa",
 ] as const;
 
 /**
- * Uma linha da tabela como as nove células do CSV.
+ * Uma linha da tabela como as doze células do CSV.
  *
  * Devolve texto cru — sem `R$`, sem separador de milhar e sem decidir o
  * separador do arquivo. Quem escreve o CSV é `lib/csv.ts`, no cliente, que já
  * sabe o que o Excel brasileiro espera; repetir aquela decisão aqui daria duas
  * regras para o mesmo arquivo.
+ *
+ * A justificativa entra por parâmetro porque **não é da linha**: ela é do
+ * gestor, mora em `justificativa` e é lida por `change_id` numa segunda
+ * consulta. Guardá-la dentro de `LinhaDeFiname` faria a comparação carregar um
+ * texto que o motor não produziu — e que muda sem a comparação mudar.
  */
-export function celulasDoCsv(l: LinhaDeFiname): (string | number | null)[] {
+export function celulasDoCsv(
+  l: LinhaDeFiname,
+  justificativa?: string | null,
+): (string | number | null)[] {
   return [
     l.entityLabel,
     l.entityType,
+    l.periodoFiname,
+    l.dataDeCadastro,
     l.rotuloDaVariavel,
     l.base,
     l.comparada,
@@ -759,5 +886,6 @@ export function celulasDoCsv(l: LinhaDeFiname): (string | number | null)[] {
     l.variacao,
     ROTULO_DO_ESTADO[l.estado],
     l.motivo,
+    justificativa ?? null,
   ];
 }

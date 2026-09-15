@@ -44,6 +44,7 @@ import {
   type TotaisDeFiname,
 } from "@/lib/finame";
 import { type CandidatosDoPar } from "@/lib/candidatos";
+import { useJustificadaPor } from "@/lib/justificativas";
 import {
   parDePartida,
   rotulosDasVigencias,
@@ -283,6 +284,21 @@ export default function AuditoriaDeFiname() {
     queryFn: () => fetchJson<TotaisDeFiname>(`/finame/totais?base=${base}&comparada=${comparada}`),
   });
 
+  /**
+   * As justificativas desta comparação, por `change.id` — a última coluna.
+   *
+   * É uma segunda consulta, e não um campo da comparação: a justificativa é
+   * escrita depois, por um gestor, sobre uma alteração que já existia. Pendurá-la
+   * no `/finame/comparacao` faria a tela recalcular a comparação inteira toda vez
+   * que alguém justificasse uma linha.
+   *
+   * `useConsultaResiliente`, que mora dentro do hook, é o que garante que uma
+   * falha aqui não vire painel de erro: sem justificativas a tabela continua
+   * inteira, com a coluna em branco. A comparação é o dado da tela; a
+   * justificativa é o comentário sobre ele.
+   */
+  const { justificadaPor } = useJustificadaPor(comparacao.data?.changeSetId);
+
   const linhas = useMemo(() => comparacao.data?.linhas ?? [], [comparacao.data]);
   const filtradas = useMemo(() => filtrar(linhas, filtros), [linhas, filtros]);
   const contagens = useMemo(
@@ -303,7 +319,7 @@ export default function AuditoriaDeFiname() {
     vigencias.data?.find((v) => v.id === comparada)?.sourceLabel ?? "Vigência Comparada";
 
   function exportar() {
-    const blob = csvComoBlob(linhasDoCsv(filtradas));
+    const blob = csvComoBlob(linhasDoCsv(filtradas, justificadaPor));
     salvarArquivo(
       blob,
       `finame-${paraNomeDeArquivo(rotuloBase)}-para-${paraNomeDeArquivo(rotuloComparada)}.csv`,
@@ -549,6 +565,7 @@ export default function AuditoriaDeFiname() {
               <>
                 <TabelaDeFiname
                   linhas={naPagina}
+                  justificadaPor={justificadaPor}
                   onAbrir={(l) =>
                     setAberto({ entityLabel: l.entityLabel, entityType: l.entityType })
                   }

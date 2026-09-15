@@ -127,6 +127,31 @@ export function escreverDiferenca(
   }
 }
 
+/**
+ * O período do financiamento, escrito — `60` vira `60 meses`.
+ *
+ * A mesma régua de {@link escreverValor} para a medida `MESES`, e não uma
+ * segunda: a coluna "Período FINAME" e a linha "Prazo" mostram o mesmo campo do
+ * mesmo veículo, e escrevê-lo de dois jeitos na mesma tela seria convidar a
+ * dúvida sobre se são o mesmo número.
+ */
+export function escreverPeriodo(periodo: string | null): string {
+  return escreverValor(periodo, "MESES");
+}
+
+/**
+ * A data de cadastro, escrita — `2019-05-10` vira `10/05/2019`.
+ *
+ * A fonte entrega a data em ISO, e a planilha do cliente a lê em dia/mês/ano.
+ * Uma data que não chega em ISO sai como veio: inventar um formato sobre um
+ * texto que não se entendeu seria trocar um dado bruto legível por um palpite.
+ */
+export function escreverDataDeCadastro(data: string | null): string {
+  if (data === null || data === "") return "—";
+  const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(data);
+  return iso ? `${iso[3]}/${iso[2]}/${iso[1]}` : data;
+}
+
 /** A variação em pontos percentuais. Nula quando a base é zero. */
 export function escreverVariacao(variacao: number | null): string {
   if (variacao === null) return "—";
@@ -238,11 +263,17 @@ export function contagemPorAba(
  * texto do Excel brasileiro. Duas regras separadas porque são dois assuntos: o
  * que vai em cada coluna é do domínio, e a vírgula decimal é do Excel.
  */
-export function linhasDoCsv(linhas: readonly LinhaDeFiname[]): string[][] {
+export function linhasDoCsv(
+  linhas: readonly LinhaDeFiname[],
+  justificadaPor?: ReadonlyMap<number, { texto: string }>,
+): string[][] {
   return [
     [...COLUNAS_DO_CSV],
     ...linhas.map((l) =>
-      celulasDoCsv(l).map((celula) => {
+      celulasDoCsv(
+        l,
+        l.id === null ? null : (justificadaPor?.get(l.id)?.texto ?? null),
+      ).map((celula) => {
         if (celula === null || celula === undefined) return "";
         if (typeof celula === "number") return numeroParaCsv(celula);
         return celula;
