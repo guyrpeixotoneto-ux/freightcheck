@@ -105,7 +105,7 @@ export function SeletorDeUnidade({
 export function MenuDaGestaoAVista({ paraGestaoAVista }: { paraGestaoAVista: string }) {
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger className="flex items-center gap-2 rounded-lg bg-brand px-4 py-2.5 text-sm font-bold text-brand-foreground hover:opacity-90 transition-opacity">
+      <DropdownMenuTrigger className="flex items-center gap-2 whitespace-nowrap rounded-lg bg-brand px-4 py-2.5 text-sm font-bold text-brand-foreground hover:opacity-90 transition-opacity">
         <Tv className="w-4 h-4" />
         Gestão à Vista
         <ChevronDown className="w-3.5 h-3.5 opacity-80" />

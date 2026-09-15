@@ -162,7 +162,22 @@ export function CabecalhoDePagina({
             </div>
           </div>
 
-          {acoes && <div className="flex items-center gap-2.5 shrink-0 flex-wrap">{acoes}</div>}
+          {/*
+            As ações embrulham, e a caixa delas **não** é `shrink-0`.
+
+            Com `shrink-0` a caixa vale a soma dos botões mesmo quando o
+            `flex-wrap` já podia quebrá-los em duas linhas: num telefone, os
+            três controles do Panorama — "Trocar unidade", "Trocar vigência" e
+            "Gestão à Vista" — mediam mais do que a tela e o último saía pela
+            direita, sem barra de rolagem que o trouxesse de volta. Sem ela, a
+            caixa afina até o espaço disponível e os botões descem de linha.
+
+            Quem protege cada botão de ser espremido é o `whitespace-nowrap`
+            deles: o tamanho mínimo de um item flex é o do conteúdo, então com
+            o texto em uma linha só o botão prefere quebrar para a linha de
+            baixo a encolher e partir o rótulo no meio.
+          */}
+          {acoes && <div className="flex items-center gap-2.5 flex-wrap max-w-full">{acoes}</div>}
         </div>
 
         {rodape && <div className="mt-4">{rodape}</div>}
