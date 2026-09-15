@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { lazy, Suspense, useEffect } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
 import { ErrorBoundary } from '@/components/error-boundary';
@@ -29,66 +29,129 @@ import { publicarNoConsole } from '@/lib/registro-de-falhas';
 import { PADRAO_DAS_CONSULTAS } from '@/lib/chamada-resiliente';
 import Login from '@/pages/login';
 
-import Inicio from '@/pages/inicio';
-import Dashboard from '@/pages/dashboard';
-import Panorama from '@/pages/panorama';
-import ImpactoApurado from '@/pages/impacto-apurado';
-import GestaoAVista from '@/pages/gestao-a-vista';
-import LinhaDoTempo from '@/pages/linha-do-tempo';
-import EvolucaoPorPlaca from '@/pages/evolucao-por-placa';
-import AtivosEParados from '@/pages/ativos-e-parados';
-import VisaoGerencialDaAuditoria from '@/pages/visao-gerencial';
-import Vigencia from '@/pages/vigencia';
-import Dados from '@/pages/dados';
-import Alteracoes from '@/pages/alteracoes';
-import Parametros from '@/pages/parametros';
-import Comparar from '@/pages/comparar';
-import Importacoes from '@/pages/importacoes';
-import Integracoes from '@/pages/integracoes';
-import RastreioDeDados from '@/pages/rastreio-de-dados';
-import Composicao from '@/pages/composicao';
-import ComposicaoEquipamento from '@/pages/composicao-equipamento';
-import DRE from '@/pages/dre';
-import DREVeiculo from '@/pages/dre-veiculo';
-import ApresentacaoVideo from '@/components/video/ApresentacaoVideo';
-import AnaliseEquipamentos from '@/pages/analise-equipamentos';
-import Curadoria from '@/pages/curadoria';
-import Categorias from '@/pages/categorias';
-import BookOperador from '@/pages/book-operador';
-import Assistente from '@/pages/assistente';
-import Vigencias from '@/pages/vigencias';
-import Versoes from '@/pages/versoes';
-import Configuracoes from '@/pages/configuracoes';
-import Frota360 from '@/pages/frota-360';
-import RadarTrechos from '@/pages/radar-trechos';
-import QlpAdministrativo from '@/pages/qlp-administrativo';
-import AuditoriaDeFiname from '@/pages/custo-fixo-finame';
-import AuditoriaDeIpva from '@/pages/custo-fixo-ipva';
-import AuditoriaDeLucroFixo from '@/pages/custo-fixo-lucro-fixo';
-import Remunerado from '@/pages/remunerado';
-import Justificativas from '@/pages/justificativas';
-import JustificativasPlaca from '@/pages/justificativas-placa';
-import PainelDeJustificativas from '@/pages/painel-de-justificativas';
-import MonitoramentoDeChamados from '@/pages/monitoramento-de-chamados';
-import ConciliacaoDeChamados from '@/pages/conciliacao-de-chamados';
-import { EmPreparo } from '@/pages/em-preparo';
 import { TELAS_EM_PREPARO } from '@/pages/telas-em-preparo';
-import VisaoGerencial from '@/pages/fechamento/visao';
-import UnidadeDoFechamento from '@/pages/fechamento/unidade';
-import Competencias from '@/pages/fechamento/competencias';
-import Apuracoes from '@/pages/fechamento/apuracoes';
-import ResumoGeral from '@/pages/fechamento/resumo';
-import Conciliacao from '@/pages/fechamento/conciliacao';
-import CompetenciaAberta from '@/pages/fechamento/competencia';
-import DiaDoFechamento from '@/pages/fechamento/dia';
-import FrotaDaCompetencia from '@/pages/fechamento/frota';
-import Frotas from '@/pages/fechamento/frotas';
-import DisponibilidadeDaCompetencia from '@/pages/fechamento/disponibilidade';
-import Disponibilidades from '@/pages/fechamento/disponibilidades';
-import RemuneracaoCadastro from '@/pages/fechamento/remuneracao';
-import RemuneracaoUnidades from '@/pages/fechamento/remuneracao-unidades';
-import { EtapaDoFechamento } from '@/pages/fechamento/etapa';
 import { etapasDoFechamento } from '@/pages/fechamento/etapas';
+
+/**
+ * As telas, uma por pedaço.
+ *
+ * ---------------------------------------------------------------------------
+ * O que estava errado
+ * ---------------------------------------------------------------------------
+ * Estas mesmas linhas eram `import` estático, e o efeito não era de estilo: o
+ * `vite build` produzia **um arquivo só, de 3.166.845 bytes (848.948 gzip)**, e
+ * quem abria o Resumo executivo baixava também o Fechamento inteiro, a tela de
+ * Permissões, o Assistente e os gráficos — tudo, antes de ver qualquer coisa.
+ *
+ * Medido em 15/09/2026, primeira carga num Chromium real, com o estático
+ * comprimido:
+ *
+ *     sem limite       FCP    272 ms
+ *     20 Mb/s          FCP    520 ms
+ *     4G (4 Mb/s)      FCP  1.976 ms
+ *     3G (1,6 Mb/s)    FCP  4.776 ms
+ *
+ * Para efeito de comparação: **todos os dados** da tela mais pesada do produto
+ * somam 57 KB na rede. O programa que os desenha pesava 849 KB — quinze vezes
+ * mais que o dado.
+ *
+ * ---------------------------------------------------------------------------
+ * Por que `lazy` por rota, e não `manualChunks`
+ * ---------------------------------------------------------------------------
+ * `manualChunks` agruparia as bibliotecas em pedaços nomeados, mas continuaria
+ * mandando **todos** eles na primeira carga, porque o grafo estático não muda:
+ * quem importa tudo estaticamente baixa tudo, em um arquivo ou em oito. O que
+ * tira um módulo do caminho crítico é ele deixar de ser alcançável a partir da
+ * entrada — e é isso que `import()` faz.
+ *
+ * O Rollup cuida do resto sozinho: um módulo que duas rotas usam (o Recharts, o
+ * `components/ui`, a `lib/analise`) vira um pedaço compartilhado, baixado uma
+ * vez, na primeira rota que precisar dele. Não há duplicação a administrar à
+ * mão, e por isso não há lista de `manualChunks` aqui para envelhecer.
+ *
+ * ---------------------------------------------------------------------------
+ * Os quatro que continuam adiantados, e por quê
+ * ---------------------------------------------------------------------------
+ * - **`Login`** — é a tela de quem *não* tem sessão, e ela é decidida no `Gate`,
+ *   fora do `<Suspense>`. Adiá-la trocaria a primeira pintura de quem não está
+ *   logado por um spinner a mais, para economizar um pedaço que essa pessoa
+ *   precisa imediatamente.
+ * - **`NotFound`** — é o fundo do `Switch`, e pesa poucas linhas.
+ * - **`TELAS_EM_PREPARO`** e **`etapasDoFechamento`** — são catálogos, não
+ *   telas: o roteador os percorre para *montar* as rotas, antes de qualquer
+ *   navegação. Adiá-los adiaria o próprio roteador.
+ *
+ * ---------------------------------------------------------------------------
+ * O que o `<Suspense>` mostra
+ * ---------------------------------------------------------------------------
+ * O mesmo spinner que o `Gate` já usa enquanto confere a sessão — ver a função
+ * `Carregando` mais abaixo. É de propósito: a espera pelo pedaço da rota e a
+ * espera pela sessão são a mesma coisa para quem olha ("o produto está vindo"),
+ * e dar duas aparências a elas inventaria uma distinção que não existe na
+ * cabeça de quem está esperando.
+ */
+const Inicio = lazy(() => import('@/pages/inicio'));
+const Dashboard = lazy(() => import('@/pages/dashboard'));
+const Panorama = lazy(() => import('@/pages/panorama'));
+const ImpactoApurado = lazy(() => import('@/pages/impacto-apurado'));
+const GestaoAVista = lazy(() => import('@/pages/gestao-a-vista'));
+const LinhaDoTempo = lazy(() => import('@/pages/linha-do-tempo'));
+const EvolucaoPorPlaca = lazy(() => import('@/pages/evolucao-por-placa'));
+const AtivosEParados = lazy(() => import('@/pages/ativos-e-parados'));
+const VisaoGerencialDaAuditoria = lazy(() => import('@/pages/visao-gerencial'));
+const Vigencia = lazy(() => import('@/pages/vigencia'));
+const Dados = lazy(() => import('@/pages/dados'));
+const Alteracoes = lazy(() => import('@/pages/alteracoes'));
+const Parametros = lazy(() => import('@/pages/parametros'));
+const Comparar = lazy(() => import('@/pages/comparar'));
+const Importacoes = lazy(() => import('@/pages/importacoes'));
+const Integracoes = lazy(() => import('@/pages/integracoes'));
+const RastreioDeDados = lazy(() => import('@/pages/rastreio-de-dados'));
+const Composicao = lazy(() => import('@/pages/composicao'));
+const ComposicaoEquipamento = lazy(() => import('@/pages/composicao-equipamento'));
+const DRE = lazy(() => import('@/pages/dre'));
+const DREVeiculo = lazy(() => import('@/pages/dre-veiculo'));
+const ApresentacaoVideo = lazy(() => import('@/components/video/ApresentacaoVideo'));
+const AnaliseEquipamentos = lazy(() => import('@/pages/analise-equipamentos'));
+const Curadoria = lazy(() => import('@/pages/curadoria'));
+const Categorias = lazy(() => import('@/pages/categorias'));
+const BookOperador = lazy(() => import('@/pages/book-operador'));
+const Assistente = lazy(() => import('@/pages/assistente'));
+const Vigencias = lazy(() => import('@/pages/vigencias'));
+const Versoes = lazy(() => import('@/pages/versoes'));
+const Configuracoes = lazy(() => import('@/pages/configuracoes'));
+const Frota360 = lazy(() => import('@/pages/frota-360'));
+const RadarTrechos = lazy(() => import('@/pages/radar-trechos'));
+const QlpAdministrativo = lazy(() => import('@/pages/qlp-administrativo'));
+const AuditoriaDeFiname = lazy(() => import('@/pages/custo-fixo-finame'));
+const AuditoriaDeIpva = lazy(() => import('@/pages/custo-fixo-ipva'));
+const AuditoriaDeLucroFixo = lazy(() => import('@/pages/custo-fixo-lucro-fixo'));
+const Remunerado = lazy(() => import('@/pages/remunerado'));
+const Justificativas = lazy(() => import('@/pages/justificativas'));
+const JustificativasPlaca = lazy(() => import('@/pages/justificativas-placa'));
+const PainelDeJustificativas = lazy(() => import('@/pages/painel-de-justificativas'));
+const MonitoramentoDeChamados = lazy(() => import('@/pages/monitoramento-de-chamados'));
+const ConciliacaoDeChamados = lazy(() => import('@/pages/conciliacao-de-chamados'));
+const EmPreparo = lazy(() =>
+  import('@/pages/em-preparo').then((m) => ({ default: m.EmPreparo })),
+);
+const VisaoGerencial = lazy(() => import('@/pages/fechamento/visao'));
+const UnidadeDoFechamento = lazy(() => import('@/pages/fechamento/unidade'));
+const Competencias = lazy(() => import('@/pages/fechamento/competencias'));
+const Apuracoes = lazy(() => import('@/pages/fechamento/apuracoes'));
+const ResumoGeral = lazy(() => import('@/pages/fechamento/resumo'));
+const Conciliacao = lazy(() => import('@/pages/fechamento/conciliacao'));
+const CompetenciaAberta = lazy(() => import('@/pages/fechamento/competencia'));
+const DiaDoFechamento = lazy(() => import('@/pages/fechamento/dia'));
+const FrotaDaCompetencia = lazy(() => import('@/pages/fechamento/frota'));
+const Frotas = lazy(() => import('@/pages/fechamento/frotas'));
+const DisponibilidadeDaCompetencia = lazy(() => import('@/pages/fechamento/disponibilidade'));
+const Disponibilidades = lazy(() => import('@/pages/fechamento/disponibilidades'));
+const RemuneracaoCadastro = lazy(() => import('@/pages/fechamento/remuneracao'));
+const RemuneracaoUnidades = lazy(() => import('@/pages/fechamento/remuneracao-unidades'));
+const EtapaDoFechamento = lazy(() =>
+  import('@/pages/fechamento/etapa').then((m) => ({ default: m.EtapaDoFechamento })),
+);
 
 /**
  * As rotas do produto.
@@ -752,21 +815,56 @@ function rotasDoFechamento(base: string) {
  * O servidor recusa por conta própria (401): este portão é o que a pessoa vê,
  * não o que a protege.
  */
+/**
+ * A espera neutra — a mesma para a sessão e para o pedaço da rota.
+ *
+ * Uma função só, e não duas parecidas, porque as duas esperas são a mesma coisa
+ * para quem olha: "o produto está vindo". Dar aparências diferentes a elas
+ * inventaria uma distinção que não existe na cabeça de quem espera — e a
+ * segunda cópia seria a que alguém esqueceria de acertar no dia em que o
+ * spinner mudasse.
+ *
+ * `aria-live` fica de fora de propósito: isto entra e sai em milissegundos na
+ * navegação normal, e anunciá-lo faria o leitor de tela interromper a leitura
+ * do conteúdo para dizer "carregando" a cada clique no menu. O `sr-only`
+ * descreve a espera para quem chegar nela; não a locuta.
+ */
+function Carregando({ descricao }: { descricao: string }) {
+  return (
+    <div className="min-h-[100dvh] flex items-center justify-center bg-background">
+      <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+      <span className="sr-only">{descricao}</span>
+    </div>
+  );
+}
+
 function Gate() {
   const { user, isLoading } = useAuth();
 
-  if (isLoading) {
-    return (
-      <div className="min-h-[100dvh] flex items-center justify-center bg-background">
-        <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
-        <span className="sr-only">Verificando a sessão…</span>
-      </div>
-    );
-  }
+  if (isLoading) return <Carregando descricao="Verificando a sessão…" />;
 
+  /*
+    O login fica **fora** do `<Suspense>`, e é por isso que ele continua sendo
+    `import` estático (ver o bloco das telas, no topo). Quem não tem sessão
+    precisa desta tela imediatamente; adiá-la trocaria a primeira pintura dela
+    por mais um spinner.
+  */
   if (!user) return <Login />;
 
-  return <Router />;
+  /*
+    Um `<Suspense>` só, aqui, e não um por rota.
+
+    Aqui dentro está tudo o que é adiado, e o limite é o mesmo em toda
+    navegação: o produto inteiro troca de tela de uma vez. Um `<Suspense>` por
+    rota daria o mesmo resultado visual com 58 lugares para alguém esquecer de
+    um — e o esquecido não falharia: subiria até o próximo limite, que seria
+    este mesmo, só que por acidente.
+  */
+  return (
+    <Suspense fallback={<Carregando descricao="Carregando a tela…" />}>
+      <Router />
+    </Suspense>
+  );
 }
 
 function App() {
