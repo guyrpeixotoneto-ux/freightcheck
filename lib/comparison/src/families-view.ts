@@ -417,12 +417,17 @@ export interface RangeEntry {
   badge: Badge;
   badgeLabel: string;
   /**
-   * O grupo inteiro, para a tela abrir o cartão de detalhe de sempre — com os
-   * veículos, a série do atributo e a célula da planilha que originou o
-   * número. Sem ele, a análise seria um beco: números sem caminho até a
-   * evidência.
+   * O grupo, para a tela abrir o cartão de detalhe de sempre — com os veículos,
+   * a série do atributo e a célula da planilha que originou o número. Sem ele, a
+   * análise seria um beco: números sem caminho até a evidência.
+   *
+   * **Menos `entityIds`**, e o tipo diz isso em vez de deixar quem lê descobrir
+   * em tempo de execução. A lista de ativos do grupo é 63% do peso dele e não é
+   * lida em nenhum consumidor do intervalo; quem precisa dos ativos de um grupo
+   * chama `/changes/grouped/vehicles`, que devolve as placas. O porquê, com os
+   * números, está em `getRangeAnalysis`.
    */
-  group: ChangeGroup;
+  group: Omit<ChangeGroup, "entityIds">;
 }
 
 export interface RangeAnalysis {
@@ -692,7 +697,43 @@ export async function getRangeAnalysis(
 
   const entries: RangeEntry[] = [...baldes.entries()]
     .map(([chave, linhas]) => {
-      const grupo = buildGroup(linhas, fleetByChangeSet, dedup);
+      /*
+        O grupo vai inteiro, menos a lista de ativos.
+
+        `buildGroup` devolve, entre outras coisas, `entityIds` — os UUIDs de
+        todos os ativos do grupo. Na leitura de uma vigência isso se paga: o
+        Dashboard soma os ativos distintos de vários grupos e precisa das chaves,
+        não só das contagens (`pages/dashboard.tsx:1445`). Aqui não: o intervalo
+        devolve **uma entrada por grupo por vigência**, e ninguém soma ativos
+        entre elas.
+
+        O preço de mandá-la assim mesmo, medido sobre o acervo real (176
+        entradas, 9 vigências):
+
+            group inteiro                     3.856 B por entrada
+              dos quais entityIds             2.419 B   (63%)
+            payload de /changes/range       522.544 B   (26.712 B na rede)
+
+        Os 2.419 bytes viajavam 176 vezes para nunca serem lidos — o tipo do
+        cliente (`ChangeGroupLite`, `lib/analise.ts:39`) sequer os declara, o que
+        quer dizer que nenhum consumidor **pode** lê-los sem que o TypeScript
+        reclame. Conferido também o único lugar que recebe o grupo por um cast
+        (`components/parametros/analise.tsx:2075` → `GroupCard`): não lê
+        `entityIds`.
+
+        Quem quiser os ativos de um grupo do intervalo continua tendo o caminho
+        de sempre, e é o caminho certo: `/changes/grouped/vehicles`, que a gaveta
+        de `detalhe-do-intervalo.tsx` já chama no clique, com as placas e não só
+        os ids.
+
+        **A lista sai só daqui.** `getFamiliesView` e `/changes/grouped`
+        continuam mandando o grupo completo — lá ela é lida.
+      */
+      const { entityIds: _naoViajam, ...grupo } = buildGroup(
+        linhas,
+        fleetByChangeSet,
+        dedup,
+      );
       const periodo = chave.split("|")[0];
       const placement = placementOf(grupo.attributeCode);
       return {

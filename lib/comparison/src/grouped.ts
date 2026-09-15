@@ -1380,7 +1380,22 @@ export async function getGroupedViewComDados(
   return { view, rows, dedup, changeSetIds };
 }
 
-export function compareGroups(a: ChangeGroup, b: ChangeGroup): number {
+/**
+ * A ordem dos grupos numa tela.
+ *
+ * O parâmetro é o que a função **lê** — `badge`, `impact`, `vehicles`,
+ * `aggregate` e `attributeCode` — e não `ChangeGroup` inteiro. A diferença não é
+ * cosmética: `getRangeAnalysis` ordena grupos dos quais `entityIds` foi
+ * deliberadamente retirado (ver `families-view.ts`), e exigir o tipo cheio
+ * obrigaria ou um cast ali, ou a carregar 2.419 bytes por entrada só para
+ * satisfazer uma assinatura que não os usa.
+ */
+type OrdenavelComoGrupo = Pick<
+  ChangeGroup,
+  "badge" | "impact" | "vehicles" | "aggregate" | "attributeCode"
+>;
+
+export function compareGroups(a: OrdenavelComoGrupo, b: OrdenavelComoGrupo): number {
   const rank = BADGE_ORDER.indexOf(a.badge) - BADGE_ORDER.indexOf(b.badge);
   if (rank !== 0) return rank;
   const impact = Math.abs(b.impact.amount ?? 0) - Math.abs(a.impact.amount ?? 0);
