@@ -15,6 +15,7 @@ export * from "./ipva";
 export * from "./impostos";
 export * from "./km-rodado";
 export * from "./velocidade-media";
+export * from "./qlp";
 export * from "./lucro-fixo";
 export * from "./deduplicacao";
 export * from "./vinculos";

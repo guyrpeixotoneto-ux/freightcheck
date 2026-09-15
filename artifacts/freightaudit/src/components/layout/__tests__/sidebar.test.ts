@@ -735,12 +735,22 @@ describe("o catálogo de telas em preparo", () => {
     continua faltando é outra coisa do que o verbete imaginava: o tempo e a
     distância aqui são os **contratados**, e não os que um motorista praticou na
     quinzena.
+
+    E de quinze para catorze com **QLP Operacional**, a sétima — e a única que
+    saiu **sem o arquivo**. O verbete pedia as linhas de QLP dentro da
+    importação, e elas continuam não chegando; a tela abre dizendo isso, em vez
+    de mostrar um quadro vazio que pareceria uma operação sem gente. O que mudou
+    é que o grão, as colunas e as **contas** estão declarados no dicionário da
+    tabela de equipe — nove colunas são subtotais das outras, e a cadeia que as
+    liga está lá como proposta, não medida. A tela que confere essa cadeia é o
+    instrumento que a confirma no dia em que o export entrar, e a mesma
+    auditoria virou aba no QLP Administrativo, onde o arquivo já existe.
   */
   it("descreve, para cada tela, o que falta antes de ela mostrar um número", () => {
     const catalogo = fonte("pages/telas-em-preparo.ts");
     const telas = [...catalogo.matchAll(/^\s{4}href:\s*"([^"]+)"/gm)].length;
 
-    expect(telas).toBe(15);
+    expect(telas).toBe(14);
     expect([...catalogo.matchAll(/^\s{4}depende:\s*\[/gm)]).toHaveLength(telas);
     expect([...catalogo.matchAll(/^\s{4}pergunta:/gm)]).toHaveLength(telas);
   });

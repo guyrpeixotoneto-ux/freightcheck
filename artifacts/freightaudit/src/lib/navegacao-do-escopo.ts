@@ -74,6 +74,13 @@ export const TELAS_QUE_HONRAM_ESCOPO = new Set<string>([
   ENTRADA_DA_AUDITORIA,
   "/vigencia",
   "/qlp-administrativo",
+  /*
+    O QLP Operacional, pela mesma razão da linha acima: a tela lê `scopeHash` do
+    recorte e o repassa à rota, de modo que trocar de unidade na lateral troca o
+    quadro em tela. Entra aqui no commit em que passa a ler o recorte, nunca
+    antes.
+  */
+  "/qlp-operacional",
   "/remunerado",
   "/dre",
   "/composicao",

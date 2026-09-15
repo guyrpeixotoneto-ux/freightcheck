@@ -1,6 +1,18 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
-import type { RequestedContext } from "@workspace/comparison";
+import {
+  codigosDoQuadro,
+  conferirAbono,
+  conferirBenchmark,
+  conferirLinha,
+  getEntityTable,
+  resumirQuadro,
+  resumoDasContas,
+  TIPO_DO_QUADRO,
+  type LinhaDoQuadro,
+  type QuadroDeQlp,
+  type RequestedContext,
+} from "@workspace/comparison";
 import {
   getDetalheDoCargo,
   getEvolucaoDoQuadro,
@@ -154,5 +166,96 @@ router.get("/qlp/administrativo/entidades/:entityId", async (req, res): Promise<
   }
   res.json(detalhe);
 });
+
+/**
+ * A AUDITORIA DO QUADRO — as contas que o próprio quadro declara.
+ *
+ * `GET /qlp/auditoria?quadro=ADMINISTRATIVO|OPERACIONAL&period=<data>`
+ *
+ * ---------------------------------------------------------------------------
+ * Por que esta rota não compara vigências
+ * ---------------------------------------------------------------------------
+ * Porque a comparação já tem dono, e está dito no cabeçalho deste arquivo: as
+ * vigências de QLP são snapshots como quaisquer outros, e o motor canônico as
+ * compara pelos endpoints de change-set. O que não tinha rota é a conferência
+ * **dentro** de uma vigência: `quantidade × valor = despesa` no administrativo,
+ * e a cadeia dos subtotais no operacional.
+ *
+ * Nenhuma conta mora aqui. `@workspace/comparison/qlp` confere, e esta rota lê o
+ * quadro e devolve — é a mesma divisão das seis auditorias de rubrica.
+ *
+ * **A leitura é a mesma `getEntityTable` que as outras telas usam**, e é dela que
+ * vem o nome legível de cada cargo: a chave que o acervo guarda é
+ * `20618821000799AUXILIARADM`, e sem `labelRaw` a tela listaria trinta linhas que
+ * ninguém distingue.
+ */
+router.get("/qlp/auditoria", async (req, res): Promise<void> => {
+  const query = req.query as Record<string, unknown>;
+  const pedido = typeof query.quadro === "string" ? query.quadro.toUpperCase() : "";
+  if (pedido !== "ADMINISTRATIVO" && pedido !== "OPERACIONAL") {
+    res.status(400).json({ error: "Informe quadro=ADMINISTRATIVO ou quadro=OPERACIONAL." });
+    return;
+  }
+  const quadro = pedido as QuadroDeQlp;
+
+  const tabela = await getEntityTable(
+    db,
+    TIPO_DO_QUADRO[quadro],
+    codigosDoQuadro(quadro),
+    parseContext(query),
+    parsePeriod(query),
+  );
+
+  /*
+    404 aqui não é defeito: é "nenhuma vigência deste quadro importada ainda", e
+    esse estado tem tela própria — o mesmo desenho das outras rotas deste
+    arquivo. No operacional ele é a resposta esperada até o primeiro export
+    chegar, e a tela diz isso em vez de mostrar um quadro vazio.
+  */
+  if (!tabela) {
+    res.status(404).json({
+      error:
+        quadro === "ADMINISTRATIVO"
+          ? SEM_QLP
+          : "Nenhuma vigência de QLP Operacional importada ainda.",
+    });
+    return;
+  }
+
+  const linhas: LinhaDoQuadro[] = tabela.rows.map((linha) => {
+    const valores: Record<string, number | null> = {};
+    for (const code of codigosDoQuadro(quadro)) {
+      valores[code] = comoNumero(linha.values[code]?.value ?? null);
+    }
+    return { chave: linha.label ?? linha.entityId, nome: linha.labelRaw, valores };
+  });
+
+  res.json({
+    quadro,
+    /* O diagnóstico da leitura viaja junto: uma tabela vazia com colunas
+       desconhecidas tem duas causas com conserto oposto, e `getEntityTable` já
+       as distingue. */
+    serieEntregue: tabela.seriesDelivered,
+    colunasDesconhecidas: tabela.missingColumns,
+    resumo: resumirQuadro(linhas, quadro),
+    contas: resumoDasContas(linhas, quadro),
+    benchmark: quadro === "ADMINISTRATIVO" ? conferirBenchmark(linhas) : null,
+    abono: quadro === "OPERACIONAL" ? conferirAbono(linhas) : null,
+    linhas: linhas.map((l) => conferirLinha(l, quadro)),
+  });
+});
+
+/**
+ * Texto do acervo virando número — e nulo continuando nulo, nunca zero.
+ *
+ * Nesta rubrica o branco decide um veredito: `Number("")` é `0`, e uma
+ * quantidade zero inventada pela conversão faria a conta esperar R$ 0,00 e
+ * acusar de divergência uma linha que só está incompleta.
+ */
+function comoNumero(bruto: string | null): number | null {
+  if (bruto === null || bruto.trim() === "") return null;
+  const n = Number(bruto);
+  return Number.isFinite(n) ? n : null;
+}
 
 export default router;
