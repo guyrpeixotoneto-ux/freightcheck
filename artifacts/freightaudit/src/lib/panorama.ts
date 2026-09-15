@@ -1,18 +1,12 @@
 import {
-  cobertura as coberturaAuditada,
   equipamentoMaisTocado,
   escreverImpacto,
   escreverPercentual,
   frotaTotal,
-  integridade,
   maioresImpactos,
   participacao,
-  qualidadeDaCobertura,
   ultimaImportacao,
   variacao,
-  type Cobertura,
-  type ExecucaoDeImportacao,
-  type Integridade,
   type LadosDoImpacto,
   type Tom,
   type UltimaImportacao,
@@ -28,7 +22,7 @@ import {
 } from "./impacto-apurado";
 import { linkDeAlteracoes, type Recorte } from "./recorte";
 import type { ItemCockpit } from "./cockpit";
-import type { BalancoResumo } from "@/components/balanco/tipos";
+import type { BalancoDoRecorte } from "@/components/balanco/tipos";
 import type { FamiliesOverview, FamiliesView } from "@/components/inicio/types";
 
 /**
@@ -500,11 +494,28 @@ export function mapaDoPanorama(
 // ---------------------------------------------------------------------------
 
 export interface Procedencia {
-  /** Cobertura **auditada**: células alcançadas ÷ células importadas. */
-  cobertura: Cobertura | null;
-  /** A qualidade da cobertura auditada, pela régua canônica. */
-  qualidade: { palavra: string; tom: Tom } | null;
-  integridade: Integridade | null;
+  /** O recorte que **o servidor** resolveu. Nunca o que a tela pediu. */
+  recorte: { label: string; period: string };
+  /** Os arquivos que alimentaram este recorte. */
+  arquivos: {
+    total: number;
+    fecham: number;
+    /** `true` quando todo arquivo alimentou só este recorte. */
+    exclusivos: boolean;
+  };
+  /**
+   * A massa **integral** dos arquivos acima — e não "células deste recorte".
+   *
+   * O nome é longo de propósito: ela pode conter célula atribuída a outra
+   * unidade, porque um arquivo multi-unidade alimenta legitimamente a
+   * procedência de todas as que alimentou. Somar a de três recortes daria o
+   * triplo do acervo.
+   */
+  massaDosArquivos: number;
+  /** Células sem destino, **do arquivo**. Zero é a única resposta aceitável. */
+  residuo: number;
+  /** A grandeza deste recorte: células que viraram fato nas vigências dele. */
+  celulasEmFato: number;
   ultima: UltimaImportacao | null;
 }
 
@@ -512,29 +523,217 @@ export interface Procedencia {
  * De onde vêm os números — o último andar, e deliberadamente o último.
  *
  * Quem abre a tela vem ver dinheiro, e a qualidade do dado nunca deve competir
- * com o financeiro pelo primeiro olhar. É também o único andar que lê fontes
- * fora de `/changes` (`/balance` e `/imports`), e o único que responde por
- * *como sabemos* em vez de por *quanto foi*.
+ * com o financeiro pelo primeiro olhar. É também o único andar que lê fonte
+ * fora de `/changes`, e o único que responde por *como sabemos* em vez de por
+ * *quanto foi*.
  *
- * `null` em toda parte é um estado legítimo: sem importação conferida, o andar
- * some inteiro em vez de desenhar zeros — a mesma regra de "cartão sem dado não
- * aparece" que vale no placar.
+ * **Ele deixou de publicar a cobertura do acervo inteiro.** Lia `/balance` sem
+ * recorte nenhum, de modo que o Panorama de PERNAMBUCO e a Visão Geral
+ * publicavam o mesmo percentual — ele nunca foi de unidade nenhuma. Agora a
+ * fonte é `/balance/recorte`, que recorta pela mesma unidade, canal e
+ * competência dos cinco andares acima, e deriva a operação do ambiente de
+ * trabalho em vez de aceitar a que o cliente mandou.
+ *
+ * **E deixou de publicar percentual.** Não por economia de tela: cobertura
+ * auditada recortada não é grandeza bem definida. O resíduo — célula que não
+ * chegou a destino — nunca virou fato, logo não tem unidade nem vigência a que
+ * pertencer, e é justamente a parcela que o Rastreio de Dados existe para achar.
+ * Um percentual aqui rateava o irrateável. O que fica são contagens, e a
+ * distinção que elas carregam: {@link Procedencia.massaDosArquivos} é dos
+ * arquivos, {@link Procedencia.celulasEmFato} é deste recorte.
+ *
+ * `null` quando não há arquivo a conferir — e aí quem fala é o estado `vazia`,
+ * que diz isso com uma frase em vez de com um zero.
  */
 export function procedenciaDoPanorama(
-  balancos: BalancoResumo[] | null | undefined,
-  importacoes: ExecucaoDeImportacao[] | null | undefined,
+  dados: BalancoDoRecorte | null | undefined,
   agora: Date = new Date(),
 ): Procedencia | null {
-  const cob = coberturaAuditada(balancos);
-  const integ = integridade(balancos);
-  const ultima = ultimaImportacao(importacoes, agora);
-
-  if (cob === null && integ === null && ultima === null) return null;
+  if (!dados) return null;
+  if (dados.conservacao.arquivos === 0) return null;
 
   return {
-    cobertura: cob,
-    qualidade: cob ? qualidadeDaCobertura(cob.percentual) : null,
-    integridade: integ,
-    ultima,
+    recorte: { label: dados.recorte.label, period: dados.recorte.period },
+    arquivos: {
+      total: dados.conservacao.arquivos,
+      fecham: dados.conservacao.fecham,
+      exclusivos: dados.conservacao.exclusivaDesteRecorte,
+    },
+    massaDosArquivos: dados.conservacao.celulasDosArquivos,
+    residuo: dados.conservacao.residuo,
+    celulasEmFato: dados.atribuido.celulasEmFato,
+    /*
+      A última importação passa pela mesma função dos outros módulos, e não por
+      uma formatação nova aqui: a régua de "há 2h" / "ontem" / "em 14/08/2026"
+      é de um lugar só. A diferença é a população — esta é a última **deste
+      recorte**, e não a do acervo, que era o defeito.
+    */
+    ultima: dados.ultima
+      ? ultimaImportacao(
+          [
+            {
+              importRunId: dados.ultima.importRunId,
+              status: dados.ultima.status,
+              filename: dados.ultima.filename,
+              receivedAt: dados.ultima.receivedAt,
+            },
+          ],
+          agora,
+        )
+      : null,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Andar 6 — em que pé está a leitura
+// ---------------------------------------------------------------------------
+
+/** O que a tela sabe de **uma** das duas leituras da procedência. */
+export interface LeituraDaProcedencia<T> {
+  /** O endereço, para que a falha diga o que não respondeu. */
+  rota: string;
+  /** A consulta ainda não se decidiu — inclusive quando ainda nem começou. */
+  carregando: boolean;
+  dados: T | null | undefined;
+  /** A falha como o React Query a entrega. Nula quando não houve. */
+  erro: unknown;
+  /**
+   * Quando a falha foi registrada — `errorUpdatedAt`, e nunca um `new Date()`
+   * fabricado na hora de desenhar. É a mesma regra de `UltimaAtualizacao`: a
+   * hora que a tela publica diz quando a resposta chegou, e não que horas são.
+   */
+  erroEm?: number;
+}
+
+/** Uma leitura que não respondeu, e o pouco que se sabe sobre por quê. */
+export interface FalhaDaProcedencia {
+  rota: string;
+  /** Quando ela foi registrada — `null` quando a leitura não sabe dizer. */
+  quando: Date | null;
+  /** O status HTTP — `null` quando a falha não chegou a ter um (rede, DNS). */
+  status: number | null;
+  /**
+   * `true` em 401 e 403.
+   *
+   * Não é a leitura que falhou, é o acesso — e as duas mandam procurar em
+   * lugares diferentes: uma é com quem cuida do servidor, a outra é com quem
+   * administra a unidade.
+   */
+  semAcesso: boolean;
+}
+
+/**
+ * Os seis desfechos do andar 6, e **nenhum deles é o outro**.
+ *
+ * Até aqui eram um só. As duas consultas saíam com `.catch(() => null)`, o
+ * `null` viajava até {@link procedenciaDoPanorama}, que devolvia `null`, e a
+ * tela não desenhava o andar. De modo que "não há importação conferida", "a API
+ * respondeu 503", "ainda estou lendo" e "o seu acesso não alcança esta leitura"
+ * terminavam no mesmo pixel: nenhum.
+ *
+ * Para uma tela executiva isso é elegante. Para uma leitura de auditoria é o
+ * defeito mais caro que esta tela podia ter, e o próprio produto já escreveu a
+ * regra em `pages/rastreio-de-dados.tsx`: *"um indicador que só aparece quando
+ * há problema é indistinguível de um indicador quebrado"*. Um andar que some
+ * por falha faz **ausência de evidência** parecer **evidência de ausência** —
+ * e é exatamente esse par que uma auditoria existe para separar.
+ *
+ * **"Cartão sem dado não aparece" vale para dado ausente.** Não vale para
+ * leitura que falhou, não vale para acesso negado e não vale para leitura em
+ * curso. A recusa de desenhar zeros é sobre um dado que se sabe não existir;
+ * nos outros três casos não se sabe coisa nenhuma, e é isso que a tela tem de
+ * dizer.
+ */
+export type EstadoDaProcedencia =
+  /** Alguma das duas leituras ainda não se decidiu. */
+  | { estado: "carregando" }
+  /** As duas responderam, e não há importação conferida a resumir. */
+  | { estado: "vazia" }
+  /** As duas responderam e há o que publicar. */
+  | { estado: "pronta"; procedencia: Procedencia }
+  /** Uma respondeu e a outra não: publica o que veio e **nomeia** o que faltou. */
+  | { estado: "parcial"; procedencia: Procedencia; faltou: FalhaDaProcedencia[] }
+  /** Nada a publicar, e o que impediu foi o acesso. */
+  | { estado: "sem_acesso"; falhas: FalhaDaProcedencia[] }
+  /** Nada a publicar, e o que impediu foi a leitura. */
+  | { estado: "falha"; falhas: FalhaDaProcedencia[] };
+
+/**
+ * Em que pé está o andar da procedência.
+ *
+ * **Enquanto alguma das duas não se decidiu, o estado é `carregando`** — mesmo
+ * que a outra já tenha falhado. A alternativa era publicar a falha assim que
+ * ela chega, e ela chega rápido: um 403 responde em milissegundos e uma leitura
+ * lenta demora segundos, de modo que o andar piscaria "falhou" antes de virar
+ * "parcial" com o dado que estava a caminho. Uma leitura que trava fica no
+ * esqueleto, que é o que de fato está acontecendo.
+ *
+ * **`parcial` é o estado de quem lê de mais de uma fonte.** Ele nasceu quando o
+ * andar lia `/balance` e `/imports` separadamente: duas rotas falham em
+ * separado, derrubar o andar inteiro porque uma caiu joga fora a resposta que
+ * chegou, e publicar só o que veio sem dizer o que faltou apresenta meia
+ * procedência como se fosse inteira.
+ *
+ * Hoje a tela lê **uma** fonte — `/balance/recorte` devolve também a última
+ * importação do recorte, que era o segundo pedido —, então o Panorama não o
+ * produz. O desfecho fica porque a máquina é de N leituras e a regra dele é a
+ * parte difícil: quem acrescentar uma segunda fonte amanhã recebe o
+ * comportamento certo em vez de reinventá-lo.
+ */
+export function estadoDaProcedencia(
+  leituras: readonly LeituraDaProcedencia<unknown>[],
+  /**
+   * O que as leituras sustentam — `null` quando não sustentam nada.
+   *
+   * A máquina não conhece o formato da resposta de propósito: ela decide sobre
+   * **em que pé está a leitura**, e isso não depende de qual é o payload. Quem
+   * monta a procedência é `procedenciaDoPanorama`, uma vez, fora daqui.
+   */
+  procedencia: Procedencia | null,
+): EstadoDaProcedencia {
+  if (leituras.some((leitura) => leitura.carregando)) return { estado: "carregando" };
+
+  const falhas = leituras
+    .map(falhaDaLeitura)
+    .filter((falha): falha is FalhaDaProcedencia => falha !== null);
+
+  if (procedencia === null) {
+    if (falhas.length === 0) return { estado: "vazia" };
+    /*
+      Só é "sem acesso" quando **todas** as falhas são de acesso. Uma 403 ao
+      lado de uma 500 é uma tela que caiu, e mandar a pessoa falar com o
+      administrador da unidade sobre um servidor com defeito é o tipo de
+      recomendação que faz perder a viagem.
+    */
+    return falhas.every((falha) => falha.semAcesso)
+      ? { estado: "sem_acesso", falhas }
+      : { estado: "falha", falhas };
+  }
+
+  if (falhas.length > 0) return { estado: "parcial", procedencia, faltou: falhas };
+  return { estado: "pronta", procedencia };
+}
+
+/**
+ * O que se sabe de uma leitura que não respondeu.
+ *
+ * O status é lido com cuidado porque nem toda falha é `ApiError`: uma queda de
+ * rede sobe um `TypeError` sem status nenhum, e inventar um número aqui faria a
+ * tela explicar uma causa que ela não conhece.
+ */
+function falhaDaLeitura(leitura: LeituraDaProcedencia<unknown>): FalhaDaProcedencia | null {
+  if (leitura.erro === null || leitura.erro === undefined) return null;
+
+  const bruto = (leitura.erro as { status?: unknown }).status;
+  const status = typeof bruto === "number" ? bruto : null;
+
+  const quando =
+    typeof leitura.erroEm === "number" && leitura.erroEm > 0 ? new Date(leitura.erroEm) : null;
+
+  return {
+    rota: leitura.rota,
+    quando,
+    status,
+    semAcesso: status === 401 || status === 403,
   };
 }

@@ -234,8 +234,43 @@ type LinhaRun = {
  * listado na tela de Importações e volta à conta assim que `hidden_at` for
  * `NULL` de novo — que é a tela de onde se oculta e se reexibe, e por isso
  * ninguém fica sem caminho de volta ao tirá-lo daqui.
+ *
+ * ---------------------------------------------------------------------------
+ * `importRunIds` — a lista, restrita a um conjunto de importações
+ * ---------------------------------------------------------------------------
+ *
+ * Sem o filtro, esta função continua respondendo o que sempre respondeu: **todo
+ * o acervo visível**. É a pergunta do Rastreio de Dados, e é global por
+ * contrato — ver o cabeçalho de `routes/balance.ts`.
+ *
+ * Com o filtro, ela responde a mesma conta sobre um subconjunto que **quem
+ * chama já escolheu**. Ela não escolhe, e isso é deliberado: escolher exigiria
+ * saber de unidade, canal e vigência, que é vocabulário de `snapshot` e não de
+ * massa de arquivo. Quem escolhe é a proveniência do recorte
+ * (`runsDeProveniencia`), e o balanço de cada arquivo escolhido continua sendo
+ * o do **arquivo inteiro** — nunca uma fatia dele, porque resíduo não se rateia.
+ *
+ * Lista vazia devolve lista vazia, e não o acervo: `[]` é um recorte sem
+ * importação, e responder "todas" a quem pediu "estas nenhuma" é a classe de
+ * defeito que transforma ausência em soma indevida.
  */
-export async function listarBalancos(db: Database): Promise<BalancoResumo[]> {
+export async function listarBalancos(
+  db: Database,
+  opts?: {
+    /** Só estas importações. Ausente = todas as visíveis. `[]` = nenhuma. */
+    importRunIds?: readonly string[];
+  },
+): Promise<BalancoResumo[]> {
+  const escolhidos = opts?.importRunIds;
+  if (escolhidos !== undefined && escolhidos.length === 0) return [];
+  const filtro =
+    escolhidos === undefined
+      ? sql``
+      : sql` AND ir.id IN (${sql.join(
+          escolhidos.map((id) => sql`${id}::uuid`),
+          sql`, `,
+        )})`;
+
   const { rows: runs } = await db.execute<LinhaRun>(sql`
     SELECT
       ir.id                 AS import_run_id,
@@ -246,7 +281,7 @@ export async function listarBalancos(db: Database): Promise<BalancoResumo[]> {
       sf.received_at
     FROM import_run ir
     JOIN source_file sf ON sf.id = ir.source_file_id
-    WHERE ir.hidden_at IS NULL
+    WHERE ir.hidden_at IS NULL${filtro}
     ORDER BY sf.received_at DESC, ir.started_at DESC
   `);
 

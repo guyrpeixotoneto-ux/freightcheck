@@ -64,3 +64,53 @@ export async function runsDeProveniencia(
 
   return rows.map((r) => r.run);
 }
+
+/**
+ * Quantas células RAW distintas viraram fato **nestes snapshots**.
+ *
+ * É a única grandeza deste módulo que é do recorte, e não das fontes dele. A
+ * conservação (`listarBalancos`) é do arquivo — resíduo só significa algo ali,
+ * porque célula sem destino nunca virou fato e portanto não tem unidade nem
+ * vigência a que pertencer. Esta conta é o outro lado: o fato **tem** snapshot,
+ * e snapshot tem unidade, canal e vigência.
+ *
+ * **`fact`, e não `staged_fact`.** O staging é candidato: ele guarda o que a
+ * leitura preparou, inclusive o que a promoção não levou. Quem responde "o que
+ * é deste recorte" é o promovido, e `fact.raw_cell_id` é `NOT NULL` desde a
+ * `0061` — *"every fact points at its originating cell"* —, de modo que a conta
+ * não precisa de uma segunda junção até o RAW para existir.
+ *
+ * **`COUNT(DISTINCT raw_cell_id)`, nunca `count(*)`.** A grade de `fact` é
+ * `(snapshot_id, entity_id, attribute_id)`: a mesma célula pode sustentar mais
+ * de um fato, e um recorte pode ter mais de um snapshot vivo — `scope_hash` e
+ * `canonical_scope` são colunas diferentes, e dois escopos canônicos distintos
+ * sob o mesmo `scope_hash` são o caso do CNPJ mascarado que a `0015` descreve.
+ * `count(*)` contaria a célula uma vez por fato e devolveria mais células do que
+ * o arquivo trouxe — um número que passa de 100% sem nada acusando.
+ *
+ * Run de origem oculto fica fora, pelo mesmo predicado de
+ * {@link runsDeProveniencia}: um fato cuja origem foi ocultada não é lido por
+ * tela nenhuma, e não pode entrar por uma porta lateral nesta conta.
+ */
+export async function celulasEmFato(
+  db: Database,
+  snapshotIds: readonly string[],
+): Promise<number> {
+  if (snapshotIds.length === 0) return 0;
+
+  const { rows } = await db.execute<{ celulas: number }>(sql`
+    SELECT count(DISTINCT f.raw_cell_id)::int AS celulas
+      FROM fact f
+     WHERE f.snapshot_id IN (${sql.join(
+       snapshotIds.map((id) => sql`${id}::uuid`),
+       sql`, `,
+     )})
+       AND NOT EXISTS (
+             SELECT 1 FROM import_run ir
+              WHERE ir.id = f.origin_import_run_id
+                AND ir.hidden_at IS NOT NULL
+           )
+  `);
+
+  return rows[0]?.celulas ?? 0;
+}

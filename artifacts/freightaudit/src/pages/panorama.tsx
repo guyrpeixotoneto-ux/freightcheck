@@ -25,7 +25,6 @@ import {
   detalheDoImpacto,
   impactoPorFamilia,
   variacao,
-  type ExecucaoDeImportacao,
 } from "@/lib/visao-geral";
 import {
   DECOMPOSICOES,
@@ -35,12 +34,14 @@ import {
   type FiltroDeMudanca,
 } from "@/lib/impacto-apurado";
 import {
+  estadoDaProcedencia,
+  procedenciaDoPanorama,
   leituraDaUnidade,
   leituraDaVisaoGeral,
   mapaDoPanorama,
   placarDoPanorama,
-  procedenciaDoPanorama,
   vereditoDoPanorama,
+  type EstadoDaProcedencia,
   type LeituraDoPanorama,
   type Veredito as DadosDoVeredito,
 } from "@/lib/panorama";
@@ -66,7 +67,7 @@ import { MaioresImpactos } from "@/components/inicio/maiores-impactos";
 import { DetalheDoImpacto } from "@/components/inicio/detalhe-do-impacto";
 import { unidadesPorImpacto } from "@/components/inicio/visao-geral-consolidada";
 import type { UnidadeDoDrill } from "@/lib/drill-da-familia";
-import type { BalancoResumo } from "@/components/balanco/tipos";
+import type { BalancoDoRecorte } from "@/components/balanco/tipos";
 import type { FamiliesOverview, FamiliesView, GroupedView } from "@/components/inicio/types";
 
 /**
@@ -180,23 +181,41 @@ export default function Panorama() {
   });
 
   /*
-    As duas leituras da procedência. Saem **depois** do conteúdo principal, pela
-    mesma razão medida em `docs/AUDITORIA-ZERO-LOADING.md` para a série geral:
-    não alimentam a resposta que traz alguém à tela, e disputariam o mesmo pool
-    de conexões com a leitura que alimenta.
+    A procedência. Sai **depois** do conteúdo principal, pela mesma razão medida
+    em `docs/AUDITORIA-ZERO-LOADING.md` para a série geral: não alimenta a
+    resposta que traz alguém à tela, e disputaria o mesmo pool de conexões com a
+    leitura que alimenta.
+
+    **Uma consulta, e recortada.** Eram duas — `/balance` e `/imports` —, as duas
+    sem recorte nenhum: o andar publicava a cobertura do acervo inteiro debaixo
+    do cabeçalho de uma unidade, e a última importação do sistema como se fosse a
+    desta competência. `/balance/recorte` responde as duas coisas sobre o mesmo
+    recorte dos outros andares, e o servidor deriva a operação do ambiente em vez
+    de aceitar a que o cliente mandou (`lib/ambiente-da-auditoria.ts`).
+
+    **E ela não engole mais a falha.** Saíam com `.catch(() => null)`, e o `null`
+    fazia o andar sumir — de modo que "a API caiu", "você não tem acesso", "ainda
+    estou lendo" e "não há importação conferida" terminavam no mesmo nada, num
+    andar cuja pergunta é *"posso confiar nisto?"*. Quem separa os quatro é
+    `estadoDaProcedencia`, em `lib/panorama.ts`.
+
+    Na Visão Geral ela **não sai**: o recorte é de uma unidade, e pedi-la sem
+    `scopeHash` cairia na unidade padrão do servidor — a procedência de **uma**
+    debaixo de números que somaram todas. É a mesma recusa de `comDestino`.
   */
   const principalPronto = visaoGeral ? !overviewQuery.isLoading : !vigencia.isLoading;
-  const balancos = useQuery({
-    queryKey: ["balance", "panorama"],
-    enabled: principalPronto,
+  const periodoDaProcedencia = view?.period ?? null;
+  const consultaDaProcedencia = useMemo(() => {
+    const query = new URLSearchParams(consulta);
+    if (periodoDaProcedencia !== null) query.set("period", periodoDaProcedencia);
+    return query.toString();
+  }, [consulta, periodoDaProcedencia]);
+
+  const recorteDaProcedencia = useQuery({
+    queryKey: ["balance-recorte", "panorama", consultaDaProcedencia],
+    enabled: principalPronto && !visaoGeral && periodoDaProcedencia !== null,
     ...LEITURA_DE_APURACAO,
-    queryFn: () => fetchJson<BalancoResumo[]>("/balance").catch(() => null),
-  });
-  const importacoes = useQuery({
-    queryKey: ["imports", "panorama"],
-    enabled: principalPronto,
-    ...LEITURA_DE_APURACAO,
-    queryFn: () => fetchJson<ExecucaoDeImportacao[]>("/imports").catch(() => null),
+    queryFn: () => fetchJson<BalancoDoRecorte>(`/balance/recorte?${consultaDaProcedencia}`),
   });
 
   const serieDaUnidade = useSerieDeImpacto(visaoGeral ? null : view, consulta, !visaoGeral);
@@ -221,7 +240,28 @@ export default function Panorama() {
   const unidade = view ? nomeDaUnidade(view.context) : null;
   const periodoAtual = visaoGeral ? (overview?.period ?? null) : (view?.period ?? null);
 
-  const procedencia = procedenciaDoPanorama(balancos.data, importacoes.data);
+  /*
+    `isPending` e não `isLoading`: enquanto `enabled` é falso — o conteúdo
+    principal ainda não chegou — a consulta não está carregando, mas também não
+    tem resposta, e tratá-la como decidida publicaria "não há importação
+    conferida" sobre uma pergunta que ninguém fez ainda.
+  */
+  const procedencia = estadoDaProcedencia(
+    [
+      {
+        rota: "/balance/recorte",
+        carregando: recorteDaProcedencia.isPending,
+        dados: recorteDaProcedencia.data,
+        erro: recorteDaProcedencia.error,
+        erroEm: recorteDaProcedencia.errorUpdatedAt,
+      },
+    ],
+    procedenciaDoPanorama(recorteDaProcedencia.data),
+  );
+
+  const relerProcedencia = () => {
+    void recorteDaProcedencia.refetch();
+  };
 
   return (
     <Layout>
@@ -306,6 +346,7 @@ export default function Panorama() {
                   parametros={parametros}
                   onTrocar={trocarPara}
                   procedencia={procedencia}
+                  onRelerProcedencia={relerProcedencia}
                 />
               </div>
             )}
@@ -333,6 +374,7 @@ export default function Panorama() {
                   parametros={parametros}
                   onTrocar={trocarPara}
                   procedencia={procedencia}
+                  onRelerProcedencia={relerProcedencia}
                 />
               </div>
             )}
@@ -368,6 +410,7 @@ function Corpo({
   parametros,
   onTrocar,
   procedencia,
+  onRelerProcedencia,
 }: {
   leitura: LeituraDoPanorama;
   /** A unidade aberta — `null` na Visão Geral. */
@@ -383,7 +426,8 @@ function Corpo({
   vigenciaAberta: string | null;
   parametros: URLSearchParams;
   onTrocar: (mudancas: Record<string, string | null>) => void;
-  procedencia: ReturnType<typeof procedenciaDoPanorama>;
+  procedencia: EstadoDaProcedencia;
+  onRelerProcedencia: () => void;
 }) {
   const daVigencia: Recorte = { ...recorte, period: vigenciaAberta };
   const comDestino = view !== null;
@@ -643,7 +687,15 @@ function Corpo({
       />
 
       {/* ---- Andar 6 · a procedência ---- */}
-      {procedencia && <Procedencia procedencia={procedencia} />}
+      {/*
+        Dentro de uma unidade o andar desenha nos seis desfechos — é justamente o
+        sumiço calado dele que `estadoDaProcedencia` desfaz. Na Visão Geral ele
+        não existe: a procedência é de um recorte, e não há recorte de uma
+        unidade debaixo de números que somaram todas.
+      */}
+      {view !== null && (
+        <Procedencia estado={procedencia} onTentarDeNovo={onRelerProcedencia} />
+      )}
 
       {/* As gavetas — as mesmas do Impacto Apurado, sobre o mesmo recorte. */}
       {view && detalheFamilia && (

@@ -195,31 +195,38 @@ const VIGENCIA = {
   },
 };
 
+const PROCEDENCIA = {
+  recorte: {
+    operacao: "EMPURRADA",
+    scopeHash: "hash-pe",
+    canal: "EMPURRADA",
+    period: "2026-08-01",
+    label: "PERNAMBUCO · EMPURRADA",
+  },
+  importacoes: [],
+  conservacao: {
+    arquivos: 3,
+    fecham: 3,
+    celulasDosArquivos: 47318,
+    residuo: 0,
+    exclusivaDesteRecorte: true,
+  },
+  atribuido: { vigenciasVivas: 1, celulasEmFato: 12004 },
+  ultima: {
+    importRunId: "1",
+    filename: "cavalos.xlsx",
+    status: "PROMOTED",
+    receivedAt: "2026-08-01T09:12:00Z",
+  },
+};
+
 /** Todo endpoint que a página toca, com a resposta que o servidor daria. */
 const servidor = () =>
   vi.fn(async (entrada: RequestInfo | URL) => {
     const url = String(entrada);
     if (url.includes("/changes/families")) return resposta(VIGENCIA);
     if (url.includes("/changes/grouped")) return resposta(VIGENCIA);
-    if (url.includes("/balance")) {
-      return resposta([
-        {
-          entrada: 1000,
-          residuo: 0,
-          porNatureza: { PERDA: 60, RESIDUO: 0, DESCARTE: 0, DADO: 940, OUTRO: 0 },
-        },
-      ]);
-    }
-    if (url.includes("/imports")) {
-      return resposta([
-        {
-          importRunId: "1",
-          status: "PROMOTED",
-          filename: "cavalos.xlsx",
-          receivedAt: "2026-08-01T09:12:00Z",
-        },
-      ]);
-    }
+    if (url.includes("/balance/recorte")) return resposta(PROCEDENCIA);
     /* A série do gráfico — o intervalo, que a tela pede depois. */
     return resposta({ from: "2026-07-01", to: "2026-08-01", periods: [], entries: [] });
   });
@@ -311,7 +318,7 @@ describe("a página do Panorama", () => {
 
     // 6 — a procedência
     await waitFor(() => expect(screen.getByText("De onde vêm estes números")).toBeTruthy());
-    expect(screen.getByText("Cobertura auditada")).toBeTruthy();
+    expect(screen.getByText("Fontes deste recorte")).toBeTruthy();
 
     /*
       E a fila não está mais aqui — nem como cartão, nem como promessa.
@@ -380,22 +387,125 @@ describe("a página do Panorama", () => {
     números do mesmo recorte, os dois em percentual, os dois num anel, e nada na
     tela dizendo que contavam populações diferentes.
   */
-  it("separa as duas coberturas por assunto, e diz de que cada uma é percentual", async () => {
+  it("há uma cobertura só na tela, e é a da apuração", async () => {
     vi.stubGlobal("fetch", servidor());
     montar();
 
     await waitFor(() => expect(screen.getByText("Cobertura da apuração")).toBeTruthy());
-    await waitFor(() => expect(screen.getByText("Cobertura auditada")).toBeTruthy());
-
-    /* A auditada diz, por extenso, que é percentual de célula de planilha. */
-    expect(screen.getByText(/das células importadas/)).toBeTruthy();
 
     /*
-      E a definição da outra nomeia a distinção em vez de deixá-la implícita:
-      é a frase que faltava quando as duas moravam em telas vizinhas.
+      A auditada saiu, e não foi para outro andar: ela era um percentual do
+      acervo inteiro publicado debaixo do cabeçalho de uma unidade. O que a
+      substitui são contagens do recorte — e nenhum percentual, porque o resíduo
+      não se rateia.
     */
-    expect(
-      screen.getByLabelText(/Não confundir com a cobertura auditada/),
-    ).toBeTruthy();
+    expect(screen.queryByText("Cobertura auditada")).toBeNull();
+    await waitFor(() => expect(screen.getByText("Células deste recorte")).toBeTruthy());
+    expect(screen.getByText(/viraram fato · os arquivos trouxeram/)).toBeTruthy();
+  });
+});
+
+/*
+  O andar 6, nos quatro desfechos que eram um só.
+
+  As duas leituras da procedência saíam com `.catch(() => null)`, e o `null`
+  fazia o andar sumir. De modo que "não há importação conferida" — uma
+  afirmação sobre o acervo —, "a API caiu", "você não tem acesso" e "ainda estou
+  lendo" produziam exatamente a mesma tela: nenhuma. Num andar que existe para
+  responder "posso confiar nisto?", isso faz **ausência de evidência** parecer
+  **evidência de ausência**.
+
+  O que estes casos protegem não é o texto de cada estado — é que os quatro
+  continuem sendo quatro, e que nenhum deles volte a ser o silêncio.
+*/
+describe("a procedência, quando ela não tem o que publicar", () => {
+  /** O mesmo servidor da suíte, com a rota da procedência trocável. */
+  const servidorCom = (recorte: () => Response) =>
+    vi.fn(async (entrada: RequestInfo | URL) => {
+      const url = String(entrada);
+      if (url.includes("/changes/families")) return resposta(VIGENCIA);
+      if (url.includes("/changes/grouped")) return resposta(VIGENCIA);
+      if (url.includes("/balance/recorte")) return recorte();
+      return resposta({ from: "2026-07-01", to: "2026-08-01", periods: [], entries: [] });
+    });
+
+  const caiu = () => resposta({ error: "indisponível" }, 503);
+  const negou = () => resposta({ error: "sem permissão" }, 403);
+  /*
+    Recorte legítimo, sem arquivo a conferir — a única lista vazia legítima da
+    rota, e o que a tela lê como "não há o que conferir".
+  */
+  const vazio = () =>
+    resposta({
+      ...PROCEDENCIA,
+      conservacao: { ...PROCEDENCIA.conservacao, arquivos: 0, fecham: 0, celulasDosArquivos: 0 },
+      atribuido: { vigenciasVivas: 1, celulasEmFato: 0 },
+      ultima: null,
+    });
+
+  it("com as duas rotas fora, diz que não conseguiu ler — e não que não há dado", async () => {
+    vi.stubGlobal("fetch", servidorCom(caiu));
+    montar();
+
+    await waitFor(() =>
+      expect(screen.getByText("Não foi possível conferir a procedência")).toBeTruthy(),
+    );
+    expect(screen.getByText(/está dizendo que não conseguiu ler/)).toBeTruthy();
+
+    /* O endereço e o status saem por extenso: é o que liga a tela ao log. */
+    expect(screen.getByText(/\/balance\/recorte · HTTP 503/)).toBeTruthy();
+
+    /* E os andares acima continuam de pé — a falha é sobre a confiança neles. */
+    expect(screen.getByText("Impacto líquido apurado")).toBeTruthy();
+  });
+
+  it("um 403 manda procurar o acesso, e não o servidor", async () => {
+    vi.stubGlobal("fetch", servidorCom(negou));
+    montar();
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("Seu acesso não alcança a conferência das importações"),
+      ).toBeTruthy(),
+    );
+    expect(screen.getByText(/você é que não o vê/)).toBeTruthy();
+
+    /*
+      Sem botão de tentar de novo: repetir o pedido devolve o mesmo 403, e um
+      botão que não pode funcionar é uma promessa que a tela não cumpre.
+    */
+    expect(screen.queryByText("Tentar de novo")).toBeNull();
+  });
+
+  it("sem importação conferida, a frase é sobre o acervo — e o andar continua na tela", async () => {
+    vi.stubGlobal("fetch", servidorCom(vazio));
+    montar();
+
+    await waitFor(() =>
+      expect(
+        screen.getByText("Nenhuma importação deste recorte passou pela conferência"),
+      ).toBeTruthy(),
+    );
+    /* A frase salva os cinco andares acima em vez de deixá-los sob suspeita. */
+    expect(screen.getByText(/continuam válidos/)).toBeTruthy();
+    /* E o título do andar continua desenhado: ele não some mais. */
+    expect(screen.getByText("De onde vêm estes números")).toBeTruthy();
+  });
+
+  it("publica a procedência do recorte aberto, e nomeia o recorte", async () => {
+    vi.stubGlobal("fetch", servidor());
+    montar();
+
+    /*
+      A pastilha do recorte é o que este andar não tinha, e por isso mentia de
+      escopo: um número de procedência sem o recorte ao lado é indistinguível de
+      um número do acervo inteiro — que é o que ele era.
+    */
+    await waitFor(() =>
+      expect(screen.getByText(/o mesmo recorte dos andares acima/)).toBeTruthy(),
+    );
+    expect(screen.getByText("Fontes deste recorte")).toBeTruthy();
+    expect(screen.getByText("Células deste recorte")).toBeTruthy();
+    expect(screen.getByText("Última importação deste recorte")).toBeTruthy();
   });
 });

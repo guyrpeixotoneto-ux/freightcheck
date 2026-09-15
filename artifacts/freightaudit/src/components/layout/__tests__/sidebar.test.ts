@@ -375,9 +375,16 @@ describe("a lateral", () => {
   it("mantém as dez seções do desenho, na ordem", () => {
     expect(secoesDaAuditoria()).toEqual([
       /*
-        Chamados Ambev abre a lista porque é por onde o dia começa: o que a fila
-        da Ambev fez desde ontem, e a justificativa, placa a placa, de cada
-        mudança. O trabalho vem antes da leitura — ver `nav-auditoria.ts`.
+        A Visão executiva abre a lista, e é a leitura executiva inteira: o que
+        mudou desde a última competência e o retrato do conjunto, que era a
+        seção ao lado até as duas virarem uma. Abre-se pelo retrato antes de
+        descer ao trabalho da manhã — ver `nav-auditoria.ts`.
+      */
+      "Visão executiva",
+      /*
+        Chamados Ambev vem logo abaixo, porque é por onde o dia de trabalho
+        começa: o que a fila da Ambev fez desde ontem, e a justificativa, placa
+        a placa, de cada mudança.
 
         **Eram duas seções, e viraram uma.** "Justificativas" abria a lateral e
         os chamados vinham logo abaixo, num cartão de um item só; as três telas
@@ -386,18 +393,11 @@ describe("a lateral", () => {
       */
       "Chamados Ambev",
       /*
-        A Visão executiva vem logo abaixo, e é a leitura executiva inteira: o
-        que mudou desde a última competência e o retrato do conjunto, que era a
-        seção ao lado até as duas virarem uma — ver `nav-auditoria.ts`.
-      */
-      "Visão executiva",
-      /*
-        Compras vem antes de Auditoria porque é um portão antes de o dinheiro
-        sair, e não uma descoberta sobre o que já saiu — ver o comentário da
-        seção em `sidebar.tsx`.
+        Compras vem antes das contas de custo porque é um portão antes de o
+        dinheiro sair, e não uma descoberta sobre o que já saiu — ver o
+        comentário da seção em `sidebar.tsx`.
       */
       "Compras",
-      "Auditoria",
       /*
         **Processos saiu da lateral.** Era uma seção de um item — Fluxos
         Operacionais —, e o item saiu com ela; as rotas continuam de pé em
@@ -419,6 +419,12 @@ describe("a lateral", () => {
         com ele — ver `nav-auditoria.ts`.
       */
       "Custo Variável",
+      /*
+        A Auditoria vem depois das duas metades da conta: procura-se o desvio no
+        que o Custo Fixo e o Custo Variável mudaram, e não antes de os ver — ver
+        `nav-auditoria.ts`.
+      */
+      "Auditoria",
       "Frota",
       "Inteligência",
       "Dados & governança",

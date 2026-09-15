@@ -97,18 +97,17 @@ import type { NavGroup } from "./nav";
  * que `lib/base-do-fechamento.ts` descreve do outro lado — um `href` literal que
  * devolve para a Empurrada quem clicou dentro do Rota.
  *
- * A ordem é a de uma auditoria completa, de cima para baixo: abre-se o dia pelo
- * que a fila da Ambev fez desde ontem e pela justificativa de cada mudança
- * (**Chamados Ambev**, o cartão que reúne o monitoramento, a conciliação com a
- * planilha, a fila de justificativas e o painel de cobertura dela), vê-se a
- * vigilância e o retrato
- * do conjunto (**Visão executiva**, que reúne os dois desde que as duas seções
- * viraram uma), libera-se o que precisa ser comprado
- * hoje (**Compras**), procura-se o desvio (**Auditoria**),
- * confere-se o que se paga por ter o ativo e a estrutura de
- * gente que o modelo remunera (**Custo Fixo**, que é onde o QLP mora desde que
- * deixou de ser seção) e o que se paga por rodar com ele (**Custo Variável**),
- * desce-se ao ativo que o sofreu (**Frota**), pergunta-se ao
+ * A ordem é a de uma auditoria completa, de cima para baixo: abre-se pelo
+ * retrato do conjunto e pela vigilância dele (**Visão executiva**, que reúne os
+ * dois desde que as duas seções viraram uma), desce-se ao que a fila da Ambev
+ * fez desde ontem e à justificativa de cada mudança (**Chamados Ambev**, o
+ * cartão que reúne o monitoramento, a conciliação com a planilha, a fila de
+ * justificativas e o painel de cobertura dela), libera-se o que precisa ser
+ * comprado hoje (**Compras**), confere-se o que se paga por ter o ativo e a
+ * estrutura de gente que o modelo remunera (**Custo Fixo**, que é onde o QLP
+ * mora desde que deixou de ser seção) e o que se paga por rodar com ele
+ * (**Custo Variável**), procura-se o desvio no que essas contas mudaram
+ * (**Auditoria**), desce-se ao ativo que o sofreu (**Frota**), pergunta-se ao
  * assistente o que sobrou (**Inteligência**), e por baixo de tudo estão o
  * material (**Dados & governança**) e a casa (**Administração**).
  *
@@ -119,103 +118,6 @@ import type { NavGroup } from "./nav";
  */
 export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
   return [
-    {
-      /*
-        CHAMADOS AMBEV abre a lista porque é por onde o dia começa — e é um
-        cartão só desde que as justificativas vieram morar aqui dentro.
-
-        **Eram duas seções.** "Justificativas" — a fila de mesa onde se
-        registra, placa a placa, por que a vigência mudou — abria a lateral, e
-        os chamados que a Ambev exporta vinham logo abaixo, num cartão de um
-        item só. A separação tinha razão de população, e a população continua
-        sendo outra: aqui é `ticket`, o export do Freightech que a Ambev manda
-        por unidade; ali é `change` e `justificativa`, a alteração de vigência
-        por placa.
-
-        O que mudou é que a diferença não valia um segundo cartão. As telas
-        são o mesmo trabalho da manhã — abrir o que a fila da Ambev fez desde
-        ontem e responder por isso —, e quem trabalha nelas alternava entre dois
-        cartões vizinhos para percorrer um único caminho. Um cartão de item
-        único no topo da lateral, colado a outro do mesmo assunto, é divisão que
-        o menu cobra e ninguém usa.
-
-        **A ordem dentro dela é a do caminho**: o monitoramento primeiro, que é
-        o que mudou nos chamados desde a última importação; a conciliação em
-        seguida, onde se confere se o que mudou nos chamados é o que mudou na
-        planilha; depois a fila, onde se justifica o que mudou; e o painel por
-        último, onde se confere o que ainda falta justificar.
-
-        **Continua sem o atalho de importar chamados, e o motivo é a chave de
-        permissão.** A tela de importação existe (`/importacoes?secao=chamados`),
-        e um atalho para ela aqui pareceria natural — mas a chave de permissão
-        de um item é o `href` (`lib/permissoes.ts`), e
-        `/importacoes?secao=chamados` seria uma chave **diferente** de
-        `/importacoes`: desligar Importações não desligaria o atalho, e quem
-        administrasse acessos veria dois módulos onde há uma tela. Um atalho que
-        fura o controle de acesso não é conveniência.
-      */
-      id: "chamados-ambev",
-      titulo: "Chamados Ambev",
-      descricao:
-        "O que mudou nos chamados, se bate com a planilha, e a justificativa de cada mudança",
-      icon: Headset,
-      cor: "text-nav-chamados",
-      itens: [
-        /*
-          O item chama-se **"Monitoramento"**, e não "Monitoramento de
-          Chamados": o cartão em que ele vive já diz "Chamados Ambev" logo
-          acima, e repetir o assunto no item fazia o rótulo estourar a largura
-          da lateral — quem abria o menu lia "Monitoramento de Chama…", que é
-          justamente a parte redundante ocupando o espaço da parte que
-          distingue. O endereço (`/monitoramento-de-chamados`) não mudou: ele é
-          a chave de permissão do módulo (`lib/permissoes.ts`) e trocá-lo
-          desligaria o acesso de quem já o tem.
-        */
-        {
-          href: "/monitoramento-de-chamados",
-          label: "Monitoramento",
-          icon: Headset,
-        },
-        /*
-          A Conciliação vem **colada** no Monitoramento porque é a pergunta
-          seguinte à dele, e sobre o mesmo material: o Monitoramento diz o que
-          mudou nos chamados desde o último envio; a Conciliação pergunta se o
-          que mudou nos chamados é o que mudou na planilha de vigência — para
-          cada alteração que a planilha trouxe, existe o chamado que a pediu?
-
-          Ela é a única tela do produto que confronta as duas superfícies. É de
-          propósito que fique aqui e não na Auditoria: quem abre a seção de
-          manhã já está com os dois lados na cabeça, e a resposta que ela dá é
-          sobre a fila da Ambev — não sobre a vigência.
-
-          **Confrontar não é somar.** O impacto do chamado continua nunca sendo
-          adicionado ao da planilha; a tela põe os dois lado a lado e diz se
-          batem, que é o oposto de fundi-los.
-        */
-        {
-          href: "/conciliacao-de-chamados",
-          /*
-            **"Conciliação"**, curto, pela mesma razão do item acima: o cartão
-            já diz "Chamados Ambev", e o rótulo longo gastaria na repetição o
-            espaço da palavra que distingue. O endereço continua inteiro, que é
-            a chave de permissão.
-          */
-          label: "Conciliação",
-          icon: Scale,
-        },
-        { href: "/justificativas", label: "Justificativas", icon: FileCheck2 },
-        /*
-          O painel vem **depois** da fila, e não antes: a fila é onde se
-          trabalha, o painel é onde se confere. Quem abre a seção todo dia vem
-          justificar; quem vem cobrar o que falta é quem desce um item.
-        */
-        {
-          href: "/painel-de-justificativas",
-          label: "Painel de Justificativas",
-          icon: ClipboardList,
-        },
-      ],
-    },
     {
       /*
         A Visão executiva vem logo depois dos Chamados, e é a seção inteira
@@ -354,10 +256,108 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
     },
     {
       /*
-        Compras fica entre a Visão executiva e a Auditoria, e a posição é a do
-        gesto que ela serve: alguém está com um pedido de compra parado na mesa e
-        precisa saber, agora, quanto a Ambev remunera aquele produto. Não é
-        auditoria — auditar é descobrir o que mudou, e aqui nada mudou; é um
+        CHAMADOS AMBEV vem logo abaixo da Visão executiva porque é por onde o
+        dia de trabalho começa, depois de se ver o retrato do conjunto — e é um
+        cartão só desde que as justificativas vieram morar aqui dentro.
+
+        **Eram duas seções.** "Justificativas" — a fila de mesa onde se
+        registra, placa a placa, por que a vigência mudou — abria a lateral, e
+        os chamados que a Ambev exporta vinham logo abaixo, num cartão de um
+        item só. A separação tinha razão de população, e a população continua
+        sendo outra: aqui é `ticket`, o export do Freightech que a Ambev manda
+        por unidade; ali é `change` e `justificativa`, a alteração de vigência
+        por placa.
+
+        O que mudou é que a diferença não valia um segundo cartão. As telas
+        são o mesmo trabalho da manhã — abrir o que a fila da Ambev fez desde
+        ontem e responder por isso —, e quem trabalha nelas alternava entre dois
+        cartões vizinhos para percorrer um único caminho. Um cartão de item
+        único no topo da lateral, colado a outro do mesmo assunto, é divisão que
+        o menu cobra e ninguém usa.
+
+        **A ordem dentro dela é a do caminho**: o monitoramento primeiro, que é
+        o que mudou nos chamados desde a última importação; a conciliação em
+        seguida, onde se confere se o que mudou nos chamados é o que mudou na
+        planilha; depois a fila, onde se justifica o que mudou; e o painel por
+        último, onde se confere o que ainda falta justificar.
+
+        **Continua sem o atalho de importar chamados, e o motivo é a chave de
+        permissão.** A tela de importação existe (`/importacoes?secao=chamados`),
+        e um atalho para ela aqui pareceria natural — mas a chave de permissão
+        de um item é o `href` (`lib/permissoes.ts`), e
+        `/importacoes?secao=chamados` seria uma chave **diferente** de
+        `/importacoes`: desligar Importações não desligaria o atalho, e quem
+        administrasse acessos veria dois módulos onde há uma tela. Um atalho que
+        fura o controle de acesso não é conveniência.
+      */
+      id: "chamados-ambev",
+      titulo: "Chamados Ambev",
+      descricao:
+        "O que mudou nos chamados, se bate com a planilha, e a justificativa de cada mudança",
+      icon: Headset,
+      cor: "text-nav-chamados",
+      itens: [
+        /*
+          O item chama-se **"Monitoramento"**, e não "Monitoramento de
+          Chamados": o cartão em que ele vive já diz "Chamados Ambev" logo
+          acima, e repetir o assunto no item fazia o rótulo estourar a largura
+          da lateral — quem abria o menu lia "Monitoramento de Chama…", que é
+          justamente a parte redundante ocupando o espaço da parte que
+          distingue. O endereço (`/monitoramento-de-chamados`) não mudou: ele é
+          a chave de permissão do módulo (`lib/permissoes.ts`) e trocá-lo
+          desligaria o acesso de quem já o tem.
+        */
+        {
+          href: "/monitoramento-de-chamados",
+          label: "Monitoramento",
+          icon: Headset,
+        },
+        /*
+          A Conciliação vem **colada** no Monitoramento porque é a pergunta
+          seguinte à dele, e sobre o mesmo material: o Monitoramento diz o que
+          mudou nos chamados desde o último envio; a Conciliação pergunta se o
+          que mudou nos chamados é o que mudou na planilha de vigência — para
+          cada alteração que a planilha trouxe, existe o chamado que a pediu?
+
+          Ela é a única tela do produto que confronta as duas superfícies. É de
+          propósito que fique aqui e não na Auditoria: quem abre a seção de
+          manhã já está com os dois lados na cabeça, e a resposta que ela dá é
+          sobre a fila da Ambev — não sobre a vigência.
+
+          **Confrontar não é somar.** O impacto do chamado continua nunca sendo
+          adicionado ao da planilha; a tela põe os dois lado a lado e diz se
+          batem, que é o oposto de fundi-los.
+        */
+        {
+          href: "/conciliacao-de-chamados",
+          /*
+            **"Conciliação"**, curto, pela mesma razão do item acima: o cartão
+            já diz "Chamados Ambev", e o rótulo longo gastaria na repetição o
+            espaço da palavra que distingue. O endereço continua inteiro, que é
+            a chave de permissão.
+          */
+          label: "Conciliação",
+          icon: Scale,
+        },
+        { href: "/justificativas", label: "Justificativas", icon: FileCheck2 },
+        /*
+          O painel vem **depois** da fila, e não antes: a fila é onde se
+          trabalha, o painel é onde se confere. Quem abre a seção todo dia vem
+          justificar; quem vem cobrar o que falta é quem desce um item.
+        */
+        {
+          href: "/painel-de-justificativas",
+          label: "Painel de Justificativas",
+          icon: ClipboardList,
+        },
+      ],
+    },
+    {
+      /*
+        Compras fica entre os Chamados Ambev e as contas de custo, e a posição
+        é a do gesto que ela serve: alguém está com um pedido de compra parado na
+        mesa e precisa saber, agora, quanto a Ambev remunera aquele produto. Não
+        é auditoria — auditar é descobrir o que mudou, e aqui nada mudou; é um
         portão antes de o dinheiro sair, e por isso vem antes.
 
         Um item só, como a seção Remuneração da lateral do Fechamento. A seção
@@ -373,33 +373,11 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
       itens: [{ href: "/remunerado", label: "Remunerado", icon: Tags }],
     },
     {
-      id: "auditoria",
-      titulo: "Auditoria",
-      descricao: "O que mudou na vigência e quanto custou",
-      icon: ScanSearch,
-      cor: "text-nav-auditoria",
-      itens: [
-        { href: "/alteracoes", label: "Alterações", icon: ArrowRightLeft, contador: "alteracoes" },
-        { href: "/comparar", label: "Comparar vigências", icon: GitCompareArrows },
-        { href: "/parametros", label: "Parâmetros", icon: SlidersVertical },
-        { href: "/vigencias", label: "Vigências", icon: CalendarDays },
-        /*
-          Os três novos vêm depois dos quatro que funcionam, e nessa ordem, porque
-          é a ordem da pergunta: o que mudou (Alterações) vira quanto custou
-          (Impacto financeiro), quanto custou vira o que disso é anormal
-          (Anomalias), e o anormal vira um caso com dono (Auditorias).
-        */
-        { href: "/impacto-financeiro", label: "Impacto financeiro", icon: CircleDollarSign },
-        { href: "/anomalias", label: "Anomalias", icon: TriangleAlert },
-        { href: "/auditorias", label: "Auditorias", icon: ClipboardCheck },
-      ],
-    },
-    {
       /*
         CUSTO FIXO reúne tudo o que a vigência cobra esteja o equipamento
         parado ou não — a parcela que não depende de ter rodado. Vem acima do
-        Custo Variável, que é a outra metade da conta, e acima da Frota, que é
-        onde se desce ao ativo individual.
+        Custo Variável, que é a outra metade da conta, e as duas vêm acima da
+        Auditoria, que é onde se procura o desvio no que essas contas mudaram.
 
         É seção própria, e não um item da Frota, porque a pergunta é de outra
         altura. A Frota pergunta pelo ativo — o que mudou nesta placa, quanto ela
@@ -474,6 +452,28 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
         { href: "/custo-variavel-tma", label: "TMA", icon: Timer },
         { href: "/custo-variavel-salario-variavel", label: "Salário Variável", icon: Wallet },
         { href: "/custo-variavel-lucro-variavel", label: "Lucro Variável", icon: TrendingUp },
+      ],
+    },
+    {
+      id: "auditoria",
+      titulo: "Auditoria",
+      descricao: "O que mudou na vigência e quanto custou",
+      icon: ScanSearch,
+      cor: "text-nav-auditoria",
+      itens: [
+        { href: "/alteracoes", label: "Alterações", icon: ArrowRightLeft, contador: "alteracoes" },
+        { href: "/comparar", label: "Comparar vigências", icon: GitCompareArrows },
+        { href: "/parametros", label: "Parâmetros", icon: SlidersVertical },
+        { href: "/vigencias", label: "Vigências", icon: CalendarDays },
+        /*
+          Os três novos vêm depois dos quatro que funcionam, e nessa ordem, porque
+          é a ordem da pergunta: o que mudou (Alterações) vira quanto custou
+          (Impacto financeiro), quanto custou vira o que disso é anormal
+          (Anomalias), e o anormal vira um caso com dono (Auditorias).
+        */
+        { href: "/impacto-financeiro", label: "Impacto financeiro", icon: CircleDollarSign },
+        { href: "/anomalias", label: "Anomalias", icon: TriangleAlert },
+        { href: "/auditorias", label: "Auditorias", icon: ClipboardCheck },
       ],
     },
     /*
