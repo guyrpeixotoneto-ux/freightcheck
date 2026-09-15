@@ -1,4 +1,11 @@
+import { useMemo, useState } from "react";
 import { ArrowLeftRight, Info } from "lucide-react";
+import {
+  compativelMaisProxima,
+  formamParDeVigencias,
+  rotuloDaCobertura,
+  vigenciasCompativeisCom,
+} from "@workspace/comparison/recorte-de-rubrica";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { numerosDaLinha, type CandidatosDoPar } from "@/lib/candidatos";
@@ -6,7 +13,10 @@ import { cn } from "@/lib/utils";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
+  SelectSeparator,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
@@ -145,7 +155,87 @@ export function SeletorDoPar({
     rotulos.get(v.id) ??
     `${v.sourceLabel} · ${v.effectiveDate.split("-").reverse().join("/")}`;
 
-  const escolhida = vigencias.find((v) => v.id === base);
+  const porId = useMemo(
+    () => new Map(vigencias.map((v) => [v.id, v] as const)),
+    [vigencias],
+  );
+  const escolhida = porId.get(base);
+  const destino = porId.get(comparada);
+
+  /**
+   * Qual dos dois campos está livre — e por que um deles precisa estar.
+   *
+   * Se os dois recortassem um ao outro, o par ficaria preso na cobertura em que
+   * abriu: com `CAVALO+CARRETA` dos dois lados, nenhuma caixa ofereceria as
+   * vigências só de cavalo, e não haveria gesto nenhum que levasse àquela
+   * série. A saída é o campo que a pessoa **está mexendo** oferecer o acervo
+   * inteiro da unidade, e o outro seguir atrás: escolher ali reancora o par e
+   * arrasta a outra ponta para a compatível mais próxima.
+   *
+   * O efeito prático é o critério de aceite: o par em tela é sempre um par que
+   * o motor aceita, e ainda assim dá para ir de uma cobertura à outra num
+   * clique.
+   */
+  const [ancora, setAncora] = useState<"base" | "comparada">("base");
+  const referencia = ancora === "base" ? escolhida : destino;
+
+  /**
+   * As opções de um campo: as que formam par, e as que trocariam o par.
+   *
+   * `resto` só existe no campo ancorado — é a saída para outra cobertura. No
+   * campo dependente ele é vazio, e é isso que garante que nenhum par recusado
+   * pelo motor possa ser montado clicando: o que está lá já é compatível com a
+   * outra ponta.
+   */
+  const opcoes = (papel: "base" | "comparada") => {
+    const outra = papel === "base" ? destino : escolhida;
+    if (!outra) return { compativeis: vigencias, resto: [] as VigenciaEscolhivel[] };
+    const compativeis = vigenciasCompativeisCom(vigencias, outra);
+    const resto =
+      ancora === papel
+        ? vigencias.filter((v) => v.id !== outra.id && !formamParDeVigencias(v, outra))
+        : [];
+    return { compativeis, resto };
+  };
+
+  /**
+   * Escolher numa das caixas — e levar a outra junto quando ela deixou de valer.
+   *
+   * Sem o arrasto, trocar o "De" para uma cobertura diferente deixaria em tela
+   * um par que o motor recusa, e a tela abriria no erro. Com ele, a outra ponta
+   * vai para a vizinha compatível — o mês ao lado, que é o par que quem audita
+   * quase sempre quer. Quando não há vizinha nenhuma, a ponta fica **vazia** de
+   * propósito: a página não consulta par incompleto, e a frase abaixo dos
+   * campos explica o que falta importar.
+   */
+  const escolher = (papel: "base" | "comparada", id: string) => {
+    setAncora(papel);
+    const nova = porId.get(id);
+    const outra = papel === "base" ? destino : escolhida;
+    const definirOutra = papel === "base" ? onComparada : onBase;
+    (papel === "base" ? onBase : onComparada)(id);
+    if (!nova) return;
+    if (!outra || !formamParDeVigencias(outra, nova)) {
+      definirOutra(compativelMaisProxima(vigencias, nova)?.id ?? "");
+    }
+  };
+
+  /**
+   * A vigência escolhida não tem com quem se comparar — e a tela diz isso.
+   *
+   * É o estado que a importação de carreta produziu no acervo real: uma
+   * cobertura que existe numa vigência só. Antes ele chegava como caixa muda e
+   * comparação recusada depois do clique; agora é uma frase que nomeia a
+   * cobertura e diz o que fazer.
+   */
+  const semCompativel = Boolean(
+    referencia && vigenciasCompativeisCom(vigencias, referencia).length === 0,
+  );
+  const aviso = referencia
+    ? `Não há outra vigência com cobertura de ${rotuloDaCobertura(
+        referencia.entityTypeSet,
+      )} disponível para comparação. Importe os dados correspondentes na vigência desejada.`
+    : "";
 
   const numerosDe = (id: string) =>
     numerosDaLinha(candidatos?.candidatos.find((c) => c.id === id)?.numeros ?? null);
@@ -172,12 +262,30 @@ export function SeletorDoPar({
    * linha que ficasse em esqueleto para sempre prometeria um número que não
    * vem.
    */
-  const linha = (v: VigenciaEscolhivel, comNumeros: boolean) => {
-    const n = comNumeros ? numerosDe(v.id) : null;
+  const linha = (
+    v: VigenciaEscolhivel,
+    comNumeros: boolean,
+    coberturaDiferente = false,
+  ) => {
+    const n = comNumeros && !coberturaDiferente ? numerosDe(v.id) : null;
     return (
       <span className="flex w-full items-center justify-between gap-6">
         <span>{rotulo(v)}</span>
-        {n ? (
+        {/*
+          A cobertura escrita onde o número estaria — o defeito que trouxe esta
+          peça para cá.
+
+          Estas linhas nunca terão número: o servidor não as considera
+          candidatas, porque o motor não compara coberturas diferentes. Deixá-las
+          em branco ao lado das que dizem "nenhuma alteração" é convidar a ler
+          ausência de conta como ausência de mudança. Dizer `Cavalo` ali responde
+          a pergunta certa — esta vigência é de outra série.
+        */}
+        {coberturaDiferente ? (
+          <span className="text-xs text-muted-foreground">
+            {rotuloDaCobertura(v.entityTypeSet)}
+          </span>
+        ) : n ? (
           <span className="flex flex-col items-end text-xs leading-tight">
             {n.valores.map((valor) => (
               <span
@@ -222,7 +330,7 @@ export function SeletorDoPar({
           >
             De
           </label>
-          <Select value={base} onValueChange={onBase}>
+          <Select value={base} onValueChange={(id) => escolher("base", id)}>
             <SelectTrigger id={`${idPrefixo}-base`} aria-label="De (vigência de origem)">
               {/*
                 O campo fechado mostra **só a vigência**, e não a linha inteira
@@ -243,11 +351,36 @@ export function SeletorDoPar({
               </SelectValue>
             </SelectTrigger>
             <SelectContent>
-              {vigencias.map((v) => (
-                <SelectItem key={v.id} value={v.id}>
-                  {linha(v, true)}
-                </SelectItem>
-              ))}
+              {(() => {
+                const { compativeis, resto } = opcoes("base");
+                return (
+                  <>
+                    {compativeis.map((v) => (
+                      <SelectItem key={v.id} value={v.id}>
+                        {linha(v, true)}
+                      </SelectItem>
+                    ))}
+                    {compativeis.length === 0 && (
+                      <p className="px-2 py-1.5 text-xs text-muted-foreground">{aviso}</p>
+                    )}
+                    {resto.length > 0 && (
+                      <>
+                        <SelectSeparator />
+                        <SelectGroup>
+                          <SelectLabel className="text-[0.65rem] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                            Outra cobertura — troca as duas pontas
+                          </SelectLabel>
+                          {resto.map((v) => (
+                            <SelectItem key={v.id} value={v.id}>
+                              {linha(v, true, true)}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      </>
+                    )}
+                  </>
+                );
+              })()}
               {/*
                 A falha não tira o menu do ar: escolher a vigência continua
                 possível, e o que se perde é só a coluna da direita. A frase é
@@ -281,20 +414,73 @@ export function SeletorDoPar({
           >
             Para
           </label>
-          <Select value={comparada} onValueChange={onComparada}>
+          <Select value={comparada} onValueChange={(id) => escolher("comparada", id)}>
             <SelectTrigger id={`${idPrefixo}-comparada`} aria-label="Para (vigência de destino)">
-              <SelectValue placeholder="Escolha a vigência de destino" />
+              {/*
+                O texto sai do acervo inteiro, e não da lista recortada.
+
+                A caixa mostra o rótulo do item escolhido, e o recorte pode
+                deixá-lo de fora por um quadro — entre a troca do "De" e o
+                arrasto desta ponta. Lido da lista, o campo piscaria o
+                `placeholder` no meio de uma escolha que já aconteceu.
+              */}
+              <SelectValue placeholder="Escolha a vigência de destino">
+                {destino ? rotulo(destino) : null}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
-              {vigencias.map((v) => (
-                <SelectItem key={v.id} value={v.id}>
-                  {rotulo(v)}
-                </SelectItem>
-              ))}
+              {(() => {
+                const { compativeis, resto } = opcoes("comparada");
+                return (
+                  <>
+                    {compativeis.map((v) => (
+                      <SelectItem key={v.id} value={v.id}>
+                        {linha(v, false)}
+                      </SelectItem>
+                    ))}
+                    {compativeis.length === 0 && (
+                      <p className="px-2 py-1.5 text-xs text-muted-foreground">{aviso}</p>
+                    )}
+                    {resto.length > 0 && (
+                      <>
+                        <SelectSeparator />
+                        <SelectGroup>
+                          <SelectLabel className="text-[0.65rem] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                            Outra cobertura — troca as duas pontas
+                          </SelectLabel>
+                          {resto.map((v) => (
+                            <SelectItem key={v.id} value={v.id}>
+                              {linha(v, false, true)}
+                            </SelectItem>
+                          ))}
+                        </SelectGroup>
+                      </>
+                    )}
+                  </>
+                );
+              })()}
             </SelectContent>
           </Select>
         </div>
       </div>
+
+      {/*
+        A frase que a caixa vazia não diz sozinha.
+
+        Ela fica **fora** do menu de propósito: o menu só aparece depois do
+        clique, e quem abre a tela num par impossível precisa ler o motivo sem
+        abrir nada. `role="status"` porque o texto troca sem a página navegar —
+        é o leitor de tela sabendo que a escolha anterior mudou o que cabe aqui.
+      */}
+      {semCompativel && (
+        <p
+          role="status"
+          className="mt-3 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-200"
+        >
+          <Info className="mt-0.5 h-3.5 w-3.5 flex-none" aria-hidden="true" />
+          <span>{aviso}</span>
+        </p>
+      )}
 
       <p className="mt-3 flex items-start gap-2 border-l-2 border-border pl-2.5 text-xs text-muted-foreground">
         <Info className="mt-0.5 h-3.5 w-3.5 flex-none" aria-hidden="true" />

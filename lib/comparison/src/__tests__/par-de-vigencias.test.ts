@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  compativelMaisProxima,
+  formamParDeVigencias,
   parDePartida,
+  rotuloDaCobertura,
   rotulosDasVigencias,
   TIPOS_DE_EQUIPAMENTO,
+  vigenciasCompativeisCom,
   vigenciasDaUnidade,
   vigenciasQueCobrem,
 } from "../recorte-de-rubrica";
@@ -269,5 +273,112 @@ describe("os rótulos do seletor", () => {
     const rotulos = rotulosDasVigencias(lista, nomeDoEscopo);
 
     expect(new Set(rotulos.values()).size).toBe(lista.length);
+  });
+});
+
+/**
+ * A compatibilidade das duas pontas — o recorte que o seletor não fazia.
+ *
+ * O sintoma, relatado em 15/09/2026 na Auditoria de FINAME depois de uma
+ * importação de carreta: o menu "De" mostrava número em duas linhas e nada nas
+ * outras oito. As oito não eram "sem alteração" — eram incomparáveis com o
+ * "Para" aberto, e o servidor nem as considerou candidatas
+ * (`candidatas-do-par.ts`). A lista, porém, oferecia as dez como se fossem a
+ * mesma coisa.
+ *
+ * `formamParDeVigencias` é a condição que faltava, e é a mesma que aquela rota usa desde
+ * esta correção: uma função só para o servidor, o seletor e o motor.
+ */
+describe("a compatibilidade de duas pontas", () => {
+  const jul = vigencia("jul-ambos", "2026-07-16", PERNAMBUCO, "CARRETA+CAVALO");
+  const ago1 = vigencia("ago1-ambos", "2026-08-01", PERNAMBUCO, "CARRETA+CAVALO");
+  const ago2 = vigencia("ago2-cavalo", "2026-08-16", PERNAMBUCO, "CAVALO");
+  const set = vigencia("set-trecho", "2026-09-01", PERNAMBUCO, "TRECHO");
+  const ca_jul = vigencia("ca-jul-ambos", "2026-07-16", CAMACARI, "CARRETA+CAVALO");
+  const acervo = [jul, ago1, ago2, set, ca_jul];
+
+  /* O critério de aceite, dito como teste. */
+  it("julho com cavalo+carreta não oferece agosto só com cavalo", () => {
+    expect(formamParDeVigencias(ago2, jul)).toBe(false);
+    expect(vigenciasCompativeisCom(acervo, jul).map((v) => v.id)).toEqual([
+      "ago1-ambos",
+    ]);
+  });
+
+  it("aceita o par de mesma cobertura e mesma unidade", () => {
+    expect(formamParDeVigencias(ago1, jul)).toBe(true);
+  });
+
+  /* As outras duas recusas de `engine.ts`, na mesma função. */
+  it("recusa a outra unidade e recusa a vigência contra si mesma", () => {
+    expect(formamParDeVigencias(ca_jul, jul)).toBe(false);
+    expect(formamParDeVigencias(jul, jul)).toBe(false);
+  });
+
+  it("nunca deixa uma vigência de trecho entrar num par de equipamento", () => {
+    expect(vigenciasCompativeisCom(acervo, jul)).not.toContainEqual(set);
+    expect(formamParDeVigencias(set, ago2)).toBe(false);
+  });
+
+  /* Sem referência não há critério, e um recorte sem critério é a lista toda. */
+  it("não recorta nada sem uma ponta escolhida", () => {
+    expect(vigenciasCompativeisCom(acervo, null)).toHaveLength(5);
+  });
+
+  /* A cobertura que existe numa vigência só: a lista vazia que vira frase. */
+  it("devolve lista vazia quando a cobertura não tem par no acervo", () => {
+    expect(vigenciasCompativeisCom(acervo, ago2)).toEqual([]);
+    expect(compativelMaisProxima(acervo, ago2)).toBeNull();
+  });
+});
+
+describe("a compatível mais próxima", () => {
+  const acervo = [
+    vigencia("mai", "2026-05-01", PERNAMBUCO, "CAVALO"),
+    vigencia("jun", "2026-06-01", PERNAMBUCO, "CAVALO"),
+    vigencia("jul", "2026-07-01", PERNAMBUCO, "CAVALO"),
+    vigencia("jul-ambos", "2026-07-01", PERNAMBUCO, "CARRETA+CAVALO"),
+    vigencia("ago-ca", "2026-08-01", CAMACARI, "CAVALO"),
+  ];
+
+  it("escolhe a vizinha no tempo, dentro da cobertura e da unidade", () => {
+    const ref = acervo.find((v) => v.id === "jul")!;
+    expect(compativelMaisProxima(acervo, ref)?.id).toBe("jun");
+  });
+
+  /* Empate entre a anterior e a posterior: fica a anterior — "De" é a origem.
+
+     As datas são escolhidas a dedo porque mês não é unidade de distância: a
+     primeira versão deste caso usou maio/junho/julho supondo empate, e maio está
+     a 31 dias de junho enquanto julho está a 30. A função acertou e o teste é
+     que media outra coisa. Catorze dias de cada lado não deixam dúvida. */
+  it("desempata pela mais antiga quando as duas estão à mesma distância", () => {
+    const quinzenas = [
+      vigencia("antes", "2026-06-01", PERNAMBUCO, "CAVALO"),
+      vigencia("ref", "2026-06-15", PERNAMBUCO, "CAVALO"),
+      vigencia("depois", "2026-06-29", PERNAMBUCO, "CAVALO"),
+    ];
+    expect(compativelMaisProxima(quinzenas, quinzenas[1]!)?.id).toBe("antes");
+  });
+
+  it("não atravessa a cobertura nem a unidade para achar vizinha", () => {
+    const ref = acervo.find((v) => v.id === "jul-ambos")!;
+    expect(compativelMaisProxima(acervo, ref)).toBeNull();
+  });
+});
+
+describe("a cobertura escrita como quem fala dela", () => {
+  /* O banco grava em ordem alfabética; a frase é na ordem em que se diz. */
+  it("põe o cavalo antes da carreta", () => {
+    expect(rotuloDaCobertura("CARRETA+CAVALO")).toBe("Cavalo + Carreta");
+  });
+
+  it("escreve a cobertura de um tipo só", () => {
+    expect(rotuloDaCobertura("CAVALO")).toBe("Cavalo");
+    expect(rotuloDaCobertura("TRECHO")).toBe("Trecho");
+  });
+
+  it("não inventa texto para uma cobertura vazia", () => {
+    expect(rotuloDaCobertura("")).toBe("");
   });
 });
