@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { CalendarDays } from "lucide-react";
 import { periodicitySuffix, rotuloDeListaDaVigencia } from "@workspace/comparison/labels";
 import {
@@ -133,10 +132,8 @@ export function SeletorDeVigencia({
  *
  * Os números aqui são a soma entre unidades, e vêm de
  * `/changes/range/overview` — a mesma leitura que a Linha do Tempo já faz para
- * o ranking de unidades, que traz `changes` e `impact` por competência.
- * **Ela só sai quando o menu abre**: é uma análise do intervalo inteiro por
- * unidade × contexto, cara demais para disparar no carregamento de quatro
- * telas por causa de duas colunas de um menu que pode nunca ser aberto.
+ * o ranking de unidades, que traz `changes` e `impact` por competência. **Ela
+ * sai com a tela**, e não na abertura do menu: ver `useResumoPorVigenciaGeral`.
  */
 export function SeletorDeVigenciaGeral({
   periodos,
@@ -152,8 +149,7 @@ export function SeletorDeVigenciaGeral({
   className?: string;
   rotulo?: string;
 }) {
-  const [aberto, setAberto] = useState(false);
-  const resumo = useResumoPorVigenciaGeral(periodos, aberto);
+  const resumo = useResumoPorVigenciaGeral(periodos);
 
   if (periodos.length <= 1) return null;
 
@@ -177,8 +173,6 @@ export function SeletorDeVigenciaGeral({
       }))}
       ativa={ativa}
       onEscolher={(data) => onTrocar({ period: data })}
-      aberto={aberto}
-      onAbrir={setAberto}
     />
   );
 }
@@ -206,8 +200,6 @@ export function MenuDeVigencias({
   opcoes,
   ativa,
   onEscolher,
-  aberto,
-  onAbrir,
 }: {
   rotulo: string;
   className?: string;
@@ -236,11 +228,16 @@ export function MenuDeVigencias({
   }[];
   ativa: string | null;
   onEscolher: (valor: string) => void;
-  aberto?: boolean;
-  onAbrir?: (aberto: boolean) => void;
 }) {
+  /*
+    O menu não é controlado, e não tem por que ser: nada aqui depende de ele
+    estar aberto. Ele **era** — a abertura era o gatilho da leitura dos números,
+    e o estado existia só para disparar a consulta. Com a leitura saindo junto
+    com a tela, o que sobrava era um `useState` que reabria a discussão toda vez
+    que alguém lesse este arquivo.
+  */
   return (
-    <DropdownMenu open={aberto} onOpenChange={onAbrir}>
+    <DropdownMenu>
       <DropdownMenuTrigger className={className}>
         <CalendarDays className="w-4 h-4" />
         {rotulo}

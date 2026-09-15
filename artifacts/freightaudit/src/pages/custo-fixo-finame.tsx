@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearch } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { Banknote, Download, Search, SlidersHorizontal } from "lucide-react";
@@ -43,7 +43,7 @@ import {
   type FiltrosDeFiname,
   type TotaisDeFiname,
 } from "@/lib/finame";
-import { type CandidatosDoPar } from "@/lib/candidatos";
+import { useCandidatosDoPar } from "@/hooks/use-candidatos-do-par";
 import { JustificarDialog } from "@/components/justificativas/justificar-dialog";
 import { useJustificarNaTabela } from "@/lib/justificar-na-tabela";
 import {
@@ -265,49 +265,12 @@ export default function AuditoriaDeFiname() {
   /**
    * Os números de cada candidata a "De", contra o "Para" aberto.
    *
-   * Três decisões, e nenhuma é de estilo:
-   *
-   * **Só quando o menu abre.** `enabled` depende de `menuDeAberto`: calcular
-   * comparações para quem nunca abriu o seletor seria cobrar do banco por uma
-   * pergunta que ninguém fez. E a abertura não espera a resposta — o menu
-   * aparece inteiro na hora, os números entram depois.
-   *
-   * **A chave carrega o Para e a unidade.** Trocar qualquer um dos dois é uma
-   * pergunta nova, então é chave nova — não há invalidação manual a esquecer.
-   * É o que faz o número ao lado de junho mudar quando o Para vai de agosto
-   * para julho.
-   *
-   * **Os pendentes voltam.** O servidor calcula o que couber no orçamento dele
-   * e diz quantas ficaram de fora; `refetchInterval` pergunta de novo enquanto
-   * houver pendente, e a chamada seguinte continua de onde a anterior parou,
-   * porque o que foi calculado ficou gravado. Para no zero — e para também se o
-   * servidor não progredir, que é o que impede o laço infinito.
+   * A pergunta, a chave e a cadência moram em `useCandidatosDoPar`, com as
+   * outras duas auditorias: a pergunta é a mesma, e telas irmãs respondendo com
+   * fôlegos diferentes seria diferença sem motivo. O que esta tela decide é só
+   * o que é dela — a rubrica, o "Para" aberto e a unidade do recorte.
    */
-  const [menuDeAberto, setMenuDeAberto] = useState(false);
-  /** Quantas ficaram pendentes na resposta anterior — a régua do progresso. */
-  const pendentesAnteriores = useRef<number | null>(null);
-  const candidatos = useQuery({
-    queryKey: ["finame", "candidatos", escopoAberto, comparada],
-    enabled: menuDeAberto && Boolean(comparada),
-    staleTime: 5 * 60_000,
-    queryFn: () =>
-      fetchJson<CandidatosDoPar>(`/finame/candidatos?para=${comparada}`),
-    refetchInterval: (query) => {
-      const dados = query.state.data;
-      if (!dados || dados.pendentes === 0) {
-        pendentesAnteriores.current = null;
-        return false;
-      }
-      const anterior = pendentesAnteriores.current;
-      pendentesAnteriores.current = dados.pendentes;
-      /* A primeira resposta com pendente sempre merece uma segunda pergunta; da
-         segunda em diante, só continua quem está diminuindo. Uma fila que não
-         anda não vai andar perguntando mais vezes — e insistir nela seria uma
-         consulta por segundo e meio, para sempre, contra o mesmo banco. */
-      if (anterior === null) return 1_500;
-      return dados.pendentes < anterior ? 1_500 : false;
-    },
-  });
+  const candidatos = useCandidatosDoPar("finame", comparada, escopoAberto);
 
   const comparacao = useQuery({
     queryKey: ["finame", "comparacao", base, comparada, comSemAlteracao],
@@ -425,7 +388,6 @@ export default function AuditoriaDeFiname() {
             rotulos={rotulos}
             candidatos={candidatos.data}
             carregandoCandidatos={candidatos.isFetching}
-            onAbrirDe={setMenuDeAberto}
             erroDosCandidatos={
               candidatos.error instanceof Error ? candidatos.error.message : null
             }

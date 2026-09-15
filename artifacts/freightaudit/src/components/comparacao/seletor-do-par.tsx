@@ -93,7 +93,6 @@ export function SeletorDoPar({
   idPrefixo,
   candidatos,
   carregandoCandidatos = false,
-  onAbrirDe,
   erroDosCandidatos = null,
 }: {
   vigencias: VigenciaEscolhivel[];
@@ -109,9 +108,13 @@ export function SeletorDoPar({
   /**
    * O que cada candidata a "De" produz contra o "Para" aberto — por id.
    *
-   * `undefined` enquanto ninguém perguntou ou a pergunta está no ar; uma
-   * entrada com `numeros: null` é a candidata que o servidor ainda não
-   * calculou. Os dois casos escrevem a mesma coisa na linha: **nada**.
+   * `undefined` enquanto a pergunta está no ar; uma entrada com `numeros: null`
+   * é a candidata que o servidor ainda não calculou. Os dois casos escrevem a
+   * mesma coisa na linha: **nada**.
+   *
+   * Quem pergunta é a página, e pergunta **no carregamento dela** — não na
+   * abertura do menu. O componente não tem mais opinião sobre isso: ele desenha
+   * o que chegou, e um esqueleto enquanto não chegou.
    *
    * Opcional, e é o que mantém a Auditoria de IPVA intacta: sem a propriedade,
    * o menu é exatamente o que era antes. Quando houver `/ipva/candidatos`,
@@ -120,8 +123,6 @@ export function SeletorDoPar({
   candidatos?: CandidatosDoPar;
   /** Há pergunta em voo: as linhas sem número mostram esqueleto, não vazio. */
   carregandoCandidatos?: boolean;
-  /** Avisa a página de que o menu "De" abriu — é o que dispara a pergunta. */
-  onAbrirDe?: (aberto: boolean) => void;
   /** A falha da pergunta pelos números, quando houve uma. */
   erroDosCandidatos?: string | null;
   base: string;
@@ -150,12 +151,26 @@ export function SeletorDoPar({
     numerosDaLinha(candidatos?.candidatos.find((c) => c.id === id)?.numeros ?? null);
 
   /**
+   * Ainda vem número — e é isto, não "há requisição no ar", que o esqueleto diz.
+   *
+   * A diferença aparece entre duas rodadas: a resposta chegou com pendentes, a
+   * seguinte ainda não partiu, e por um instante `carregandoCandidatos` é falso
+   * com metade das linhas sem número. Amarrado só a ele, o esqueleto sumia e
+   * voltava a cada rodada, e a lista piscava enquanto se preenchia. `pendentes`
+   * é o que o servidor diz que ainda deve; enquanto ele não zera, a linha sem
+   * número está esperando, e é isso que ela mostra.
+   */
+  const faltamNumeros = carregandoCandidatos || (candidatos?.pendentes ?? 0) > 0;
+
+  /**
    * A linha do menu: a vigência à esquerda, o que o par produz à direita.
    *
    * Sem números, a linha é só a vigência — e um esqueleto no lugar deles
-   * enquanto a pergunta está no ar. O esqueleto é deliberado: ele diz "está
-   * vindo" sem escrever um valor, que é a única coisa que não se pode fazer
-   * aqui (ver `numerosDaLinha`).
+   * enquanto ainda houver número a chegar. O esqueleto é deliberado: ele diz
+   * "está vindo" sem escrever um valor, que é a única coisa que não se pode
+   * fazer aqui (ver `numerosDaLinha`). Quando a fila termina, ele some: uma
+   * linha que ficasse em esqueleto para sempre prometeria um número que não
+   * vem.
    */
   const linha = (v: VigenciaEscolhivel, comNumeros: boolean) => {
     const n = comNumeros ? numerosDe(v.id) : null;
@@ -177,7 +192,7 @@ export function SeletorDoPar({
             ))}
             <span className="text-muted-foreground">{n.alteracoes}</span>
           </span>
-        ) : comNumeros && carregandoCandidatos ? (
+        ) : comNumeros && faltamNumeros ? (
           <Skeleton className="h-3 w-24 rounded" />
         ) : null}
       </span>
@@ -207,7 +222,7 @@ export function SeletorDoPar({
           >
             De
           </label>
-          <Select value={base} onValueChange={onBase} onOpenChange={onAbrirDe}>
+          <Select value={base} onValueChange={onBase}>
             <SelectTrigger id={`${idPrefixo}-base`} aria-label="De (vigência de origem)">
               {/*
                 O campo fechado mostra **só a vigência**, e não a linha inteira

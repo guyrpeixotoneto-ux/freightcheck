@@ -140,22 +140,20 @@ export function useResumoPorVigencia(
  * navegador exigiria a lista de alterações de N unidades para escrever seis
  * linhas.
  *
- * `habilitado` existe porque essa leitura é cara: os quatro cabeçalhos que
- * abrem este seletor (Visão Geral, Linha do Tempo, Dashboard e Gestão à Vista)
- * a disparam **quando o menu abre**, e não ao carregar a tela. O menu já está
- * em tela quando a resposta chega; as colunas aparecem com ela, como no
- * seletor da unidade enquanto `/changes/range` não voltou.
+ * A leitura sai **com a tela**, como a do seletor da unidade — e não na
+ * abertura do menu. Ela já esperou o clique, e o que isso produzia era um menu
+ * que abre sem as duas colunas e as ganha um segundo depois, debaixo do cursor
+ * de quem já estava escolhendo: os números existem para decidir a escolha, e
+ * chegar depois dela é chegar tarde.
  *
- * Onde a tela já faz essa mesma leitura por conta própria — o Dashboard em
- * Visão Geral, para o gráfico de impacto por vigência, e a Linha do Tempo,
- * para o ranking entre unidades —, a chave compartilhada
- * (`opcoesDoIntervaloGeral`) faz o resumo já estar no cache: lá o menu abre
- * preenchido, sem esperar requisição nenhuma.
+ * O custo dessa antecipação é menor do que parece. Onde a tela já faz essa
+ * mesma leitura por conta própria — o Dashboard em Visão Geral, para o gráfico
+ * de impacto por vigência, e a Linha do Tempo, para o ranking entre unidades —,
+ * a chave compartilhada (`opcoesDoIntervaloGeral`) faz as duas virarem uma só
+ * resposta; nas outras, é uma requisição por tela, servida do cache por
+ * `staleTime` no resto da navegação.
  */
-export function useResumoPorVigenciaGeral(
-  periodos: string[],
-  habilitado = true,
-): ResumoDasVigencias {
+export function useResumoPorVigenciaGeral(periodos: string[]): ResumoDasVigencias {
   const ordenadas = useMemo(() => [...periodos].sort((a, b) => a.localeCompare(b)), [periodos]);
 
   /*
@@ -170,7 +168,7 @@ export function useResumoPorVigenciaGeral(
       ordenadas[0] ?? null,
       ordenadas[ordenadas.length - 1] ?? null,
     ),
-    enabled: habilitado && ordenadas.length > 1,
+    enabled: ordenadas.length > 1,
   });
 
   return useMemo(() => resumirIntervalo(overview.data?.serie ?? []), [overview.data]);
