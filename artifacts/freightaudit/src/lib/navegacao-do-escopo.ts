@@ -222,6 +222,17 @@ export const TELAS_QUE_HONRAM_ESCOPO = new Set<string>([
     comparar vigências de escopos distintos.
   */
   "/custo-variavel-km-rodado",
+  /*
+    A Auditoria de Velocidade Média, pelo mesmo mecanismo da linha acima e com o
+    mesmo filtro a mais: a tela (`pages/custo-variavel-velocidade-media.tsx`)
+    recorta a lista do seletor pela unidade aberta **e** pelas vigências que
+    cobrem trecho — sem o segundo, o par de partida cairia numa vigência de
+    equipamento e a tela abriria vazia sem dizer por quê.
+
+    Fora de `TELAS_QUE_HONRAM_VISAO_GERAL` pelo motivo de sempre: o motor recusa
+    comparar vigências de escopos distintos.
+  */
+  "/custo-variavel-velocidade-media",
 ]);
 
 /**

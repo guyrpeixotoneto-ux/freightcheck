@@ -7,7 +7,6 @@ import {
   Database,
   FileSpreadsheet,
   HardHat,
-  Gauge,
   History,
   Receipt,
   Shield,
@@ -283,30 +282,33 @@ export const TELAS_EM_PREPARO: TelaEmPreparo[] = [
     (`docs/ACHADO-KM-RODADO.md`).
   */
 
-  {
-    href: "/custo-variavel-velocidade-media",
-    label: "Velocidade Média",
-    icon: Gauge,
-    cor: "text-nav-custo-variavel",
-    pergunta:
-      "A que velocidade média cada ativo rodou na vigência, e o que essa velocidade explica do que se pagou por rodar.",
-    depende: [
-      "Distância e tempo realizados na mesma linha: velocidade é razão entre os dois, e sem os dois não há média nenhuma para mostrar.",
-      "A separação entre tempo rodando e tempo parado — o ativo esperando carga não abaixa a velocidade de quem dirigiu, e somar os dois daria uma média que não descreve nem uma coisa nem outra.",
-    ],
-    hoje: [
-      {
-        href: "/ativos-e-parados",
-        label: "Ativos e parados",
-        porque: "Onde já se lê o que rodou e o que ficou parado na vigência aberta.",
-      },
-      {
-        href: "/analise-equipamentos",
-        label: "Análise de frota",
-        porque: "O comportamento da frota por categoria, que é a altura em que esta média vai ser lida.",
-      },
-    ],
-  },
+  /*
+    `/custo-variavel-velocidade-media` saiu deste catálogo, e desta vez o verbete
+    foi atendido quase por inteiro — o que não aconteceu com nenhuma das cinco
+    telas anteriores.
+
+    Ele pedia **distância e tempo na mesma linha** e **a separação entre tempo
+    rodando e tempo parado**, e as duas existem na tabela de frete: o ciclo é
+    declarado como deslocamento mais TMA de origem, TMA de destino e refeição, e
+    cada parcela tem coluna própria. Subtraindo as paradas do ciclo sobra o tempo
+    rodando — a separação que o verbete dizia faltar —, e com o km ele produz uma
+    velocidade que tem de ser a declarada. Quando não é, ou o ciclo foi montado
+    com outro tempo de deslocamento, ou a velocidade declarada não é a que o
+    modelo usou (`docs/ACHADO-VELOCIDADE-MEDIA.md`).
+
+    **O que continua faltando é o realizado, e é outra coisa do que o verbete
+    imaginava.** Estes são o tempo e a distância **contratados** — o que o modelo
+    de remuneração parametriza para o trecho, não o que um motorista praticou
+    numa quinzena. A tela não afirma a que velocidade alguém dirigiu; afirma a que
+    velocidade o contrato supõe que se dirija, e diz a diferença por extenso.
+
+    E trouxe o que o dicionário pede em voz alta e nenhuma tela mostrava: a folga
+    entre o tempo que **remunera** e o que a operação pratica. Os pares `…Lucro`
+    existem porque os dois podem divergir, e "a diferença entre os dois é
+    exatamente onde a conversa comercial acontece — não a apague escolhendo um
+    só".
+  */
+
   {
     href: "/custo-variavel-tma",
     label: "TMA",

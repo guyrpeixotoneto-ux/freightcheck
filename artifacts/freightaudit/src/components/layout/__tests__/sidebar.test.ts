@@ -726,12 +726,21 @@ describe("o catálogo de telas em preparo", () => {
     distância que ninguém importou. O que o acervo já sustentava são duas contas
     do próprio dicionário da tabela de frete que ninguém tinha conferido — ida +
     volta contra o km do ciclo, e R$/viagem ÷ R$/km contra esse mesmo km.
+
+    E de dezesseis para quinze com **Velocidade Média**, a sexta — e a primeira
+    em que o verbete foi atendido quase por inteiro. Ele pedia distância e tempo
+    na mesma linha e a separação entre tempo rodando e tempo parado; a tabela de
+    frete declara o ciclo como deslocamento mais TMA de origem, TMA de destino e
+    refeição, e subtrair as paradas devolve exatamente essa separação. O que
+    continua faltando é outra coisa do que o verbete imaginava: o tempo e a
+    distância aqui são os **contratados**, e não os que um motorista praticou na
+    quinzena.
   */
   it("descreve, para cada tela, o que falta antes de ela mostrar um número", () => {
     const catalogo = fonte("pages/telas-em-preparo.ts");
     const telas = [...catalogo.matchAll(/^\s{4}href:\s*"([^"]+)"/gm)].length;
 
-    expect(telas).toBe(16);
+    expect(telas).toBe(15);
     expect([...catalogo.matchAll(/^\s{4}depende:\s*\[/gm)]).toHaveLength(telas);
     expect([...catalogo.matchAll(/^\s{4}pergunta:/gm)]).toHaveLength(telas);
   });
