@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   compativelMaisProxima,
+  composicaoDoArquivo,
   formamParDeVigencias,
   parDePartida,
   rotuloDaCobertura,
   rotulosDasVigencias,
+  tituloDaComposicao,
   TIPOS_DE_EQUIPAMENTO,
   vigenciasCompativeisCom,
   vigenciasDaUnidade,
@@ -445,5 +447,50 @@ describe("a lista de vigências de cada aba", () => {
     const pura = daAba.find((v) => v.id === "cavalo")!;
 
     expect(vigenciasCompativeisCom(daAba, pura)).toEqual([]);
+  });
+});
+
+/**
+ * Como o arquivo veio composto — a frase que substituiu "Outra cobertura".
+ *
+ * O defeito, relatado em 15/09/2026: *"pq existe ni filtro outra cobertura?"*.
+ * Dentro da aba **Cavalo**, o seletor abria um grupo chamado "Outra cobertura"
+ * cujas linhas diziam "Cavalo" — a tela se contradizendo em voz alta. As duas
+ * séries têm cavalo; o que as separa é o arquivo de origem ter vindo só com ele
+ * ou com a carreta junto, e o motor comparar a vigência inteira.
+ */
+describe("como o arquivo veio composto", () => {
+  it("diz somente, quando o equipamento da aba veio sozinho", () => {
+    expect(composicaoDoArquivo("CAVALO", "CAVALO")).toBe("Somente cavalo");
+    expect(composicaoDoArquivo("CARRETA", "CARRETA")).toBe("Somente carreta");
+  });
+
+  /* A mesma vigência, lida da pergunta que está sendo feita — é isso que o
+     rótulo fixo não fazia. */
+  it("põe o equipamento da aba na frente, e o que veio junto atrás", () => {
+    expect(composicaoDoArquivo("CARRETA+CAVALO", "CAVALO")).toBe("Cavalo com carreta");
+    expect(composicaoDoArquivo("CARRETA+CAVALO", "CARRETA")).toBe("Carreta com cavalo");
+  });
+
+  /* Sem aba aberta, a ordem é a de quem fala: o cavalo puxa a carreta. */
+  it("sem foco, escreve na ordem em que se fala", () => {
+    expect(composicaoDoArquivo("CARRETA+CAVALO")).toBe("Cavalo com carreta");
+    expect(composicaoDoArquivo("CAVALO")).toBe("Somente cavalo");
+  });
+
+  /* Um foco que não está na vigência não manda na frase — ela descreve o que
+     está lá, não o que se procurava. */
+  it("ignora um foco que a vigência não tem", () => {
+    expect(composicaoDoArquivo("CAVALO", "CARRETA")).toBe("Somente cavalo");
+  });
+
+  it("não inventa frase para uma cobertura vazia", () => {
+    expect(composicaoDoArquivo("")).toBe("");
+  });
+
+  it("escreve o título do grupo com o artigo certo", () => {
+    expect(tituloDaComposicao("CAVALO")).toBe("Como o cavalo veio na vigência");
+    expect(tituloDaComposicao("CARRETA")).toBe("Como a carreta veio na vigência");
+    expect(tituloDaComposicao(null)).toBe("Como o equipamento veio na vigência");
   });
 });

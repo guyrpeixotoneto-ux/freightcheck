@@ -370,6 +370,7 @@ export default function AuditoriaDeLucroFixo() {
             />
             <SeletorDoPar
               vigencias={daUnidade}
+              foco={recorteDeTipo === "TODOS" ? null : recorteDeTipo}
               rotulos={rotulos}
               base={base}
               comparada={comparada}

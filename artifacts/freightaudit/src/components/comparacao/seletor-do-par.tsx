@@ -2,8 +2,10 @@ import { useMemo, useState } from "react";
 import { ArrowLeftRight, Info } from "lucide-react";
 import {
   compativelMaisProxima,
+  composicaoDoArquivo,
   formamParDeVigencias,
   rotuloDaCobertura,
+  tituloDaComposicao,
   vigenciasCompativeisCom,
 } from "@workspace/comparison/recorte-de-rubrica";
 import { Button } from "@/components/ui/button";
@@ -104,6 +106,7 @@ export function SeletorDoPar({
   candidatos,
   carregandoCandidatos = false,
   erroDosCandidatos = null,
+  foco = null,
 }: {
   vigencias: VigenciaEscolhivel[];
   /**
@@ -141,6 +144,15 @@ export function SeletorDoPar({
   onComparada: (id: string) => void;
   onInverter: () => void;
   carregando?: boolean;
+  /**
+   * O equipamento da aba aberta — o que dá sentido ao grupo de baixo.
+   *
+   * Na aba Cavalo, uma vigência `CARRETA+CAVALO` é "Cavalo com carreta"; na de
+   * Carreta, a mesma vigência é "Carreta com cavalo". A frase é lida da
+   * pergunta que está sendo feita, e não de um rótulo fixo que obrigaria quem
+   * lê a traduzir. `null` é a aba que mostra os dois.
+   */
+  foco?: string | null;
   /**
    * O prefixo dos `id` dos dois campos — `finame`, `ipva`.
    *
@@ -285,18 +297,18 @@ export function SeletorDoPar({
       <span className="flex w-full items-center justify-between gap-6">
         <span>{rotulo(v)}</span>
         {/*
-          A cobertura escrita onde o número estaria — o defeito que trouxe esta
-          peça para cá.
+          Como o arquivo veio composto, escrito onde o número estaria.
 
           Estas linhas nunca terão número: o servidor não as considera
-          candidatas, porque o motor não compara coberturas diferentes. Deixá-las
-          em branco ao lado das que dizem "nenhuma alteração" é convidar a ler
-          ausência de conta como ausência de mudança. Dizer `Cavalo` ali responde
-          a pergunta certa — esta vigência é de outra série.
+          candidatas, porque o motor não compara vigências de composição
+          diferente. Deixá-las em branco ao lado das que dizem "nenhuma
+          alteração" é convidar a ler ausência de conta como ausência de
+          mudança. "Somente cavalo" responde a pergunta certa — é o que separa
+          esta linha das de cima, e não o equipamento, que é o mesmo.
         */}
         {coberturaDiferente ? (
           <span className="text-xs text-muted-foreground">
-            {rotuloDaCobertura(v.entityTypeSet)}
+            {composicaoDoArquivo(v.entityTypeSet, foco)}
           </span>
         ) : n ? (
           <span className="flex flex-col items-end text-xs leading-tight">
@@ -381,7 +393,7 @@ export function SeletorDoPar({
                         <SelectSeparator />
                         <SelectGroup>
                           <SelectLabel className="text-[0.65rem] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-                            Outra cobertura — troca as duas pontas
+                            {tituloDaComposicao(foco)}
                           </SelectLabel>
                           {resto.map((v) => (
                             <SelectItem key={v.id} value={v.id} className={ITEM_LARGO}>
@@ -459,7 +471,7 @@ export function SeletorDoPar({
                         <SelectSeparator />
                         <SelectGroup>
                           <SelectLabel className="text-[0.65rem] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-                            Outra cobertura — troca as duas pontas
+                            {tituloDaComposicao(foco)}
                           </SelectLabel>
                           {resto.map((v) => (
                             <SelectItem key={v.id} value={v.id} className={ITEM_LARGO}>

@@ -401,6 +401,7 @@ export default function AuditoriaDeIpva() {
             />
             <SeletorDoPar
               vigencias={daUnidade}
+              foco={recorteDeTipo === "TODOS" ? null : recorteDeTipo}
               base={base}
               comparada={comparada}
               onBase={setBase}

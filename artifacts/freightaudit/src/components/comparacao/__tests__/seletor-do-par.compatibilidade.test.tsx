@@ -81,6 +81,7 @@ function montar(
   base: string,
   comparada: string,
   vigencias: VigenciaEscolhivel[] = ACERVO,
+  foco: string | null = null,
 ) {
   const onBase = vi.fn();
   const onComparada = vi.fn();
@@ -93,6 +94,7 @@ function montar(
       onBase={onBase}
       onComparada={onComparada}
       onInverter={() => {}}
+      foco={foco}
       idPrefixo="finame"
     />,
   );
@@ -139,25 +141,46 @@ describe("o campo De, que é o que dá acesso à outra série", () => {
   /* Recortar os dois campos um pelo outro prenderia o par na cobertura em que
      abriu: não haveria clique que levasse à série só de cavalo. O campo
      ancorado oferece o acervo da unidade — e diz, em cada linha, o que ela é. */
-  it("oferece a outra cobertura num grupo à parte, com a cobertura escrita", () => {
-    montar("jul-ambos", "ago1-ambos");
+  it("agrupa à parte as de outra composição, dizendo como o arquivo veio", () => {
+    montar("jul-ambos", "ago1-ambos", ACERVO, "CAVALO");
     abrir("De (vigência de origem)");
 
     const outra = screen.getByRole("option", { name: /agosto\/2026 · 2ª quinzena/ });
-    expect(within(outra).getByText("Cavalo")).toBeTruthy();
-    expect(screen.getByText(/Outra cobertura/)).toBeTruthy();
+    expect(within(outra).getByText("Somente cavalo")).toBeTruthy();
+    expect(screen.getByText("Como o cavalo veio na vigência")).toBeTruthy();
+  });
+
+  /**
+   * O defeito que trocou este rótulo: "Outra cobertura" dentro da aba Cavalo,
+   * com as linhas dizendo "Cavalo". O nome descrevia a identidade do arquivo no
+   * banco e contradizia a aba — as duas séries **têm** cavalo, e o que as separa
+   * é o arquivo ter vindo só com ele ou com a carreta junto.
+   */
+  it("nunca escreve 'Outra cobertura'", () => {
+    montar("jul-ambos", "ago1-ambos", ACERVO, "CAVALO");
+    abrir("De (vigência de origem)");
+
+    expect(screen.queryByText(/Outra cobertura/i)).toBeNull();
+  });
+
+  /* A mesma vigência, lida da pergunta que está sendo feita. */
+  it("lê a composição pelo equipamento da aba aberta", () => {
+    montar("jul-ambos", "ago1-ambos", ACERVO, "CARRETA");
+    abrir("De (vigência de origem)");
+
+    expect(screen.getByText("Como a carreta veio na vigência")).toBeTruthy();
   });
 
   /* O defeito relatado: linha muda ao lado de linhas que dizem "nenhuma
      alteração" é lida como "nada mudou aqui". Ela nunca terá número — o
      servidor não a considera candidata —, então ela diz o que é. */
   it("nunca deixa uma linha incomparável em branco", () => {
-    montar("jul-ambos", "ago1-ambos");
+    montar("jul-ambos", "ago1-ambos", ACERVO, "CAVALO");
     abrir("De (vigência de origem)");
 
     for (const nome of [/agosto\/2026 · 2ª quinzena/, /setembro\/2026/]) {
       const linha = screen.getByRole("option", { name: nome });
-      expect(within(linha).getByText("Cavalo")).toBeTruthy();
+      expect(within(linha).getByText("Somente cavalo")).toBeTruthy();
     }
   });
 

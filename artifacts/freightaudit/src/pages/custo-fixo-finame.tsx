@@ -459,6 +459,7 @@ export default function AuditoriaDeFiname() {
             />
             <SeletorDoPar
               vigencias={daUnidade}
+              foco={recorteDeTipo === "TODOS" ? null : recorteDeTipo}
               rotulos={rotulos}
               candidatos={candidatos.data}
               carregandoCandidatos={candidatos.isFetching}
