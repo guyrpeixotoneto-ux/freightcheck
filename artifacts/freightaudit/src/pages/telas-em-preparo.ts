@@ -10,7 +10,6 @@ import {
   Gauge,
   History,
   Receipt,
-  Route,
   Shield,
   SquareActivity,
   SquareTerminal,
@@ -261,30 +260,29 @@ export const TELAS_EM_PREPARO: TelaEmPreparo[] = [
     de fato rodou na quinzena, e é esse dado que o export que abastece este banco
     ainda não traz — o mesmo que já falta ao Impacto, e pela mesma razão.
   */
-  {
-    href: "/custo-variavel-km-rodado",
-    label: "Km Rodado",
-    icon: Route,
-    cor: "text-nav-custo-variavel",
-    pergunta:
-      "Quantos quilômetros cada ativo rodou na vigência, quanto isso custou pelo valor contratado do km, e o que mudou desde a vigência anterior.",
-    depende: [
-      "A quilometragem realizada por equipamento e por quinzena: o que chega hoje é o preço do km, e multiplicar preço por uma distância que ninguém importou seria inventar o número que a tela existe para mostrar.",
-      "O vínculo entre a quilometragem e a placa e a vigência a que ela pertence, sem o qual o total é um número solto, e não o que uma operação rodou numa quinzena.",
-    ],
-    hoje: [
-      {
-        href: "/composicao",
-        label: "Composição",
-        porque: "O valor contratado do km, parcela a parcela — metade da conta que esta tela vai fechar.",
-      },
-      {
-        href: "/radar-trechos",
-        label: "Radar de Trechos",
-        porque: "De centenas de trechos, quais pedem olhada — é a leitura por distância que o dado já sustenta.",
-      },
-    ],
-  },
+  /*
+    `/custo-variavel-km-rodado` saiu deste catálogo, e é a primeira das quatro de
+    custo variável a sair — pelo caminho das quatro de custo fixo, e com a mesma
+    honestidade sobre a metade que não foi atendida.
+
+    **O que continua faltando é exatamente o que o verbete dizia**: a
+    quilometragem **realizada** por quinzena. O que chega a este banco é a tabela
+    de preço por trecho, não o apontamento de viagens, e a tela não multiplica
+    R$/km por uma distância que ninguém importou — seria inventar o número que ela
+    existiria para mostrar. Ela diz isso no cartão de impacto, no rodapé da
+    conferência e na gaveta de cada trecho.
+
+    **O que mudou foi o grão da pergunta.** Custo variável é provocado por rodar,
+    e o que roda é um percurso: a tela é por **trecho**, e não por placa. Nesse
+    grão o acervo sustenta uma pergunta inteira — quanto custa o quilômetro
+    contratado, parcela a parcela — e mais duas contas que o próprio dicionário da
+    tabela de frete publica e que ninguém tinha conferido: ida + volta tem de dar
+    o km do ciclo, e `R$/viagem ÷ R$/km` tem de devolver esse mesmo km. A segunda
+    enxerga um preço montado sobre outra distância — a projeção mensal, o km de
+    ida, a versão “lucro” —, coisa que o delta de uma coluna sozinha nunca mostra
+    (`docs/ACHADO-KM-RODADO.md`).
+  */
+
   {
     href: "/custo-variavel-velocidade-media",
     label: "Velocidade Média",

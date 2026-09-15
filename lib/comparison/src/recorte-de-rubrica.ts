@@ -40,6 +40,20 @@ import { rotuloDeListaDaVigencia } from "./labels";
  * ciclo é 1 ou 2, e `ANO` já escreveria "1" e "2" na tela. Seria o número certo
  * sob o rótulo errado — a mesma armadilha que este produto documenta em toda
  * parte. Ciclo não é ano, e a tela escreve "Ciclo 2", não "2".
+ *
+ * As quatro últimas entraram com a Auditoria de Km Rodado, a primeira de grão
+ * **trecho**, e nenhuma delas é conveniência de formatação:
+ *
+ * - `DISTANCIA` é quilômetro. Escrito como `DINHEIRO` viraria "R$ 412,00" onde
+ *   a fonte disse 412 km.
+ * - `REAIS_POR_KM` é uma **razão**, e a distinção entre ela e `DINHEIRO` é a
+ *   decisão central daquele recorte: R$/km só vira dinheiro multiplicado por
+ *   uma quilometragem, e somar os dois numa coluna de reais é o erro que o
+ *   dicionário da tabela de frete avisa em letra grande.
+ * - `VIAGENS` é contagem de ciclos, não dinheiro e não distância.
+ * - `TEXTO` é o que não é número nenhum — origem, destino, o nome de uma
+ *   unidade —, e existe para que a tela escreva o valor como veio em vez de
+ *   tentar convertê-lo.
  */
 export type MedidaDaVariavel =
   | "DINHEIRO"
@@ -47,7 +61,11 @@ export type MedidaDaVariavel =
   | "MESES"
   | "ANO"
   | "DATA"
-  | "CICLO";
+  | "CICLO"
+  | "DISTANCIA"
+  | "REAIS_POR_KM"
+  | "VIAGENS"
+  | "TEXTO";
 
 // ---------------------------------------------------------------------------
 // Os seis estados
@@ -221,6 +239,35 @@ export function vigenciasDaUnidade<T extends VigenciaEmparelhavel>(
 ): T[] {
   if (!scopeHash) return [...vigencias];
   return vigencias.filter((v) => v.scopeHash === scopeHash);
+}
+
+/**
+ * As vigências que cobrem um tipo de equipamento — o recorte que o grão exige.
+ *
+ * Nasceu com a Auditoria de Km Rodado, a primeira de grão **trecho**, e é a
+ * diferença entre uma tela que abre com dado e uma que abre vazia sem dizer por
+ * quê. As três auditorias anteriores são de cavalo e carreta, que é o que a
+ * maioria das vigências entrega; a de trecho não — no acervo, a mesma unidade
+ * entrega o arquivo de equipamento e o de trecho em vigências **separadas**, com
+ * `entity_type_set` diferente. Sem este filtro, o par de partida cai na vigência
+ * de cavalo mais recente e a tela de trecho abre com zero linhas, correta e
+ * inexplicável.
+ *
+ * `entityTypeSet` é a lista de coberturas separadas por `+` — `CARRETA+CAVALO`,
+ * `TRECHO`. Comparar por igualdade com o tipo procurado erraria na vigência que
+ * entrega mais de uma cobertura; o teste é de pertinência.
+ */
+export function vigenciasQueCobrem<T extends VigenciaEmparelhavel>(
+  vigencias: readonly T[],
+  entityType: string,
+): T[] {
+  const alvo = entityType.trim().toUpperCase();
+  return vigencias.filter((v) =>
+    (v.entityTypeSet ?? "")
+      .split("+")
+      .map((t) => t.trim().toUpperCase())
+      .includes(alvo),
+  );
 }
 
 /**
