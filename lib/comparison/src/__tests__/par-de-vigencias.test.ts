@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parDePartida, rotulosDasVigencias, vigenciasDaUnidade } from "../finame";
+import { parDePartida, rotulosDasVigencias, vigenciasDaUnidade } from "../recorte-de-rubrica";
 
 /**
  * O par com que a Auditoria de FINAME abre — a regressão que este arquivo

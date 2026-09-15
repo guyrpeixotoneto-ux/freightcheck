@@ -192,30 +192,21 @@ export const TELAS_EM_PREPARO: TelaEmPreparo[] = [
     que aquela tela mostra ao lado do principal, e verbete sem item que o
     alcance é catálogo que ninguém lê.
   */
-  {
-    href: "/custo-fixo-ipva",
-    label: "IPVA",
-    icon: Receipt,
-    cor: "text-nav-custo-fixo",
-    pergunta:
-      "Quanto de IPVA esta vigência cobra por ativo, e se o valor bate com a base do veículo — ano, categoria e UF do emplacamento.",
-    depende: [
-      "A rubrica de IPVA isolada e ligada à placa: rateada dentro de um bloco de custo fixo, ela não se confere contra veículo nenhum.",
-      "A base do veículo que sustenta a conferência — ano-modelo, valor venal e a UF do emplacamento —, que é o que separa um IPVA alto de um IPVA errado.",
-    ],
-    hoje: [
-      {
-        href: "/composicao",
-        label: "Composição",
-        porque: "Onde a linha de IPVA aparece hoje, dentro do valor montado do equipamento.",
-      },
-      {
-        href: "/categorias",
-        label: "Categorias",
-        porque: "Onde se vê, e se corrige, a classificação da rubrica de que este total depende.",
-      },
-    ],
-  },
+  /*
+    `/custo-fixo-ipva` saiu deste catálogo: a rota abre a Auditoria de IPVA, que
+    compara o tributo de cada veículo entre duas vigências — o IPVA, o valor de
+    nota que lhe serve de base, o ano e a data de entrada — sobre o mesmo motor de
+    comparação do Finame.
+
+    **O verbete não foi atendido, e é importante dizer qual metade ficou.** Ele
+    pedia a conferência contra ano-modelo, valor venal e a UF do emplacamento;
+    categoria e UF continuam não existindo no acervo, e a tela não afirma nada
+    sobre elas. O que o acervo tem é o valor de nota, e o IPVA dividido por ele é
+    uma alíquota que se lê — a leitura que separa um IPVA alto de um IPVA errado,
+    e que mostrou, sobre dado real, que a queda de R$ 720 mil na linha da frota de
+    cavalos foi troca de fórmula e não economia (`docs/ACHADO-IPVA.md`). O que
+    falta está escrito na própria tela, no rodapé da alíquota.
+  */
   {
     href: "/custo-fixo-lucro-fixo",
     label: "Lucro Fixo",
