@@ -189,6 +189,17 @@ export const TELAS_QUE_HONRAM_ESCOPO = new Set<string>([
     unidades de uma vez" não é uma comparação que exista aqui.
   */
   "/custo-fixo-ipva",
+  /*
+    A Auditoria de Lucro Fixo, pelo mesmo mecanismo das duas acima: a tela
+    (`pages/custo-fixo-lucro-fixo.tsx`) recorta a lista do seletor pela unidade
+    aberta antes de escolher o par, com as mesmas três funções do núcleo. Entra
+    aqui no commit em que passa a ler o par, nunca antes — estar nesta lista é a
+    promessa de que trocar de unidade troca o dado.
+
+    Fora de `TELAS_QUE_HONRAM_VISAO_GERAL` pelo motivo de sempre: o motor recusa
+    comparar vigências de escopos distintos.
+  */
+  "/custo-fixo-lucro-fixo",
 ]);
 
 /**

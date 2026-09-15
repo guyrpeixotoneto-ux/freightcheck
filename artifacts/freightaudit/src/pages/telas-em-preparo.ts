@@ -207,32 +207,25 @@ export const TELAS_EM_PREPARO: TelaEmPreparo[] = [
     cavalos foi troca de fórmula e não economia (`docs/ACHADO-IPVA.md`). O que
     falta está escrito na própria tela, no rodapé da alíquota.
   */
-  {
-    href: "/custo-fixo-lucro-fixo",
-    label: "Lucro Fixo",
-    icon: TrendingUp,
-    cor: "text-nav-custo-fixo",
-    pergunta:
-      "Quanto desta vigência é lucro fixo — a remuneração que o modelo paga por ter o ativo à disposição, independente do quanto ele rodou.",
-    depende: [
-      "A rubrica de lucro fixo separada na base, com a unidade e a vigência a que pertence: somada ao resto da estrutura, ela vira um bloco que não se audita.",
-      "O percentual contratado sobre o qual ela é calculada, sem o qual a tela mostra o valor pago e não responde se é o valor devido.",
-    ],
-    hoje: [
-      {
-        href: "/remunerado",
-        label: "Remunerado",
-        porque: "O que a vigência remunera hoje, como a própria tabela o declara.",
-      },
-      {
-        href: "/composicao",
-        label: "Composição",
-        porque:
-          "O valor montado de um equipamento, parcela a parcela, onde a linha do lucro aparece.",
-      },
-    ],
-  },
+  /*
+    `/custo-fixo-lucro-fixo` saiu deste catálogo: a rota abre a Auditoria de
+    Lucro Fixo, que compara a remuneração fixa de cada veículo entre duas
+    vigências — a parcela própria, o ciclo, a amortização e o ano — sobre o mesmo
+    motor de comparação do Finame e do IPVA.
 
+    **O verbete não foi atendido, e é a metade que fica.** Ele pedia o percentual
+    contratado sobre o qual a rubrica é calculada; ele continua não existindo, e
+    por isso a tela diz o que mudou no que se paga, nunca se é o valor devido.
+
+    O que mudou foi a pergunta, e o acervo a responde melhor do que um percentual
+    responderia: **lucro fixo e amortização nunca coexistem** — 558 linhas, zero
+    coexistências (`regras.ts`) —, e o ciclo diz qual dos dois está valendo.
+    Quando um ativo termina de amortizar, ele entra no segundo ciclo e a
+    remuneração começa; a linha da frota sobe sem que ninguém tenha renegociado
+    nada. A tela mostra quem virou, com o dinheiro dos dois lados, e marca os
+    dois casos que o acervo diz não existirem: o ativo que voltou ao primeiro
+    ciclo e o que declara os dois ao mesmo tempo.
+  */
   {
     href: "/custo-fixo-impostos",
     label: "Impostos",

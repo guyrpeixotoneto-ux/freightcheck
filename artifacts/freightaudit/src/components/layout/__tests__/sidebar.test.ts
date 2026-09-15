@@ -696,12 +696,21 @@ describe("o catálogo de telas em preparo", () => {
     outra metade — o IPVA sobre o valor de nota é uma alíquota, e é ela que
     distingue um IPVA alto de um IPVA errado. O que falta continua dito na
     própria tela, e não aqui.
+
+    E de dezenove para dezoito com **Lucro Fixo**, a terceira rubrica a sair por
+    entrega. O padrão das três é o mesmo, e já dá para nomeá-lo: o verbete pedia
+    a régua que confere o valor — o contrato do financiamento, a UF do
+    emplacamento, o percentual contratado —, e nenhuma das três chegou. O que
+    chegou foi a pergunta comparativa, que o acervo sempre sustentou, mais uma
+    leitura própria de cada rubrica que o dado real ofereceu de graça: a
+    alíquota implícita no IPVA, a virada de ciclo aqui. Nenhuma das três afirma
+    o que ainda não sabe, e as três dizem na própria tela o que falta.
   */
   it("descreve, para cada tela, o que falta antes de ela mostrar um número", () => {
     const catalogo = fonte("pages/telas-em-preparo.ts");
     const telas = [...catalogo.matchAll(/^\s{4}href:\s*"([^"]+)"/gm)].length;
 
-    expect(telas).toBe(19);
+    expect(telas).toBe(18);
     expect([...catalogo.matchAll(/^\s{4}depende:\s*\[/gm)]).toHaveLength(telas);
     expect([...catalogo.matchAll(/^\s{4}pergunta:/gm)]).toHaveLength(telas);
   });
