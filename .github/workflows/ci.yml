@@ -277,15 +277,57 @@ jobs:
   # de proteção, que é precisamente o falso verde que este arquivo existe para
   # impedir. A conferência é explícita contra `success` e não contra
   # `!= failure`: cancelado e pulado também não são passar.
+  # ---------------------------------------------------------------------------
+  # O orçamento do bundle
+  # ---------------------------------------------------------------------------
+  #
+  # Job próprio, e não um passo do typecheck, por um motivo e uma consequência:
+  # ele precisa **construir** a web, que é a única coisa em todo este workflow
+  # que constrói alguma coisa. Pendurado no typecheck, dobraria o tempo do job
+  # mais rápido da bateria (~30 s) para servir a uma pergunta diferente da dele.
+  #
+  # Não depende de banco e não espera por um.
+  #
+  # O que ele impede está escrito em `scripts/ci/orcamento-do-bundle.mjs`: entre
+  # 27/08 e 15/09/2026 o bundle cresceu 24,6% em três semanas sem que ninguém
+  # soubesse, e a forma mais provável de isso voltar a acontecer é um `import`
+  # estático de página entrar em `App.tsx` por distração — o que não quebra teste
+  # nenhum e não aparece no diff como um problema.
+  bundle:
+    name: Orçamento do bundle
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Instalar
+        run: pnpm install --frozen-lockfile
+
+      # `bundle:check` constrói e confere numa linha, e é o mesmo comando que se
+      # roda na máquina. Um passo de CI que não existe como comando do projeto é
+      # um passo que só se descobre quebrado depois de enviar.
+      #
+      # O relatório sai no log mesmo quando passa: o número de hoje é o que
+      # torna possível decidir o teto de amanhã, e um portão que só fala quando
+      # reprova esconde a tendência que o levaria a reprovar.
+      - name: Construir a web e conferir o orçamento
+        run: pnpm run bundle:check
+
   ci:
     name: CI completo
     if: always()
-    needs: [typecheck, testes]
+    needs: [typecheck, testes, bundle]
     runs-on: ubuntu-latest
     steps:
-      - name: Exigir que typecheck e todos os shards tenham passado
+      - name: Exigir que typecheck, todos os shards e o orçamento tenham passado
         run: |
           echo "typecheck: ${{ needs.typecheck.result }}"
           echo "testes:    ${{ needs.testes.result }}"
+          echo "bundle:    ${{ needs.bundle.result }}"
           [ "${{ needs.typecheck.result }}" = "success" ] || exit 1
           [ "${{ needs.testes.result }}" = "success" ] || exit 1
+          [ "${{ needs.bundle.result }}" = "success" ] || exit 1

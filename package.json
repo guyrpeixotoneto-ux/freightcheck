@@ -8,6 +8,7 @@
     "build": "pnpm run typecheck && pnpm -r --if-present run build",
     "typecheck:libs": "tsc --build",
     "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck",
+    "bundle:check": "pnpm --filter @workspace/freightaudit run build && node scripts/ci/orcamento-do-bundle.mjs",
     "dev": "node scripts/dev.mjs",
     "dev:seed": "pnpm --filter @workspace/curation exec tsx src/cli/dev-seed.ts",
     "curar:direcao-economica-trecho": "pnpm --filter @workspace/curation exec tsx src/cli/curar-direcao-economica-trecho.ts",
