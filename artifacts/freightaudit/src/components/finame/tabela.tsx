@@ -48,6 +48,7 @@ const COLUNAS: { titulo: string; direita?: boolean }[] = [
   { titulo: "Tipo" },
   { titulo: "Período FINAME", direita: true },
   { titulo: "Data de cadastro", direita: true },
+  { titulo: "Fim do contrato", direita: true },
   { titulo: "Alterações", direita: true },
   { titulo: "Parcela de", direita: true },
   { titulo: "Parcela para", direita: true },
@@ -119,7 +120,7 @@ export function TabelaDeFiname({
 
   return (
     <div className="superficie overflow-x-auto">
-      <table className="w-full min-w-[78rem] border-collapse text-sm">
+      <table className="w-full min-w-[84rem] border-collapse text-sm">
         <caption className="sr-only">
           Comparação de FINAME entre as duas vigências do par, uma linha por veículo.
           Cada linha abre as variáveis que se moveram naquele veículo.
@@ -176,6 +177,22 @@ function FragmentoDoVeiculo({
 }) {
   const diferenca = v.parcela?.diferenca ?? null;
   /*
+    O fim do contrato é do veículo, e não uma variável da comparação: ele é a
+    resposta da coluna, não uma linha no meio das outras treze. Quando ele se
+    moveu — e mover-se é o caso comum, porque o contrato que acabou é o que a
+    tela está lendo —, a outra ponta fica no tooltip da célula, que é o que
+    permite tirar a linha da expansão sem perder o "de".
+  */
+  const linhaDoFim = v.linhas.find((l) => l.variavel === "data_fim_contrato") ?? null;
+  const fim = v.fimDoContrato ?? linhaDoFim?.comparada ?? linhaDoFim?.base ?? null;
+  const fimAnterior =
+    linhaDoFim?.estado === "ALTERADO" && linhaDoFim.base !== linhaDoFim.comparada
+      ? linhaDoFim.base
+      : null;
+  /* As linhas da expansão são as variáveis comparadas; o fim do contrato saiu
+     delas para a coluna, e repeti-lo aqui seria mostrá-lo duas vezes. */
+  const linhasDaExpansao = v.linhas.filter((l) => l.variavel !== "data_fim_contrato");
+  /*
     O que se justifica nesta tela é **o que se moveu**.
 
     Duas exclusões, e as duas pela mesma razão: uma justificativa explica uma
@@ -230,6 +247,24 @@ function FragmentoDoVeiculo({
         </td>
         <td className="whitespace-nowrap px-3 py-2 text-right font-mono tabular-nums text-muted-foreground">
           {escreverDataDeCadastro(v.dataDeCadastro)}
+        </td>
+        <td className="whitespace-nowrap px-3 py-2 text-right font-mono tabular-nums text-muted-foreground">
+          {fimAnterior === null ? (
+            escreverDataDeCadastro(fim)
+          ) : (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="underline decoration-dotted underline-offset-2">
+                  {escreverDataDeCadastro(fim)}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent className="text-xs">
+                {`Fim do contrato: de ${escreverDataDeCadastro(
+                  fimAnterior,
+                )} para ${escreverDataDeCadastro(fim)}`}
+              </TooltipContent>
+            </Tooltip>
+          )}
         </td>
         <td className="whitespace-nowrap px-3 py-2 text-right">
           <span className="font-mono font-semibold tabular-nums">
@@ -322,7 +357,7 @@ function FragmentoDoVeiculo({
         <tr className="border-b border-superficie-borda bg-muted/20">
           <td colSpan={COLUNAS.length} className="px-3 py-3">
             <AlteracoesDoVeiculo
-              linhas={v.linhas}
+              linhas={linhasDaExpansao}
               justificadaPor={justificadaPor}
               onJustificar={onJustificar}
               onAbrir={onAbrir}
@@ -339,8 +374,8 @@ function FragmentoDoVeiculo({
  *
  * As mesmas colunas que a tabela plana tinha (a variável, as duas pontas, a
  * diferença na unidade certa, o status e a justificativa), sem as do veículo:
- * placa, tipo, prazo e data de cadastro já estão na linha de cima, e repeti-las
- * aqui seria escrevê-las catorze vezes.
+ * placa, tipo, prazo, data de cadastro e fim do contrato já estão na linha de
+ * cima, e repeti-las aqui seria escrevê-las catorze vezes.
  *
  * A ordem das linhas é a do catálogo, e `agruparPorVeiculo` já a aplica: a
  * parcela FINAME primeiro, juros e amortização logo abaixo. A parcela é a soma

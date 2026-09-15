@@ -5,6 +5,7 @@ import {
   CODIGOS_DO_DETALHE,
   CODIGOS_DO_CONTEXTO,
   codigoDaDataDeCadastro,
+  codigoDoFimDoContrato,
   codigoDoPeriodo,
   comContextoDoVeiculo,
   alteracoesPorVariavel,
@@ -126,13 +127,14 @@ async function linhasIguais(
 }
 
 /**
- * O prazo e a data de cadastro de cada veículo numa vigência.
+ * O prazo, a data de cadastro e o fim do contrato de cada veículo numa vigência.
  *
- * Dois atributos (`periodo_finame` e a data de entrada), lidos das duas pontas
- * para alimentar as colunas de contexto da tabela. Não saem do `change_set` de
- * propósito: o change set só conhece o que mudou, e nem o prazo nem a data de
- * cadastro da imensa maioria dos veículos muda — derivá-los dali deixaria as
- * colunas vazias exatamente nas linhas em que elas explicam a queda da parcela.
+ * Três atributos (`periodo_finame`, a data de entrada e `data_fim_contrato`),
+ * lidos das duas pontas para alimentar as colunas de contexto da tabela. Não
+ * saem do `change_set` de propósito: o change set só conhece o que mudou, e o
+ * prazo, a data de cadastro e o fim do contrato da imensa maioria dos veículos
+ * não mudam — derivá-los dali deixaria as colunas vazias exatamente nas linhas
+ * em que elas explicam a queda da parcela.
  */
 async function contextoDaVigencia(
   snapshot: { effectiveDate: string } | undefined,
@@ -146,6 +148,7 @@ async function contextoDaVigencia(
     if (codigos.length === 0) continue;
     const codigoPeriodo = codigoDoPeriodo(entityType);
     const codigoData = codigoDaDataDeCadastro(entityType);
+    const codigoFim = codigoDoFimDoContrato(entityType);
     const tabela = await getEntityTable(
       db,
       entityType,
@@ -160,6 +163,7 @@ async function contextoDaVigencia(
         entityType,
         periodo: codigoPeriodo ? (linha.values[codigoPeriodo]?.value ?? null) : null,
         dataDeCadastro: codigoData ? (linha.values[codigoData]?.value ?? null) : null,
+        fimDoContrato: codigoFim ? (linha.values[codigoFim]?.value ?? null) : null,
       });
     }
   }
@@ -220,9 +224,9 @@ router.get("/finame/comparacao", async (req, res, next): Promise<void> => {
       todas = [...linhas, ...(await linhasIguais(snapshotA, snapshotB, jaListadas))];
     }
 
-    /* As colunas de contexto: o prazo e a data de cadastro do veículo na
-       vigência comparada, com a base respondendo pelos que saíram. Duas
-       leituras de dois atributos. */
+    /* As colunas de contexto: o prazo, a data de cadastro e o fim do contrato
+       do veículo na vigência comparada, com a base respondendo pelos que
+       saíram. Duas leituras de três atributos. */
     const [contextoDaBase, contextoDaComparada] = await Promise.all([
       contextoDaVigencia(snapshotA),
       contextoDaVigencia(snapshotB),

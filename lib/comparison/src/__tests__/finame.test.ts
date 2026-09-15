@@ -469,6 +469,7 @@ describe("a exportação", () => {
           entityType: "CAVALO",
           periodo: "60",
           dataDeCadastro: "2019-05-10",
+          fimDoContrato: "2024-05-10",
         },
       ],
     });
@@ -517,6 +518,7 @@ describe("o contexto do veículo", () => {
           entityType: "CAVALO",
           periodo: "60",
           dataDeCadastro: "2019-05-10",
+          fimDoContrato: "2024-05-10",
         },
       ],
     });
@@ -536,12 +538,14 @@ describe("o contexto do veículo", () => {
           entityType: "CAVALO",
           periodo: "48",
           dataDeCadastro: "2018-01-02",
+          fimDoContrato: "2023-01-02",
         },
         {
           entityLabel: "XYZ9K88",
           entityType: "CAVALO",
           periodo: "36",
           dataDeCadastro: "2017-03-04",
+          fimDoContrato: "2022-03-04",
         },
       ],
       comparada: [
@@ -550,6 +554,7 @@ describe("o contexto do veículo", () => {
           entityType: "CAVALO",
           periodo: "60",
           dataDeCadastro: "2019-05-10",
+          fimDoContrato: "2024-05-10",
         },
       ],
     });
@@ -568,6 +573,7 @@ describe("o contexto do veículo", () => {
           entityType: "CAVALO",
           periodo: "48",
           dataDeCadastro: "2018-01-02",
+          fimDoContrato: "2023-01-02",
         },
       ],
       comparada: [
@@ -576,6 +582,7 @@ describe("o contexto do veículo", () => {
           entityType: "CAVALO",
           periodo: "",
           dataDeCadastro: null,
+          fimDoContrato: null,
         },
       ],
     });
@@ -700,6 +707,7 @@ describe("o agrupamento por veículo", () => {
             entityType: "CAVALO",
             periodo: "48",
             dataDeCadastro: "2019-05-10",
+            fimDoContrato: "2024-05-10",
           },
         ],
       }),
