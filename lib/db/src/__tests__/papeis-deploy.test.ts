@@ -619,7 +619,7 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
         "import_run.promotion_report",
         "import_run.promocao_em",
         /*
-          A da `0098` — a família de dataset que o envio declarou, o acervo por
+          A da `0099` — a família de dataset que o envio declarou, o acervo por
           onde a planilha entrou.
 
           Ela existe porque a identidade canônica de uma vigência é (sistema,

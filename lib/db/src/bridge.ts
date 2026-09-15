@@ -398,7 +398,7 @@ export const ALLOWLIST: {
     aindaPodeNaoExistir: true,
   },
   /*
-    A da `0098`. A família de dataset que o envio declarou — o acervo por onde a
+    A da `0099`. A família de dataset que o envio declarou — o acervo por onde a
     planilha entrou, que é o que deixa o real e o remunerado do mesmo veículo
     coexistirem na mesma data. Aditiva e nula, como todas as daqui.
   */
@@ -2939,6 +2939,30 @@ function planoUp(): PassoUp[] {
     "índice justificativa_change_id_idx",
     levantar(M59, /INDEX IF NOT EXISTS "justificativa_change_id_idx"/),
   );
+
+  /*
+    A `0098` — a justificativa que deixou de ser uma frase.
+
+    Pelo mesmo motivo das duas acima: o `down` derruba `justificativa` inteira,
+    e o `CREATE TABLE` da `0058` não conhece as cinco colunas que o formulário
+    passou a gravar. Sem elas o `up` devolveria a tabela do texto livre, e o
+    caso que compara o banco reposto com um banco novo diria exatamente isso —
+    cinco colunas a menos.
+  */
+  const M98 = "0098_justificativa_estruturada";
+  for (const coluna of [
+    "formula",
+    "regra",
+    "conforme",
+    "motivo_excecao",
+    "responsavel_aprovacao",
+  ]) {
+    add(
+      M98,
+      `justificativa.${coluna}`,
+      levantar(M98, new RegExp(`ADD COLUMN IF NOT EXISTS "${coluna}"`)),
+    );
+  }
 
   const M44 = "0044_partes_cadastradas";
   add(M44, "fechamento_parte", levantar(M44, /CREATE TABLE IF NOT EXISTS "fechamento_parte" \(/));

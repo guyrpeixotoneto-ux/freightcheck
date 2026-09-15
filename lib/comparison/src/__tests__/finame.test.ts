@@ -469,6 +469,7 @@ describe("a exportação", () => {
           entityType: "CAVALO",
           periodo: "60",
           dataDeCadastro: "2019-05-10",
+          fimDoContrato: "2024-05-10",
         },
       ],
     });
@@ -517,6 +518,7 @@ describe("o contexto do veículo", () => {
           entityType: "CAVALO",
           periodo: "60",
           dataDeCadastro: "2019-05-10",
+          fimDoContrato: "2024-05-10",
         },
       ],
     });
@@ -536,12 +538,14 @@ describe("o contexto do veículo", () => {
           entityType: "CAVALO",
           periodo: "48",
           dataDeCadastro: "2018-01-02",
+          fimDoContrato: "2023-01-02",
         },
         {
           entityLabel: "XYZ9K88",
           entityType: "CAVALO",
           periodo: "36",
           dataDeCadastro: "2017-03-04",
+          fimDoContrato: "2022-03-04",
         },
       ],
       comparada: [
@@ -550,6 +554,7 @@ describe("o contexto do veículo", () => {
           entityType: "CAVALO",
           periodo: "60",
           dataDeCadastro: "2019-05-10",
+          fimDoContrato: "2024-05-10",
         },
       ],
     });
@@ -568,6 +573,7 @@ describe("o contexto do veículo", () => {
           entityType: "CAVALO",
           periodo: "48",
           dataDeCadastro: "2018-01-02",
+          fimDoContrato: "2023-01-02",
         },
       ],
       comparada: [
@@ -576,6 +582,7 @@ describe("o contexto do veículo", () => {
           entityType: "CAVALO",
           periodo: "",
           dataDeCadastro: null,
+          fimDoContrato: null,
         },
       ],
     });
@@ -627,6 +634,25 @@ describe("o agrupamento por veículo", () => {
     expect(abc.alteracoes).toBe(3);
     // Prazo é mês, e não dinheiro: conta como alteração, não como alteração em R$.
     expect(abc.alteracoesEmDinheiro).toBe(2);
+  });
+
+  it("põe a parcela FINAME antes das duas parcelas que a compõem", () => {
+    /* A ordem do motor punha o total entre as duas metades dele — "Amortização,
+       Parcela FINAME, Juros" —, e quem lia somava as três. O catálogo manda:
+       primeiro a parcela, depois juros e amortização. */
+    const foraDeOrdem = linhasDeFiname([
+      alteracao({ entityLabel: "QYW6D15", attributeCode: "cavalo.amortizacao_cavalo" }),
+      alteracao({ entityLabel: "QYW6D15", attributeCode: "cavalo.data_fim_contrato" }),
+      alteracao({ entityLabel: "QYW6D15", attributeCode: "cavalo.finame_cavalo" }),
+      alteracao({ entityLabel: "QYW6D15", attributeCode: "cavalo.juros_finame_cavalo" }),
+    ]);
+    const [veiculo] = agruparPorVeiculo(foraDeOrdem);
+    expect(veiculo!.linhas.map((l) => l.variavel)).toEqual([
+      "parcela",
+      "juros",
+      "amortizacao",
+      "data_fim_contrato",
+    ]);
   });
 
   it("mostra a parcela FINAME da placa — e não a soma das monetárias dela", () => {
@@ -681,6 +707,7 @@ describe("o agrupamento por veículo", () => {
             entityType: "CAVALO",
             periodo: "48",
             dataDeCadastro: "2019-05-10",
+            fimDoContrato: "2024-05-10",
           },
         ],
       }),

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   alteracoesPorVariavelDeKm,
   celulasDoCsvDeKm,
+  COLUNAS_DO_CSV_DE_KM,
   CODIGOS_DA_TABELA_DE_KM,
   CODIGOS_DO_DETALHE_DE_KM,
   COMPONENTES_DE_CUSTO,
@@ -412,6 +413,23 @@ describe("o recorte das vigências que cobrem trecho", () => {
 });
 
 describe("o CSV", () => {
+  /*
+    A justificativa é a última coluna, e o cabeçalho é a prova de que ela
+    está alinhada: uma célula a mais do que os títulos desloca tudo o que
+    vem antes na planilha de quem recebe o arquivo, em silêncio.
+  */
+  it("leva a justificativa do gestor como última coluna", () => {
+    const [linha] = linhasDeKm([alteracao()]);
+    const explicada = celulasDoCsvDeKm(linha, "Conforme a regra: contrato renegociado.");
+    expect(explicada).toHaveLength(COLUNAS_DO_CSV_DE_KM.length);
+    expect(COLUNAS_DO_CSV_DE_KM.at(-1)).toBe("Justificativa");
+    expect(explicada.at(-1)).toBe("Conforme a regra: contrato renegociado.");
+
+    /* Pendente é célula vazia, e não a palavra "pendente": quem soma a
+       coluna no Excel conta o que está escrito nela. */
+    expect(celulasDoCsvDeKm(linha).at(-1)).toBeNull();
+  });
+
   it("diz a unidade de cada linha, para que a planilha não some razão com km", () => {
     const [razao] = linhasDeKm([alteracao()]);
     const [distancia] = linhasDeKm([alteracao({ attributeCode: "trecho.km_rodado" })]);
@@ -424,7 +442,7 @@ describe("o CSV", () => {
       alteracao({ attributeCode: "trecho.frete_reais_viagem_diesel" }),
     ]);
     const celulas = celulasDoCsvDeKm(linha);
-    expect(celulas).toHaveLength(10);
+    expect(celulas).toHaveLength(11);
     expect(String(celulas[9])).toContain("duas vezes");
   });
 });

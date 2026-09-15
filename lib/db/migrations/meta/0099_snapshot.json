@@ -1,6 +1,6 @@
 {
-  "id": "83fb4b41-6ec7-483c-875a-9ffde8397363",
-  "prevId": "eec5422c-cf3f-4ffb-a9f9-c4fa2c21191c",
+  "id": "1874d2db-c2c6-550e-8630-ed0f08723461",
+  "prevId": "83fb4b41-6ec7-483c-875a-9ffde8397363",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -431,6 +431,12 @@
         },
         "declared_type": {
           "name": "declared_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "declared_family": {
+          "name": "declared_family",
           "type": "text",
           "primaryKey": false,
           "notNull": false

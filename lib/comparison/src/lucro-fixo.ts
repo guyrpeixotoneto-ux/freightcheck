@@ -821,19 +821,29 @@ export const COLUNAS_DO_CSV_DE_LUCRO_FIXO = [
   "Status",
   "Motivo",
   "Fora da soma",
+  "Justificativa",
 ] as const;
 
 /**
- * Uma linha da tabela como as dez células do CSV.
+ * Uma linha da tabela como as células do CSV.
  *
  * Devolve texto cru — sem `R$`, sem separador de milhar e sem decidir o
- * separador do arquivo. A décima coluna é o aviso da linha que não soma, e ela
- * existe no arquivo porque o arquivo sai do produto e vira soma na planilha de
- * outra pessoa: um CSV que exporta a coluna do conjunto sem dizer que ela embute
+ * separador do arquivo. O aviso da linha que não soma viaja junto, e existe no
+ * arquivo porque o arquivo sai do produto e vira soma na planilha de outra
+ * pessoa: um CSV que exporta a coluna do conjunto sem dizer que ela embute
  * o cavalo é a forma mais fácil de o achado se perder.
+ *
+ * A justificativa entra por parâmetro porque **não é da linha**: ela é do
+ * gestor, mora em `justificativa` e é lida por `change_id` numa segunda
+ * consulta. Guardá-la dentro da linha faria a comparação carregar um texto que o
+ * motor não produziu — e que muda sem a comparação mudar. É a mesma escolha de
+ * `celulasDoCsv`, no FINAME. No arquivo ela é a última coluna, e é boa parte do
+ * motivo de o CSV existir para além da tela: quem recebe a planilha lê o que
+ * mudou e, na mesma linha, por que mudou.
  */
 export function celulasDoCsvDeLucroFixo(
   l: LinhaDeLucroFixo,
+  justificativa?: string | null,
 ): (string | number | null)[] {
   return [
     l.entityLabel,
@@ -846,5 +856,6 @@ export function celulasDoCsvDeLucroFixo(
     ROTULO_DO_ESTADO[l.estado],
     l.motivo,
     l.foraDaSoma,
+    justificativa ?? null,
   ];
 }

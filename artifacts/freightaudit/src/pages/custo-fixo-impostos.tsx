@@ -27,7 +27,9 @@ import { SeletorDoPar, type VigenciaEscolhivel } from "@/components/comparacao/s
 import {
   parDePartida,
   rotulosDasVigencias,
+  TIPOS_DE_EQUIPAMENTO,
   vigenciasDaUnidade,
+  vigenciasQueCobrem,
 } from "@workspace/comparison/recorte-de-rubrica";
 import { CartoesDeImpostos } from "@/components/impostos/cartoes";
 import {
@@ -38,6 +40,8 @@ import {
   TotalPorVigencia,
 } from "@/components/impostos/graficos";
 import { TabelaDeImpostos } from "@/components/impostos/tabela";
+import { JustificarDialog } from "@/components/justificativas/justificar-dialog";
+import { useJustificarNaTabela } from "@/lib/justificar-na-tabela";
 import { DetalheDoVeiculo } from "@/components/impostos/detalhe";
 import { fetchJson, salvarArquivo } from "@/lib/api";
 import { csvComoBlob, paraNomeDeArquivo } from "@/lib/csv";
@@ -158,9 +162,24 @@ export default function AuditoriaDeImpostos() {
    */
   const unidadeResolvida = recorte.scopeHash !== null || !contextosCarregando;
 
-  /** As vigências da unidade aberta — a lista que o seletor oferece. */
+  /**
+   * As vigências que o seletor oferece: as da unidade aberta **que cobrem
+   * equipamento**.
+   *
+   * O segundo filtro não é refinamento: esta tela lê placa, e o acervo entrega
+   * o arquivo de trecho como vigência separada (`entity_type_set = TRECHO`).
+   * Sem ele a lista oferecia uma ponta que esta tela não sabe ler — e escolhê-la
+   * é a recusa do motor em tela ("Coberturas diferentes") ou zero linhas sem
+   * explicação, nas duas vezes por um erro que não é de quem clicou.
+   */
   const daUnidade = useMemo(
-    () => (unidadeResolvida ? vigenciasDaUnidade(vigencias.data ?? [], escopoAberto) : []),
+    () =>
+      unidadeResolvida
+        ? vigenciasQueCobrem(
+            vigenciasDaUnidade(vigencias.data ?? [], escopoAberto),
+            TIPOS_DE_EQUIPAMENTO,
+          )
+        : [],
     [vigencias.data, escopoAberto, unidadeResolvida],
   );
 
@@ -237,8 +256,19 @@ export default function AuditoriaDeImpostos() {
   const rotuloComparada =
     vigencias.data?.find((v) => v.id === comparada)?.sourceLabel ?? "Para";
 
+  /*
+    Justificar sem sair daqui — a mesma caixa de Chamados, o mesmo POST, e a
+    vigência escrita nela: quem justifica a partir desta tela escolheu o par no
+    seletor acima, e um diálogo que não diz onde grava deixa a decisão sem a
+    metade que a torna verificável.
+  */
+  const justificar = useJustificarNaTabela(
+    comparacao.data?.changeSetId,
+    `comparação ${rotuloBase} → ${rotuloComparada}`,
+  );
+
   function exportar() {
-    const blob = csvComoBlob(linhasDoCsv(filtradas));
+    const blob = csvComoBlob(linhasDoCsv(filtradas, justificar.justificadaPor));
     salvarArquivo(
       blob,
       `impostos-${paraNomeDeArquivo(rotuloBase)}-para-${paraNomeDeArquivo(rotuloComparada)}.csv`,
@@ -555,9 +585,11 @@ export default function AuditoriaDeImpostos() {
               <>
                 <TabelaDeImpostos
                   linhas={naPagina}
+                  justificadaPor={justificar.justificadaPor}
                   onAbrir={(l) =>
                     setAberto({ entityLabel: l.entityLabel, entityType: l.entityType })
                   }
+                  onJustificar={justificar.abrir}
                 />
                 <Paginacao
                   pagina={pagina}
@@ -571,6 +603,8 @@ export default function AuditoriaDeImpostos() {
                 />
               </>
             )}
+
+            <JustificarDialog {...justificar.propsDoDialogo} />
 
             <DetalheDoVeiculo
               veiculo={aberto}

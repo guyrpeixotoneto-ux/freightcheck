@@ -95,7 +95,7 @@ export function datasetFamilyFor(entityType: string): string {
  * A família da vigência que vai ser gravada.
  *
  * `familiaDeclarada` é o que a fileira de acervos da tela disse no envio,
- * gravado em `import_run.declared_family` (`0098`) e lido pela promoção. Quando
+ * gravado em `import_run.declared_family` (`0099`) e lido pela promoção. Quando
  * existe, **ela vence**, e é o que permite um arquivo de real do cavalo não
  * cair na família do remunerado só por trazer placas de cavalo.
  *

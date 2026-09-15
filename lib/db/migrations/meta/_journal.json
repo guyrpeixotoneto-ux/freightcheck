@@ -692,7 +692,14 @@
       "idx": 98,
       "version": "7",
       "when": 1789501200000,
-      "tag": "0098_familia_declarada_no_envio",
+      "tag": "0098_justificativa_estruturada",
+      "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1789501300000,
+      "tag": "0099_familia_declarada_no_envio",
       "breakpoints": true
     }
   ]

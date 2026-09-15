@@ -35,6 +35,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { AbaBotao } from "@/components/changes/cartoes";
 import { JustificarDialog } from "@/components/justificativas/justificar-dialog";
+import type { JustificativaEstruturada } from "@workspace/comparison/justificativa-estruturada";
 import {
   BOTAO_DE_TROCA,
   MenuDeVigencias,
@@ -485,7 +486,10 @@ export default function PainelDeJustificativas() {
     unidadeEscolhida !== null;
 
   const justificar = useMutation({
-    mutationFn: async (input: { linhas: LinhaDoPainel[]; texto: string }) => {
+    mutationFn: async (input: {
+      linhas: LinhaDoPainel[];
+      justificativa: JustificativaEstruturada;
+    }) => {
       /*
         Uma justificativa pertence a uma comparação, e a lista do painel pode
         atravessar várias: a seleção vai ao servidor agrupada por vigência, um
@@ -502,7 +506,7 @@ export default function PainelDeJustificativas() {
         await fetchJson<{ justificativas: Justificativa[] }>("/justificativas", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ changeSetId: id, changeIds, texto: input.texto }),
+          body: JSON.stringify({ changeSetId: id, changeIds, ...input.justificativa }),
         });
       }
     },
@@ -1381,6 +1385,9 @@ export default function PainelDeJustificativas() {
             entityLabel: l.entityLabel,
             attributeCode: l.attributeCode,
             attributeName: l.attributeName,
+            valueBefore: l.valueBefore,
+            valueAfter: l.valueAfter,
+            deltaAbsolute: l.deltaAbsolute,
           })) ?? null
         }
         contexto={
@@ -1397,6 +1404,11 @@ export default function PainelDeJustificativas() {
                 entityLabel: dialogAlvo[0].entityLabel,
                 entityType: dialogAlvo[0].entityType,
                 texto: dialogAlvo[0].texto ?? "",
+                formula: dialogAlvo[0].formula,
+                regra: dialogAlvo[0].regra,
+                conforme: dialogAlvo[0].conforme,
+                motivoExcecao: dialogAlvo[0].motivoExcecao,
+                responsavelAprovacao: dialogAlvo[0].responsavelAprovacao,
                 criadoPor: dialogAlvo[0].criadoPor ?? "",
                 criadoEm: dialogAlvo[0].criadoEm ?? "",
               }
@@ -1405,8 +1417,8 @@ export default function PainelDeJustificativas() {
         pendente={justificar.isPending}
         erro={justificar.error}
         onClose={() => setDialogAlvo(null)}
-        onConfirmar={(texto) =>
-          dialogAlvo && justificar.mutate({ linhas: dialogAlvo, texto })
+        onConfirmar={(justificativa) =>
+          dialogAlvo && justificar.mutate({ linhas: dialogAlvo, justificativa })
         }
       />
     </Layout>

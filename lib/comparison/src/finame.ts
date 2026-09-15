@@ -344,6 +344,17 @@ export interface LinhaDeFiname {
    * a data.
    */
   dataDeCadastro: string | null;
+  /**
+   * O fim do contrato de financiamento deste veículo, como a fonte o entregou
+   * (`cavalo.data_fim_contrato` / `carreta.data_fim_contrato`).
+   *
+   * Contexto pela mesma razão das duas colunas acima, e a mais direta das três:
+   * uma amortização em R$ 0,00 ao lado de um fim de contrato já vencido é o
+   * financiamento que terminou — a leitura que antes exigia abrir a expansão e
+   * achar a linha da data no meio das outras treze. Nula quando nenhuma das duas
+   * pontas declarou a data.
+   */
+  fimDoContrato: string | null;
   impactoAmount: number | null;
   impactoPeriodicidade: string | null;
   impactoCalculado: boolean;
@@ -381,6 +392,7 @@ export function linhaDaAlteracao(a: AlteracaoDoMotor): LinhaDeFiname | null {
       motivo: a.inconclusiveReason ?? null,
       periodoFiname: null,
       dataDeCadastro: null,
+      fimDoContrato: null,
       impactoAmount: null,
       impactoPeriodicidade: null,
       impactoCalculado: false,
@@ -404,6 +416,7 @@ export function linhaDaAlteracao(a: AlteracaoDoMotor): LinhaDeFiname | null {
     motivo: a.inconclusiveReason ?? null,
     periodoFiname: null,
     dataDeCadastro: null,
+    fimDoContrato: null,
     impactoAmount: numero(a.impactAmount),
     impactoPeriodicidade: a.impactPeriodicity ?? null,
     impactoCalculado: a.impactConfidence === "CALCULATED",
@@ -452,6 +465,7 @@ export function linhaSemAlteracao(par: {
     motivo: null,
     periodoFiname: null,
     dataDeCadastro: null,
+    fimDoContrato: null,
     impactoAmount: null,
     impactoPeriodicidade: null,
     impactoCalculado: false,
@@ -459,21 +473,24 @@ export function linhaSemAlteracao(par: {
 }
 
 // ---------------------------------------------------------------------------
-// O contexto do veículo — as duas colunas que não são comparação
+// O contexto do veículo — as colunas que não são comparação
 // ---------------------------------------------------------------------------
 
-/** As duas variáveis de contexto. Lidas do catálogo, nunca redigitadas. */
+/** As três variáveis de contexto. Lidas do catálogo, nunca redigitadas. */
 const PRAZO = VARIAVEIS_DE_FINAME.find((v) => v.chave === "prazo");
 const DATA_DE_CADASTRO = VARIAVEIS_DE_FINAME.find((v) => v.chave === "data_de_entrada");
+const FIM_DO_CONTRATO = VARIAVEIS_DE_DETALHE.find((v) => v.chave === "data_fim_contrato");
 
 /**
- * Os códigos do `periodo_finame` e da data de entrada, por tipo de equipamento.
+ * Os códigos do prazo, da data de entrada e do fim do contrato, por tipo.
  *
- * É o recorte que a rota lê das duas vigências para preencher as duas colunas:
- * dois atributos, e não a tabela inteira.
+ * É o recorte que a rota lê das duas vigências para preencher as colunas de
+ * contexto: três atributos, e não a tabela inteira.
  */
 export const CODIGOS_DO_CONTEXTO: string[] = codigosDe(
-  [PRAZO, DATA_DE_CADASTRO].filter((v): v is VariavelDeFiname => v !== undefined),
+  [PRAZO, DATA_DE_CADASTRO, FIM_DO_CONTRATO].filter(
+    (v): v is VariavelDeFiname => v !== undefined,
+  ),
 );
 
 /** O código do prazo de um tipo de equipamento, quando ele o tem. */
@@ -486,6 +503,11 @@ export function codigoDaDataDeCadastro(entityType: string): string | undefined {
   return DATA_DE_CADASTRO ? codigoDaVariavel(DATA_DE_CADASTRO, entityType) : undefined;
 }
 
+/** O código do fim do contrato de um tipo de equipamento, quando ele o tem. */
+export function codigoDoFimDoContrato(entityType: string): string | undefined {
+  return FIM_DO_CONTRATO ? codigoDaVariavel(FIM_DO_CONTRATO, entityType) : undefined;
+}
+
 /** O contexto de um veículo, do jeito que a leitura da vigência o entrega. */
 export interface ContextoDoVeiculo {
   entityLabel: string | null;
@@ -494,10 +516,12 @@ export interface ContextoDoVeiculo {
   periodo: string | null;
   /** `null` quando a vigência não declarou a data de cadastro. */
   dataDeCadastro: string | null;
+  /** `null` quando a vigência não declarou o fim do contrato. */
+  fimDoContrato: string | null;
 }
 
 /**
- * As linhas com o prazo e a data de cadastro de cada veículo ao lado.
+ * As linhas com o prazo, a data de cadastro e o fim do contrato ao lado.
  *
  * Duas listas, e não uma: a comparada manda, e a base entra só onde a comparada
  * não tem o veículo — é o caso do `AUSENTE_NA_COMPARADA`, cuja linha ficaria sem
@@ -519,6 +543,7 @@ export function comContextoDoVeiculo(
 ): LinhaDeFiname[] {
   const periodos = new Map<string, string>();
   const datas = new Map<string, string>();
+  const fins = new Map<string, string>();
   /* A base primeiro, a comparada por cima: quem está nas duas fica com o valor
      da comparada, e quem só está na base conserva o dela. */
   for (const c of [...(contexto.base ?? []), ...contexto.comparada]) {
@@ -527,6 +552,9 @@ export function comContextoDoVeiculo(
     if (c.dataDeCadastro !== null && c.dataDeCadastro !== "") {
       datas.set(chave, c.dataDeCadastro);
     }
+    if (c.fimDoContrato !== null && c.fimDoContrato !== "") {
+      fins.set(chave, c.fimDoContrato);
+    }
   }
   return linhas.map((l) => {
     const chave = chaveDoVeiculo(l);
@@ -534,6 +562,7 @@ export function comContextoDoVeiculo(
       ...l,
       periodoFiname: periodos.get(chave) ?? null,
       dataDeCadastro: datas.get(chave) ?? null,
+      fimDoContrato: fins.get(chave) ?? null,
     };
   });
 }
@@ -546,9 +575,13 @@ export function comContextoDoVeiculo(
 export interface VeiculoDeFiname {
   entityLabel: string | null;
   entityType: string;
-  /** O prazo e a data de cadastro, que são do veículo e não da variável. */
+  /**
+   * O prazo, a data de cadastro e o fim do contrato — do veículo, não da
+   * variável, e por isso colunas da placa e não linhas da expansão.
+   */
   periodoFiname: string | null;
   dataDeCadastro: string | null;
+  fimDoContrato: string | null;
   /** Quantas variáveis se moveram nesta placa. */
   alteracoes: number;
   /** Quantas dessas são dinheiro — as demais são prazo, taxa, ano, data. */
@@ -581,9 +614,30 @@ export interface VeiculoDeFiname {
    * mesma placa apareceria em duas leituras diferentes na mesma tela.
    */
   estado: EstadoDaLinhaDeFiname;
-  /** As linhas desta placa, na ordem em que vieram — o que a expansão mostra. */
+  /** As linhas desta placa, na ordem do catálogo — o que a expansão mostra. */
   linhas: LinhaDeFiname[];
 }
+
+/**
+ * A ordem em que a expansão lê as variáveis de uma placa.
+ *
+ * É a do catálogo, e não a que o motor entrega. Na ordem do motor a parcela
+ * FINAME caía no meio das duas parcelas que a compõem — "Amortização, Parcela
+ * FINAME, Juros" —, e o número que a linha de cima mostra ficava entre as duas
+ * metades dele: quem lê soma as três e chega ao dobro do que a placa custa. O
+ * catálogo já começa na parcela e segue por juros e amortização, que é a
+ * leitura que a tela quer — o total primeiro, o que o compõe logo abaixo.
+ *
+ * `veiculo` vem antes de tudo, porque entrada e saída de ativo explicam todas
+ * as outras linhas da placa; o que não está no catálogo vai para o fim.
+ */
+const ORDEM_DA_VARIAVEL = new Map<string, number>([
+  ["veiculo", -1],
+  ...TODAS.map((v, indice) => [v.chave, indice] as [string, number]),
+]);
+
+const ordemDa = (l: LinhaDeFiname): number =>
+  ORDEM_DA_VARIAVEL.get(l.variavel) ?? TODAS.length;
 
 const numeroDoTexto = (valor: string | null): number | null => {
   if (valor === null || valor === "") return null;
@@ -603,6 +657,9 @@ const numeroDoTexto = (valor: string | null): number | null => {
  * **Não recalcula nada.** Contagem, estado e a parcela saem das linhas que o
  * motor já produziu; o que a função faz é juntar por `(placa, tipo)` e ordenar.
  *
+ * Duas ordens, e nenhuma é a do motor: as linhas de dentro seguem o catálogo
+ * (ver {@link ORDEM_DA_VARIAVEL}), e as placas seguem o dinheiro.
+ *
  * A ordem é a do dinheiro: primeiro quem moveu mais parcela em valor absoluto,
  * depois quem moveu mais variáveis, e a placa desempata. Uma ordem alfabética
  * poria a maior queda do mês na página quatro.
@@ -621,6 +678,7 @@ export function agruparPorVeiculo(
         entityType: l.entityType,
         periodoFiname: l.periodoFiname,
         dataDeCadastro: l.dataDeCadastro,
+        fimDoContrato: l.fimDoContrato,
         alteracoes: 0,
         alteracoesEmDinheiro: 0,
         parcela: null,
@@ -633,6 +691,7 @@ export function agruparPorVeiculo(
        o declara manda, e as seguintes só preenchem o que ainda está nulo. */
     veiculo.periodoFiname ??= l.periodoFiname;
     veiculo.dataDeCadastro ??= l.dataDeCadastro;
+    veiculo.fimDoContrato ??= l.fimDoContrato;
 
     if (l.variavel !== "veiculo" && l.estado === "ALTERADO") {
       veiculo.alteracoes++;
@@ -651,6 +710,12 @@ export function agruparPorVeiculo(
     }
 
     veiculos.set(chave, veiculo);
+  }
+
+  /* Estável de propósito: duas linhas da mesma variável mantêm a ordem do
+     motor, e só as variáveis diferentes se movem. */
+  for (const veiculo of veiculos.values()) {
+    veiculo.linhas.sort((a, b) => ordemDa(a) - ordemDa(b));
   }
 
   return [...veiculos.values()].sort((a, b) => {
