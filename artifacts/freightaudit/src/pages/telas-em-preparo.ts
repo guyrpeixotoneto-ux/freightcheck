@@ -9,7 +9,6 @@ import {
   HardHat,
   Gauge,
   History,
-  Landmark,
   Receipt,
   Route,
   Shield,
@@ -226,31 +225,30 @@ export const TELAS_EM_PREPARO: TelaEmPreparo[] = [
     dois casos que o acervo diz não existirem: o ativo que voltou ao primeiro
     ciclo e o que declara os dois ao mesmo tempo.
   */
-  {
-    href: "/custo-fixo-impostos",
-    label: "Impostos",
-    icon: Landmark,
-    cor: "text-nav-custo-fixo",
-    pergunta:
-      "Quanto desta vigência é imposto — ICMS, PIS e COFINS —, por equipamento e por unidade, e o que mudou desde a vigência anterior.",
-    depende: [
-      "A alíquota **medida**, e não a declarada: o export traz o percentual que o trecho declara e o imposto que ele carrega em reais, e os dois discordam. A razão entre dois valores em reais não tem ambiguidade de escala; uma coluna de percentual pode vir em pontos ou em fração, e não há como saber qual sem adivinhar.",
-      "A separação entre o imposto da compra do ativo — que já está na base, em `valor_icms` e `valor_pis_cofins` — e o imposto do frete, que é o que pesa todo mês. Somados sob um rótulo só, o total seria de duas grandezas diferentes.",
-    ],
-    hoje: [
-      {
-        href: "/custo-fixo-finame",
-        label: "Finame",
-        porque:
-          "O ICMS e o PIS/COFINS da nota de compra entram na comparação entre vigências, ao lado do valor de NF — é a metade que a base já sustenta.",
-      },
-      {
-        href: "/composicao",
-        label: "Composição",
-        porque: "O valor montado de um equipamento, parcela a parcela, onde as linhas de imposto aparecem hoje.",
-      },
-    ],
-  },
+  /*
+    `/custo-fixo-impostos` saiu deste catálogo: a rota abre a Auditoria de
+    Impostos, que compara o ICMS e o PIS/COFINS da compra de cada ativo entre
+    duas vigências — montante, alíquota declarada e valor de nota — sobre o mesmo
+    motor das outras três auditorias de rubrica.
+
+    **O verbete foi atendido pela metade, e a outra metade virou recusa escrita.**
+    A metade atendida é a primeira linha do `depende`: a alíquota **medida**, e
+    não a declarada. O montante dividido pelo valor de nota é dinheiro sobre
+    dinheiro, sem a ambiguidade de escala de uma coluna de percentual, e a tela
+    põe as duas lado a lado — é a conferência que ocupa o painel central.
+
+    A metade recusada é a segunda linha, e ela continua verdadeira: **o imposto do
+    frete não está aqui.** A dedução de PIS/COFINS e de ICMS/ISS sobre a prestação
+    mora na tabela de trecho, que não é a fonte que este banco apura, e somá-la ao
+    imposto da compra do ativo daria o total de duas grandezas diferentes. A tela
+    diz isso no rodapé da conferência e na gaveta de cada veículo, em vez de
+    fingir a soma.
+
+    O que nenhuma das duas metades previa está medido em `docs/ACHADO-IMPOSTOS.md`:
+    o montante de ICMS é **zero nas 1.215 linhas** do acervo, enquanto as
+    alíquotas de ICMS são declaradas em todas elas. Não é imposto zero — é coluna
+    sem dado, e a tela tem um veredito próprio para dizê-lo.
+  */
 
   // -------------------------------------------------------------------------
   // Custo Variável

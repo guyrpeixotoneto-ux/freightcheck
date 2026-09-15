@@ -65,6 +65,7 @@ import QlpAdministrativo from '@/pages/qlp-administrativo';
 import AuditoriaDeFiname from '@/pages/custo-fixo-finame';
 import AuditoriaDeIpva from '@/pages/custo-fixo-ipva';
 import AuditoriaDeLucroFixo from '@/pages/custo-fixo-lucro-fixo';
+import AuditoriaDeImpostos from '@/pages/custo-fixo-impostos';
 import Remunerado from '@/pages/remunerado';
 import Justificativas from '@/pages/justificativas';
 import JustificativasPlaca from '@/pages/justificativas-placa';
@@ -528,6 +529,22 @@ function RotasDaAuditoria() {
         **receita**, e não de custo: subir é verde aqui.
       */}
       <Route path="/custo-fixo-lucro-fixo" component={AuditoriaDeLucroFixo} />
+      {/*
+        Impostos sai de `TELAS_EM_PREPARO` atendendo metade do verbete e
+        recusando a outra metade por escrito. A metade atendida é a alíquota
+        **medida** — o tributo sobre o valor de nota, que é dinheiro sobre
+        dinheiro e não tem ambiguidade de escala —, conferida contra a que o
+        cadastro declara. A metade recusada é o imposto do frete: ele mora na
+        tabela de trecho, que não é a fonte que este banco apura, e somá-lo ao
+        imposto da compra do ativo daria o total de duas grandezas diferentes —
+        exatamente o que o verbete dizia ser preciso evitar.
+
+        E há o achado que nenhuma das duas metades previa: o montante de ICMS é
+        zero nas 1.215 linhas, com as alíquotas de ICMS declaradas em todas elas.
+        Não é imposto zero, é coluna sem dado (`docs/ACHADO-IMPOSTOS.md`). O menu
+        não mudou uma vírgula, como manda o catálogo.
+      */}
+      <Route path="/custo-fixo-impostos" component={AuditoriaDeImpostos} />
       {/*
         QLP Administrativo saiu de `TELAS_EM_PREPARO` quando a importação
         passou a receber o export próprio dele (tipo QLP_ADMINISTRATIVO) — o

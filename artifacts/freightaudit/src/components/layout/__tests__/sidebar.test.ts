@@ -705,12 +705,23 @@ describe("o catálogo de telas em preparo", () => {
     leitura própria de cada rubrica que o dado real ofereceu de graça: a
     alíquota implícita no IPVA, a virada de ciclo aqui. Nenhuma das três afirma
     o que ainda não sabe, e as três dizem na própria tela o que falta.
+
+    E de dezoito para dezessete com **Impostos**, a quarta. Ela é a primeira que
+    atende metade do verbete e **recusa a outra metade por escrito**: entrega a
+    alíquota medida — o tributo sobre o valor de nota, dinheiro sobre dinheiro —
+    conferida contra a declarada, e diz que o imposto do frete não está aqui,
+    porque mora na tabela de trecho, que não é a fonte que este banco apura.
+    Somá-lo ao imposto da compra do ativo daria o total de duas grandezas
+    diferentes, que é o que o próprio verbete pedia para evitar. E trouxe o
+    achado que o verbete não previa: o montante de ICMS é zero nas 1.215 linhas
+    do acervo, com as alíquotas declaradas em todas elas — coluna sem dado, e não
+    imposto zero.
   */
   it("descreve, para cada tela, o que falta antes de ela mostrar um número", () => {
     const catalogo = fonte("pages/telas-em-preparo.ts");
     const telas = [...catalogo.matchAll(/^\s{4}href:\s*"([^"]+)"/gm)].length;
 
-    expect(telas).toBe(18);
+    expect(telas).toBe(17);
     expect([...catalogo.matchAll(/^\s{4}depende:\s*\[/gm)]).toHaveLength(telas);
     expect([...catalogo.matchAll(/^\s{4}pergunta:/gm)]).toHaveLength(telas);
   });
