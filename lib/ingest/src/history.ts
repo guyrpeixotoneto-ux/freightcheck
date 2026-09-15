@@ -375,6 +375,16 @@ export interface ImportRunStatus {
   progressStep: string | null;
   progressDone: number;
   progressTotal: number;
+  /**
+   * O que a aprovação fez, quando ela já terminou — nulo até lá.
+   *
+   * A promoção responde 202 e trabalha depois, então este é o lugar onde o
+   * relatório dela sobrevive: quantas vigências entraram, quantos nós de
+   * taxonomia foram garantidos, quantas semânticas aplicadas, quantos pares
+   * comparados e o que ficou para trás. Quem lê é quem já estava perguntando o
+   * estado — a tela, e os testes que provam que a garantia rodou.
+   */
+  promotionReport: unknown;
 }
 
 export async function getImportRunStatus(
@@ -397,6 +407,10 @@ export async function getImportRunStatus(
       progressStep: importRunTable.progressStep,
       progressDone: importRunTable.progressDone,
       progressTotal: importRunTable.progressTotal,
+      // O que a aprovação fez — nulo enquanto ela não terminou. Vem por aqui
+      // porque é este o estado que a tela consulta a cada 1,2 s desde que o
+      // arquivo subiu, e porque a aprovação já não responde por si mesma.
+      promotionReport: importRunTable.promotionReport,
       filename: sourceFileTable.filename,
     })
     .from(importRunTable)
@@ -464,6 +478,7 @@ export async function getImportRunStatus(
     progressStep: run.progressStep,
     progressDone: run.progressDone,
     progressTotal: run.progressTotal,
+    promotionReport: run.promotionReport,
   };
 }
 

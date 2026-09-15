@@ -35,9 +35,8 @@
  * a demora é maior. Um laço com `if` no meio esconderia os dois; uma função
  * com nome os deixa testáveis sem banco nenhum.
  */
-import { eq } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import type { Database } from "@workspace/db";
-import { importRunTable } from "@workspace/db/schema";
 
 /**
  * O trecho da leitura que está sendo medido.
@@ -47,7 +46,7 @@ import { importRunTable } from "@workspace/db/schema";
  * virada de um para o outro seria pior que porcentagem nenhuma. Quem lê estes
  * nomes é a tela, que dá a cada um a sua faixa da barra.
  */
-export type EtapaDoProgresso = "CAPTURA" | "PREPARO";
+export type EtapaDoProgresso = "CAPTURA" | "PREPARO" | "PROMOCAO";
 
 /** Quanto tempo se aceita a barra parada antes de publicar mesmo sem passo. */
 export const INTERVALO_DE_PUBLICACAO_MS = 2_000;
@@ -110,6 +109,18 @@ export function devePublicar(estado: {
   return estado.desdeAUltimaMs >= INTERVALO_DE_PUBLICACAO_MS;
 }
 
+export interface OpcoesDoProgresso {
+  /**
+   * O que fazer quando a publicação descobre um pedido de cancelamento.
+   *
+   * Recebe o comando em vez de conhecê-lo: este módulo mede trabalho, e não
+   * tem opinião sobre parar. Quem passa é o pipeline, e o que ele passa lança
+   * `ImportacaoCancelada` — de modo que a interrupção desmonta a pilha inteira
+   * de onde estiver, inclusive a transação da promoção. Ver `cancelamento.ts`.
+   */
+  aoCancelar?: () => void;
+}
+
 export interface RelatorDeProgresso {
   /** Somar linhas percorridas. Publica sozinho quando vale a pena. */
   avancar(linhas?: number): Promise<void>;
@@ -138,18 +149,41 @@ export async function abrirProgresso(
   importRunId: string,
   etapa: EtapaDoProgresso,
   total: number,
+  opcoes: OpcoesDoProgresso = {},
 ): Promise<RelatorDeProgresso> {
   let feito = 0;
   let publicado = 0;
   let ultimaEm = Date.now();
 
+  /*
+    A publicação é também a pergunta "já pediram para parar?".
+
+    Ela cabe na mesma ida ao banco — um subselect no `RETURNING` do UPDATE que
+    já estava sendo feito —, e é isso que torna o ponto de checagem gratuito.
+    A alternativa seria uma consulta própria no laço, e aí parar custaria o
+    dobro de idas ao banco em toda importação, inclusive nas que ninguém
+    cancela; ou um laço sem checagem, e aí não haveria como parar.
+
+    A consequência é que a granularidade de parar é a da barra: alguns por
+    cento de trabalho. É o que se quer — parar no meio de uma linha não teria
+    onde ser retomado, e parar só no fim não é parar.
+  */
   const escrever = async (valor: number): Promise<void> => {
-    await db
-      .update(importRunTable)
-      .set({ progressStep: etapa, progressDone: valor, progressTotal: total })
-      .where(eq(importRunTable.id, importRunId));
+    const { rows } = (await db.execute(sql`
+      UPDATE "import_run"
+         SET "progress_step" = ${etapa},
+             "progress_done" = ${valor},
+             "progress_total" = ${total}
+       WHERE "id" = ${importRunId}
+      RETURNING (
+        SELECT c."pedido_em"
+          FROM "import_cancelamento" c
+         WHERE c."import_run_id" = "import_run"."id"
+      ) AS "cancelado_em"
+    `)) as unknown as { rows: { cancelado_em: string | null }[] };
     publicado = valor;
     ultimaEm = Date.now();
+    if (rows[0]?.cancelado_em) opcoes.aoCancelar?.();
   };
 
   await escrever(0);

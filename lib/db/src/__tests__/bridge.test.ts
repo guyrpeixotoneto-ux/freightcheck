@@ -678,10 +678,16 @@ describe("quando Production está à frente", () => {
       E o que sobra para o Publishing criar continua sendo a allowlist —
       medida agora pelo critério de `estruturaDe`, que enxerga o que o diff por
       categoria do primeiro `describe` não enxergava: **rótulo de enum**. As duas
-      linhas de `import_run_status` que aparecem aqui vêm da `0015`, entram por
-      `ALTER TYPE ... ADD VALUE IF NOT EXISTS` e são aditivas nos dois lados —
-      não são DDL destrutivo, e por isso não reprovam. Estão nomeadas em vez de
-      filtradas em silêncio: um objeto novo nesta categoria tem de aparecer.
+      linhas de `import_run_status` que vêm da `0015` — e a terceira, da `0097` —
+      entram por `ALTER TYPE ... ADD VALUE IF NOT EXISTS` e são aditivas nos dois
+      lados: não são DDL destrutivo, e por isso não reprovam. Estão nomeadas em
+      vez de filtradas em silêncio: um objeto novo nesta categoria tem de
+      aparecer.
+
+      `CANCELLED` é o estado de quem parou uma importação antes de ela entrar
+      (`0097`). Aditivo como os outros dois, e pela mesma razão de estarem
+      escritos aqui um a um: a lista é curta de propósito, e cada rótulo novo
+      passa por esta linha antes de existir.
     */
     const p = await propostaDoPublishing(dev.pool, prod.pool);
     expect(p.removeria).toEqual([]);
@@ -691,7 +697,8 @@ describe("quando Production está à frente", () => {
       ).sort(),
     );
     expect(p.criaria.filter((l) => !/^(COL|ENUM) /.test(l))).toEqual([]);
-    expect(p.criaria.filter((l) => l.startsWith("ENUM "))).toEqual([
+    expect(p.criaria.filter((l) => l.startsWith("ENUM ")).sort()).toEqual([
+      "ENUM import_run_status CANCELLED",
       "ENUM import_run_status SKIPPED_DUPLICATE_DATA",
       "ENUM import_run_status VALIDATION_ERROR",
     ]);

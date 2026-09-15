@@ -10,10 +10,13 @@ import {
 import { codigoDoPostgres, db } from "@workspace/db";
 import {
   ImportDeletionRefused,
+  ImportacaoCancelada,
   PromocaoRecusada,
   ReprocessamentoRecusado,
   captureRaw,
+  conferirCancelamento,
   deleteImportRun,
+  encerrarComoCancelada,
   ensureImportStorageDir,
   exigirTipoDeclarado,
   getImportRun,
@@ -23,12 +26,17 @@ import {
   getImportRunStatus,
   listImportDeletions,
   listImportRuns,
+  gravarRelatorioDaPromocao,
   markRunFailed,
+  pedirCancelamento,
   planImportDeletion,
+  porQueNaoCancelar,
   preview,
   promote,
   receiveFile,
   reprocessImportRun,
+  reservarPromocao,
+  devolverAoPreview,
   setImportRunHidden,
   stage,
 } from "@workspace/ingest";
@@ -195,6 +203,8 @@ export function whyCannotPromote(status: string): string | null {
       return "Esta importação não pode ser aprovada: o dado não fecha. Veja o motivo na importação, corrija a origem e envie o arquivo de novo.";
     case "ABORTED":
       return "Esta importação foi abortada. Envie o arquivo de novo para recomeçar.";
+    case "CANCELLED":
+      return "Esta importação foi cancelada, então não há o que aprovar. Para enviar o arquivo de novo, exclua esta importação primeiro.";
     default:
       return `Esta importação está em ${status.toLowerCase()} e só pode ser aprovada depois de conferida.`;
   }
@@ -361,6 +371,8 @@ export function motivoGravavel(err: unknown): string {
 
 /** O `req.log` reduzido ao que este arquivo usa. */
 export type Log = {
+  /** O desfecho que não é falha — uma aprovação que terminou, uma que parou. */
+  info: (obj: unknown, msg: string) => void;
   warn: (obj: unknown, msg: string) => void;
   error: (obj: unknown, msg: string) => void;
 };
@@ -454,9 +466,33 @@ function responderFalhaDeLeitura(
 export async function readInBackground(importRunId: string, log: Log): Promise<void> {
   try {
     await captureRaw(db, importRunId);
+    /*
+      Entre as etapas, a pergunta "ainda querem isto?".
+
+      Dentro de cada etapa quem pergunta é a publicação de progresso, que já ia
+      ao banco; aqui não há barra andando — é a virada de um trecho para o
+      outro —, e uma etapa inteira começada depois do pedido seria trabalho
+      feito para ser jogado fora. Três consultas por importação é o preço.
+    */
+    await conferirCancelamento(db, importRunId);
     await stage(db, importRunId);
+    await conferirCancelamento(db, importRunId);
     await preview(db, importRunId);
   } catch (err) {
+    /*
+      Cancelar não é falhar, e o desfecho não pode dizer que foi.
+
+      Quem pediu para parar sabe por que a importação terminou; escrever FAILED
+      com o texto de um erro deixaria o cartão dizendo "falhou ao ler o
+      arquivo" sobre um arquivo que estava sendo lido perfeitamente bem.
+    */
+    if (err instanceof ImportacaoCancelada) {
+      await encerrarComoCancelada(db, importRunId).catch((cancelErr: unknown) => {
+        log.error({ err: cancelErr, importRunId }, "Could not close a cancelled run");
+      });
+      log.info({ importRunId }, "Leitura interrompida a pedido de quem enviou");
+      return;
+    }
     // O motivo é gravado, e gravado é para sempre: passa pela mesma
     // classificação da resposta, senão a consulta que o drizzle carimba na
     // frente do erro ficaria no card da importação até alguém excluí-la.
@@ -693,6 +729,37 @@ router.get("/imports/:id/issues", async (req, res, next): Promise<void> => {
   }
 });
 
+/**
+ * Aprovar — o pedido responde na hora, e o trabalho continua depois dele.
+ *
+ * ---------------------------------------------------------------------------
+ * O defeito que isto fecha
+ * ---------------------------------------------------------------------------
+ * A promoção rodava **dentro** da requisição. Numa planilha de trecho de 198
+ * mil fatos isso são minutos de conexão aberta — medido nesta base, 75 s só a
+ * transação, num Postgres local e sem a garantia das comparações —, e nenhum
+ * proxy espera tanto. O que se viu na tela foi isto: a pessoa aprovava, a
+ * conexão caía sem resposta, a transação voltava atrás inteira e o cartão
+ * reaparecia dizendo "Conferido, ainda não importado" — pedindo a aprovação que
+ * ela acabara de dar. Do outro lado, Km Rodado dizia "esta unidade não tem
+ * vigência de trecho importada", e dizia a verdade: nada tinha entrado.
+ *
+ * A leitura já tinha aprendido isso uma vez (`readInBackground`, acima, e o
+ * comentário que o explica). A aprovação era a metade que faltava, e era a
+ * metade mais cara das duas.
+ *
+ * ---------------------------------------------------------------------------
+ * O que a resposta promete agora
+ * ---------------------------------------------------------------------------
+ * 202, e só isto: **a aprovação começou**. Quem responde pelo desfecho é
+ * `/imports/:id/status`, que a tela já consulta a cada 1,2 s desde que o
+ * arquivo subiu — e que agora mostra também a barra da promoção, porque o
+ * relator de progresso passou a cobri-la.
+ *
+ * A reserva (`reservarPromocao`) é o que separa "pedido aceito" de "pedido
+ * duplicado": ela é um `UPDATE` condicional comitado, e dois cliques disputam
+ * uma linha em vez de duas transações disputarem a mesma vigência.
+ */
 router.post("/imports/:id/promote", async (req, res, next): Promise<void> => {
   if (!UUID.test(req.params.id)) {
     res.status(400).json({ error: "Identificador de importação inválido." });
@@ -722,16 +789,81 @@ router.post("/imports/:id/promote", async (req, res, next): Promise<void> => {
           .map((t) => t.trim().toUpperCase())
       : undefined;
 
-    const result = await promote(db, req.params.id, {
-      // Reimportar a mesma vigência é uma correção, e correção se declara:
-      // o padrão recusa, e só quem pede NEW_REVISION escreve a revisão N+1.
-      onExistingSnapshot:
-        req.body?.onExistingSnapshot === "NEW_REVISION"
-          ? "NEW_REVISION"
-          : "FAIL",
-      promotedBy: req.user?.email ?? DEFAULT_ACTOR,
-      confirmNewEntityTypes,
-    });
+    /*
+      A reserva é a última coisa síncrona desta rota.
+
+      Entre o `whyCannotPromote` acima e ela cabe uma corrida — duas abas
+      clicando juntas —, e é ela, e não a leitura anterior, que a decide: quem
+      não levou o `UPDATE` relê o estado e recebe a frase que o explica.
+    */
+    if (!(await reservarPromocao(db, req.params.id))) {
+      const agora = await getImportRunStatus(db, req.params.id);
+      res.status(409).json({
+        error:
+          (agora && whyCannotPromote(agora.status)) ??
+          "Esta importação não está mais conferida e não pode ser aprovada agora.",
+      });
+      return;
+    }
+
+    void promoverEmSegundoPlano(
+      req.params.id,
+      {
+        // Reimportar a mesma vigência é uma correção, e correção se declara:
+        // o padrão recusa, e só quem pede NEW_REVISION escreve a revisão N+1.
+        onExistingSnapshot:
+          req.body?.onExistingSnapshot === "NEW_REVISION"
+            ? "NEW_REVISION"
+            : "FAIL",
+        promotedBy: req.user?.email ?? DEFAULT_ACTOR,
+        confirmNewEntityTypes,
+      },
+      req.log,
+    );
+
+    res.status(202).json({ importRunId: req.params.id, status: "PROMOTING" });
+  } catch (err) {
+    // Todo o resto passa pela classificação: schema atrasado vira 503 com o
+    // diagnóstico do banco, e não um 422 que manda mexer numa planilha que está
+    // certa. Era daqui que saía a consulta crua para a tela.
+    responderFalhaDeEscrita(
+      res,
+      next,
+      req.log,
+      err,
+      "aprovação da importação",
+      req.params.id,
+    );
+  }
+});
+
+/**
+ * A promoção propriamente dita, fora do ciclo da requisição.
+ *
+ * O run já está em PROMOTING e comitado assim (`reservarPromocao`), de modo que
+ * a tela tem o que mostrar desde o primeiro instante e o estado nunca depende
+ * de esta função chegar ao fim. Todo desfecho é escrito aqui:
+ *
+ *  - **deu certo** → o próprio `promote` grava PROMOTED (ou
+ *    SKIPPED_DUPLICATE_DATA, quando tudo já estava registrado);
+ *  - **recusa nomeada** → `PromocaoRecusada` devolve o run a PREVIEWED (ainda
+ *    aprovável, o caso da correção) ou a VALIDATION_ERROR, com a frase;
+ *  - **cancelada** → CANCELLED, e nada entrou: a transação inteira voltou;
+ *  - **falha inesperada** → volta a PREVIEWED com o motivo classificado, para
+ *    que o cartão diga o que houve em vez de voltar ao estado de antes do
+ *    clique como se ninguém tivesse clicado.
+ */
+async function promoverEmSegundoPlano(
+  importRunId: string,
+  opcoes: {
+    onExistingSnapshot: "FAIL" | "NEW_REVISION";
+    promotedBy: string;
+    confirmNewEntityTypes: string[] | undefined;
+  },
+  log: Log,
+): Promise<void> {
+  try {
+    const result = await promote(db, importRunId, { ...opcoes, reservado: true });
 
     /*
       O contrato de cobertura acompanha o dicionário.
@@ -742,17 +874,13 @@ router.post("/imports/:id/promote", async (req, res, next): Promise<void> => {
       isto, uma coluna nova ficaria fora da cobertura crítica até alguém chamar
       a rota de semeadura à mão.
 
-      Fora do `try` da promoção não dá — ela já respondeu. Dentro dele, uma
-      falha aqui não pode derrubar uma promoção que deu certo: o dado está
+      Uma falha aqui não pode derrubar uma promoção que deu certo: o dado está
       gravado, e a expectativa é derivada e refazível.
     */
     try {
       await semearContrato(db);
     } catch (err) {
-      req.log.warn(
-        { err },
-        "Contrato de cobertura não semeado após a promoção",
-      );
+      log.warn({ err, importRunId }, "Contrato de cobertura não semeado após a promoção");
     }
 
     /*
@@ -786,15 +914,11 @@ router.post("/imports/:id/promote", async (req, res, next): Promise<void> => {
       2. **Comparar dentro da transação seria comparar dados que ninguém mais
          enxerga.** O motor lê `snapshot`/`fact` por fora do `tx` em várias das
          suas consultas; segurar a promoção aberta durante 25 comparações
-         também manteria o lock do run e a transação longa por minutos.
-      3. **Mas "depois do commit" não pode virar silêncio.** É exatamente o
-         estado que este bloco veio fechar. Por isso a garantia **não** é um
-         `catch` mudo como o do contrato de cobertura acima: o que ela fez sai
-         no corpo da resposta (`comparacoes`), par a par, com as falhas
-         nomeadas; e se ela própria falhar, a promoção responde assim mesmo —
-         os fatos estão gravados — mas com `comparacoesFalha` preenchido e um
-         `error` no log. Uma promoção nunca volta como se tudo estivesse
-         comparado quando não está.
+         também manteria a transação longa por minutos.
+      3. **Mas "depois do commit" não pode virar silêncio.** Por isso a garantia
+         **não** é um `catch` mudo como o do contrato acima: o que ela fez sai
+         no log, par a par, com as falhas nomeadas. Uma promoção nunca termina
+         como se tudo estivesse comparado quando não está.
     */
     let comparacoes: GarantiaDaPromocao | null = null;
     let comparacoesFalha: string | null = null;
@@ -803,53 +927,131 @@ router.post("/imports/:id/promote", async (req, res, next): Promise<void> => {
         computedBy: "api:promocao",
       });
       if (comparacoes.falhas.length > 0) {
-        req.log.warn(
-          { importRunId: req.params.id, falhas: comparacoes.falhas },
+        log.warn(
+          { importRunId, falhas: comparacoes.falhas },
           "Pares elegíveis que o motor recusou durante a promoção",
         );
       }
     } catch (err) {
       comparacoesFalha =
         err instanceof Error ? err.message : "Falha ao garantir as comparações.";
-      req.log.error(
-        { err, importRunId: req.params.id },
-        "Vigências promovidas sem a garantia das comparações",
-      );
+      log.error({ err, importRunId }, "Vigências promovidas sem a garantia das comparações");
     }
 
-    res.json({ ...result, comparacoes, comparacoesFalha });
+    /*
+      E o relatório fica onde ainda dá para lê-lo.
+
+      Este era o corpo da resposta enquanto a aprovação cabia numa requisição.
+      Sem lugar para ir, ele deixaria de existir — e com ele a única prova, do
+      lado de fora do log, de que a taxonomia foi semeada, as semânticas
+      aplicadas e os pares comparados depois do commit. Gravar é o último passo
+      de propósito: ele descreve trabalho terminado.
+    */
+    await gravarRelatorioDaPromocao(db, importRunId, {
+      ...result,
+      comparacoes,
+      comparacoesFalha,
+    }).catch((err: unknown) => {
+      log.error({ err, importRunId }, "Promoção concluída sem relatório gravado");
+    });
+
+    log.info(
+      { importRunId, vigencias: result.snapshots.length, fatos: result.factsInserted },
+      "Importação aprovada",
+    );
   } catch (err) {
-    // Uma recusa **nomeada** é a única coisa que sai daqui com a frase inteira.
-    // Ela é escrita pelo pipeline para quem opera, e o código HTTP separa as
-    // duas que a tela trata diferente: 409 é "já existe uma versão ativa" — um
-    // conflito que o operador resolve decidindo registrar uma correção, com o
-    // run ainda aprovável. 422 é "o dado não fecha", e aí não há botão que
-    // resolva: o caminho é corrigir a origem e reenviar. A transação já desfez
-    // o que tinha começado.
-    if (err instanceof PromocaoRecusada) {
-      req.log.warn(
-        { err, importRunId: req.params.id, decisao: err.decisao },
-        "Promotion refused",
-      );
-      res.status(err.decisao === "VIGENCIA_ATIVA_EXISTENTE" ? 409 : 422).json({
-        error: ehFraseParaQuemOpera(err.message)
-          ? err.message
-          : FALHA_INESPERADA,
-        decisao: err.decisao,
-        detalhe: err.detalhe,
+    if (err instanceof ImportacaoCancelada) {
+      await encerrarComoCancelada(db, importRunId).catch((cancelErr: unknown) => {
+        log.error({ err: cancelErr, importRunId }, "Could not close a cancelled promotion");
       });
+      log.info({ importRunId }, "Aprovação interrompida a pedido de quem enviou");
       return;
     }
 
-    // Todo o resto passa pela classificação: schema atrasado vira 503 com o
-    // diagnóstico do banco, e não um 422 que manda mexer numa planilha que está
-    // certa. Era daqui que saía a consulta crua para a tela.
+    // A recusa nomeada já gravou o estado dela dentro do próprio `promote` —
+    // PREVIEWED quando ainda dá para decidir (a correção), VALIDATION_ERROR
+    // quando o dado não fecha. Aqui ela só vira log.
+    if (err instanceof PromocaoRecusada) {
+      log.warn({ err, importRunId, decisao: err.decisao }, "Promotion refused");
+      return;
+    }
+
+    registrarFalha(log, err, "aprovação da importação", importRunId);
+    await devolverAoPreview(db, importRunId, motivoGravavel(err)).catch(
+      (voltaErr: unknown) => {
+        log.error({ err: voltaErr, importRunId }, "Could not return a run to PREVIEWED");
+      },
+    );
+  }
+}
+
+/**
+ * Parar uma importação — sem deixar entrar para depois tirar.
+ *
+ * O gesto que faltava. Até aqui só havia excluir, que age **depois** de os
+ * dados estarem no acervo e por isso exige motivo e mostra a conta do que sai;
+ * e fechar a aba, que não para nada, porque quem trabalha é o servidor. Parar
+ * age antes: o run termina em CANCELLED e nada dele entrou.
+ *
+ * Vale nos três momentos em que ainda dá — lendo, conferida, aprovando — e a
+ * mecânica de cada um está em `cancelamento.ts`. Aqui a rota só registra o
+ * pedido: quando há trabalho em curso, quem para é quem trabalha, no próximo
+ * ponto de checagem; quando não há (a importação conferida, esperando decisão),
+ * a própria rota encerra.
+ *
+ * 409 quando não há o que parar, com a frase que diz por quê — e, no caso mais
+ * importante, o que fazer em vez disso: um arquivo já aprovado se tira com
+ * Excluir, não com Cancelar.
+ */
+router.post("/imports/:id/cancel", async (req, res, next): Promise<void> => {
+  if (!UUID.test(req.params.id)) {
+    res.status(400).json({ error: "Identificador de importação inválido." });
+    return;
+  }
+  try {
+    const motivo =
+      typeof req.body?.reason === "string" && req.body.reason.trim() !== ""
+        ? req.body.reason.trim()
+        : null;
+
+    const pedido = await pedirCancelamento(db, req.params.id, {
+      por: req.user?.email ?? DEFAULT_ACTOR,
+      motivo,
+    });
+    if (!pedido) {
+      res.status(404).json({ error: "Importação não encontrada" });
+      return;
+    }
+
+    const recusa = porQueNaoCancelar(pedido.status);
+    if (recusa) {
+      res.status(409).json({ error: recusa });
+      return;
+    }
+
+    req.log.info(
+      { importRunId: req.params.id, estado: pedido.status },
+      "Cancelamento de importação pedido",
+    );
+
+    res.json({
+      importRunId: req.params.id,
+      // "parando" e "parada" são coisas diferentes para quem olha a tela: a
+      // primeira ainda tem um trabalho terminando de desmontar, e a segunda já
+      // acabou. Dizer "parada" nas duas faria o cartão contradizer o estado que
+      // ele mesmo consulta um segundo depois.
+      estado: pedido.encerradoAgora ? "CANCELADA" : "PARANDO",
+      mensagem: pedido.encerradoAgora
+        ? "Importação cancelada. Nada deste arquivo entrou no sistema. Para enviá-lo de novo, exclua esta importação primeiro."
+        : "Pedido registrado: a importação para no próximo ponto de checagem, e nada dela entra.",
+    });
+  } catch (err) {
     responderFalhaDeEscrita(
       res,
       next,
       req.log,
       err,
-      "aprovação da importação",
+      "cancelamento da importação",
       req.params.id,
     );
   }

@@ -1,6 +1,10 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createTestDatabase, type TestDb } from "../testing";
-import { varrerLeiturasOrfas, LEITURA_ORFA_MINUTOS } from "../recuperacao";
+import {
+  varrerLeiturasOrfas,
+  LEITURA_ORFA_MINUTOS,
+  PROMOCAO_ORFA_MINUTOS,
+} from "../recuperacao";
 import { whyCannotDelete } from "../deletion";
 
 /**
@@ -44,6 +48,41 @@ async function criarRunDeLeitura(opcoes: {
      SELECT id, $2::import_run_status, now() - ($3 || ' minutes')::interval, 'teste' FROM f
      RETURNING id`,
     [opcoes.sha, opcoes.status, String(opcoes.minutosAtras)],
+  );
+  return rows[0].id;
+}
+
+/**
+ * Uma aprovação em curso — reservada há tantos minutos.
+ *
+ * `promocao_em` é o relógio dela, e não `started_at`: um arquivo aprovado três
+ * dias depois de enviado tem `started_at` antiquíssimo e uma aprovação recém
+ * começada. Escrever os dois separados aqui é o que deixa essa distinção
+ * exercitada em vez de presumida.
+ */
+async function criarPromocaoEmCurso(opcoes: {
+  sha: string;
+  minutosDaPromocao: number;
+  minutosDoRun?: number;
+}): Promise<string> {
+  const { rows } = await banco.pool.query<{ id: string }>(
+    `WITH f AS (
+       INSERT INTO source_file (filename, byte_size, content_sha256, storage_path, received_by)
+       VALUES ('promovendo.xlsx', 10, $1, '/tmp/promovendo.xlsx', 'teste')
+       RETURNING id
+     )
+     INSERT INTO import_run (source_file_id, status, started_at, promocao_em, triggered_by)
+     SELECT id, 'PROMOTING'::import_run_status,
+            now() - ($2 || ' minutes')::interval,
+            now() - ($3 || ' minutes')::interval,
+            'teste'
+       FROM f
+     RETURNING id`,
+    [
+      opcoes.sha,
+      String(opcoes.minutosDoRun ?? opcoes.minutosDaPromocao),
+      String(opcoes.minutosDaPromocao),
+    ],
   );
   return rows[0].id;
 }
@@ -135,16 +174,55 @@ describe("a varredura de leituras órfãs", () => {
     expect(porId.get(vivo)!.status).toBe("PENDING");
   });
 
-  it("não toca em PROMOTING: a transação da promoção já se desfaz sozinha", async () => {
-    const promovendo = await criarRunDeLeitura({
+  /**
+   * A aprovação órfã — o beco que a promoção em segundo plano abriria.
+   *
+   * Enquanto a promoção inteira cabia numa transação, PROMOTING nunca ficava
+   * órfão: o rollback devolvia o run a PREVIEWED sozinho. Deixou de ser assim
+   * quando a aprovação saiu da requisição — o estado passou a ser comitado
+   * antes da transação —, e sem esta varredura um reinício no meio da gravação
+   * deixaria o cartão dizendo "Importando…" para sempre.
+   *
+   * O desfecho é PREVIEWED, e não um estado terminal: nada entrou, o arquivo
+   * continua conferido, e aprovar de novo é um clique. Abortá-lo obrigaria a
+   * excluir e reenviar um arquivo que está perfeito.
+   */
+  it("devolve ao preview a aprovação que o reinício interrompeu", async () => {
+    const orfa = await criarPromocaoEmCurso({
       sha: "f".repeat(64),
-      status: "PROMOTING",
-      minutosAtras: LEITURA_ORFA_MINUTOS + 5,
+      minutosDaPromocao: PROMOCAO_ORFA_MINUTOS + 5,
     });
-    await varrerLeiturasOrfas(banco.db);
+
+    const relatorio = await varrerLeiturasOrfas(banco.db);
+    expect(relatorio.promocoes.map((p) => p.importRunId)).toEqual([orfa]);
+
+    const { rows } = await banco.pool.query<{
+      status: string;
+      failure_reason: string | null;
+      promocao_em: Date | null;
+    }>(`SELECT status, failure_reason, promocao_em FROM import_run WHERE id = $1`, [orfa]);
+    expect(rows[0].status).toBe("PREVIEWED");
+    expect(rows[0].failure_reason).toMatch(/nada dela entrou/i);
+    // O relógio zerado é o que impede a varredura seguinte de contá-la de novo.
+    expect(rows[0].promocao_em).toBeNull();
+  });
+
+  it("não toca na aprovação que começou agora, por mais velho que seja o run", async () => {
+    // O caso que separa `promocao_em` de `started_at`: um arquivo enviado há
+    // três dias e aprovado há um minuto. Medida pelo começo do run, esta
+    // aprovação seria declarada órfã enquanto grava.
+    const viva = await criarPromocaoEmCurso({
+      sha: "1".repeat(64),
+      minutosDaPromocao: 1,
+      minutosDoRun: 60 * 24 * 3,
+    });
+
+    const relatorio = await varrerLeiturasOrfas(banco.db);
+    expect(relatorio.promocoes).toEqual([]);
+
     const { rows } = await banco.pool.query<{ status: string }>(
       `SELECT status FROM import_run WHERE id = $1`,
-      [promovendo],
+      [viva],
     );
     expect(rows[0].status).toBe("PROMOTING");
   });
@@ -152,6 +230,7 @@ describe("a varredura de leituras órfãs", () => {
   it("é idempotente: a segunda passada não encontra nada", async () => {
     const segunda = await varrerLeiturasOrfas(banco.db);
     expect(segunda.importacoes).toEqual([]);
+    expect(segunda.promocoes).toEqual([]);
     expect(segunda.chamados).toEqual([]);
   });
 });

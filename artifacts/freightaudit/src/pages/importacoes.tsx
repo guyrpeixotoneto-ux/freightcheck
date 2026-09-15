@@ -1,8 +1,9 @@
-import { Fragment, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useSearch } from "wouter";
 import {
   AlertTriangle,
+  Ban,
   CalendarClock,
   CheckCircle2,
   ChevronDown,
@@ -340,6 +341,14 @@ interface RunStatus {
   /** Preenchido quando este run é uma releitura, e não um envio. */
   reprocessOfRunId: string | null;
   /**
+   * O que a aprovação fez — nulo até ela terminar de fato.
+   *
+   * É a última coisa que a promoção escreve, depois de garantir o contrato de
+   * cobertura e as comparações. Por isso ele, e não o estado, é o sinal de
+   * "acabou" para quem vai reler o resto da tela: PROMOTED chega antes.
+   */
+  promotionReport: unknown;
+  /**
    * Quanto da leitura já passou — medido pelo pipeline enquanto ele trabalha.
    *
    * É o único trio deste objeto que fala de trabalho em curso: todos os outros
@@ -631,12 +640,59 @@ export default function Importacoes() {
       if (!response.ok) throw erroDaResposta(response, body);
       return body;
     },
-    onSuccess: (_result, { importRunId }) => {
+    /*
+      A aprovação responde 202: ela **começou**, e não terminou.
+
+      Por isso o que se faz aqui é pouco, e é de propósito. Tirar o run da lista
+      dos que esperam decisão seria esconder o cartão justamente enquanto ele
+      tem a barra a mostrar — PROMOTING continua em `ESPERANDO_DECISAO` porque
+      ainda não foi decidido nada em definitivo. E invalidar a interface inteira
+      agora mostraria o acervo de antes com ar de recém-atualizado: quem avisa
+      que ele mudou é o cartão, quando o estado vira terminal (`onFinalizado`).
+    */
+    onSuccess: () => {
       setError(null);
-      setPendingIds((current) => current.filter((id) => id !== importRunId));
-      queryClient.invalidateQueries();
+      queryClient.invalidateQueries({ queryKey: ["imports"] });
     },
     onError: (err: Error) => setError(err.message),
+  });
+
+  /**
+   * Parar — antes de entrar, e sem deixar entrar para depois tirar.
+   *
+   * Vale nos três momentos em que ainda há o que parar: a leitura em curso, a
+   * importação conferida que espera uma decisão que vai ser "não", e a gravação
+   * em curso. O servidor decide qual dos três é e responde por ele; aqui só se
+   * pede.
+   *
+   * `invalidateQueries` geral, e não só da lista: um run que para devolve o
+   * arquivo (ele pode ser enviado de novo) e sai das contas de quem espera
+   * decisão, que aparecem no cartão do equipamento e no Início.
+   */
+  const cancelar = useMutation({
+    mutationFn: async (importRunId: string) => {
+      const response = await fetch(getApiUrl(`/imports/${importRunId}/cancel`), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const body = await readJson(response);
+      if (!response.ok) throw erroDaResposta(response, body);
+      return body;
+    },
+    onSuccess: (body) => {
+      setError(null);
+      setRemoved(
+        typeof body?.mensagem === "string"
+          ? body.mensagem
+          : "Pedido de cancelamento registrado.",
+      );
+      queryClient.invalidateQueries();
+    },
+    onError: (err: Error) => {
+      setRemoved(null);
+      setError(err.message);
+    },
   });
 
   /**
@@ -853,7 +909,15 @@ export default function Importacoes() {
               onPromote={(confirmNewEntityTypes) =>
                 promote.mutate({ importRunId: id, confirmNewEntityTypes })
               }
-              promoting={promote.isPending}
+              onCancel={() => cancelar.mutate(id)}
+              /* O desfecho chega pelo `poll` do cartão, e não pelo retorno da
+                 aprovação — que hoje volta antes de o trabalho acabar. É aqui
+                 que Dados, Alterações e Início ficam sabendo. */
+              onFinalizado={() => queryClient.invalidateQueries()}
+              promoting={
+                promote.isPending && promote.variables?.importRunId === id
+              }
+              cancelando={cancelar.isPending && cancelar.variables === id}
             />
           ))}
 
@@ -2471,14 +2535,33 @@ const CORES_DA_FACE: Record<
     icone: "text-emerald-700",
     detalhe: "text-emerald-900",
   },
+  /* Gravar é o que a aprovação prometeu, e é verde antes de terminar: âmbar
+     diria "esperando você", que é exatamente o que deixou de ser. */
+  aprovando: {
+    cartao: "border-emerald-200 bg-emerald-50",
+    selo: "bg-emerald-100",
+    icone: "text-emerald-700",
+    detalhe: "text-emerald-900",
+  },
+  /* Cancelada é neutra pelo mesmo motivo que a duplicata: nada deu errado —
+     alguém decidiu, e pintar a decisão de vermelho ensinaria a procurar culpa
+     onde não há. */
+  cancelada: {
+    cartao: "border-slate-300 bg-slate-100",
+    selo: "bg-slate-200",
+    icone: "text-slate-700",
+    detalhe: "text-slate-700",
+  },
 };
 
 const ICONE_DA_FACE: Record<FaceDoCartao["face"], typeof Upload> = {
   lendo: Upload,
+  aprovando: Upload,
   conferida: CheckCircle2,
   recusada: AlertTriangle,
   duplicata: ShieldCheck,
   aprovada: CheckCircle2,
+  cancelada: Ban,
 };
 
 /**
@@ -2496,12 +2579,27 @@ function PendingRun({
   importRunId,
   onDiscard,
   onPromote,
+  onCancel,
+  onFinalizado,
   promoting,
+  cancelando,
 }: {
   importRunId: string;
   onDiscard: () => void;
   onPromote: (confirmNewEntityTypes: string[]) => void;
+  onCancel: () => void;
+  /**
+   * O run chegou a um estado terminal — a hora de o resto da tela se atualizar.
+   *
+   * Existe porque a aprovação deixou de responder pelo desfecho: a rota devolve
+   * 202 e o trabalho continua depois dela, então o momento em que Dados,
+   * Alterações e Início passam a ter conteúdo novo não é mais o retorno de uma
+   * mutação — é uma resposta deste `poll`. Sem isto, a importação terminava e a
+   * tela ao lado continuava mostrando o acervo de antes até alguém dar F5.
+   */
+  onFinalizado: () => void;
   promoting: boolean;
+  cancelando: boolean;
 }) {
   const { data } = useQuery({
     queryKey: ["imports", importRunId, "status"],
@@ -2510,7 +2608,20 @@ function PendingRun({
     // FAILED, PROMOTED — e um run recusado por validação, que não estava nela,
     // deixava o cartão consultando o servidor a cada 1,2s para sempre.
     refetchInterval: (query) => {
-      const s = (query.state.data as RunStatus | undefined)?.status;
+      const run = query.state.data as RunStatus | undefined;
+      const s = run?.status;
+      /*
+        A promoção comita os fatos e **depois** garante o que deriva deles: o
+        contrato de cobertura e as comparações de cada par que o arquivo tocou.
+        O estado já diz PROMOTED nessa janela — e diz a verdade, o dado entrou —,
+        mas Alterações ainda não tem o que mostrar. Parar de perguntar aqui faria
+        a tela se atualizar cedo demais e ficar mostrando "sem comparação" sobre
+        vigências que estão sendo comparadas naquele instante.
+
+        O relatório é o que marca o fim de verdade: ele é a última coisa que a
+        aprovação escreve. Ver `gravarRelatorioDaPromocao`.
+      */
+      if (s === "PROMOTED" && !run?.promotionReport) return 1200;
       // Quem decide é a face do cartão, e não uma lista de estados repetida
       // aqui: ABORTED — o desfecho que a varredura de órfãs grava quando um
       // reinício levou o processo que lia — é terminal lá, então o cartão para
@@ -2521,11 +2632,49 @@ function PendingRun({
   });
 
   const cara = faceDoCartao(data?.status);
+
+  /*
+    Avisar uma vez, e só na virada.
+
+    `emAndamento` é a mesma autoridade que decide se o `poll` continua, de modo
+    que a virada de `true` para `false` é exatamente o instante em que o
+    pipeline parou de trabalhar neste run. O `useRef` é o que impede o aviso de
+    se repetir a cada renderização de um cartão já terminado — invalidar a
+    interface inteira em laço seria um F5 a cada segundo.
+  */
+  const estavaAndando = useRef(false);
+  useEffect(() => {
+    if (!data) return;
+    // "Terminou" inclui o arremate: enquanto o relatório não foi gravado, a
+    // promoção ainda está garantindo o que deriva dela, e avisar agora mandaria
+    // o resto da tela reler um acervo que está no meio de mudar.
+    const arrematando = data.status === "PROMOTED" && !data.promotionReport;
+    if (cara.emAndamento || arrematando) {
+      estavaAndando.current = true;
+      return;
+    }
+    if (!estavaAndando.current) return;
+    // Só a virada avisa. Um cartão que **abre** já terminado — a importação
+    // conferida que estava lá desde ontem — não mudou nada no acervo, e
+    // invalidar a interface por causa dele seria um refetch a cada F5.
+    estavaAndando.current = false;
+    onFinalizado();
+  }, [data, cara.emAndamento, onFinalizado]);
+
   const cores = CORES_DA_FACE[cara.face];
   const progresso = progressoDaLeitura(data);
   const Icone = ICONE_DA_FACE[cara.face];
   const ready = cara.face === "conferida";
   const recusada = cara.face === "recusada";
+  const aprovando = cara.face === "aprovando";
+  /*
+    Onde ainda há o que parar — a mesma lista de `CANCELAVEIS`, no servidor,
+    dita pelas caras que a tela conhece. Só há três, e cada uma para uma coisa
+    diferente: a leitura em curso, a decisão que não vai ser tomada, e a
+    gravação em curso.
+  */
+  const podeParar = cara.face === "lendo" || ready || aprovando;
+  const rotuloDeParar = ready ? "cancelar importação" : "parar";
 
   /*
     A única coisa nesta tela que exige decisão, e não leitura.
@@ -2658,13 +2807,44 @@ function PendingRun({
           <Button variant="ghost" size="sm" onClick={onDiscard}>
             ocultar
           </Button>
-          <Button
-            size="sm"
-            disabled={!decisao.podeAprovar || promoting}
-            onClick={() => onPromote(identidadesNovas)}
-          >
-            {promoting ? "Importando…" : "Aprovar e importar"}
-          </Button>
+          {/*
+            Parar — o gesto que faltava, e a palavra muda com o que se para.
+
+            Um arquivo grande passa minutos sendo lido e mais minutos sendo
+            gravado, e até aqui quem percebia o engano no meio do caminho só
+            podia esperar o fim para então excluir: deixar entrar para depois
+            tirar. Parar age antes, e a promessa é a mesma nos três momentos —
+            nada entrou.
+
+            Não aparece nas caras terminais porque ali não há o que parar; e
+            nunca aparece sobre uma importação já aprovada, que se desfaz com
+            Excluir, no cartão de baixo, com a conta do que sai.
+          */}
+          {podeParar && (
+            <Button
+              variant="ghost"
+              size="sm"
+              disabled={cancelando}
+              onClick={onCancel}
+              className="text-slate-700 hover:text-red-700"
+            >
+              <Ban className="w-3.5 h-3.5 mr-1.5" />
+              {cancelando ? "parando…" : rotuloDeParar}
+            </Button>
+          )}
+          {/* O botão de aprovar só existe enquanto há o que aprovar: durante a
+              gravação ele virava "Importando…" e ficava ali, desabilitado,
+              parecendo que a decisão ainda era de quem olha. Quem diz que o
+              trabalho anda é a barra, logo abaixo. */}
+          {ready && (
+            <Button
+              size="sm"
+              disabled={!decisao.podeAprovar || promoting}
+              onClick={() => onPromote(identidadesNovas)}
+            >
+              {promoting ? "Começando…" : "Aprovar e importar"}
+            </Button>
+          )}
         </div>
       </div>
 
@@ -2678,9 +2858,14 @@ function PendingRun({
         só informa por cor e largura não informa quem usa leitor de tela — e o
         texto ao lado dela repete o mesmo número, para quem não vê a animação.
       */}
-      {cara.face === "lendo" && progresso && (
+      {(cara.face === "lendo" || aprovando) && progresso && (
         <div className="space-y-1.5">
-          <div className="flex items-baseline justify-between gap-3 text-xs font-medium text-amber-900">
+          <div
+            className={cn(
+              "flex items-baseline justify-between gap-3 text-xs font-medium",
+              cores.detalhe,
+            )}
+          >
             <span>
               {progresso.rotulo}…
               {/* De onde sai a porcentagem, dito em números que a pessoa pode
@@ -2689,9 +2874,13 @@ function PendingRun({
                   linhas. Só aparece quando há medida: no degrau por estado não
                   existem linhas a citar. */}
               {progresso.medido && data && data.progressTotal > 0 && (
-                <span className="ml-2 font-normal text-amber-900/70">
+                <span className="ml-2 font-normal opacity-70">
                   {n(Math.min(data.progressDone, data.progressTotal))} de{" "}
-                  {n(data.progressTotal)} linhas
+                  {/* A unidade é a do trabalho que está sendo feito: a leitura
+                      anda por linha de planilha, a gravação anda por fato. Uma
+                      só palavra para os dois faria a conta não bater com nada
+                      que a pessoa possa conferir. */}
+                  {n(data.progressTotal)} {aprovando ? "fatos" : "linhas"}
                 </span>
               )}
             </span>
@@ -2702,8 +2891,15 @@ function PendingRun({
             aria-valuenow={progresso.pct}
             aria-valuemin={0}
             aria-valuemax={100}
-            aria-label={`Leitura do arquivo: ${progresso.rotulo}`}
-            className="h-1.5 w-full overflow-hidden rounded-full bg-amber-200"
+            aria-label={
+              aprovando
+                ? `Gravação da importação: ${progresso.rotulo}`
+                : `Leitura do arquivo: ${progresso.rotulo}`
+            }
+            className={cn(
+              "h-1.5 w-full overflow-hidden rounded-full",
+              aprovando ? "bg-emerald-200" : "bg-amber-200",
+            )}
           >
             {/*
               A faixa clara que atravessa o trecho já andado é o que separa
@@ -2712,7 +2908,10 @@ function PendingRun({
               o cartão parece parado justamente quando está trabalhando.
             */}
             <div
-              className="h-full rounded-full bg-amber-500 bg-[linear-gradient(90deg,transparent,rgba(255,255,255,0.6),transparent)] bg-[length:40%_100%] bg-no-repeat animate-[shimmer_1.6s_linear_infinite] transition-[width] duration-700 ease-out motion-reduce:animate-none"
+              className={cn(
+                "h-full rounded-full bg-[linear-gradient(90deg,transparent,rgba(255,255,255,0.6),transparent)] bg-[length:40%_100%] bg-no-repeat animate-[shimmer_1.6s_linear_infinite] transition-[width] duration-700 ease-out motion-reduce:animate-none",
+                aprovando ? "bg-emerald-500" : "bg-amber-500",
+              )}
               style={{ width: `${progresso.pct}%` }}
             />
           </div>

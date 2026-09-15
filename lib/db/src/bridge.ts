@@ -214,6 +214,33 @@ export const ALLOWLIST: {
     aindaPodeNaoExistir: true,
   },
   /*
+    As duas da `0097`, e elas são as duas metades de a aprovação ter saído de
+    dentro da requisição.
+
+    `promotion_report` é o que a promoção fez — vigências gravadas, taxonomia
+    garantida, semânticas aplicadas, pares comparados. Voltava no corpo da
+    resposta; como a resposta agora sai antes do trabalho, ele passou a ser
+    gravado. `promocao_em` é a hora em que a aprovação começou, e é por ela que
+    a varredura de órfãs reconhece uma gravação que um reinício interrompeu.
+
+    Aditivas e nulas por definição: `NULL` nas duas é o estado de todo run que
+    não está aprovando nem aprovou — que são quase todos —, e nenhuma
+    importação anterior a elas tem o que dizer ali. Entram aqui pela forma, como
+    as da `0035`: nuláveis, sem default, em tabela que sobrevive ao `down`.
+  */
+  {
+    tabela: "import_run",
+    coluna: "promotion_report",
+    tipo: "jsonb",
+    aindaPodeNaoExistir: true,
+  },
+  {
+    tabela: "import_run",
+    coluna: "promocao_em",
+    tipo: "timestamp with time zone",
+    aindaPodeNaoExistir: true,
+  },
+  /*
     A da `0054`. A regra de alteração do atributo — o que faz aquela coluna
     mudar de valor, escrito por quem cura: "revisão semestral", "reajusta por
     IPCA na virada do contrato". Aditiva e nula por definição: `NULL` ali é
@@ -401,6 +428,21 @@ export const ALLOWLIST: {
  * Perdê-la reabriria todas as lacunas que alguém já resolveu.
  */
 const TABELAS_REMOVIDAS = [
+  /*
+    `import_cancelamento`, da `0097` — quem desistiu de uma importação, quando e
+    por quê.
+
+    Entra aqui, e não entre as descartáveis, pelo critério desta lista: cada
+    linha é **decisão de gente**. "Fulano parou esta importação às 09:12" não é
+    reconstruível por consulta nenhuma — o estado CANCELLED do run diz que ela
+    parou, e só esta tabela diz quem mandou parar. Um Development com
+    cancelamento registrado trava o `down`, e travar é o desfecho certo.
+
+    Vem antes de tudo por prudência de ordem: ela referencia `import_run` com
+    `ON DELETE CASCADE`, e `import_run` não sai nesta lista — mas a pré-condição
+    de tabela vazia só é útil se for consultada antes de qualquer queda.
+  */
+  "import_cancelamento",
   /*
     `ticket_movement_review`, da `0087`, é a **única** das cinco tabelas do
     Monitoramento de Chamados que entra aqui — e é pelo critério desta lista, e
@@ -2197,6 +2239,35 @@ function planoUp(): PassoUp[] {
     M81,
     "índice snapshot_presenca_snapshot_idx",
     levantar(M81, /INDEX IF NOT EXISTS "snapshot_presenca_snapshot_idx"/),
+  );
+
+  /*
+    A `0097` — a tabela do cancelamento, e só ela.
+
+    As duas colunas que a mesma migration cria em `import_run`
+    (`promotion_report` e `promocao_em`) não voltam aqui porque nunca saíram:
+    estão na allowlist, pela forma — nuláveis, sem default, em tabela que
+    sobrevive ao `down`.
+
+    A tabela volta **vazia**, e isso não é descarte: ela está em
+    `TABELAS_REMOVIDAS`, que exige tabela vazia antes de derrubar. Quem tiver um
+    cancelamento registrado no Development trava o `down` e é isso que se quer —
+    quem parou uma importação, e quando, não é reconstruível por consulta
+    nenhuma.
+  */
+  const M97 = "0097_cancelar_importacao";
+  add(
+    M97,
+    "import_cancelamento",
+    levantar(M97, /CREATE TABLE IF NOT EXISTS "import_cancelamento"/),
+  );
+  // O `DO $$ … $$` da FK entra inteiro, como o da `0081`: ele já é reentrante
+  // por construção (`IF NOT EXISTS` sobre `pg_constraint`), e é isso que faz o
+  // `up` poder rodar duas vezes sem esbarrar na própria constraint.
+  add(
+    M97,
+    "constraint import_cancelamento_import_run_id_import_run_id_fk",
+    levantar(M97, /DO \$\$/),
   );
 
   const M60 = "0060_ocultar_import_run";

@@ -36,6 +36,21 @@ export const importRunStatus = pgEnum("import_run_status", [
    * com informações conflitantes. Não é falha técnica — é o dado que não fecha.
    */
   "VALIDATION_ERROR",
+  /**
+   * Quem enviou desistiu — e desistiu **antes** de o dado entrar.
+   *
+   * É o único estado terminal que uma pessoa escreve de propósito. ABORTED
+   * descreve um acidente (o processo que lia morreu com o reinício) e
+   * VALIDATION_ERROR descreve a planilha; este descreve uma decisão, e por isso
+   * não pode ser nenhum dos dois: quem lê o histórico daqui a três meses precisa
+   * distinguir "o servidor caiu no meio" de "mandei o arquivo errado e parei".
+   *
+   * Vale para os dois momentos em que dá para desistir — a leitura em curso e a
+   * aprovação em curso —, e em ambos a promessa é a mesma: nada entrou. A
+   * aprovação roda numa transação só, então parar no meio dela é o `ROLLBACK`
+   * que o banco já sabia fazer.
+   */
+  "CANCELLED",
 ]);
 
 /**

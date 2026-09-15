@@ -397,6 +397,17 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
           uma linha de dado em lugar nenhum.
         */
         "nome_gerencial_normalizado",
+        /*
+          O pedido de cancelamento, da `0097` — quem parou uma importação, quando
+          e por quê. Mesmo caso: tabela nova, que Production ganha pela fila.
+
+          As duas colunas que a mesma migration cria em `import_run`
+          (`promotion_report` e `promocao_em`) aparecem na lista de colunas mais
+          abaixo, e não aqui: `import_run` é tabela que Production **já tem**.
+          As duas são nuláveis e sem default, que é a única forma que este
+          cenário aceita sobre tabela existente.
+        */
+        "import_cancelamento",
 ]),
     );
     /*
@@ -596,6 +607,18 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
         */
         "ticket_import.serie_declarada",
         /*
+          As duas da `0097`, e elas existem porque a aprovação saiu de dentro da
+          requisição: `promotion_report` guarda o que a promoção fez — o que
+          antes voltava no corpo da resposta, que agora sai antes do trabalho —,
+          e `promocao_em` guarda a hora em que ela começou, que é como a
+          varredura de órfãs reconhece uma gravação interrompida por reinício.
+
+          Aditivas e nulas, pela mesma razão das de cima: é a forma que este
+          diff aceita sobre tabela que Production já tem.
+        */
+        "import_run.promotion_report",
+        "import_run.promocao_em",
+        /*
           A coluna que a `0046` acrescentou a `fechamento_competencia` **não**
           entra aqui, e a ausência é a informação: o diff a reporta pela tabela,
           não pela coluna, porque Production não tem nenhuma das treze do
@@ -690,6 +713,17 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
         */
         "import_run_censo_import_run_id_destino_pk",
         "import_run_censo_import_run_id_import_run_id_fk",
+        /*
+          As duas do cancelamento, da `0097` — a chave primária e a FK para
+          `import_run`. Mesmo caso do censo: vêm com a tabela nova, que nasce
+          vazia, e por isso não há linha em Production que elas possam recusar.
+
+          Nomeadas, e não filtradas por prefixo, pela mesma razão das do
+          Monitoramento: um filtro por `import_` dispensaria calada qualquer
+          constraint futura sobre `import_run`, que Production já tem.
+        */
+        "import_cancelamento_pkey",
+        "import_cancelamento_import_run_id_import_run_id_fk",
         /*
           As quinze do Monitoramento de Chamados, da `0087` — as cinco chaves
           primárias e as dez chaves estrangeiras das cinco tabelas novas. Vêm

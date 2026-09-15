@@ -79,6 +79,40 @@ export const importRunTable = pgTable(
     snapshotCount: integer("snapshot_count").notNull().default(0),
     failureReason: text("failure_reason"),
     /**
+     * O que a aprovação fez — escrito quando ela termina, e não devolvido a
+     * ninguém na hora.
+     *
+     * A promoção deixou de acontecer dentro da requisição: a rota responde 202
+     * e o trabalho continua depois dela. O relatório que antes voltava no corpo
+     * da resposta — quantas vigências entraram, quantos nós de taxonomia foram
+     * garantidos, quantas semânticas aplicadas, quantos pares comparados e o
+     * que ficou para trás — não tinha mais para onde ir, e sem lugar ele
+     * simplesmente deixaria de existir: uma importação de três minutos
+     * terminaria dizendo só "aprovada".
+     *
+     * Fica aqui porque é sobre **esta** tentativa, e porque é assim que ele
+     * sobrevive ao fim da requisição, ao F5 e à troca de instância. `jsonb`, e
+     * não colunas: é relatório de leitura, cresce com o que a promoção passar a
+     * garantir, e nada decide nada a partir dele.
+     */
+    promotionReport: jsonb("promotion_report"),
+    /**
+     * Quando a aprovação começou — e nulo em todo run que não está aprovando.
+     *
+     * Existe porque a reserva da promoção passou a ser **comitada** antes de a
+     * transação começar (ver `reservarPromocao`). Isso é o que permite
+     * responder 202 e trabalhar depois; o preço é que o `ROLLBACK` já não
+     * desfaz o estado PROMOTING como desfazia quando ele era escrito lá dentro.
+     * Um reinício no meio da gravação deixaria o run em PROMOTING para sempre,
+     * que é exatamente o beco sem saída que a `0062` fechou do lado da leitura.
+     *
+     * Esta coluna é o que a varredura de órfãs olha para saber há quanto tempo
+     * aquela aprovação começou — e não `started_at`, que é o começo do **run**
+     * e inclui a leitura e todo o tempo em que o arquivo ficou esperando
+     * decisão, que pode ser de dias.
+     */
+    promocaoEm: timestamp("promocao_em", { withTimezone: true }),
+    /**
      * Em que trecho da leitura este run está, e quanto dele já passou.
      *
      * O estado responde "em que etapa"; estas três colunas respondem "quanto
@@ -174,6 +208,52 @@ export const importRunTable = pgTable(
       ),
   ],
 );
+
+/**
+ * O pedido de parar uma importação — numa tabela sua, e a tabela é a decisão.
+ *
+ * ---------------------------------------------------------------------------
+ * Por que não é uma coluna de `import_run`
+ * ---------------------------------------------------------------------------
+ * Seria o lugar óbvio, e é o lugar errado. A aprovação roda dentro de uma
+ * transação que começa travando a própria linha do run (`SELECT … FOR UPDATE`,
+ * em `promote`): enquanto ela corre, todo `UPDATE import_run` sobre aquela
+ * linha **espera** a transação acabar. Uma bandeira de cancelamento gravada ali
+ * ficaria presa atrás exatamente do trabalho que ela existe para interromper —
+ * o pedido esperaria o fim da promoção para ser escrito, e a promoção esperaria
+ * o pedido para saber que devia parar. Parar não pode depender de terminar.
+ *
+ * Aqui a escrita é noutra linha, noutra tabela, e não disputa lock nenhum com a
+ * promoção: quem cancela grava na hora, e quem trabalha lê a cada publicação de
+ * progresso — que já era uma ida ao banco, e agora volta com a resposta.
+ *
+ * ---------------------------------------------------------------------------
+ * Uma linha por run, e ela não some
+ * ---------------------------------------------------------------------------
+ * O pedido é o registro de quem desistiu, quando e por quê, e sobrevive ao
+ * desfecho: o run vai a `CANCELLED` e esta linha continua explicando quem
+ * apertou. Chegar tarde é caso normal e não é erro — o trabalho pode ter
+ * terminado entre o clique e a escrita —, e é por isso que o pedido é
+ * `atendido_em` nulo até alguém de fato parar por causa dele.
+ */
+export const importCancelamentoTable = pgTable("import_cancelamento", {
+  importRunId: uuid("import_run_id")
+    .primaryKey()
+    .references(() => importRunTable.id, { onDelete: "cascade" }),
+  pedidoEm: timestamp("pedido_em", { withTimezone: true }).notNull().defaultNow(),
+  pedidoPor: text("pedido_por"),
+  /** Nulo: parar não exige justificativa como excluir exige — nada sai do acervo. */
+  motivo: text("motivo"),
+  /**
+   * Quando o trabalho de fato parou por causa deste pedido.
+   *
+   * Nulo é "pedido feito, ainda não atendido" — inclusive para sempre, quando o
+   * trabalho acabou antes de o pedido ser lido. Distinguir os dois é o que
+   * permite a tela dizer "não deu tempo: a importação terminou" em vez de
+   * mostrar um cancelamento que não cancelou nada.
+   */
+  atendidoEm: timestamp("atendido_em", { withTimezone: true }),
+});
 
 /**
  * A worksheet inside the file. Pivot tables are captured in RAW like
