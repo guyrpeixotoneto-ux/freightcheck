@@ -27,6 +27,7 @@ import {
 } from "@workspace/comparison";
 import { classificarFalha } from "../lib/classificar-falha";
 import { exigirOperacaoDoRecurso, operacaoDaConsulta } from "../lib/operacao";
+import { contextoDoPar } from "../lib/recorte-do-par";
 import { comTetoDeRota } from "../lib/timeout-de-rota";
 import { candidatasDoPar, TETO_DE_CANDIDATAS_MS } from "../lib/candidatas-do-par";
 
@@ -51,34 +52,6 @@ const router: IRouter = Router();
 
 /** A parcela — a variável que soma. Lida do catálogo, nunca redigitada. */
 const PARCELA = VARIAVEIS_DE_FINAME.find((v) => v.chave === "parcela");
-
-/**
- * O recorte de quem lê o acervo direto — **o do par escolhido, nunca o padrão**.
- *
- * `getEntityTable` resolve o contexto por conta própria quando não recebe um, e
- * o padrão dele é `contexts[0]`: o primeiro contexto do acervo, que não tem
- * relação nenhuma com o par que a tela abriu. Como a leitura é depois recortada
- * pela `effective_date` das vigências escolhidas, o resultado não vinha vazio —
- * vinha **de outra unidade na mesma data**. Era assim que o gráfico de totais e
- * a Evolução podiam somar os veículos de Pernambuco enquanto os cartões, que
- * saem do change set do par, falavam de Camaçari; e era também por aí que as
- * linhas "sem alteração" e as colunas de contexto da tabela podiam descrever
- * uma frota que não era a comparada.
- *
- * O `scope_hash` sai do próprio snapshot, e não da URL: o par já foi autorizado
- * acima (`exigirOperacaoDoRecurso`), e o motor só compara vigências de mesmo
- * escopo — então há um recorte só, e ele é o da vigência.
- */
-function contextoDoPar(
-  snapshot: { scopeHash: string } | undefined,
-  req: { query: unknown },
-): RequestedContext | undefined {
-  if (!snapshot) return undefined;
-  return {
-    scopeHash: snapshot.scopeHash,
-    operacao: operacaoDaConsulta(req.query as Record<string, unknown>),
-  };
-}
 
 /** Os veículos de cada lado, a partir do que o motor contou. */
 function frotaDoPar(resumo: {

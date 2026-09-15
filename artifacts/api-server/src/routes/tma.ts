@@ -14,7 +14,9 @@ import {
   trechosDoTma,
   type ValorDeTma,
 } from "@workspace/comparison";
+import { classificarFalha } from "../lib/classificar-falha";
 import { exigirOperacaoDoRecurso, operacaoDaConsulta } from "../lib/operacao";
+import { contextoDoPar } from "../lib/recorte-do-par";
 
 /**
  * AUDITORIA DE TMA — o tempo de porta, por local e por trecho.
@@ -74,34 +76,44 @@ router.get("/tma/comparacao", async (req, res): Promise<void> => {
 
   const valores: ValorDeTma[] = [];
 
-  for (const { ponta, snapshot } of pontas) {
-    if (!snapshot) continue;
-    const tabela = await getEntityTable(
-      db,
-      TIPO_DA_FONTE_DO_TMA,
-      [...CODIGOS_LIDOS_DO_TMA],
-      undefined,
-      snapshot.effectiveDate,
-    );
-    if (!tabela) continue;
+  try {
+    for (const { ponta, snapshot } of pontas) {
+      if (!snapshot) continue;
+      const tabela = await getEntityTable(
+        db,
+        TIPO_DA_FONTE_DO_TMA,
+        [...CODIGOS_LIDOS_DO_TMA],
+        contextoDoPar(snapshot, req),
+        snapshot.effectiveDate,
+      );
+      if (!tabela) continue;
 
-    for (const linha of tabela.rows) {
-      const ler = (code: string): number | null =>
-        comoNumero(linha.values[code]?.value ?? null);
-      const texto = (code: string): string | null => linha.values[code]?.value ?? null;
+      for (const linha of tabela.rows) {
+        const ler = (code: string): number | null =>
+          comoNumero(linha.values[code]?.value ?? null);
+        const texto = (code: string): string | null => linha.values[code]?.value ?? null;
 
-      valores.push({
-        ponta,
-        entityLabel: linha.label,
-        origem: texto(CODIGOS_DO_TMA.origem),
-        destino: texto(CODIGOS_DO_TMA.destino),
-        tmaOrigem: ler(CODIGOS_DO_TMA.tmaOrigem),
-        tmaDestino: ler(CODIGOS_DO_TMA.tmaDestino),
-        tmaOrigemLucro: ler(CODIGOS_DO_TMA.tmaOrigemLucro),
-        tmaDestinoLucro: ler(CODIGOS_DO_TMA.tmaDestinoLucro),
-        ciclo: ler(CODIGOS_DO_TMA.ciclo),
-      });
+        valores.push({
+          ponta,
+          entityLabel: linha.label,
+          origem: texto(CODIGOS_DO_TMA.origem),
+          destino: texto(CODIGOS_DO_TMA.destino),
+          tmaOrigem: ler(CODIGOS_DO_TMA.tmaOrigem),
+          tmaDestino: ler(CODIGOS_DO_TMA.tmaDestino),
+          tmaOrigemLucro: ler(CODIGOS_DO_TMA.tmaOrigemLucro),
+          tmaDestinoLucro: ler(CODIGOS_DO_TMA.tmaDestinoLucro),
+          ciclo: ler(CODIGOS_DO_TMA.ciclo),
+        });
+      }
     }
+  } catch (err) {
+    /* Pedir o escopo do par é pedir um recorte que pode não ter contexto — e a
+       recusa de recorte é frase para quem opera, não 500. */
+    const desfecho = classificarFalha(err);
+    if (desfecho.tipo !== "REGRA") throw err;
+    req.log.warn({ err }, "Comparação de TMA recusada");
+    res.status(422).json({ error: desfecho.mensagem });
+    return;
   }
 
   const locais = locaisDoTma(valores);

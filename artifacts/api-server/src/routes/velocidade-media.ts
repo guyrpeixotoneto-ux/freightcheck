@@ -20,9 +20,11 @@ import {
   velocidadePorVigencia,
   type LinhaDeVelocidade,
   type ValorDeVelocidade,
+  type RequestedContext,
 } from "@workspace/comparison";
 import { classificarFalha } from "../lib/classificar-falha";
 import { exigirOperacaoDoRecurso, operacaoDaConsulta } from "../lib/operacao";
+import { contextoDoPar } from "../lib/recorte-do-par";
 
 /**
  * AUDITORIA DE VELOCIDADE MÉDIA — o tempo do ciclo do trecho.
@@ -75,6 +77,7 @@ async function linhasIguais(
   snapshotA: { effectiveDate: string },
   snapshotB: { effectiveDate: string },
   jaListadas: Set<string>,
+  recorte: RequestedContext | undefined,
 ): Promise<LinhaDeVelocidade[]> {
   const linhas: LinhaDeVelocidade[] = [];
   const [a, b] = await Promise.all([
@@ -82,14 +85,14 @@ async function linhasIguais(
       db,
       TIPO_DA_VELOCIDADE,
       [...CODIGOS_DA_TABELA_DE_VELOCIDADE],
-      undefined,
+      recorte,
       snapshotA.effectiveDate,
     ),
     getEntityTable(
       db,
       TIPO_DA_VELOCIDADE,
       [...CODIGOS_DA_TABELA_DE_VELOCIDADE],
-      undefined,
+      recorte,
       snapshotB.effectiveDate,
     ),
   ]);
@@ -163,7 +166,10 @@ router.get("/velocidade-media/comparacao", async (req, res, next): Promise<void>
       const jaListadas = new Set(
         linhas.map((l) => `${l.entityLabel}${l.entityType}${l.attributeCode}`),
       );
-      todas = [...linhas, ...(await linhasIguais(snapshotA, snapshotB, jaListadas))];
+      todas = [
+        ...linhas,
+        ...(await linhasIguais(snapshotA, snapshotB, jaListadas, contextoDoPar(snapshotB, req))),
+      ];
     }
 
     res.json({
@@ -227,40 +233,51 @@ router.get("/velocidade-media/totais", async (req, res): Promise<void> => {
 
   const valores: ValorDeVelocidade[] = [];
 
-  for (const { ponta, snapshot } of pontas) {
-    if (!snapshot) continue;
-    const tabela = await getEntityTable(
-      db,
-      TIPO_DA_VELOCIDADE,
-      [...CODIGOS_DO_DETALHE_DE_VELOCIDADE],
-      undefined,
-      snapshot.effectiveDate,
-    );
-    if (!tabela) continue;
+  try {
+    for (const { ponta, snapshot } of pontas) {
+      if (!snapshot) continue;
+      const tabela = await getEntityTable(
+        db,
+        TIPO_DA_VELOCIDADE,
+        [...CODIGOS_DO_DETALHE_DE_VELOCIDADE],
+        contextoDoPar(snapshot, req),
+        snapshot.effectiveDate,
+      );
+      if (!tabela) continue;
 
-    for (const linha of tabela.rows) {
-      const ler = (code: string): number | null =>
-        comoNumero(linha.values[code]?.value ?? null);
-      const texto = (code: string): string | null => linha.values[code]?.value ?? null;
+      for (const linha of tabela.rows) {
+        const ler = (code: string): number | null =>
+          comoNumero(linha.values[code]?.value ?? null);
+        const texto = (code: string): string | null => linha.values[code]?.value ?? null;
 
-      valores.push({
-        ponta,
-        entityLabel: linha.label,
-        origem: texto(CODIGO_ORIGEM),
-        destino: texto(CODIGO_DESTINO),
-        velocidade: ler(CODIGO_VELOCIDADE),
-        ciclo: ler(CODIGO_CICLO),
-        trajeto: ler(CODIGO_TRAJETO),
-        tmaOrigem: ler(CODIGO_TMA_ORIGEM),
-        tmaDestino: ler(CODIGO_TMA_DESTINO),
-        refeicao: ler(CODIGO_REFEICAO),
-        kmCiclo: ler(CODIGO_KM_CICLO),
-        kmIda: ler(CODIGO_KM_IDA),
-        cicloLucro: ler(CODIGO_CICLO_LUCRO),
-        tmaOrigemLucro: ler(CODIGO_TMA_ORIGEM_LUCRO),
-        tmaDestinoLucro: ler(CODIGO_TMA_DESTINO_LUCRO),
-      });
+        valores.push({
+          ponta,
+          entityLabel: linha.label,
+          origem: texto(CODIGO_ORIGEM),
+          destino: texto(CODIGO_DESTINO),
+          velocidade: ler(CODIGO_VELOCIDADE),
+          ciclo: ler(CODIGO_CICLO),
+          trajeto: ler(CODIGO_TRAJETO),
+          tmaOrigem: ler(CODIGO_TMA_ORIGEM),
+          tmaDestino: ler(CODIGO_TMA_DESTINO),
+          refeicao: ler(CODIGO_REFEICAO),
+          kmCiclo: ler(CODIGO_KM_CICLO),
+          kmIda: ler(CODIGO_KM_IDA),
+          cicloLucro: ler(CODIGO_CICLO_LUCRO),
+          tmaOrigemLucro: ler(CODIGO_TMA_ORIGEM_LUCRO),
+          tmaDestinoLucro: ler(CODIGO_TMA_DESTINO_LUCRO),
+        });
+      }
     }
+  } catch (err) {
+    /* Pedir o escopo do par é pedir um recorte que pode não ter contexto — e a
+       recusa de recorte é frase para quem opera, não 500. A mesma tradução da
+       rota de comparação, pela mesma razão. */
+    const desfecho = classificarFalha(err);
+    if (desfecho.tipo !== "REGRA") throw err;
+    req.log.warn({ err }, "Totais recusados");
+    res.status(422).json({ error: desfecho.mensagem });
+    return;
   }
 
   res.json({
