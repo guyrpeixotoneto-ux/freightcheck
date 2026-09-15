@@ -448,6 +448,14 @@ payload de 522,5 KB**. Removendo só o campo `group`:
 | entry média | 2.836 B | 595 B | **−79%** |
 | payload gzip | 52.501 B | 7.309 B | **−86%** |
 
+> ⚠️ **CORRIGIDO NA PARTE II (§21.2). O parágrafo abaixo estava errado.** A
+> busca que o sustenta cobriu apenas `components/linha-do-tempo` e
+> `components/inicio`, e concluiu sobre o produto inteiro. O `group` é lido em
+> mais lugares — `lib/analise.ts:453-460,628,746-760` e
+> `components/parametros/analise.tsx:1739-1748,1860,1867` usam `aggregate`,
+> `dominantPattern` e `fleet`. O ganho real, removendo só o campo que de fato
+> ninguém lê (`entityIds`), é **−42% de gzip**, não −86%.
+
 **Causa [CÓDIGO]:** `components/linha-do-tempo/detalhe-do-intervalo.tsx:352`
 usa `entrada.group` — mas **só dentro de uma gaveta que abre no clique**, e só
 para montar uma query string. `lib/recorte.ts:139-158` mostra que ele lê
@@ -592,6 +600,11 @@ E é o endpoint com **maior sensibilidade a distância depois do `/coverage`**:
 1. Ler o catálogo de identidades **uma vez por requisição** e passá-lo a
    `lerMaterial` — o parâmetro `preloaded` já existe em `getFamiliesView`
    (`families-view.ts:253`) exatamente com esse padrão. **−18 consultas.**
+   > ⚠️ **CORRIGIDO NA PARTE II (§21.1).** A estimativa de "~−340 ms a 15 ms de
+   > RTT" que aparece no §11 para este item **estava errada**: as 18 consultas já
+   > rodavam dentro do mesmo `Promise.all` da leitura de fatos, concorrentes com
+   > ela. Elas custavam trabalho de banco, não espera. O ganho é de −37% de
+   > consultas por requisição, não de latência.
 2. **[HIPÓTESE]** Uma leitura de fatos para todas as vigências de uma vez, em
    vez de uma por vigência. Reduz 9 idas a 1 e corta o custo de driver. Precisa
    de benchmark antes: pode aumentar o pico de memória.
@@ -1083,10 +1096,10 @@ Impacto alto, esforço baixo, risco baixo — **e todos com evidência medida**.
 | # | Melhoria | Impacto | Esforço | Risco | Evidência | Ganho esperado |
 |--:|---|---|---|---|---|---|
 | **1** | Medir RTT API↔Neon e conferir compressão do estático | **CRÍTICO** | baixo | nenhum | §5.2, §3.3 | **decide a ordem de tudo**; não é ganho, é informação |
-| **2** | Unificar a chave de `/changes/range` (`serie-de-impacto.ts` ↔ `intervalo-da-linha-do-tempo.ts`) | **alto** | baixo | baixo | §4 G2 — 2 respostas 200 idênticas medidas | **−26,7 KB e −175 ms** por carga, em 4 telas |
-| **3** | Trocar `entries[].group` por 6 escalares em `/changes/range` | **alto** | baixo | baixo-médio | §4 G3 — 3.856 B vs 595 B | **payload −86%** (52,5 → 7,3 KB gzip) |
-| **4** | Reescrever `com_lastro` como agregação única | **alto** | baixo | baixo | §4 G5 — `EXPLAIN ANALYZE`, saída idêntica | **535 → 110 ms** (−79%) |
-| **5** | Ler o catálogo de identidades 1× por requisição em `/dre/history` | **alto** | baixo | baixo | §4 G6 — 18× a mesma consulta no log | **−18 consultas**; ~−340 ms a 15 ms de RTT |
+| **2** | Unificar a chave de `/changes/range` (`serie-de-impacto.ts` ↔ `intervalo-da-linha-do-tempo.ts`) | **alto** | baixo | baixo | §4 G2 — 2 respostas 200 idênticas medidas | **−26,7 KB e −175 ms** por carga, em 4 telas — *feito, `9ab7755`* |
+| **3** | Tirar `entityIds` de `entries[].group` em `/changes/range` | **alto** | baixo | baixo | §4 G3 · §21.2 — 2.419 B de 3.856 não lidos | **payload −42%** (52,5 → 30,5 KB gzip) — *feito, `a2c8c4c`* |
+| **4** | Reescrever `com_lastro` como agregação única | **alto** | baixo | baixo | §4 G5 — `EXPLAIN ANALYZE`, saída idêntica | **535 → 110 ms** (−79%); endpoint −60% — *feito, `9c7c3c2`* |
+| **5** | Ler o catálogo de identidades 1× por requisição em `/dre/history` | **médio** | baixo | baixo | §4 G6 · §21.1 — 18× a mesma consulta no log | **−19 consultas (−37%)**; sem ganho de latência — *feito, `b45dbb6`* |
 | **6** | `Promise.all` nas 4 leituras de `*/totais` | **médio** | baixo | baixo | §4 G8 — 36 consultas em série | ~−1,6 s a 60 ms de RTT |
 | **7** | Reidratar `parameters[].groups` de `/changes/families` | **médio** | baixo | médio | §4 G7 — 109.700 B duplicados, 100% idênticos | **gzip −38,7%** |
 | **8** | Estender `LEITURA_DE_APURACAO` às 123 `useQuery` sem política | **médio** | baixo | baixo | §8.3 | elimina refetch por navegação |
@@ -1265,6 +1278,10 @@ pnpm --filter @workspace/freightaudit run build
 4. **Correção** — a resposta do endpoint tem de ser **byte a byte idêntica**
    (`cmp`), exceto quando a mudança é declaradamente de contrato (QW 3 e 7) — e
    aí o teste de contrato é que decide.
+5. **Antes de enxugar qualquer payload** — `grep -rn "\.<campo>" artifacts/freightaudit/src`
+   **sem recorte de diretório**, e conferir também os `as unknown as` que entregam
+   o objeto a outro componente. Foi a falta deste passo que produziu a afirmação
+   errada do §4 Gargalo 3 (ver §21.2).
 
 **Suítes a rodar** (524 arquivos de teste, CI em 5 shards, todos com Postgres —
 `scripts/ci/shards.mjs`):
@@ -1392,3 +1409,217 @@ veredito vira o item 1.
 
 **As duas se respondem em dez minutos, e nenhuma otimização de código deveria
 começar antes delas.**
+
+---
+
+# Parte II — implementação dos quick wins 2, 3, 4 e 5
+
+**Data:** 15/09/2026 · mesmo ambiente da Parte I, mesmo acervo, mesmo banco
+congelado (`pg_dump` antes da primeira mudança, para que antes e depois sejam
+medidos sobre dados idênticos).
+
+Quatro mudanças, quatro commits independentes, cada uma medida antes e depois.
+Reverter qualquer uma isoladamente é `git revert`.
+
+**Duas previsões da Parte I estavam erradas, e estão corrigidas abaixo.** Elas
+ficam registradas com o motivo, porque o erro é instrutivo: nos dois casos a
+Parte I mediu o *sintoma* certo e errou a *causa*, e só a implementação revelou
+a diferença.
+
+## 20. Resultado por mudança
+
+| Mudança | Métrica | Antes | Depois | Ganho |
+|---|---|--:|--:|--:|
+| **QW4** — censo por agregação (`4dce62c`→`9c7c3c2`) | `/balance/:importRunId` p50 | 445,3 ms | **177,5 ms** | **−60%** |
+| | p95 | 490,5 ms | **197,6 ms** | −60% |
+| | consulta isolada | 535,1 ms | **110,1 ms** | −79% |
+| | buffers | 1.174.807 | **132.402** | −89% |
+| **QW5** — catálogo uma vez (`b45dbb6`) | `/dre/history` consultas | 52 | **33** | **−37%** |
+| | `/dre/fleet` consultas | 14 | **12** | −14% |
+| | `/dre/history` p50 | 433 ms | 417 ms | −4% |
+| **QW2** — chave única do intervalo (`9ab7755`) | `/changes/range` por carga | **2×** | **1×** | −1 requisição |
+| | `/resumo-executivo` na rede | 88 KB | **62 KB** | −30% |
+| | `/dashboard` na rede | 75 KB | **49 KB** | −35% |
+| **QW3** — `entityIds` fora das entradas (`a2c8c4c`) | `/changes/range` cru | 522.544 B | **383.970 B** | −26,5% |
+| | `/changes/range` gzip | 52.501 B | **30.473 B** | **−42,0%** |
+| | entrada média | 2.836 B | **2.048 B** | −28% |
+
+### Os quatro somados, por tela
+
+Bytes de API que atravessam a rede numa entrada fria (comprimidos):
+
+| Tela | Antes | Depois | Ganho |
+|---|--:|--:|--:|
+| `/resumo-executivo` | 88 KB | **57 KB** | **−35%** |
+| `/panorama` | 88 KB | **56 KB** | −36% |
+| `/dashboard` | 75 KB | **43 KB** | **−43%** |
+| `/impacto-apurado` | 75 KB | **43 KB** | −43% |
+| `/linha-do-tempo` | 50 KB | **44 KB** | −12% |
+| `/parametros` | 49 KB | **43 KB** | −12% |
+| `/gestao-a-vista` | 46 KB | **40 KB** | −13% |
+
+E descomprimidos — o que o navegador de fato precisa desserializar:
+
+| Tela | Antes | Depois | Ganho |
+|---|--:|--:|--:|
+| `/resumo-executivo` | 1.414 KB | **769 KB** | **−46%** |
+| `/dashboard` | 1.317 KB | **671 KB** | **−49%** |
+| `/panorama` | 1.414 KB | **768 KB** | −46% |
+| `/impacto-apurado` | 1.317 KB | **671 KB** | −49% |
+
+### Duplicatas
+
+| Tela | Antes | Depois |
+|---|---|---|
+| `/resumo-executivo` | `/changes/range` **2×** (510 KB), `/imports` 2× | só `/imports` 2× (1,8 KB) |
+| `/dashboard`, `/panorama`, `/impacto-apurado` | `/changes/range` **2×** | **nenhuma** |
+| `/justificativas` | `/change-sets` 2×, `/build` 3× | inalterado (fora do escopo) |
+
+### O que estas medições **não** dizem
+
+**Nenhum ganho de tempo-de-tela ponta a ponta é reivindicado aqui.** A tabela
+do §3.1 (entrada fria por rota) foi levantada no início da auditoria, quando o
+banco tinha 1 comparação gravada; ao longo do trabalho o produto calculou outras
+13, e as telas passaram a desenhar dado de verdade onde antes havia zeros.
+Comparar aquela tabela com uma de agora mediria a diferença de **acervo**, não a
+das mudanças — e foi exatamente o que uma primeira tentativa produziu, com
+telas "engordando" de 608 para 768 KB.
+
+Os números do §20 são todos de medições feitas **hoje, sobre o mesmo banco
+congelado** (`pg_dump` antes da primeira mudança), com minutos de diferença
+entre o antes e o depois: bytes na rede por tela (`bytes.mjs`), duplicatas por
+tela (`dup.mjs`), p50/p95 e contagem de consultas por endpoint (`api.mjs`, com o
+log do Postgres como testemunha), e o tamanho dos payloads (`cmp` e `gzip` sobre
+as respostas gravadas).
+
+Refazer a tabela do §3.1 como linha de base nova, agora que o acervo tem 14
+comparações, é o primeiro passo de qualquer medição futura — e é o que o §17
+manda fazer antes da próxima mudança.
+
+## 21. As duas previsões que estavam erradas
+
+### 21.1 QW5 não rende os ~340 ms de RTT que a Parte I anunciou
+
+A Parte I ([§4 Gargalo 6](#gargalo-6--apidrehistory-49-consultas-18-delas-o-mesmo-catálogo))
+escreveu: *"−18 consultas; ~−340 ms estimados a 15 ms de RTT"*. A parte das
+consultas está certa — são 19 a menos, conferidas no log do Postgres. **A dos
+milissegundos estava errada.**
+
+O motivo, visível no código e confirmado na medição: aquelas 18 consultas
+rodavam **dentro do mesmo `Promise.all`** da leitura de fatos
+(`apuracao.ts:172`), concorrentes com ela. Elas custavam conexão e trabalho de
+banco — não espera. Não havia 340 ms de ida e volta para economizar, porque elas
+nunca foram uma ida e volta em série.
+
+O erro da Parte I foi tratar "número de consultas" como proxy de "número de
+idas e voltas". Para as rotas onde as consultas são serializadas, os dois
+coincidem; onde há `Promise.all`, não.
+
+**O que QW5 entrega, então:** 19 consultas a menos por requisição (−37% de
+trabalho de banco), e uma serialização de verdade removida em `frota.ts`, onde
+duas leituras de vigência independentes esperavam uma pela outra.
+
+### 21.2 QW3 rende −42%, não os −86% que a Parte I anunciou
+
+A Parte I ([§4 Gargalo 3](#gargalo-3--entries-de-changesrange-carrega-o-group-inteiro))
+afirmou que o cliente lia do `group` "exatamente cinco campos escalares", e
+projetou −86% de gzip removendo o campo inteiro.
+
+**A afirmação era falsa, e a busca que a sustentou foi estreita demais:** ela
+procurou `entry.group` em `components/linha-do-tempo` e `components/inicio` e
+concluiu sobre o produto inteiro. O grupo é lido em mais lugares —
+`lib/analise.ts:453-460,628,746-760` e `components/parametros/analise.tsx:1739-1748,1860,1867`
+usam `aggregate`, `dominantPattern` e `fleet`. Remover o campo inteiro quebraria
+a Análise de Parâmetros.
+
+O que dava para tirar com segurança era **um** campo: `entityIds`, 2.419 dos
+3.856 bytes do grupo (63%), que o tipo declarado do cliente
+(`ChangeGroupLite`) sequer conhece. Ganho real: **−42,0% de gzip**, não −86%.
+
+**A lição, para as próximas:** uma afirmação sobre "o que o cliente usa" só vale
+se a busca cobriu o cliente inteiro. A checagem barata que teria pego isto é
+`grep -rn "\.group" artifacts/freightaudit/src` sem recorte de diretório — e ela
+está agora no §17 como passo obrigatório antes de enxugar qualquer payload.
+
+### 21.3 Uma ferramenta da Parte I não serve para A/B de concorrência
+
+`pgdelay.mjs` atrasa **cada bloco TCP, por socket** — não cada ida e volta.
+Enquanto o número de consultas concorrentes não muda, ele é um emulador de RTT
+útil, e as inclinações do [§5.2](#52-sensibilidade-ao-rtt--o-número-que-o-localhost-esconde)
+continuam valendo. Quando a mudança **altera** a concorrência, ele deixa de ser
+comparável.
+
+Medido durante a implementação do QW5: a **mesma** consulta de classificação,
+sem nenhuma alteração, passou de 30,4 ms para 53,0 ms de média — só porque
+perdeu sockets vizinhos com que sobrepor o atraso. Sob o proxy, `/dre/history`
+"piorava" de 995 ms para 1.358 ms; na conexão direta, melhorava de 433 ms para
+417 ms. O número honesto é o da conexão direta.
+
+Por isso os ganhos da tabela do §20 são todos de conexão direta, e por isso
+nenhuma afirmação de RTT foi feita sobre QW5.
+
+## 22. Regressão
+
+**Respostas byte a byte idênticas** (`cmp`), onde a mudança não é de contrato:
+
+| Endpoint | Bytes | Veredito |
+|---|--:|---|
+| `/api/balance/:importRunId` (QW4) | 5.995 | ✅ idêntico |
+| `/api/dre/history` (QW5) | 2.355 | ✅ idêntico |
+| `/api/dre/fleet` (QW5) | 86.040 | ✅ idêntico |
+
+Além disso, as 9 linhas da consulta do censo foram comparadas por `diff` entre a
+forma antiga e a nova: **iguais coluna por coluna**.
+
+**Onde o contrato muda (QW3)**, a conferência é mais fina: o payload de
+`/changes/range` é idêntico em tudo fora de `entries`, e as 176 entradas são
+idênticas **a menos de `entityIds`** — conferido campo a campo, não por amostra.
+
+**Suítes:**
+
+| Pacote | Resultado |
+|---|---|
+| `@workspace/freightaudit` | **133 arquivos, 1.795 testes, todos passando** |
+| typecheck do workspace inteiro | **limpo** (libs, api-server, freightaudit, scripts, mockup-sandbox) |
+| `@workspace/balance` | não roda neste ambiente — **e não rodava antes**: 5 arquivos falhando, 1 teste falhando, 1 passando, 30 pulados, **idêntico com e sem a mudança**, a partir de banco e templates limpos |
+| `@workspace/comparison` | **inútil como sinal neste ambiente**: roda um número diferente de testes a cada execução (278 e 467 pulados em duas medições), e `range-real.test.ts` pula os seus 26 por falha de fixture |
+
+As falhas de `balance` e `comparison` são as que a auditoria de agosto já
+descrevia: as suítes `-real` montam bancos descartáveis contra um único Postgres
+e colidem em conteúdo (`SKIPPED_DUPLICATE`, `snapshot_canonical_live_uq`).
+Serializar com `--no-file-parallelism` não resolve, porque a colisão é de
+fixture, não de paralelismo.
+
+**É por isso que o CI é o portão que falta aqui**, e é ele que tem de rodar
+antes destes quatro commits entrarem na `main`: lá o template é construído uma
+vez, íntegro, e as suítes `-real` de fato executam.
+
+## 23. Isolamento e correção (§25 do pedido)
+
+Nenhuma das quatro mudanças toca cálculo financeiro, permissão, auditoria,
+rastreabilidade ou isolamento:
+
+- **QW4** troca a forma de três contagens por vigência. A regra de negócio —
+  fatos herdados fora das duas primeiras contagens — está preservada, com o
+  comentário que a explica. `LEFT JOIN` + `COALESCE(…, 0)` mantêm a distinção
+  entre "zero" e "ausente", que é o que a tela existe para mostrar.
+- **QW5** passa adiante um catálogo em vez de relê-lo. Não é cache: não há
+  invalidação, prazo nem estado entre requisições — é um argumento, com o tempo
+  de vida da requisição que o criou.
+- **QW2** unifica uma chave de cache do cliente. O recorte (`operacao`,
+  `ambiente`, `scopeHash`, canal) continua dentro da chave, pelo mesmo caminho
+  de sempre (`opcoesDoIntervalo` + `queryKeyHashFn`).
+- **QW3** remove um campo não lido de um payload. A lista continua saindo em
+  `/changes/families` e `/changes/grouped`, onde é lida.
+
+## 24. O que sobra
+
+Os quick wins **6, 7, 8 e 9** e as melhorias estruturais **E1 a E6** continuam
+como o §16 os deixou. A ordem não mudou — e a Fase 0 continua sendo o primeiro
+item, pelo mesmo motivo: **as duas medições de dez minutos contra produção**
+(RTT até o Neon, compressão do estático) continuam sem resposta, e continuam
+podendo inverter a prioridade de tudo o que vem depois.
+
+O maior item isolado da auditoria — **E1, o code splitting** — segue intocado. O
+bundle continua em 849 KB gzip num chunk só, e continua sendo o que decide a
+primeira carga em qualquer rede real.
