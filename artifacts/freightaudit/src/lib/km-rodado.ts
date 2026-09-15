@@ -270,11 +270,24 @@ export function contagemPorAba(
  * em texto do Excel brasileiro. Duas regras separadas porque são dois assuntos:
  * o que vai em cada coluna é do domínio, e a vírgula decimal é do Excel.
  */
-export function linhasDoCsv(linhas: readonly LinhaDeKm[]): string[][] {
+export function linhasDoCsv(
+  linhas: readonly LinhaDeKm[],
+  /*
+     O que o gestor escreveu sobre cada alteração, por `change.id` — a mesma
+     leitura que a coluna da tabela usa. Opcional porque ela pode não ter
+     voltado: um CSV com a coluna em branco continua sendo o arquivo da
+     comparação, e recusá-lo por causa do comentário seria trocar o dado pela
+     nota sobre o dado.
+  */
+  justificadaPor?: ReadonlyMap<number, { texto: string }>,
+): string[][] {
   return [
     [...COLUNAS_DO_CSV_DE_KM],
     ...linhas.map((l) =>
-      celulasDoCsvDeKm(l).map((celula) => {
+      celulasDoCsvDeKm(
+        l,
+        l.id === null ? null : (justificadaPor?.get(l.id)?.texto ?? null),
+      ).map((celula) => {
         if (celula === null || celula === undefined) return "";
         if (typeof celula === "number") return numeroParaCsv(celula);
         return celula;

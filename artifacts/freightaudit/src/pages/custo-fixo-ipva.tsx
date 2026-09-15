@@ -292,7 +292,7 @@ export default function AuditoriaDeIpva() {
   );
 
   function exportar() {
-    const blob = csvComoBlob(linhasDoCsv(filtradas));
+    const blob = csvComoBlob(linhasDoCsv(filtradas, justificar.justificadaPor));
     salvarArquivo(
       blob,
       `ipva-${paraNomeDeArquivo(rotuloBase)}-para-${paraNomeDeArquivo(rotuloComparada)}.csv`,

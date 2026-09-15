@@ -1264,6 +1264,7 @@ export const COLUNAS_DO_CSV_DE_KM = [
   "Status",
   "Motivo",
   "Fora da soma",
+  "Justificativa",
 ] as const;
 
 /**
@@ -1282,9 +1283,19 @@ const UNIDADE_NO_CSV: Record<PapelDaColunaDeKm, string> = {
   VOLUME: "viagens",
   CONTEXTO: "texto",
 };
-
-/** Uma linha da tabela como as dez células do CSV. */
-export function celulasDoCsvDeKm(l: LinhaDeKm): (string | number | null)[] {
+/** Uma linha da tabela como as células do CSV. *
+ * A justificativa entra por parâmetro porque **não é da linha**: ela é do
+ * gestor, mora em `justificativa` e é lida por `change_id` numa segunda
+ * consulta. Guardá-la dentro da linha faria a comparação carregar um texto que o
+ * motor não produziu — e que muda sem a comparação mudar. É a mesma escolha de
+ * `celulasDoCsv`, no FINAME. No arquivo ela é a última coluna, e é boa parte do
+ * motivo de o CSV existir para além da tela: quem recebe a planilha lê o que
+ * mudou e, na mesma linha, por que mudou.
+ */
+export function celulasDoCsvDeKm(
+  l: LinhaDeKm,
+  justificativa?: string | null,
+): (string | number | null)[] {
   return [
     l.entityLabel,
     l.rotuloDaVariavel,
@@ -1296,6 +1307,7 @@ export function celulasDoCsvDeKm(l: LinhaDeKm): (string | number | null)[] {
     ROTULO_DO_ESTADO[l.estado],
     l.motivo,
     l.foraDaSoma,
+    justificativa ?? null,
   ];
 }
 

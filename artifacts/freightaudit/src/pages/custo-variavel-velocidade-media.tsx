@@ -220,7 +220,7 @@ export default function AuditoriaDeVelocidadeMedia() {
   );
 
   function exportar() {
-    const blob = csvComoBlob(linhasDoCsv(filtradas));
+    const blob = csvComoBlob(linhasDoCsv(filtradas, justificar.justificadaPor));
     salvarArquivo(
       blob,
       `velocidade-media-${paraNomeDeArquivo(rotuloBase)}-para-${paraNomeDeArquivo(

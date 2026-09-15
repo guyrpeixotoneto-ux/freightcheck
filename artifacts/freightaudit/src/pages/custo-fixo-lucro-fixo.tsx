@@ -254,7 +254,7 @@ export default function AuditoriaDeLucroFixo() {
   );
 
   function exportar() {
-    const blob = csvComoBlob(linhasDoCsv(filtradas));
+    const blob = csvComoBlob(linhasDoCsv(filtradas, justificar.justificadaPor));
     salvarArquivo(
       blob,
       `lucro-fixo-${paraNomeDeArquivo(rotuloBase)}-para-${paraNomeDeArquivo(

@@ -5,6 +5,7 @@ import {
   aliquotaImplicita,
   alteracoesPorVariavelDeIpva,
   celulasDoCsvDeIpva,
+  COLUNAS_DO_CSV_DE_IPVA,
   codigoDaVariavelDeIpva,
   distribuicaoPorEstadoDeIpva,
   impactoDeIpva,
@@ -349,6 +350,23 @@ describe("a alíquota implícita", () => {
 });
 
 describe("o CSV", () => {
+  /*
+    A justificativa é a última coluna, e o cabeçalho é a prova de que ela
+    está alinhada: uma célula a mais do que os títulos desloca tudo o que
+    vem antes na planilha de quem recebe o arquivo, em silêncio.
+  */
+  it("leva a justificativa do gestor como última coluna", () => {
+    const linha = linhaDeIpvaDaAlteracao(alteracao())!;
+    const explicada = celulasDoCsvDeIpva(linha, "Conforme a regra: contrato renegociado.");
+    expect(explicada).toHaveLength(COLUNAS_DO_CSV_DE_IPVA.length);
+    expect(COLUNAS_DO_CSV_DE_IPVA.at(-1)).toBe("Justificativa");
+    expect(explicada.at(-1)).toBe("Conforme a regra: contrato renegociado.");
+
+    /* Pendente é célula vazia, e não a palavra "pendente": quem soma a
+       coluna no Excel conta o que está escrito nela. */
+    expect(celulasDoCsvDeIpva(linha).at(-1)).toBeNull();
+  });
+
   it("leva o aviso da linha que não soma para dentro do arquivo", () => {
     const linha = linhaDeIpvaDaAlteracao(
       alteracao({
@@ -357,7 +375,7 @@ describe("o CSV", () => {
       }),
     )!;
     const celulas = celulasDoCsvDeIpva(linha);
-    expect(celulas).toHaveLength(10);
+    expect(celulas).toHaveLength(11);
     expect(String(celulas[9])).toContain("5,23×");
   });
 
