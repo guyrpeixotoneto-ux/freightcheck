@@ -1,5 +1,16 @@
 # Inchaço dos índices: evidência, plano e recomendação
 
+> **EXECUTADO EM 15/09/2026 — os quatro maiores foram reindexados.**
+>
+> Banco de **1.337 MB para 704 MB**, 633 MB recuperados em 8 segundos, sem
+> índice inválido e sem sobras. `bytes_por_celula` de 3.252 para 1.713.
+>
+> Resultado completo, o que a estimativa errou e o que sobrou:
+> **`docs/RESULTADO-DA-REINDEXACAO.md`**.
+>
+> Os doze índices restantes **não** foram tocados (~180 MB) — proposta, não
+> autorizada. O resto deste documento é o plano como foi aprovado.
+
 **Nada aqui foi executado.** Nenhum `REINDEX`, nenhuma extensão instalada,
 nenhuma escrita no banco. Este documento é a proposta que precisa de aprovação
 antes de qualquer uma dessas coisas.
@@ -413,9 +424,10 @@ silêncio.
 1. ~~**Rodar `densidade-dos-indices.sql`.**~~ **Feito em 15/09/2026** — ver
    seção 1.1. Confirmado: 9 a 10x nos quatro maiores, ~881 MB recuperáveis. O
    teste que poderia ter derrubado o plano não o derrubou.
-2. **Reindexar os quatro maiores**, um por vez, na ordem 11→13
-   da seção 2, fora de horário de importação. **671 MB dos 881 MB — 76% do
-   ganho em 4 das 16 operações.** As outras podem esperar a próxima manutenção.
+2. ~~**Reindexar os quatro maiores**~~ **Feito em 15/09/2026.** 633 MB
+   recuperados (previstos 671 — ver o erro de 6% em
+   `docs/RESULTADO-DA-REINDEXACAO.md`), em 8 segundos, sem incidente. As outras
+   doze seguem sem autorização, valendo ~180 MB.
 3. **Não mexer em `staged_fact`** — nem na retenção, nem nas telas.
 4. **Medir o reprocessamento** (`crescimento.sql` §2). Só abrir a mudança de
    reaproveitamento de RAW se os números mostrarem releitura frequente.
