@@ -14,6 +14,7 @@ import {
   FileDown,
   FileSpreadsheet,
   Headset,
+  Landmark,
   Layers,
   RefreshCw,
   ShieldCheck,
@@ -21,7 +22,14 @@ import {
   Trash2,
   Upload,
 } from "lucide-react";
-import { type DefinicaoDeTipo } from "@workspace/ingest/tipos";
+import {
+  ACERVOS,
+  acervoDoSlug,
+  familiaDeclarada,
+  type Acervo,
+  type DefinicaoDeAcervo,
+  type DefinicaoDeTipo,
+} from "@workspace/ingest/tipos";
 import {
   CHAVE_DA_APRESENTACAO,
   apresentacaoDoDetalhe,
@@ -55,6 +63,7 @@ import {
   type PapelNoArquivo,
 } from "@/lib/importacoes";
 import { useAmbiente } from "@/lib/ambiente-aberto";
+import { type Ambiente } from "@/lib/ambiente";
 import { rotuloDoTipo } from "@/lib/frota";
 import { cn } from "@/lib/utils";
 import { AbaBotao } from "@/components/changes/cartoes";
@@ -143,6 +152,8 @@ interface ImportRun {
   pendingIdentities: string[];
   /** O tipo declarado no envio — a aba por onde o arquivo entrou. */
   declaredType: string | null;
+  /** A família declarada no envio — o acervo por onde o arquivo entrou. */
+  declaredFamily: string | null;
   /** O que as vigências desta importação passaram a cobrir, herança incluída. */
   entityTypes: string[];
   /** Os tipos que este arquivo trouxe — `entityTypes` sem a parte herdada. */
@@ -198,6 +209,28 @@ interface ImportRun {
  */
 export const tiposVindosDoArquivo = (run: TiposDaImportacao): string[] =>
   run.declaredType !== null ? [run.declaredType] : run.tiposDoArquivo;
+
+/**
+ * A que acervo esta importação pertence — a fileira de cima, não a de baixo.
+ *
+ * Uma resposta só, e ela é a família declarada: o tipo não serve para isto,
+ * porque CAVALO existe nos dois acervos, e é justamente por não servir que a
+ * família passou a ser declarada (ver `familiaDeclarada`, em
+ * `@workspace/ingest/tipos`).
+ *
+ * **Sem declaração, é remunerado.** Não é palpite: quando essas importações
+ * entraram, o remunerado era o único acervo que existia — não havia o que
+ * declarar, e classificá-las assim é dizer o que de fato aconteceu. A regra
+ * cobre toda a base anterior a esta coluna, que é quase toda ela.
+ *
+ * Exportada porque o recorte é um contrato da tela, e o teste dele mora em
+ * `__tests__/importacoes-abas.test.ts`.
+ */
+export const acervoDaImportacao = (
+  run: { declaredFamily: string | null },
+): Acervo =>
+  ACERVOS.find((acervo) => acervo.familiaFixa === run.declaredFamily)?.code ??
+  ACERVOS[0].code;
 
 /** O pedaço de {@link ImportRun} de que o recorte e as etiquetas dependem. */
 export interface TiposDaImportacao {
@@ -303,6 +336,16 @@ const dicaDosTipos = (tipos: DefinicaoDeTipo[]): string => {
   return temQlp ? `${ativos.join(", ")} e QLP` : ativos.join(", ");
 };
 
+/**
+ * A dica de uma aba de acervo — os tipos que ela recebe, naquela operação.
+ *
+ * Os dois recortes se compõem, e a frase mostra o resultado dos dois: dentro da
+ * Auditoria Apoio o remunerado diz "empilhadeira e QLP", e o real diz só
+ * "empilhadeira" — porque o quadro de pessoal não tem contrato de banco.
+ */
+const dicaDoAcervo = (acervo: DefinicaoDeAcervo, ambiente: Ambiente): string =>
+  `${dicaDosTipos(tiposDoAmbiente(ambiente, acervo))} — ${acervo.descricao}`;
+
 const n = (v: number) => v.toLocaleString("pt-BR");
 
 const dateTime = (iso: string) => new Date(iso).toLocaleString("pt-BR");
@@ -390,6 +433,52 @@ export default function Importacoes() {
   */
   const expanded = new URLSearchParams(search).get("run");
   /*
+    A seção mora no endereço pelo mesmo motivo da aba: um link para "Chamados"
+    dentro de Importações tem que abrir em Chamados amanhã.
+
+    A fileira deixou de ser "por onde o arquivo chega" e passou a ser **que
+    acervo ele alimenta** — que é o que ela sempre foi, na prática: Chamados
+    nunca foi um canal de chegada, é a fila do Freightech, com pipeline e dedup
+    próprios. O que faltava era o segundo acervo de planilha, e ele chegou: o
+    **real**, o financiamento como o banco cobra, ao lado do que a Ambev
+    remunera. Ver `ACERVOS`, em `@workspace/ingest/tipos`.
+
+    Um acervo é uma tela: corpo próprio, envio próprio, histórico próprio. Foi o
+    critério que já valia nesta fileira — cada uma com o seu próprio pipeline, a
+    sua própria dedup, e sem sentido nenhum de somar entre si — e o real passa
+    nos três: a família dele separa a identidade das vigências, e somar os fatos
+    do real com os do remunerado não significaria nada.
+
+    `planilha` continua resolvendo para o remunerado: é o valor que os links já
+    compartilhados carregam, e um endereço que já circulou não pode parar de
+    abrir por causa de uma renomeação.
+  */
+  const secaoPedida = new URLSearchParams(search).get("secao");
+  const emChamados = secaoPedida === "chamados";
+  const acervoAberto: DefinicaoDeAcervo | null = emChamados
+    ? null
+    : (acervoDoSlug(secaoPedida) ?? ACERVOS[0]);
+  const setSecao = (valor: DefinicaoDeAcervo | "chamados") => {
+    const params = new URLSearchParams(search);
+    /*
+      Trocar de acervo **limpa a aba de tipo**: um `?tipo=QLP_ADMINISTRATIVO`
+      carregado para dentro do Real apontaria para uma aba que não existe ali —
+      cairia em Todas de qualquer forma, e deixá-lo no endereço só faria o link
+      mentir sobre onde ele abre.
+
+      O remunerado sai do endereço em vez de se escrever nele, como a aba Todas
+      já faz: o endereço nomeia o que se escolheu, não o que já estava aberto.
+    */
+    params.delete("tipo");
+    if (valor === "chamados") params.set("secao", "chamados");
+    else if (valor.code === ACERVOS[0].code) params.delete("secao");
+    else params.set("secao", valor.slug);
+    navegar(params.toString() ? `/importacoes?${params}` : "/importacoes", {
+      replace: true,
+    });
+  };
+
+  /*
     A aba também mora no endereço, e pelo mesmo motivo do cartão aberto: é para
     uma aba que se manda alguém. "Manda a planilha de trecho por aqui" vira um
     link, e o mesmo link abre a mesma aba amanhã.
@@ -410,7 +499,8 @@ export default function Importacoes() {
     cavalo por aqui" aberto dentro da Auditoria Apoio abre no histórico inteiro,
     e não numa aba que declararia empurrada de dentro do apoio.
   */
-  const tipos = tiposDoAmbiente(useAmbiente());
+  const ambiente = useAmbiente();
+  const tipos = tiposDoAmbiente(ambiente, acervoAberto);
   const aba = tipos.find((t) => t.code === abaPedida)?.code ?? null;
   const tipoDaAba = tipos.find((t) => t.code === aba) ?? null;
   const setAba = (code: string | null) => {
@@ -422,24 +512,6 @@ export default function Importacoes() {
     });
   };
 
-  /*
-    A seção mora no endereço pelo mesmo motivo da aba: um link para "Chamados"
-    dentro de Importações tem que abrir em Chamados amanhã. Só duas seções
-    existem — Planilha, o que já havia, e Chamados, que só lê e escreve por
-    `/ticket-imports` — e qualquer outro valor cai em Planilha.
-  */
-  const secao =
-    new URLSearchParams(search).get("secao") === "chamados"
-      ? "chamados"
-      : "planilha";
-  const setSecao = (valor: "planilha" | "chamados") => {
-    const params = new URLSearchParams(search);
-    if (valor === "chamados") params.set("secao", valor);
-    else params.delete("secao");
-    navegar(params.toString() ? `/importacoes?${params}` : "/importacoes", {
-      replace: true,
-    });
-  };
   const setExpanded = (importRunId: string | null) => {
     const params = new URLSearchParams(search);
     if (importRunId) params.set("run", importRunId);
@@ -493,10 +565,18 @@ export default function Importacoes() {
     de "nenhuma importação". A distinção é a mesma de `lib/frota.ts`, e ela
     aparece aqui na contagem de cada aba, que conta o que o clique abre.
   */
+  /*
+    Dois recortes, nesta ordem, e a ordem é a das fileiras: o **acervo** troca a
+    população inteira (o histórico do real não é o do remunerado nem uma parte
+    dele), e a **aba de tipo** recorta dentro do que sobrou.
+  */
+  const doAcervo = runs.filter(
+    (run) => acervoAberto !== null && acervoDaImportacao(run) === acervoAberto.code,
+  );
   const doRecorte =
     aba === null
-      ? runs
-      : runs.filter((run) => tiposVindosDoArquivo(run).includes(aba));
+      ? doAcervo
+      : doAcervo.filter((run) => tiposVindosDoArquivo(run).includes(aba));
 
   /*
     Oculta por padrão: é o que faz o botão do cartão cumprir o pedido de
@@ -526,14 +606,22 @@ export default function Importacoes() {
     contra o conteúdo do arquivo antes de deixar qualquer coisa entrar. Enviar
     uma planilha de carreta pela aba do Cavalo passa a ser uma recusa com a
     conta escrita, e não uma importação silenciosa sob o tipo errado.
+
+    `declaredFamily` é a outra metade da declaração, e vem da fileira de cima:
+    ela decide a identidade canônica da vigência, e é o que deixa o real e o
+    remunerado do mesmo veículo, na mesma data, existirem sem colidir. As duas
+    juntas são o que a tela afirma — por isso `familiaDeclarada` recebe as duas,
+    em vez de cada uma ser lida de um canto.
   */
   const upload = useMutation({
     mutationFn: async ({
       files,
       declaredType,
+      declaredFamily,
     }: {
       files: File[];
       declaredType: string;
+      declaredFamily: string | null;
     }) => {
       const ids: string[] = [];
       for (const file of files) {
@@ -552,6 +640,7 @@ export default function Importacoes() {
             filename: file.name,
             contentBase64: btoa(binary),
             declaredType,
+            declaredFamily,
           }),
         });
         const body = await readJson(response);
@@ -784,6 +873,15 @@ export default function Importacoes() {
         descricao={
           <>
             Cada arquivo recebido, o que saiu dele e o que o pipeline apontou.
+            {acervoAberto !== null && (
+              <>
+                {" "}
+                Nesta aba:{" "}
+                <strong className="text-foreground">
+                  {acervoAberto.descricao}
+                </strong>
+              </>
+            )}
             <br className="hidden sm:inline" /> Cada aba é um tipo: enviar por
             ela <em>declara</em> o que o arquivo traz, e a importação confere
             essa declaração contra o conteúdo antes de deixar entrar.
@@ -796,25 +894,43 @@ export default function Importacoes() {
         rodape={
           <>
             {/*
-              Planilha e Chamados são as duas seções do módulo — cada uma com o
-              seu próprio pipeline, a sua própria dedup, e sem sentido nenhum de
-              somar entre si. Por isso são abas de verdade, e não um recorte
-              dentro de uma lista só: a mesma divisão que já existia em
-              Alterações, agora do lado de quem envia o arquivo.
+              Os acervos do módulo — cada um com o seu próprio pipeline, a sua
+              própria dedup, e sem sentido nenhum de somar entre si. Por isso são
+              abas de verdade, e não um recorte dentro de uma lista só: a mesma
+              divisão que já existia em Alterações, agora do lado de quem envia o
+              arquivo.
+
+              A fileira é escrita por `ACERVOS`, e não à mão, para que a tela e a
+              recusa do servidor nunca discordem sobre o que é um acervo — a
+              mesma razão de `TIPOS_DE_IMPORTACAO` ser lista só. Chamados vem
+              depois, escrito à parte, porque ele não é acervo de planilha: não
+              tem tipo declarado, não tem família de vigência, e não passa por
+              este pipeline.
             */}
             <nav className="flex items-center gap-1 border-b" role="tablist">
+              {ACERVOS.map((acervo) => (
+                <AbaBotao
+                  key={acervo.code}
+                  active={acervoAberto?.code === acervo.code}
+                  onClick={() => setSecao(acervo)}
+                  icon={
+                    acervo.familiaFixa === undefined ? (
+                      <FileSpreadsheet className="w-4 h-4" />
+                    ) : (
+                      <Landmark className="w-4 h-4" />
+                    )
+                  }
+                  label={acervo.rotulo}
+                  /* Os tipos da operação **e** do acervo, e não uma lista
+                     escrita à mão: a dica dizia "cavalo, carreta, trecho e QLP"
+                     dentro da Auditoria Apoio, que não recebe nenhum dos três —
+                     e diria o mesmo dentro do Real, que não recebe trecho nem
+                     quadro de pessoal. */
+                  hint={dicaDoAcervo(acervo, ambiente)}
+                />
+              ))}
               <AbaBotao
-                active={secao === "planilha"}
-                onClick={() => setSecao("planilha")}
-                icon={<FileSpreadsheet className="w-4 h-4" />}
-                label="Planilha"
-                /* Os tipos da operação aberta, e não uma lista escrita à mão: a
-                   dica dizia "cavalo, carreta, trecho e QLP" dentro da Auditoria
-                   Apoio, que não recebe nenhum dos três. */
-                hint={`${dicaDosTipos(tipos)} — o pipeline com aprovação`}
-              />
-              <AbaBotao
-                active={secao === "chamados"}
+                active={emChamados}
                 onClick={() => setSecao("chamados")}
                 icon={<Headset className="w-4 h-4" />}
                 label="Chamados"
@@ -825,7 +941,7 @@ export default function Importacoes() {
         }
       />
 
-      {secao === "chamados" ? (
+      {emChamados ? (
         <ChamadosRecebidos />
       ) : (
         <div className="p-8 space-y-5">
@@ -841,7 +957,7 @@ export default function Importacoes() {
               <TabsTrigger value={TODAS}>
                 Todas
                 <span className="ml-1.5 tabular-nums text-xs text-muted-foreground">
-                  {n(runs.length)}
+                  {n(doAcervo.length)}
                 </span>
               </TabsTrigger>
               {tipos.map((tipo) => (
@@ -849,7 +965,7 @@ export default function Importacoes() {
                   {tipo.rotulo}
                   <span className="ml-1.5 tabular-nums text-xs text-muted-foreground">
                     {n(
-                      runs.filter((run) =>
+                      doAcervo.filter((run) =>
                         tiposVindosDoArquivo(run).includes(tipo.code),
                       ).length,
                     )}
@@ -868,7 +984,11 @@ export default function Importacoes() {
             onChange={(e) => {
               const files = Array.from(e.target.files ?? []);
               if (files.length > 0 && tipoDaAba !== null) {
-                upload.mutate({ files, declaredType: tipoDaAba.code });
+                upload.mutate({
+                  files,
+                  declaredType: tipoDaAba.code,
+                  declaredFamily: familiaDeclarada(acervoAberto, tipoDaAba),
+                });
               }
               e.target.value = "";
             }}
@@ -883,7 +1003,11 @@ export default function Importacoes() {
               tipo={tipoDaAba}
               busy={upload.isPending}
               onFiles={(files) =>
-                upload.mutate({ files, declaredType: tipoDaAba.code })
+                upload.mutate({
+                  files,
+                  declaredType: tipoDaAba.code,
+                  declaredFamily: familiaDeclarada(acervoAberto, tipoDaAba),
+                })
               }
               onPick={() => fileInput.current?.click()}
             />
@@ -969,11 +1093,11 @@ export default function Importacoes() {
                       {tipoDaAba.rotulo}
                     </strong>{" "}
                     nesta base.
-                    {runs.length > 0 && (
+                    {doAcervo.length > 0 && (
                       <>
                         {" "}
-                        Há {plural(runs.length, "importação", "importações")} de
-                        outros tipos — veja em{" "}
+                        Há {plural(doAcervo.length, "importação", "importações")}{" "}
+                        de outros tipos — veja em{" "}
                         <strong className="text-foreground">Todas</strong>.
                       </>
                     )}

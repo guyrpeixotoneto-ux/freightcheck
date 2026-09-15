@@ -55,6 +55,16 @@ export interface ImportRunSummary {
    */
   declaredType: string | null;
   /**
+   * A família de dataset declarada no envio — o **acervo** por onde o arquivo
+   * entrou.
+   *
+   * É o que separa o remunerado do real na lista: o tipo não serve para isso,
+   * porque CAVALO existe nos dois. `null` em toda importação anterior à
+   * declaração — a tela as lê como remunerado, que é o único acervo que existia
+   * quando elas entraram.
+   */
+  declaredFamily: string | null;
+  /**
    * O que as vigências gravadas por esta importação passaram a cobrir.
    *
    * **Não é** "o que veio neste arquivo" — esse é {@link tiposDoArquivo}. Uma
@@ -159,6 +169,7 @@ function selectRunSummary(db: Database) {
           '{}'
         )`,
       declaredType: importRunTable.declaredType,
+      declaredFamily: importRunTable.declaredFamily,
       /*
         Os tipos saem de `snapshot.entity_type_set`, que já está sendo lido
         aqui ao lado para os rótulos. A alternativa seria um DISTINCT sobre
@@ -403,6 +414,7 @@ export async function getImportRunStatus(
       errorCount: importRunTable.errorCount,
       warningCount: importRunTable.warningCount,
       declaredType: importRunTable.declaredType,
+      declaredFamily: importRunTable.declaredFamily,
       reprocessOfRunId: importRunTable.reprocessOfRunId,
       progressStep: importRunTable.progressStep,
       progressDone: importRunTable.progressDone,

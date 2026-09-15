@@ -18,6 +18,7 @@ import {
   deleteImportRun,
   encerrarComoCancelada,
   ensureImportStorageDir,
+  exigirFamiliaDeclarada,
   exigirTipoDeclarado,
   getImportRun,
   getImportRunIssues,
@@ -78,6 +79,8 @@ export type DecodedUpload = {
   bytes: Buffer;
   /** O tipo que a aba da tela declarou, ou `null` quando não veio nenhum. */
   declaredType: string | null;
+  /** O acervo que a aba da tela declarou, ou `null` quando não veio nenhum. */
+  declaredFamily: string | null;
 };
 
 export type DecodeResult =
@@ -96,7 +99,8 @@ export function decodeUpload(body: unknown): DecodeResult {
   if (typeof body !== "object" || body === null) {
     return { ok: false, error: "Envie um JSON com filename e contentBase64." };
   }
-  const { filename, contentBase64, declaredType } = body as Record<string, unknown>;
+  const { filename, contentBase64, declaredType, declaredFamily } =
+    body as Record<string, unknown>;
 
   /*
     O tipo é opcional no contrato e obrigatório na tela.
@@ -117,6 +121,32 @@ export function decodeUpload(body: unknown): DecodeResult {
     typeof declaredType === "string" && declaredType.trim() !== ""
       ? declaredType.trim()
       : null;
+
+  /*
+    A família — o acervo — segue o mesmo contrato do tipo: opcional aqui,
+    obrigatória na tela. Opcional porque os envios anteriores a ela não a têm,
+    e a promoção continua deduzindo quando ela falta; a tela sempre manda,
+    porque lá o envio acontece dentro de uma aba de acervo.
+  */
+  if (
+    declaredFamily !== undefined &&
+    declaredFamily !== null &&
+    typeof declaredFamily !== "string"
+  ) {
+    return { ok: false, error: "declaredFamily, quando enviado, precisa ser texto." };
+  }
+  const familiaDeclarada =
+    typeof declaredFamily === "string" && declaredFamily.trim() !== ""
+      ? declaredFamily.trim()
+      : null;
+
+  if (familiaDeclarada !== null) {
+    try {
+      exigirFamiliaDeclarada(familiaDeclarada);
+    } catch (err) {
+      return { ok: false, error: (err as Error).message };
+    }
+  }
 
   /*
     A recusa do tipo acontece **antes** de o arquivo virar bytes em disco.
@@ -169,7 +199,12 @@ export function decodeUpload(body: unknown): DecodeResult {
 
   return {
     ok: true,
-    value: { filename: safeName, bytes, declaredType: tipoDeclarado },
+    value: {
+      filename: safeName,
+      bytes,
+      declaredType: tipoDeclarado,
+      declaredFamily: familiaDeclarada,
+    },
   };
 }
 
@@ -538,7 +573,7 @@ router.post("/imports", async (req, res, next): Promise<void> => {
   }
 
   try {
-    const { filename, bytes, declaredType } = decoded.value;
+    const { filename, bytes, declaredType, declaredFamily } = decoded.value;
     // O nome em disco é o próprio sha256: dois envios do mesmo conteúdo
     // apontam para o mesmo arquivo, e nomes vindos do cliente nunca viram
     // caminho.
@@ -554,6 +589,7 @@ router.post("/imports", async (req, res, next): Promise<void> => {
       filename,
       receivedBy: req.user?.email ?? DEFAULT_ACTOR,
       declaredType,
+      declaredFamily,
     });
 
     if (received.isDuplicate) {

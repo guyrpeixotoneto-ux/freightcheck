@@ -77,6 +77,7 @@ import { typeCell, type SentinelRule, type SourceCell } from "./values";
 import {
   COLUNA_DE_VIGENCIA,
   COLUNAS_IDENTIFICADORAS,
+  FAMILIAS_DECLARAVEIS,
   SEPARADOR_LEGIVEL,
   identidadeNoCabecalho,
   tipoDeImportacao,
@@ -736,6 +737,17 @@ export interface ReceiveOptions {
    * respostas. Ausente, tudo se passa como antes. Ver {@link conferirDeclaracao}.
    */
   declaredType?: string | null;
+  /**
+   * A família de dataset que quem envia declarou — o **acervo**, não o tipo.
+   *
+   * Opcional, e o que ela decide é a identidade canônica da vigência: é ela
+   * que deixa o real e o remunerado do mesmo veículo, na mesma data, existirem
+   * sem colidir. Ausente, a promoção deduz pelo tipo dos fatos, como antes.
+   *
+   * Vem calculada da tela — `familiaDeclarada(acervo, tipo)`, em `tipos.ts` —,
+   * porque nem o acervo nem o tipo a decidem sozinhos.
+   */
+  declaredFamily?: string | null;
 }
 
 /**
@@ -766,6 +778,25 @@ export function exigirTipoDeclarado(declaredType: string): DefinicaoDeTipo {
 }
 
 /**
+ * A família declarada, conferida — pelo mesmo motivo de `exigirTipoDeclarado`.
+ *
+ * Uma família que a lista não conhece viraria uma vigência num acervo que
+ * nenhuma tela lê: o arquivo entraria, seria aprovado, e os números dele não
+ * apareceriam em lugar nenhum. Recusar aqui é a diferença entre um erro na
+ * chegada e um acervo invisível descoberto semanas depois.
+ */
+export function exigirFamiliaDeclarada(declaredFamily: string): string {
+  const familia = declaredFamily.trim();
+  if (!FAMILIAS_DECLARAVEIS.includes(familia)) {
+    throw new Error(
+      `"${declaredFamily}" não é uma família de dados conhecida. ` +
+        `Escolha uma das abas da tela de Importações.`,
+    );
+  }
+  return familia;
+}
+
+/**
  * Register a file and open a processing attempt.
  *
  * SHA-256 is the first line of idempotency defence; the snapshot business key
@@ -788,6 +819,10 @@ export async function receiveFile(
     options.declaredType == null || options.declaredType.trim() === ""
       ? null
       : exigirTipoDeclarado(options.declaredType);
+  const familiaDeclarada =
+    options.declaredFamily == null || options.declaredFamily.trim() === ""
+      ? null
+      : exigirFamiliaDeclarada(options.declaredFamily);
 
   const bytes = readFileSync(options.filePath);
   const contentSha256 = createHash("sha256").update(bytes).digest("hex");
@@ -865,6 +900,7 @@ export async function receiveFile(
         : null,
       finishedAt: isDuplicate ? new Date() : null,
       declaredType: declarado?.code ?? null,
+      declaredFamily: familiaDeclarada,
     })
     .returning();
 
@@ -1065,6 +1101,7 @@ export async function reprocessImportRun(
       id: importRunTable.id,
       sourceFileId: importRunTable.sourceFileId,
       declaredType: importRunTable.declaredType,
+      declaredFamily: importRunTable.declaredFamily,
       startedAt: importRunTable.startedAt,
     })
     .from(importRunTable)
@@ -1145,6 +1182,8 @@ export async function reprocessImportRun(
         status: "PENDING",
         triggeredBy: options.requestedBy ?? null,
         declaredType: declarado?.code ?? null,
+        // Herdada, como o tipo: reler um arquivo não muda o acervo dele.
+        declaredFamily: anterior.declaredFamily ?? null,
         reprocessOfRunId: anterior.id,
         reprocessReason: motivo,
       })
@@ -3487,6 +3526,29 @@ export async function promote(
       const result: PromoteResult["snapshots"] = [];
       const duplicadasPorDados: string[] = [];
 
+      /*
+        A família que a aba declarou no envio.
+
+        `lockRun` devolve a linha crua do `SELECT *`, com as colunas em
+        snake_case, então `declared_type` não chega tipado por ali — daí a
+        releitura explícita, como em `identidadesPendentes`.
+
+        Sem declaração (run antigo, ou reprocessamento que a herdou vazia) fica
+        `null`, e `datasetFamilyOfSet` volta a deduzir pelo tipo dos fatos. É o
+        comportamento de sempre para tudo o que já entrou.
+      */
+      const [runDeclarado] = await tx
+        .select({
+          declaredType: importRunTable.declaredType,
+          declaredFamily: importRunTable.declaredFamily,
+        })
+        .from(importRunTable)
+        .where(eq(importRunTable.id, importRunId));
+      const familiaDeclarada =
+        runDeclarado?.declaredFamily ??
+        tipoDeImportacao(runDeclarado?.declaredType ?? null)?.familia ??
+        null;
+
       const groups: { label: string; facts: typeof staged }[] = [];
       for (const label of labels) {
         for (const facts of groupFactsByEntityScope(byLabel.get(label)!)) {
@@ -3498,7 +3560,7 @@ export async function promote(
         const vigencia = parseVigenciaLabel(label);
         const effectiveDate = vigencia.effectiveDate!;
         const entityTypes = [...new Set(facts.map((f) => f.entityType))].sort();
-        const datasetFamily = datasetFamilyOfSet(entityTypes);
+        const datasetFamily = datasetFamilyOfSet(entityTypes, familiaDeclarada);
         // O conjunto de tipos da vigência gravada. Começa sendo o que o arquivo
         // trouxe e cresce com o que for herdado da revisão anterior — uma
         // revisão que carrega as carretas junto precisa *dizer* que cobre

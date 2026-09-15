@@ -19,6 +19,10 @@
  * `canonical-identity-sql.test.ts` prende os dois lados ao mesmo resultado.
  */
 import { createHash } from "node:crypto";
+import {
+  DATASET_FAMILY_REMUNERACAO_EQUIPAMENTO,
+  tipoDeImportacao,
+} from "./tipos";
 
 /**
  * Os separadores das serializações canônicas.
@@ -46,65 +50,66 @@ const SEP_LINE = "\u001c";
 /**
  * A família do dataset: o *contrato* da importação, não o que veio no arquivo.
  *
- * CAVALO e CARRETA são componentes de uma mesma família. Um arquivo só de
- * cavalos e um arquivo de cavalos+carretas descrevem a mesma remuneração da
- * mesma vigência — antes disto, viravam duas identidades ativas, e os cavalos
- * passavam a existir em duplicidade. A família é declarada por tipo de
- * equipamento e não conta quantas abas foram lidas.
+ * Ela é **declarada pelo tipo de importação** (`tipos.ts`), e não derivada do
+ * `entity_type` como já foi. O porquê está escrito lá, junto das constantes: o
+ * real e o remunerado do mesmo veículo falam das mesmas placas, na mesma data e
+ * no mesmo canal — derivada do tipo, a família dos dois sairia igual, e eles
+ * colidiriam como se fossem duas entregas da mesma vigência.
+ *
+ * As constantes continuam saindo por aqui, reexportadas, porque é daqui que o
+ * resto do produto as lê (`@workspace/ingest`).
  */
-export const DATASET_FAMILY_REMUNERACAO_EQUIPAMENTO = "REMUNERACAO_EQUIPAMENTO";
+export {
+  DATASET_FAMILY_REMUNERACAO_EQUIPAMENTO,
+  DATASET_FAMILY_QUADRO_DE_PESSOAL,
+  DATASET_FAMILY_FINANCIAMENTO_REAL,
+} from "./tipos";
 
 /**
- * O quadro de lotação de pessoal — administrativo e operacional, uma família.
+ * A família de um `entity_type`, para quem não tem declaração na mão.
  *
- * **Por que não a mesma família do equipamento.** A identidade da vigência é
- * (sistema, família, canal, data, escopo). Sem família própria, um arquivo de
- * QLP da mesma unidade, mesma data e mesmo canal teria a mesma identidade da
- * remuneração de equipamento — e entraria como *revisão* dela, superpondo uma
- * vigência que fala de caminhão com uma que fala de gente. A família existe
- * para essa distinção; usá-la é o que impede a confusão, não uma formalidade.
+ * Existe para os caminhos que só conhecem o tipo da entidade — a cobertura
+ * monta o recorte esperado a partir do atributo (`lib/coverage/src/contrato.ts`)
+ * — e para o backfill da `0015`. **Não é a autoridade**: um CAVALO pode estar no
+ * remunerado ou no real, e só a declaração do run separa os dois. Onde a
+ * declaração existe, ela vence; ver {@link datasetFamilyOfSet}.
  *
- * **Por que uma só para os dois QLPs.** Pelo mesmo argumento que junta CAVALO e
- * CARRETA: os dois arquivos descrevem o mesmo quadro da mesma vigência, cada um
- * com uma parte da população. Em famílias separadas, cada um abriria a sua
- * vigência e nunca se reconheceriam como partes de um todo; na mesma, o segundo
- * entra como revisão que herda os fatos do primeiro — a máquina de fato herdado
- * (`0017`) foi escrita exatamente para o arquivo parcial.
- */
-export const DATASET_FAMILY_QUADRO_DE_PESSOAL = "QUADRO_DE_PESSOAL";
-
-const FAMILY_BY_ENTITY_TYPE: Record<string, string> = {
-  CAVALO: DATASET_FAMILY_REMUNERACAO_EQUIPAMENTO,
-  CARRETA: DATASET_FAMILY_REMUNERACAO_EQUIPAMENTO,
-  QLP_ADMINISTRATIVO: DATASET_FAMILY_QUADRO_DE_PESSOAL,
-  QLP_OPERACIONAL: DATASET_FAMILY_QUADRO_DE_PESSOAL,
-};
-
-/**
- * A família a que um tipo de equipamento pertence.
- *
- * Um tipo ainda não mapeado cai na família de remuneração de equipamento. O
- * padrão é deliberadamente *inclusivo*: um equipamento novo (um DOLLY, digamos)
- * tem de entrar como componente da vigência que já existe, e não abrir uma
- * segunda identidade ativa para a mesma data — que é exatamente a falha que
- * este módulo fecha.
+ * O padrão é deliberadamente *inclusivo*: um equipamento novo (um DOLLY,
+ * digamos) tem de entrar como componente da vigência que já existe, e não abrir
+ * uma segunda identidade ativa para a mesma data.
  *
  * O espelho em SQL (`freightcheck_dataset_family`, na `0015`) devolve a família
- * de equipamento para qualquer entrada, e continua assim de propósito: ele
- * serve ao *backfill* daquela migration, sobre uma base que só tinha
- * equipamento. Quem decide daqui para frente é esta função — a coluna
- * `snapshot.dataset_family` é escrita por ela, e a chave canônica gerada pelo
- * banco lê a coluna, não a função.
+ * de equipamento para qualquer entrada, e continua assim de propósito: ele serve
+ * ao *backfill* daquela migration, sobre uma base que só tinha equipamento. Quem
+ * decide daqui para frente é este módulo — a coluna `snapshot.dataset_family` é
+ * escrita por ele, e a chave canônica gerada pelo banco lê a coluna, não a
+ * função.
  */
 export function datasetFamilyFor(entityType: string): string {
   return (
-    FAMILY_BY_ENTITY_TYPE[entityType.trim().toUpperCase()] ??
-    DATASET_FAMILY_REMUNERACAO_EQUIPAMENTO
+    tipoDeImportacao(entityType)?.familia ?? DATASET_FAMILY_REMUNERACAO_EQUIPAMENTO
   );
 }
 
-/** A família de um conjunto de tipos. Erro se o run misturar famílias. */
-export function datasetFamilyOfSet(entityTypes: readonly string[]): string {
+/**
+ * A família da vigência que vai ser gravada.
+ *
+ * `familiaDeclarada` é o que a fileira de acervos da tela disse no envio,
+ * gravado em `import_run.declared_family` (`0099`) e lido pela promoção. Quando
+ * existe, **ela vence**, e é o que permite um arquivo de real do cavalo não
+ * cair na família do remunerado só por trazer placas de cavalo.
+ *
+ * Sem declaração, cai na dedução por tipo — o caminho dos runs anteriores à
+ * declaração obrigatória, e dos reprocessamentos que a herdam vazia. Erro se o
+ * run misturar famílias derivadas.
+ */
+export function datasetFamilyOfSet(
+  entityTypes: readonly string[],
+  familiaDeclarada?: string | null,
+): string {
+  if (familiaDeclarada != null && familiaDeclarada.trim() !== "") {
+    return familiaDeclarada;
+  }
   const families = [...new Set(entityTypes.map(datasetFamilyFor))].sort();
   if (families.length === 0) return DATASET_FAMILY_REMUNERACAO_EQUIPAMENTO;
   if (families.length > 1) {

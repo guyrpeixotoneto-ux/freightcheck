@@ -1,0 +1,57 @@
+-- ---------------------------------------------------------------------------
+-- A FAMÍLIA DECLARADA NO ENVIO — uma coluna, e nenhum DDL sobre o que existe.
+-- ---------------------------------------------------------------------------
+--
+-- A identidade canônica de uma vigência é (sistema, família, canal, data,
+-- escopo) — `0015`, e o índice único que o banco gera sobre ela. Até aqui a
+-- **família** era derivada do `entity_type`: CAVALO e CARRETA na família de
+-- remuneração de equipamento, os dois QLPs na de quadro de pessoal. Enquanto o
+-- único acervo era o remunerado, derivar e declarar davam no mesmo.
+--
+-- O **real** — o financiamento como o banco cobra, ao lado do que a Ambev
+-- remunera — desfaz o empate, e desfaz de um jeito que não tem saída sem esta
+-- coluna. O extrato fala das mesmas placas, da mesma data, do mesmo canal:
+--
+--   * derivada do tipo, a família dele sai `REMUNERACAO_EQUIPAMENTO`, e o
+--     arquivo colide com a vigência remunerada daquela data — recusado como
+--     reentrega, ou pior, fundido com ela;
+--   * trocar o `entity_type` para não colidir custa mais caro: `entity_identifier`
+--     é único por (tipo, valor), então a placa ABC1D23 do real viraria uma
+--     **entidade diferente** da ABC1D23 do remunerado — e cruzar as duas é a
+--     única coisa que a auditoria do real precisa fazer.
+--
+-- Declarar a família resolve os dois de uma vez: o `entity_type` continua
+-- CAVALO, e a placa casa; a família diz de que acervo o arquivo é, e as duas
+-- vigências coexistem na mesma data sem se ver.
+--
+-- ---------------------------------------------------------------------------
+-- Por que coluna própria, e não a família do tipo declarado
+-- ---------------------------------------------------------------------------
+--
+-- Porque o tipo não decide sozinho, e o acervo também não. CAVALO existe nos
+-- dois acervos, então o tipo não separa; o remunerado tem duas famílias
+-- (equipamento e quadro de pessoal), então o acervo não fixa. A família é a
+-- conta dos dois — `familiaDeclarada`, em `lib/ingest/src/tipos.ts` —, e é o
+-- resultado dela que se grava aqui, uma vez, no envio.
+--
+-- Gravada e não recalculada: a promoção a **lê**. Recalculá-la depois exigiria
+-- reconstruir por qual aba a pessoa enviou o arquivo, que é justamente a
+-- informação que só existe no momento do envio.
+--
+-- ---------------------------------------------------------------------------
+-- O que acontece com o que já está gravado
+-- ---------------------------------------------------------------------------
+--
+-- Nada, e por isso não há backfill. `NULL` é a descrição correta de todo run
+-- anterior: ninguém declarou família nenhuma neles, e a promoção segue
+-- deduzindo pelo tipo dos fatos, como sempre fez (`datasetFamilyOfSet`). Um
+-- backfill que preenchesse `REMUNERACAO_EQUIPAMENTO` em massa não acrescentaria
+-- verdade nenhuma — diria "alguém declarou isto" sobre envios em que ninguém
+-- declarou — e ainda apagaria a diferença entre o que foi afirmado e o que foi
+-- deduzido, que é a única coisa que esta coluna existe para guardar.
+--
+-- Aditiva e nula, em tabela que já existe: é a forma que a `ALLOWLIST` do
+-- bridge aceita (ver `bridge.ts`), e é ela que deixa Production ganhar a coluna
+-- quando rodar a fila, sem que o `down` precise removê-la nesse meio-tempo.
+
+ALTER TABLE "import_run" ADD COLUMN IF NOT EXISTS "declared_family" text;

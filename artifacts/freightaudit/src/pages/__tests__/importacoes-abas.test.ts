@@ -1,9 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
+  acervoDaImportacao,
   tiposHerdados,
   tiposVindosDoArquivo,
   type TiposDaImportacao,
 } from "../importacoes";
+import {
+  DATASET_FAMILY_FINANCIAMENTO_REAL,
+  DATASET_FAMILY_QUADRO_DE_PESSOAL,
+  DATASET_FAMILY_REMUNERACAO_EQUIPAMENTO,
+} from "@workspace/ingest/tipos";
 
 /**
  * O contrato do recorte das abas: **a aba é do arquivo, não da vigência.**
@@ -108,5 +114,35 @@ describe("o cartão continua contando a herança, mesmo fora do recorte", () => 
       entityTypes: ["CAVALO"],
     });
     expect(tiposHerdados(simples)).toEqual([]);
+  });
+});
+
+/**
+ * O outro recorte da tela — o de cima: **o acervo é da família declarada.**
+ *
+ * O tipo não responde a esta pergunta, e é por não responder que a família
+ * passou a ser declarada: CAVALO existe no remunerado e no real, e as duas
+ * vigências do mesmo veículo, na mesma data, precisam coexistir sem colidir.
+ */
+describe("o acervo é da família declarada, não do tipo", () => {
+  it("a mesma placa de cavalo cai em acervos diferentes conforme a família", () => {
+    const remunerado = { declaredFamily: DATASET_FAMILY_REMUNERACAO_EQUIPAMENTO };
+    const real = { declaredFamily: DATASET_FAMILY_FINANCIAMENTO_REAL };
+    expect(acervoDaImportacao(remunerado)).toBe("REMUNERADO");
+    expect(acervoDaImportacao(real)).toBe("REAL");
+  });
+
+  it("o quadro de pessoal é remunerado, e não um acervo à parte", () => {
+    // QLP tem família própria — ela separa a identidade da vigência —, mas não
+    // é outra fileira: o que a Ambev paga por gente é remuneração igual.
+    expect(
+      acervoDaImportacao({ declaredFamily: DATASET_FAMILY_QUADRO_DE_PESSOAL }),
+    ).toBe("REMUNERADO");
+  });
+
+  it("sem declaração, é remunerado — porque era o único acervo que existia", () => {
+    // Quase toda a base está assim, e não é palpite: quando essas importações
+    // entraram não havia o que declarar.
+    expect(acervoDaImportacao({ declaredFamily: null })).toBe("REMUNERADO");
   });
 });

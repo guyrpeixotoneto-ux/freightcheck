@@ -6,6 +6,8 @@ import {
   canonicalScopeOf,
   canonicalSnapshotKey,
   datasetFamilyOfSet,
+  DATASET_FAMILY_QUADRO_DE_PESSOAL,
+  DATASET_FAMILY_REMUNERACAO_EQUIPAMENTO,
   missingRequiredScopeTypes,
   normalizeDocumento,
   normalizeIdentifier,
@@ -15,6 +17,7 @@ import {
   type CanonicalFact,
   type ScopeEntry,
 } from "../canonical-identity";
+import { TIPOS_DE_IMPORTACAO } from "../tipos";
 import { createTestDatabase, type TestDb } from "../testing";
 
 describe("normalizações", () => {
@@ -66,6 +69,42 @@ describe("normalizações", () => {
 
   it("põe CAVALO e CARRETA na mesma família", () => {
     expect(datasetFamilyOfSet(["CAVALO"])).toBe(datasetFamilyOfSet(["CARRETA", "CAVALO"]));
+  });
+
+  /*
+    A declaração vence a dedução — e é só por isso que o real existe.
+
+    O extrato do financiamento traz placas de cavalo: deduzida do tipo, a
+    família dele sairia a do remunerado, e as duas vigências da mesma data
+    colidiriam na chave canônica. Declarada, a família separa os acervos sem
+    tocar no `entity_type`, que é o que mantém a placa do real casando com a
+    mesma placa do remunerado.
+  */
+  it("deixa a família declarada vencer a deduzida do tipo", () => {
+    expect(datasetFamilyOfSet(["CAVALO"], "FINANCIAMENTO_REAL")).toBe("FINANCIAMENTO_REAL");
+    expect(datasetFamilyOfSet(["CAVALO"], "FINANCIAMENTO_REAL")).not.toBe(
+      datasetFamilyOfSet(["CAVALO"]),
+    );
+  });
+
+  it("cai na dedução quando não há declaração", () => {
+    // Runs anteriores à declaração obrigatória, e reprocessamentos que a
+    // herdam vazia, continuam entrando onde sempre entraram.
+    for (const vazia of [undefined, null, "", "   "]) {
+      expect(datasetFamilyOfSet(["CAVALO"], vazia)).toBe(datasetFamilyOfSet(["CAVALO"]));
+    }
+  });
+
+  it("dá a cada tipo de importação a família que ele declara", () => {
+    const familias = new Map(TIPOS_DE_IMPORTACAO.map((t) => [t.code, t.familia]));
+    expect(familias.get("CAVALO")).toBe(DATASET_FAMILY_REMUNERACAO_EQUIPAMENTO);
+    expect(familias.get("TRECHO")).toBe(DATASET_FAMILY_REMUNERACAO_EQUIPAMENTO);
+    expect(familias.get("QLP_ADMINISTRATIVO")).toBe(DATASET_FAMILY_QUADRO_DE_PESSOAL);
+    expect(familias.get("QLP_OPERACIONAL")).toBe(DATASET_FAMILY_QUADRO_DE_PESSOAL);
+    // Nenhum tipo pode ficar sem família: ela é metade da identidade da vigência.
+    for (const tipo of TIPOS_DE_IMPORTACAO) {
+      expect(tipo.familia.trim()).not.toBe("");
+    }
   });
 
   it("normaliza número sem confundir ausência com zero", () => {

@@ -9,7 +9,9 @@
  */
 
 import {
+  acervoAceitaTipo,
   tipoDeImportacao,
+  type DefinicaoDeAcervo,
   type DefinicaoDeTipo,
   type TipoDeImportacao,
 } from "@workspace/ingest/tipos";
@@ -690,11 +692,24 @@ export const TIPOS_DO_AMBIENTE: Record<AmbienteDeAuditoria, TipoDeImportacao[]> 
  * `baseDaAuditoria` (`lib/ambiente.ts`): quem chama isto é a tela de
  * Importações, e ela só existe sob uma das quatro bases.
  */
-export function tiposDoAmbiente(ambiente: Ambiente): DefinicaoDeTipo[] {
+export function tiposDoAmbiente(
+  ambiente: Ambiente,
+  /**
+   * O acervo aberto. Ausente quer dizer "todos os tipos da operação", que é o
+   * que vale fora da fileira de acervos.
+   *
+   * Os dois recortes são independentes e se compõem: a **operação** diz que
+   * ativos existem por aqui (a Empurrada não recebe empilhadeira), e o
+   * **acervo** diz o que pode entrar naquela porta (o real não recebe trecho
+   * nem quadro de pessoal). Uma aba só aparece quando passa nos dois.
+   */
+  acervo?: DefinicaoDeAcervo | null,
+): DefinicaoDeTipo[] {
   const codigos = ehAuditoria(ambiente)
     ? TIPOS_DO_AMBIENTE[ambiente]
     : TIPOS_DO_AMBIENTE.auditoria;
   return codigos
+    .filter((code) => (acervo ? acervoAceitaTipo(acervo, code) : true))
     .map((code) => tipoDeImportacao(code))
     .filter((tipo): tipo is DefinicaoDeTipo => tipo !== null);
 }
