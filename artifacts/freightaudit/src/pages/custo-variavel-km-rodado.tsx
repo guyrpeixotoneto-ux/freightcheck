@@ -26,11 +26,13 @@ import {
 } from "@/components/ui/select";
 import { SeletorDoPar, type VigenciaEscolhivel } from "@/components/comparacao/seletor-do-par";
 import {
-  parDePartida,
+  motivoSemPar,
+  parReconciliado,
   rotulosDasVigencias,
   vigenciasDaUnidade,
   vigenciasQueCobrem,
 } from "@workspace/comparison/recorte-de-rubrica";
+import { avisoDoParImpossivel } from "@/lib/par-de-vigencias";
 import { CartoesDeKm } from "@/components/km-rodado/cartoes";
 import {
   AlteracoesPorVariavel,
@@ -162,24 +164,43 @@ export default function AuditoriaDeKmRodado() {
   );
 
   /**
-   * O par aberto, mantido dentro da lista que o seletor oferece.
+   * O par aberto, mantido dentro da lista que o seletor oferece — e só ele.
    *
    * Ao trocar de unidade, o par anterior deixa de estar nela — e mantê-lo faria a
-   * tela responder por Pernambuco sob a palavra CAMAÇARI.
+   * tela responder por Pernambuco sob a palavra CAMAÇARI. O que `parReconciliado`
+   * nunca faz é desfazer escolha de quem escolheu: uma ponta que continua na
+   * lista continua na caixa, ainda que a outra esteja vazia e ainda que a lista
+   * não tenha par de partida nenhum.
    */
   useEffect(() => {
     if (!vigencias.data || !unidadeResolvida) return;
-    const naLista = (id: string) => daUnidade.some((v) => v.id === id);
-    if (base && comparada && naLista(base) && naLista(comparada)) return;
-    const par = parDePartida(daUnidade);
-    setBase(par?.base.id ?? "");
-    setComparada(par?.comparada.id ?? "");
+    const par = parReconciliado(daUnidade, { base, comparada });
+    if (par.base !== base) setBase(par.base);
+    if (par.comparada !== comparada) setComparada(par.comparada);
   }, [vigencias.data, daUnidade, unidadeResolvida, base, comparada]);
 
-  const semParPossivel =
-    Boolean(vigencias.data) && unidadeResolvida && parDePartida(daUnidade) === null;
+  /**
+   * Por que esta lista não dá par — quando não dá.
+   *
+   * Sai da lista, e não de "as duas pontas estão vazias": o par é escolhido num
+   * efeito, que roda **depois** da renderização — ler o estado aqui piscaria a
+   * tela vazia por um quadro em toda unidade que tem par.
+   */
+  const semPar =
+    Boolean(vigencias.data) && unidadeResolvida ? motivoSemPar(daUnidade) : null;
+  /** Há lista e mesmo assim não há par: a frase da tela vazia é outra. */
+  const parImpossivel = semPar ? avisoDoParImpossivel(semPar) : null;
+  /**
+   * A tela vazia fala enquanto ninguém escolheu o par inteiro.
+   *
+   * Com as duas pontas escolhidas à mão — o que `parReconciliado` agora
+   * preserva —, quem responde é a comparação, ou a recusa do servidor sobre
+   * aquele par. Manter a frase no ar ao lado do resultado negaria o que está
+   * logo abaixo dela.
+   */
+  const semParPossivel = semPar !== null && !(base && comparada);
   /** Nenhuma vigência de trecho na unidade — outra frase, outra causa. */
-  const semTrechoNaUnidade = semParPossivel && daUnidade.length === 0;
+  const semTrechoNaUnidade = semPar?.motivo === "LISTA_VAZIA";
 
   const comparacao = useQuery({
     queryKey: ["km-rodado", "comparacao", base, comparada, comSemAlteracao],
@@ -281,14 +302,18 @@ export default function AuditoriaDeKmRodado() {
           <EstadoVazio
             icone={Route}
             titulo={
-              semTrechoNaUnidade
-                ? "Esta unidade não tem vigência de trecho importada"
-                : "Esta unidade não tem duas vigências de trecho para comparar"
+              parImpossivel
+                ? parImpossivel.titulo
+                : semTrechoNaUnidade
+                  ? "Esta unidade não tem vigência de trecho importada"
+                  : "Esta unidade não tem duas vigências de trecho para comparar"
             }
             descricao={
-              semTrechoNaUnidade
-                ? "O custo variável é por trecho, e a tabela de frete desta unidade ainda não chegou ao acervo. As vigências de cavalo e carreta que ela tem alimentam as telas de custo fixo, não esta."
-                : "A comparação de km rodado precisa de duas vigências de trecho da mesma unidade. Escolha outra unidade na lateral ou importe a tabela de frete seguinte."
+              parImpossivel
+                ? parImpossivel.descricao
+                : semTrechoNaUnidade
+                  ? "O custo variável é por trecho, e a tabela de frete desta unidade ainda não chegou ao acervo. As vigências de cavalo e carreta que ela tem alimentam as telas de custo fixo, não esta."
+                  : "A comparação de km rodado precisa de duas vigências de trecho da mesma unidade. Escolha outra unidade na lateral ou importe a tabela de frete seguinte."
             }
           />
         )}
