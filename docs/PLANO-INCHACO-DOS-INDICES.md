@@ -8,8 +8,14 @@
 > Resultado completo, o que a estimativa errou e o que sobrou:
 > **`docs/RESULTADO-DA-REINDEXACAO.md`**.
 >
-> Os doze índices restantes **não** foram tocados (~180 MB) — proposta, não
-> autorizada. O resto deste documento é o plano como foi aprovado.
+> **E os treze restantes também**, numa segunda passada autorizada logo depois:
+> 816 MB → **590 MB**, mais 226 MB. Somando as duas, **1.337 MB → 590 MB**, e a
+> razão índice/heap caiu de 8x para **1,28x**.
+>
+> A segunda passada expôs um erro sistemático na aproximação da seção 2 de
+> `densidade-dos-indices.sql` — ela subestimava inchaço em índice não-único de
+> baixa cardinalidade, por ignorar a deduplicação de btree. Corrigida, e
+> explicada em `docs/RESULTADO-DA-REINDEXACAO.md`.
 
 **Nada aqui foi executado.** Nenhum `REINDEX`, nenhuma extensão instalada,
 nenhuma escrita no banco. Este documento é a proposta que precisa de aprovação

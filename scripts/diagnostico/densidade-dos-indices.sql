@@ -122,47 +122,94 @@ BEGIN READ ONLY;
 --
 -- Leia `fator` como "quantas vezes maior que o mínimo teórico". Acima de ~3
 -- merece o `pgstatindex` da seção 1 para confirmar antes de qualquer decisão.
+-- ---------------------------------------------------------------------------
+-- CORRIGIDO EM 15/09/2026 — a versão anterior subestimava inchaço
+-- ---------------------------------------------------------------------------
+-- A primeira versão calculava o piso como `linhas × largura_da_chave`, ou seja,
+-- uma entrada por linha com a chave inteira repetida. Isso vale para índice
+-- ÚNICO e está errado para índice NÃO-ÚNICO de baixa cardinalidade, por causa
+-- da deduplicação de btree do PG 13+: chaves iguais viram uma *posting list* —
+-- a chave guardada uma vez, e 6 bytes de ponteiro por linha.
+--
+-- O erro apareceu medido. `staged_fact_run_idx` indexa `import_run_id` sobre
+-- 437 mil linhas com QUATRO valores distintos. A fórmula antiga dava piso de
+-- 8.355 kB e fator 1,3 — "sadio". Reconstruído, ele foi de 11 MB para 3.032 kB:
+-- estava 3,7x inchado. 437k × 6 bytes ≈ 2,6 MB, que é o tamanho real.
+--
+-- Quatro outros índices tiveram o mesmo diagnóstico errado pelo mesmo motivo
+-- (`raw_cell_row_idx`, `staged_fact_run_label_idx`, `fact_origin_import_run_idx`,
+-- `fact_snapshot_entity_idx`), e todos recuperaram 3 a 4x.
+--
+-- O erro era na direção pior: SUBESTIMAR inchaço justamente onde o ganho
+-- proporcional é maior. Ver docs/RESULTADO-DA-REINDEXACAO.md.
 WITH coluna AS (
   -- Uma linha por (índice, coluna indexada), com a largura média que o ANALYZE
-  -- mediu para aquela coluna. `indkey` é int2vector: o cast para smallint[] é o
-  -- que permite o unnest.
+  -- mediu. `indkey` é int2vector: o cast para smallint[] permite o unnest.
+  -- `ord = 1` marca a coluna principal, que é a que manda na deduplicação.
   SELECT s.indexrelid,
          s.indexrelname                  AS indice,
          s.relname                       AS tabela,
-         coalesce(st.avg_width, 16)      AS avg_width
+         k.ord,
+         coalesce(st.avg_width, 16)      AS avg_width,
+         st.n_distinct
     FROM pg_stat_user_indexes s
     JOIN pg_index i ON i.indexrelid = s.indexrelid
-    CROSS JOIN LATERAL unnest(i.indkey::smallint[]) AS k(attnum)
+    CROSS JOIN LATERAL unnest(i.indkey::smallint[]) WITH ORDINALITY AS k(attnum, ord)
     JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = k.attnum
     LEFT JOIN pg_stats st ON st.schemaname = 'public'
                          AND st.tablename  = s.relname
                          AND st.attname    = a.attname
-   WHERE pg_relation_size(s.indexrelid) > 8 * 1024 * 1024
+   WHERE pg_relation_size(s.indexrelid) > 4 * 1024 * 1024
      AND k.attnum > 0
-), estimativa AS (
+), base AS (
   SELECT c.indice,
          c.tabela,
+         c.indexrelid,
+         i.indisunique                                   AS unico,
          pg_relation_size(c.indexrelid)                  AS bytes,
          greatest(t.reltuples, 0)::numeric               AS linhas,
-         -- 8 bytes de cabeçalho da entrada + 4 do ponteiro de item na página,
-         -- mais a largura das colunas indexadas.
-         12 + sum(c.avg_width)                           AS bytes_por_entrada
+         12 + sum(c.avg_width)                           AS bytes_por_entrada,
+         -- n_distinct do ANALYZE: positivo é contagem absoluta, negativo é
+         -- fração das linhas. Só o da coluna principal interessa.
+         max(c.n_distinct) FILTER (WHERE c.ord = 1)      AS nd
     FROM coluna c
     JOIN pg_stat_user_indexes s ON s.indexrelid = c.indexrelid
+    JOIN pg_index i ON i.indexrelid = c.indexrelid
     JOIN pg_class t ON t.oid = s.relid
-   GROUP BY c.indice, c.tabela, c.indexrelid, t.reltuples
+   GROUP BY c.indice, c.tabela, c.indexrelid, i.indisunique, t.reltuples
+), piso AS (
+  SELECT b.*,
+         CASE
+           WHEN b.nd IS NULL THEN NULL
+           WHEN b.nd >= 0    THEN b.nd
+           ELSE -b.nd * b.linhas
+         END                                             AS distintos_estimados
+    FROM base b
+), calculado AS (
+  SELECT p.*,
+         CASE
+           -- Índice único: uma entrada por linha, chave inteira. Sem dedup.
+           WHEN p.unico OR p.distintos_estimados IS NULL
+             THEN p.linhas * p.bytes_por_entrada / 0.9
+           -- Não-único: a chave é guardada uma vez por valor distinto, e cada
+           -- linha custa os 6 bytes do ponteiro na posting list.
+           ELSE (p.distintos_estimados * p.bytes_por_entrada + p.linhas * 6) / 0.9
+         END                                             AS piso
+    FROM piso p
 )
 SELECT indice,
        tabela,
-       pg_size_pretty(bytes)                                    AS tamanho_real,
-       linhas::bigint                                           AS linhas_vivas,
-       bytes_por_entrada::int                                   AS bytes_por_entrada,
-       pg_size_pretty((linhas * bytes_por_entrada / 0.9)::bigint) AS minimo_teorico,
-       round(bytes / nullif(linhas * bytes_por_entrada / 0.9, 0), 1) AS fator,
-       pg_size_pretty(greatest(bytes - linhas * bytes_por_entrada / 0.9, 0)::bigint)
-                                                                AS recuperavel_estimado
-  FROM estimativa
- ORDER BY bytes - linhas * bytes_por_entrada / 0.9 DESC;
+       CASE WHEN unico THEN 'único' ELSE 'não-único' END           AS tipo,
+       pg_size_pretty(bytes)                                       AS tamanho_real,
+       linhas::bigint                                              AS linhas_vivas,
+       distintos_estimados::bigint                                 AS valores_distintos,
+       pg_size_pretty(piso::bigint)                                AS piso,
+       round(bytes / nullif(piso, 0), 1)                           AS fator,
+       pg_size_pretty(greatest(bytes - piso, 0)::bigint)           AS recuperavel_estimado,
+       CASE WHEN NOT unico AND distintos_estimados < linhas / 10
+            THEN 'dedup pesada — o piso já conta posting list' ELSE '' END AS nota
+  FROM calculado
+ ORDER BY bytes - piso DESC;
 
 COMMIT;
 
