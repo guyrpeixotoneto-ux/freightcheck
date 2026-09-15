@@ -50,6 +50,19 @@ export interface VigenciaEscolhivel {
  * As opções são exatamente as vigências que o acervo entregou (`/snapshots`),
  * nunca um calendário: um seletor de datas ofereceria meses que não existem, e
  * a recusa viria depois do clique.
+ *
+ * ---------------------------------------------------------------------------
+ * "De" e "Para", e não "Anterior" e "Atual"
+ * ---------------------------------------------------------------------------
+ * Os dois campos não guardam um **estado** — guardam as duas pontas de uma
+ * **direção**. Chamar o da direita de "Vigência Atual" afirmaria que ele é a
+ * última do acervo, e ele não é: qualquer vigência pode ser escolhida ali, e o
+ * botão no meio troca as duas de lado. No clique seguinte o rótulo estaria
+ * mentindo sobre o que está na caixa.
+ *
+ * "De" e "Para" continuam verdadeiros depois de inverter, e são o vocabulário
+ * em que o resultado já é lido: a parcela saiu de X e chegou em Y. As colunas
+ * da tabela e as da gaveta do veículo usam as mesmas duas palavras.
  */
 export function SeletorDoPar({
   vigencias,
@@ -90,11 +103,11 @@ export function SeletorDoPar({
             htmlFor="finame-base"
             className="text-[0.65rem] font-bold uppercase tracking-[0.1em] text-muted-foreground"
           >
-            Vigência Base
+            De
           </label>
           <Select value={base} onValueChange={onBase}>
-            <SelectTrigger id="finame-base" aria-label="Vigência Base">
-              <SelectValue placeholder="Escolha a vigência base" />
+            <SelectTrigger id="finame-base" aria-label="De (vigência de origem)">
+              <SelectValue placeholder="Escolha a vigência de origem" />
             </SelectTrigger>
             <SelectContent>
               {vigencias.map((v) => (
@@ -111,7 +124,7 @@ export function SeletorDoPar({
           variant="outline"
           onClick={onInverter}
           disabled={carregando || !base || !comparada}
-          aria-label="Inverter a vigência base com a comparada"
+          aria-label="Inverter: trocar a vigência de origem com a de destino"
           className="gap-2"
         >
           <ArrowLeftRight className="h-4 w-4" aria-hidden="true" />
@@ -123,11 +136,11 @@ export function SeletorDoPar({
             htmlFor="finame-comparada"
             className="text-[0.65rem] font-bold uppercase tracking-[0.1em] text-muted-foreground"
           >
-            Vigência Comparada
+            Para
           </label>
           <Select value={comparada} onValueChange={onComparada}>
-            <SelectTrigger id="finame-comparada" aria-label="Vigência Comparada">
-              <SelectValue placeholder="Escolha a vigência comparada" />
+            <SelectTrigger id="finame-comparada" aria-label="Para (vigência de destino)">
+              <SelectValue placeholder="Escolha a vigência de destino" />
             </SelectTrigger>
             <SelectContent>
               {vigencias.map((v) => (

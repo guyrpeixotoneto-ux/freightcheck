@@ -41,7 +41,7 @@ export function TabelaDeFiname({
     <div className="superficie overflow-x-auto">
       <table className="w-full min-w-[56rem] border-collapse text-sm">
         <caption className="sr-only">
-          Comparação de FINAME entre a vigência base e a comparada, por veículo e variável.
+          Comparação de FINAME entre as duas vigências do par, por veículo e variável.
         </caption>
         <thead>
           <tr className="border-b bg-muted/60">
@@ -49,8 +49,8 @@ export function TabelaDeFiname({
               "Veículo",
               "Tipo",
               "Variável",
-              "Vigência Base",
-              "Vigência Comparada",
+              "De",
+              "Para",
               "Diferença",
               "Variação %",
               "Status",
