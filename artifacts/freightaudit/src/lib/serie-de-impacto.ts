@@ -1,8 +1,10 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { fetchJsonOrNull } from "@/lib/api";
 import { impactosDaVigencia, ladosDoImpacto } from "@/lib/visao-geral";
-import { opcoesDoIntervaloGeral } from "@/lib/intervalo-da-linha-do-tempo";
+import {
+  opcoesDoIntervalo,
+  opcoesDoIntervaloGeral,
+} from "@/lib/intervalo-da-linha-do-tempo";
 import { LEITURA_DE_APURACAO } from "@/lib/frescor-das-leituras";
 import { contextoAberto, useContextosDaCasca } from "@/lib/contextos";
 import {
@@ -11,7 +13,6 @@ import {
   type PontoDeImpacto,
 } from "@/components/dashboard/grafico-de-impacto";
 import type { FamiliesOverview, FamiliesView } from "@/components/inicio/types";
-import type { Movimentos } from "@/lib/analise";
 
 /**
  * A série do gráfico "Impacto das alterações por vigência" — a conta que o
@@ -90,23 +91,54 @@ export function useSerieDeImpacto(
   }, [habilitado, vigencias, ate]);
 
   const chave = consulta.toString();
+
+  /*
+    A chave sai de `opcoesDoIntervalo`, e não daqui.
+
+    Esta consulta montava a própria: `["changes-range", "dashboard-impacto",
+    chave, janela[0], ate]`. Ela começava com o prefixo certo — é ele que
+    `invalidarApuracao` alcança — e por isso **parecia** resolvida. Não estava:
+    o prefixo governa a invalidação, e a chave inteira é que governa a
+    identidade. Com um segmento a mais, o React Query via duas perguntas onde
+    havia uma, e o cabeçalho (`use-resumo-por-vigencia.ts`, que usa
+    `opcoesDoIntervalo`) e este gráfico disparavam **a mesma URL duas vezes**.
+
+    Medido em 15/09/2026, entrada fria no Resumo executivo, com
+    `performance.getEntriesByType('resource')`:
+
+        /changes/range?from=2025-12-16&to=2026-08-01&…   26.712 B   198 ms
+        /changes/range?from=2025-12-16&to=2026-08-01&…   26.712 B   153 ms
+
+    Endereço idêntico letra por letra, duas respostas 200 completas. Acontecia
+    no Resumo executivo, no Dashboard, no Panorama e no Impacto apurado — as
+    quatro telas onde este gráfico e aquele cabeçalho convivem.
+
+    É exatamente o defeito que o cabeçalho de `intervalo-da-linha-do-tempo.ts`
+    descreve: "uma letra fora do lugar em qualquer um deles vira uma segunda
+    requisição cara, sem ninguém notar, porque as duas respondem certo". A
+    correção é usar a função em vez de repetir a pergunta.
+
+    `LEITURA_DE_APURACAO` continua por cima, e continua mandando: ele traz o
+    `placeholderData` que mantém o gráfico anterior em tela na troca de unidade,
+    e o `staleTime` dele é o mesmo minuto que `opcoesDoIntervalo` declara.
+  */
+  const opcoes = useMemo(
+    () =>
+      janela !== null && ate !== null
+        ? opcoesDoIntervalo(new URLSearchParams(chave), janela[0], ate)
+        : null,
+    [chave, janela, ate],
+  );
+
   const range = useQuery({
     /*
-      A chave começa em `changes-range` de propósito: é o prefixo que
-      `invalidarApuracao` alcança (`lib/frescor-das-leituras.ts`), e é ele que
-      sustenta o `staleTime` de `LEITURA_DE_APURACAO` — nenhum cache entra aqui
-      sem a invalidação que o corrige quando a apuração muda. Com o nome antigo
-      (`dashboard-impacto`) o gráfico ficava fora de toda invalidação.
+      Sem intervalo não há pergunta, e `enabled` abaixo impede que ela seja
+      feita. A chave-sentinela existe porque `useQuery` exige uma, e nunca
+      chega a ser usada como cache de nada.
     */
-    queryKey: ["changes-range", "dashboard-impacto", chave, janela?.[0] ?? "", ate ?? ""],
-    queryFn: () => {
-      const q = new URLSearchParams(chave);
-      q.delete("period");
-      q.set("from", janela![0]);
-      q.set("to", ate!);
-      return fetchJsonOrNull<Movimentos>(`/changes/range?${q}`);
-    },
-    enabled: habilitado && janela !== null && ate !== null,
+    queryKey: opcoes?.queryKey ?? ["changes-range", "sem-intervalo"],
+    queryFn: opcoes?.queryFn ?? (() => Promise.resolve(null)),
+    enabled: habilitado && opcoes !== null,
     /*
       A mesma política das outras leituras de apuração destas telas: o minuto de
       `staleTime` faz voltar a uma unidade já vista desenhar o gráfico no
