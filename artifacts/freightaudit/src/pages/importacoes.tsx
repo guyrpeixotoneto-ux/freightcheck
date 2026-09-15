@@ -1451,11 +1451,29 @@ function RunCard({
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          {/*
+            O selo é o botão de desfazer.
+
+            Ele já era o lugar onde se lê "esta está oculta"; procurar o
+            desfazer no rodapé, a um cartão inteiro de distância do aviso, era
+            trabalho sem motivo. Sob o cursor ele diz o que faz — vira "reexibir"
+            com o olho aberto —, e o botão do rodapé continua onde estava, para
+            quem já sabe o caminho.
+          */}
           {oculta && (
-            <span className="text-xs font-medium px-2.5 py-1 rounded-full border border-slate-300 bg-slate-100 text-slate-700 inline-flex items-center gap-1">
-              <EyeOff className="w-3 h-3" />
-              oculta
-            </span>
+            <button
+              type="button"
+              onClick={onToggleHidden}
+              disabled={togglingHidden}
+              title="Reexibir esta importação"
+              aria-label="Reexibir esta importação"
+              className="group text-xs font-medium px-2.5 py-1 rounded-full border border-slate-300 bg-slate-100 text-slate-700 inline-flex items-center gap-1 transition-colors hover:border-slate-400 hover:bg-slate-200 hover:text-slate-900 disabled:opacity-60 disabled:pointer-events-none"
+            >
+              <EyeOff className="w-3 h-3 group-hover:hidden" />
+              <Eye className="w-3 h-3 hidden group-hover:inline" />
+              <span className="group-hover:hidden">oculta</span>
+              <span className="hidden group-hover:inline">reexibir</span>
+            </button>
           )}
           <StatusPill status={run.status} />
         </div>
@@ -1466,8 +1484,9 @@ function RunCard({
           Esta importação está oculta: os fatos dela não entram no dashboard, no
           comparativo, na cobertura nem no DRE.
           {run.hiddenBy && <> Ocultada por {run.hiddenBy}.</>}
-          {run.hiddenReason && <> Motivo: {run.hiddenReason}</>} Use{" "}
-          <strong>Reexibir</strong> abaixo para voltar a contar.
+          {run.hiddenReason && <> Motivo: {run.hiddenReason}</>} Clique no selo{" "}
+          <strong>oculta</strong> acima — ou em <strong>Reexibir</strong>,
+          abaixo — para voltar a contar.
         </p>
       )}
 
