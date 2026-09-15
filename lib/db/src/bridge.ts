@@ -894,6 +894,21 @@ const TABELAS_DESCARTAVEIS = [
   "ticket_movement_field",
   "ticket_movement_day",
   "ticket_import_comparacao",
+  /*
+    O registro do reparo da `0099`, que Production não tem.
+
+    Entra aqui, e não em `TABELAS_REMOVIDAS`, porque aquela lista exige tabela
+    vazia e esta **nasce com uma linha**: a migration roda o reparo na própria
+    aplicação. Exigir vazio travaria todo `down`.
+
+    O que autoriza descartar o conteúdo é que ele não é decisão de gente nem
+    dado de auditoria: é o relatório que a máquina escreveu sobre uma correção
+    que ela mesma fez, e o fato de a correção ter acontecido está no registro de
+    migrations, que o `down` não toca. Depois do `up` a tabela volta vazia e a
+    função continua lá — chamá-la de novo numa base já reparada grava uma linha
+    de zeros, que é a verdade sobre ela.
+  */
+  "reparo_familia_do_trecho",
 ];
 
 /**
@@ -2255,6 +2270,23 @@ function planoUp(): PassoUp[] {
     quem parou uma importação, e quando, não é reconstruível por consulta
     nenhuma.
   */
+  /*
+    A `0099` — a tabela do registro do reparo, e só a estrutura dela.
+
+    Volta vazia pelo critério de `TABELAS_DESCARTAVEIS`: o conteúdo é o
+    relatório de uma correção já aplicada, e o que prova que ela aconteceu é o
+    registro de migrations. A função `freightcheck_separar_familia_do_trecho`
+    não sai no `down` — ela é posterior à `0015` e não está em
+    `FUNCOES_REMOVIDAS` —, de modo que a base repara-se de novo sozinha se
+    precisar, e numa base já reparada a chamada grava zeros.
+  */
+  const M99 = "0099_familia_da_tabela_de_frete";
+  add(
+    M99,
+    "reparo_familia_do_trecho",
+    levantar(M99, /CREATE TABLE IF NOT EXISTS "reparo_familia_do_trecho"/),
+  );
+
   const M97 = "0097_cancelar_importacao";
   add(
     M97,

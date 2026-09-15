@@ -900,7 +900,7 @@ export async function situacaoPorAtivo(
 export async function listChangeSets(
   db: Database,
   /** Qual família listar (`snapshot.dataset_family`). Padrão: equipamento. */
-  opts?: { datasetFamily?: string; operacao?: Operacao | null },
+  opts?: { datasetFamily?: string | readonly string[]; operacao?: Operacao | null },
 ) {
   const sa = sql`sa`;
   const { rows } = await db.execute<Record<string, unknown>>(sql`
@@ -948,7 +948,7 @@ export async function listChangeSets(
 export async function listComparableSnapshots(
   db: Database,
   /** Qual família listar (`snapshot.dataset_family`). Padrão: equipamento. */
-  opts?: { datasetFamily?: string; operacao?: Operacao | null },
+  opts?: { datasetFamily?: string | readonly string[]; operacao?: Operacao | null },
 ) {
   return db
     .select({

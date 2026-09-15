@@ -1,22 +1,26 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
 import { captureRaw, preview, promote, receiveFile, stage } from "../pipeline";
-import { datasetFamilyFor } from "../canonical-identity";
+import {
+  DATASET_FAMILY_REMUNERACAO_EQUIPAMENTO,
+  DATASET_FAMILY_TABELA_DE_FRETE,
+  datasetFamilyFor,
+} from "../canonical-identity";
 import { createTestDatabase, type TestDb } from "../testing";
 import { escreverPlanilha } from "./planilha-sintetica";
 
 /**
- * QUANDO DOIS ARQUIVOS VIRAM UMA VIGÊNCIA SÓ — o que é contrato e o que é
+ * QUANDO DOIS ARQUIVOS VIRAM UMA VIGÊNCIA SÓ — o que é contrato e o que era
  * defeito.
  *
  * ---------------------------------------------------------------------------
- * O relato
+ * O relato, e o que ele custou
  * ---------------------------------------------------------------------------
  * Em 15/09/2026, na Auditoria de Km Rodado: o seletor oferecia `agosto/2026` e
  * `setembro/2026`, as duas cobrindo trecho, e clicar em qualquer uma não
- * selecionava nada. A metade de tela do defeito está corrigida
- * (`parReconciliado`, em `@workspace/comparison/recorte-de-rubrica`). A outra
- * metade é este arquivo: **por que as duas vigências chegaram com coberturas
+ * selecionava nada. Eram dois defeitos empilhados. O de tela — o efeito que
+ * desfazia a escolha de quem escolheu — está em `parReconciliado`. O de
+ * acervo é este arquivo: **por que as duas vigências chegaram com coberturas
  * diferentes**, uma `TRECHO` e outra `CAVALO+TRECHO`, a ponto de o motor
  * recusar o par que a lista oferecia.
  *
@@ -24,37 +28,39 @@ import { escreverPlanilha } from "./planilha-sintetica";
  * A identidade, e por que ela decide isto
  * ---------------------------------------------------------------------------
  * Uma vigência é identificada por (sistema, **família**, canal, data, escopo) —
- * `canonicalSnapshotKey`. A família sai de `FAMILY_BY_ENTITY_TYPE`, e o padrão
- * dela é deliberadamente inclusivo: um tipo não mapeado entra na família de
- * remuneração de equipamento, para que um equipamento novo seja **componente**
- * da vigência que já existe em vez de abrir uma segunda identidade ativa para a
- * mesma data.
+ * `canonicalSnapshotKey`. `TRECHO` não tinha entrada em `FAMILY_BY_ENTITY_TYPE`
+ * e caía no padrão inclusivo, que é a família do equipamento. Esse padrão é
+ * certo para um DOLLY — um equipamento novo tem de ser **componente** da
+ * vigência que já existe — e era o defeito para a tabela de frete, que não é um
+ * equipamento a mais: é outro documento, de outro grão, que só por acaso
+ * partilha unidade, canal e data com o export de equipamento.
  *
- * Esse padrão é certo para um DOLLY e é o defeito para o TRECHO. A tabela de
- * frete não é um equipamento a mais na mesma vigência: é outro documento, de
- * outro grão, que só por acaso partilha unidade, canal e data com o export de
- * equipamento. Partilhando a identidade, o segundo arquivo a chegar não abre
- * vigência — entra como **revisão** do primeiro e herda os fatos dele, e a
- * cobertura gravada passa a ser a união dos dois.
+ * Partilhando a identidade, o segundo arquivo a chegar entrava como **revisão**
+ * do primeiro e herdava os fatos dele, e a cobertura gravada virava a união.
+ *
+ * A `0099` deu família própria ao trecho (`TABELA_DE_FRETE`) e reparou o que já
+ * tinha entrado fundido.
  *
  * ---------------------------------------------------------------------------
- * O que cada metade deste arquivo guarda
+ * O que cada parte deste arquivo guarda
  * ---------------------------------------------------------------------------
- * As duas metades exercitam **a mesma máquina** e querem coisas opostas dela, e
- * é por isso que moram juntas: quem for corrigir a segunda precisa ver, no
- * mesmo arquivo, o que a primeira não deixa quebrar.
+ * As três partes exercitam **a mesma máquina** e querem coisas diferentes dela,
+ * e é por isso que moram juntas: quem mexer numa precisa ver as outras.
  *
  * 1. **A herança que é o contrato.** Cavalo e carreta são componentes da mesma
  *    vigência de propósito: a Ambev entrega os dois em arquivos separados, e uma
- *    correção só de cavalos não pode apagar as carretas. Isto tem de continuar
- *    valendo depois de qualquer correção do item 2.
+ *    correção só de cavalos não pode apagar as carretas. A família própria do
+ *    trecho não podia custar isto, e não custou — estes testes passavam antes da
+ *    `0099` e passam depois, sem uma linha alterada.
  *
- * 2. **A fusão que não devia acontecer.** O trecho entrando como revisão do
- *    equipamento. Estas asserções descrevem o comportamento de hoje, e são o
- *    **registro de um defeito, não o contrato** — ver a nota em cada uma sobre
- *    o que elas passam a afirmar no dia em que TRECHO ganhar família própria.
+ * 2. **A separação que a `0099` garante.** O trecho abrindo vigência própria em
+ *    vez de virar revisão do equipamento. Eram as asserções que registravam o
+ *    defeito; hoje afirmam o comportamento correto.
  *
- * Nada aqui corrige coisa alguma. É a reprodução que sustenta a decisão.
+ * 3. **O reparo do que já entrou fundido.** Corrigir a regra não reescreve o
+ *    que entrou com ela. A parte 3 monta o estado legado à mão — porque o
+ *    pipeline corrigido não o produz mais — e prova que a função de reparo o
+ *    desfaz, sem perder fato nenhum e sem mexer no equipamento.
  */
 
 let ctx: TestDb;
@@ -127,25 +133,35 @@ const planilhaDeTrecho = (vigencia: string, trechos: string[]) =>
     ],
   });
 
-/** A vigência ativa de um rótulo, com o que decide a identidade dela. */
-async function vigenciaAtiva(label: string) {
+/**
+ * A vigência ativa de um rótulo **numa família**.
+ *
+ * A família entrou no argumento com a `0099`: desde ela, o mesmo rótulo pode
+ * ter duas vigências vivas — a do equipamento e a da tabela de frete —, e é
+ * exatamente isso que estes testes querem poder afirmar. Sem o recorte, a
+ * consulta que antes achava uma acharia duas e o teste morreria no `toHaveLength`
+ * dizendo "duas vigências" onde o assunto é qual delas tem o quê.
+ */
+async function vigenciaAtiva(label: string, datasetFamily: string) {
   const { rows } = await ctx.db.execute<{
     entity_type_set: string;
     dataset_family: string;
     canonical_snapshot_key: string;
     revision: number;
+    fact_count: number;
   }>(sql`
-    SELECT entity_type_set, dataset_family, canonical_snapshot_key, revision
+    SELECT entity_type_set, dataset_family, canonical_snapshot_key, revision, fact_count
       FROM snapshot
      WHERE source_label = ${label}
+       AND dataset_family = ${datasetFamily}
        AND status <> 'SUPERSEDED'
   `);
   expect(rows).toHaveLength(1);
   return rows[0];
 }
 
-/** Quantos fatos de cada tipo a vigência ativa tem, e quais foram herdados. */
-async function fatosPorTipo(label: string) {
+/** Quantos fatos de cada tipo a vigência tem, e quais foram herdados. */
+async function fatosPorTipo(label: string, datasetFamily: string) {
   const { rows } = await ctx.db.execute<{
     entity_type: string;
     herdados: string;
@@ -158,6 +174,7 @@ async function fatosPorTipo(label: string) {
       JOIN fact f   ON f.snapshot_id = s.id
       JOIN entity e ON e.id = f.entity_id
      WHERE s.source_label = ${label}
+       AND s.dataset_family = ${datasetFamily}
        AND s.status <> 'SUPERSEDED'
      GROUP BY 1
      ORDER BY 1
@@ -175,44 +192,50 @@ async function fatosPorTipo(label: string) {
  * Esta é a asserção que diz **por quê**, e a única deste arquivo que roda em
  * milissegundos. As outras provam o efeito; esta nomeia a origem.
  */
+/**
+ * A causa, em uma linha e sem banco nenhum.
+ *
+ * Esta é a asserção que diz **por quê**, e a única deste arquivo que roda em
+ * milissegundos. As outras provam o efeito; esta nomeia a origem.
+ */
 describe("a família de dataset de cada tipo", () => {
   /* O contrato: os dois equipamentos são componentes da mesma vigência. */
   it("põe CAVALO e CARRETA na mesma família", () => {
-    expect(datasetFamilyFor("TRECHO")).toBeTruthy();
+    expect(datasetFamilyFor("CAVALO")).toBe(DATASET_FAMILY_REMUNERACAO_EQUIPAMENTO);
     expect(datasetFamilyFor("CAVALO")).toBe(datasetFamilyFor("CARRETA"));
   });
 
   /*
-    O defeito, dito na forma mais curta que existe.
+    A correção, dita na forma mais curta que existe.
 
-    `FAMILY_BY_ENTITY_TYPE` não tem entrada para TRECHO, e o padrão inclusivo o
-    manda para a família do equipamento. É daqui que sai tudo o que o `describe`
-    lá embaixo mede.
-
-    QUANDO TRECHO GANHAR FAMÍLIA PRÓPRIA esta asserção vira `not.toBe`, e é ela
-    que deve ser invertida primeiro — as outras são consequência.
+    Era daqui que saía tudo o que os `describe` abaixo medem: sem entrada no
+    mapa, TRECHO caía no padrão inclusivo e dividia identidade com o
+    equipamento. Com família própria, a tabela de frete é entrega própria.
   */
-  it("hoje põe TRECHO na MESMA família do equipamento — é o defeito", () => {
-    expect(datasetFamilyFor("TRECHO")).toBe(datasetFamilyFor("CAVALO"));
+  it("dá ao TRECHO família própria, fora da do equipamento", () => {
+    expect(datasetFamilyFor("TRECHO")).toBe(DATASET_FAMILY_TABELA_DE_FRETE);
+    expect(datasetFamilyFor("TRECHO")).not.toBe(datasetFamilyFor("CAVALO"));
   });
 
-  /* O QLP mostra como é quando o tipo tem família própria: identidade separada. */
-  it("mantém o quadro de pessoal fora da família do equipamento", () => {
+  /* O quadro de pessoal seguiu o mesmo caminho antes, e pela mesma razão. */
+  it("mantém o quadro de pessoal fora das outras duas", () => {
     expect(datasetFamilyFor("QLP_OPERACIONAL")).not.toBe(datasetFamilyFor("CAVALO"));
+    expect(datasetFamilyFor("QLP_OPERACIONAL")).not.toBe(datasetFamilyFor("TRECHO"));
     expect(datasetFamilyFor("QLP_ADMINISTRATIVO")).toBe(
       datasetFamilyFor("QLP_OPERACIONAL"),
     );
   });
+
+  /*
+    O padrão continua inclusivo para quem não está no mapa — é ele que faz um
+    equipamento novo entrar como componente em vez de abrir identidade paralela,
+    e dar família ao trecho não podia custar isso.
+  */
+  it("manda para a família do equipamento o tipo que o mapa não conhece", () => {
+    expect(datasetFamilyFor("DOLLY")).toBe(DATASET_FAMILY_REMUNERACAO_EQUIPAMENTO);
+  });
 });
 
-/**
- * A herança entre componentes — o que **tem** de continuar funcionando.
- *
- * Cavalo e carreta chegam em arquivos separados e descrevem a mesma vigência.
- * O segundo entra como revisão do primeiro e carrega os fatos dele adiante;
- * sem isso, importar a carreta apagaria os cavalos. Qualquer correção da fusão
- * do trecho passa por aqui sem mexer nesta metade.
- */
 describe("a herança entre cavalo e carreta", () => {
   const VIGENCIA = "EMPURRADA_1_7_2026";
 
@@ -222,7 +245,7 @@ describe("a herança entre cavalo e carreta", () => {
       "CAVALO",
     );
     expect(primeiro).toEqual([{ label: VIGENCIA, revision: 1 }]);
-    expect((await vigenciaAtiva(VIGENCIA)).entity_type_set).toBe("CAVALO");
+    expect((await vigenciaAtiva(VIGENCIA, DATASET_FAMILY_REMUNERACAO_EQUIPAMENTO)).entity_type_set).toBe("CAVALO");
 
     const segundo = await importar(
       planilhaDeEquipamento(VIGENCIA, "carretas", COLUNAS_DE_CARRETA, ["QWE4R56"]),
@@ -230,14 +253,14 @@ describe("a herança entre cavalo e carreta", () => {
     );
     expect(segundo).toEqual([{ label: VIGENCIA, revision: 2 }]);
 
-    const ativa = await vigenciaAtiva(VIGENCIA);
+    const ativa = await vigenciaAtiva(VIGENCIA, DATASET_FAMILY_REMUNERACAO_EQUIPAMENTO);
     expect(ativa.entity_type_set).toBe("CARRETA+CAVALO");
 
     /*
       O cavalo veio herdado e a carreta veio do arquivo. É esta linha que prova
       que a revisão não apagou o componente que ela não tocou.
     */
-    const fatos = await fatosPorTipo(VIGENCIA);
+    const fatos = await fatosPorTipo(VIGENCIA, DATASET_FAMILY_REMUNERACAO_EQUIPAMENTO);
     const cavalo = fatos.find((f) => f.tipo === "CAVALO");
     const carreta = fatos.find((f) => f.tipo === "CARRETA");
     expect(cavalo?.herdados).toBeGreaterThan(0);
@@ -248,85 +271,232 @@ describe("a herança entre cavalo e carreta", () => {
 });
 
 /**
- * A fusão do trecho com o equipamento — o defeito, reproduzido.
+ * A separação que a família própria garante.
  *
- * **Estas asserções não são o contrato.** Elas descrevem o que o pipeline faz
- * hoje, para que a decisão de corrigir seja tomada sobre um fato medido e para
- * que a correção tenha onde se apoiar. Cada uma diz o que passa a afirmar
- * quando TRECHO ganhar família própria.
+ * Eram as asserções que registravam o defeito. Hoje afirmam o contrário: o
+ * mesmo par de arquivos, no mesmo dia e na mesma unidade, produz **duas
+ * vigências** em vez de uma fundida.
  */
 describe("a tabela de frete e o export de equipamento na mesma data", () => {
   const VIGENCIA = "EMPURRADA_1_9_2026";
 
-  it("hoje faz do trecho uma revisão do equipamento, e não outra vigência", async () => {
+  it("abre vigência própria para o trecho, e não uma revisão do equipamento", async () => {
     await importar(
-      planilhaDeEquipamento(VIGENCIA, "cavalos", COLUNAS_DE_CAVALO, ["DEF2G34", "HIJ5K67"]),
+      planilhaDeEquipamento(VIGENCIA, "cavalos", COLUNAS_DE_CAVALO, [
+        "DEF2G34",
+        "HIJ5K67",
+      ]),
       "CAVALO",
     );
-    const soCavalo = await vigenciaAtiva(VIGENCIA);
-    expect(soCavalo.entity_type_set).toBe("CAVALO");
+    const equipamento = await vigenciaAtiva(VIGENCIA, DATASET_FAMILY_REMUNERACAO_EQUIPAMENTO);
+    expect(equipamento.entity_type_set).toBe("CAVALO");
 
     const trecho = await importar(
       planilhaDeTrecho(VIGENCIA, ["CAMACARI-SALVADOR", "CAMACARI-FEIRA"]),
       "TRECHO",
     );
 
-    /*
-      QUANDO TRECHO GANHAR FAMÍLIA PRÓPRIA: a importação do trecho passa a
-      gravar `revision: 1` de uma vigência **nova**, e não a revisão 2 desta.
-    */
-    expect(trecho).toEqual([{ label: VIGENCIA, revision: 2 }]);
+    /* Revisão 1 de uma vigência nova — e não a revisão 2 da do equipamento. */
+    expect(trecho).toEqual([{ label: VIGENCIA, revision: 1 }]);
 
-    const fundida = await vigenciaAtiva(VIGENCIA);
+    const daTabelaDeFrete = await vigenciaAtiva(VIGENCIA, DATASET_FAMILY_TABELA_DE_FRETE);
+    expect(daTabelaDeFrete.entity_type_set).toBe("TRECHO");
 
     /*
-      A causa, agora medida no banco: a mesma chave canônica para os dois
-      arquivos. Com família própria, as duas chaves passam a ser diferentes — e
-      `vigenciaAtiva` passa a encontrar DUAS vigências ativas para este rótulo,
-      de modo que este teste inteiro é reescrito, não remendado.
+      A causa e o efeito, medidos no banco: identidades canônicas diferentes, e
+      por isso duas vigências vivas para o mesmo rótulo. É a diferença entre
+      esta linha e a anterior à `0099` que a Auditoria de Km Rodado sentiu.
     */
-    expect(fundida.canonical_snapshot_key).toBe(soCavalo.canonical_snapshot_key);
-    expect(fundida.dataset_family).toBe(soCavalo.dataset_family);
+    expect(daTabelaDeFrete.canonical_snapshot_key).not.toBe(
+      equipamento.canonical_snapshot_key,
+    );
 
-    /*
-      E o efeito que a tela sentiu: a cobertura virou a união. É este valor que
-      o seletor de Km Rodado compara com o de outro mês, e é a diferença entre
-      `CAVALO+TRECHO` aqui e `TRECHO` lá que faz `engine.ts` recusar o par
-      ("Coberturas diferentes") e `parDePartida` não achar par nenhum.
-    */
-    expect(fundida.entity_type_set).toBe("CAVALO+TRECHO");
+    /* E o equipamento fica exatamente como estava: nada foi herdado por ele. */
+    const aindaEquipamento = await vigenciaAtiva(
+      VIGENCIA,
+      DATASET_FAMILY_REMUNERACAO_EQUIPAMENTO,
+    );
+    expect(aindaEquipamento.entity_type_set).toBe("CAVALO");
+    expect(aindaEquipamento.revision).toBe(1);
 
-    /*
-      A fusão pega no ato: os fatos de cavalo estão nesta vigência de trecho, e
-      estão como herdados. Não é um rótulo errado numa vigência certa — os dois
-      documentos estão dentro do mesmo snapshot.
-    */
-    const fatos = await fatosPorTipo(VIGENCIA);
-    expect(fatos.map((f) => f.tipo)).toEqual(["CAVALO", "TRECHO"]);
-    expect(fatos.find((f) => f.tipo === "CAVALO")?.herdados).toBeGreaterThan(0);
-    expect(fatos.find((f) => f.tipo === "TRECHO")?.doArquivo).toBeGreaterThan(0);
+    /* Cada documento com os seus fatos, e nenhum fato herdado em lugar nenhum. */
+    expect(await fatosPorTipo(VIGENCIA, DATASET_FAMILY_TABELA_DE_FRETE)).toEqual([
+      { tipo: "TRECHO", herdados: 0, doArquivo: expect.any(Number) },
+    ]);
+    expect(await fatosPorTipo(VIGENCIA, DATASET_FAMILY_REMUNERACAO_EQUIPAMENTO)).toEqual([
+      { tipo: "CAVALO", herdados: 0, doArquivo: expect.any(Number) },
+    ]);
   }, 300_000);
 
   /*
-    O que torna a fusão difícil de perceber: ela é silenciosa.
+    Nada foi fundido, então não há fusão a registrar.
 
-    `promote` roda no modo padrão FAIL, que existe para "recusar quando a chave
-    de negócio já existe". A recusa VIGENCIA_ATIVA_EXISTENTE só dispara quando
-    os tipos que entram se **sobrepõem** aos que já estão vivos, e TRECHO não se
-    sobrepõe a CAVALO — então nada é recusado e nada é perguntado. O teste
-    acima, que não passa `onExistingSnapshot`, é a prova: ele promoveu.
+    `snapshot_merge` é escrito quando uma revisão herda componentes que o
+    arquivo não trouxe. A ausência da linha é a prova de que o trecho não passou
+    por ali — antes da `0099` ela existia, dizendo "o arquivo trouxe TRECHO e 16
+    fatos dos componentes não tocados foram herdados da revisão 1".
   */
-  it("registra a fusão em snapshot_merge, que é onde ela ficou dita", async () => {
+  it("não registra fusão nenhuma em snapshot_merge", async () => {
     const { rows } = await ctx.db.execute<{ motivo: string }>(sql`
       SELECT m.motivo
         FROM snapshot_merge m
         JOIN snapshot s ON s.id = m.snapshot_id
        WHERE s.source_label = ${VIGENCIA}
-         AND s.status <> 'SUPERSEDED'
     `);
 
-    expect(rows).toHaveLength(1);
-    expect(rows[0].motivo).toContain("o arquivo trouxe TRECHO");
-    expect(rows[0].motivo).toMatch(/fatos dos componentes não tocados foram herdados/);
+    expect(rows).toEqual([]);
+  }, 120_000);
+});
+
+/**
+ * O REPARO DO QUE JÁ ENTROU FUNDIDO — `freightcheck_separar_familia_do_trecho`.
+ *
+ * Corrigir a regra não reescreve o que entrou com ela: uma base anterior à
+ * `0099` tem vigências `CAVALO+TRECHO` gravadas, e é delas que a Auditoria de Km
+ * Rodado reclamou. A função de reparo desfaz a fusão.
+ *
+ * **O estado legado é montado à mão, e não pelo pipeline.** Com
+ * `datasetFamilyFor` corrigida, o pipeline não funde mais — então não há como
+ * produzir o insumo importando. O que estas funções fazem é reconstruir
+ * exatamente a forma que a `0099` encontra em produção: os fatos de trecho
+ * dentro da vigência de equipamento, a cobertura unida, e a família do
+ * equipamento nas duas.
+ */
+describe("o reparo da fusão que já está gravada", () => {
+  const FUNDIDA = "EMPURRADA_2_9_2026";
+  const SO_TRECHO = "EMPURRADA_1_10_2026";
+
+  /** Devolve a vigência de trecho para dentro da de equipamento. */
+  async function fundirComoAntesDa0099(label: string) {
+    await ctx.db.execute(sql`ALTER TABLE snapshot DISABLE TRIGGER snapshot_immutable`);
+    await ctx.db.execute(sql`ALTER TABLE fact DISABLE TRIGGER fact_immutable`);
+    const { rows } = await ctx.db.execute<{ equip: string; trecho: string }>(sql`
+      SELECT (SELECT id FROM snapshot WHERE source_label = ${label}
+               AND dataset_family = ${DATASET_FAMILY_REMUNERACAO_EQUIPAMENTO}) AS equip,
+             (SELECT id FROM snapshot WHERE source_label = ${label}
+               AND dataset_family = ${DATASET_FAMILY_TABELA_DE_FRETE}) AS trecho
+    `);
+    const { equip, trecho } = rows[0];
+    expect(equip).toBeTruthy();
+    expect(trecho).toBeTruthy();
+    for (const tabela of ["fact", "snapshot_attribute", "snapshot_entity_type", "snapshot_presenca"]) {
+      await ctx.db.execute(sql`
+        UPDATE ${sql.raw(tabela)} SET snapshot_id = ${equip}::uuid
+         WHERE snapshot_id = ${trecho}::uuid`);
+    }
+    await ctx.db.execute(sql`DELETE FROM snapshot_scope WHERE snapshot_id = ${trecho}::uuid`);
+    await ctx.db.execute(sql`DELETE FROM snapshot_merge WHERE snapshot_id = ${trecho}::uuid`);
+    await ctx.db.execute(sql`DELETE FROM snapshot WHERE id = ${trecho}::uuid`);
+    await ctx.db.execute(sql`
+      UPDATE snapshot SET entity_type_set = 'CAVALO+TRECHO',
+             fact_count = (SELECT count(*) FROM fact WHERE snapshot_id = ${equip}::uuid)
+       WHERE id = ${equip}::uuid`);
+    await ctx.db.execute(sql`ALTER TABLE fact ENABLE TRIGGER fact_immutable`);
+    await ctx.db.execute(sql`ALTER TABLE snapshot ENABLE TRIGGER snapshot_immutable`);
+  }
+
+  /** Devolve uma vigência só de trecho para a família errada. */
+  async function familiaLegada(label: string) {
+    await ctx.db.execute(sql`ALTER TABLE snapshot DISABLE TRIGGER snapshot_immutable`);
+    await ctx.db.execute(sql`
+      UPDATE snapshot SET dataset_family = ${DATASET_FAMILY_REMUNERACAO_EQUIPAMENTO}
+       WHERE source_label = ${label}
+         AND dataset_family = ${DATASET_FAMILY_TABELA_DE_FRETE}`);
+    await ctx.db.execute(sql`ALTER TABLE snapshot ENABLE TRIGGER snapshot_immutable`);
+  }
+
+  async function reparar() {
+    /*
+      Duas instruções, e não uma com CTE: a linha que a função grava não é
+      visível para o SELECT da **mesma** instrução — o instantâneo dele é
+      anterior ao INSERT que a função faz. A primeira versão disto lia zero
+      linhas e o teste morria dizendo que `vigencias_separadas` era undefined.
+    */
+    const aplicado = await ctx.db.execute<{ id: string }>(
+      sql`SELECT freightcheck_separar_familia_do_trecho() AS id`,
+    );
+    const { rows } = await ctx.db.execute<{
+      vigencias_movidas: number;
+      vigencias_separadas: number;
+      vigencias_criadas: number;
+      fatos_movidos: number;
+      ignoradas: unknown[];
+    }>(sql`
+      SELECT vigencias_movidas, vigencias_separadas, vigencias_criadas,
+             fatos_movidos, ignoradas
+        FROM reparo_familia_do_trecho WHERE id = ${aplicado.rows[0].id}::uuid
+    `);
+    return rows[0];
+  }
+
+  beforeAll(async () => {
+    await importar(
+      planilhaDeEquipamento(FUNDIDA, "cavalos", COLUNAS_DE_CAVALO, ["LMN1P22", "QRS3T44"]),
+      "CAVALO",
+    );
+    await importar(planilhaDeTrecho(FUNDIDA, ["FEIRA-ITABUNA", "FEIRA-VITORIA"]), "TRECHO");
+    await importar(planilhaDeTrecho(SO_TRECHO, ["ILHEUS-PORTO", "ILHEUS-SUL"]), "TRECHO");
+    await fundirComoAntesDa0099(FUNDIDA);
+    await familiaLegada(SO_TRECHO);
+  }, 600_000);
+
+  it("separa a vigência fundida em duas, sem perder fato nenhum", async () => {
+    const fundida = await vigenciaAtiva(FUNDIDA, DATASET_FAMILY_REMUNERACAO_EQUIPAMENTO);
+    expect(fundida.entity_type_set).toBe("CAVALO+TRECHO");
+    const antes = fundida.fact_count;
+
+    const registro = await reparar();
+
+    expect(registro.vigencias_separadas).toBe(1);
+    expect(registro.vigencias_criadas).toBe(1);
+    expect(registro.fatos_movidos).toBeGreaterThan(0);
+    expect(registro.ignoradas).toEqual([]);
+
+    const equipamento = await vigenciaAtiva(FUNDIDA, DATASET_FAMILY_REMUNERACAO_EQUIPAMENTO);
+    const trecho = await vigenciaAtiva(FUNDIDA, DATASET_FAMILY_TABELA_DE_FRETE);
+
+    expect(equipamento.entity_type_set).toBe("CAVALO");
+    expect(trecho.entity_type_set).toBe("TRECHO");
+    /* O que entrou fundido sai somando o mesmo: nenhum fato se perdeu no meio. */
+    expect(equipamento.fact_count + trecho.fact_count).toBe(antes);
+    /* E as duas passam a ter identidade própria, que é o ponto de tudo. */
+    expect(trecho.canonical_snapshot_key).not.toBe(equipamento.canonical_snapshot_key);
+  }, 300_000);
+
+  it("leva o layout declarado junto com o documento a que ele pertence", async () => {
+    const { rows } = await ctx.db.execute<{ dataset_family: string; tipos: string }>(sql`
+      SELECT s.dataset_family, string_agg(DISTINCT a.entity_type, ',' ORDER BY a.entity_type) AS tipos
+        FROM snapshot s
+        JOIN snapshot_attribute sa ON sa.snapshot_id = s.id
+        JOIN attribute a ON a.id = sa.attribute_id
+       WHERE s.source_label = ${FUNDIDA}
+       GROUP BY s.dataset_family
+       ORDER BY s.dataset_family
+    `);
+
+    expect(rows).toEqual([
+      { dataset_family: DATASET_FAMILY_REMUNERACAO_EQUIPAMENTO, tipos: "CAVALO" },
+      { dataset_family: DATASET_FAMILY_TABELA_DE_FRETE, tipos: "TRECHO" },
+    ]);
+  }, 120_000);
+
+  it("move de família a vigência que já era só de trecho", async () => {
+    const trecho = await vigenciaAtiva(SO_TRECHO, DATASET_FAMILY_TABELA_DE_FRETE);
+
+    expect(trecho.entity_type_set).toBe("TRECHO");
+    expect(trecho.fact_count).toBeGreaterThan(0);
+  }, 120_000);
+
+  /*
+    Rodar de novo não encontra nada — é o que permite a migration ser aplicada
+    a uma base já reparada sem estragá-la, e é o que a torna segura de repetir
+    num rollback-forward.
+  */
+  it("é idempotente", async () => {
+    const segunda = await reparar();
+
+    expect(segunda.vigencias_movidas).toBe(0);
+    expect(segunda.vigencias_separadas).toBe(0);
+    expect(segunda.fatos_movidos).toBe(0);
   }, 120_000);
 });

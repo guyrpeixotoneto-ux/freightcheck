@@ -277,6 +277,39 @@ export const snapshotMergeTable = pgTable("snapshot_merge", {
     .defaultNow(),
 });
 
+/**
+ * O que o reparo da `0099` fez — uma linha por execução.
+ *
+ * `TRECHO` dividia família com o equipamento, e por isso dividia **identidade
+ * canônica**: a tabela de frete de uma unidade e o export de equipamento da
+ * mesma data e canal eram a mesma vigência, e o segundo arquivo a chegar
+ * entrava como revisão do primeiro, com a cobertura virando a união. A `0099`
+ * deu família própria ao trecho e separou o que já estava fundido.
+ *
+ * A tabela existe pelo mesmo motivo de `entity_type_correction` (`0009`): um
+ * reparo que mexe em vigência fechada não pode ser invisível depois. Ela diz
+ * quantas vigências mudaram de família, quantas foram separadas em duas,
+ * quantos fatos mudaram de vigência — e, em `ignoradas`, o que o reparo
+ * recusou tocar e por quê.
+ *
+ * Uma linha de zeros é o resultado normal da segunda execução: o reparo é
+ * idempotente.
+ */
+export const reparoFamiliaDoTrechoTable = pgTable("reparo_familia_do_trecho", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  /** Vigências que só mudaram de família — a cobertura já era só de trecho. */
+  vigenciasMovidas: integer("vigencias_movidas").notNull().default(0),
+  /** Vigências fundidas que foram separadas em duas. */
+  vigenciasSeparadas: integer("vigencias_separadas").notNull().default(0),
+  /** Vigências de trecho criadas pela separação. */
+  vigenciasCriadas: integer("vigencias_criadas").notNull().default(0),
+  /** Fatos de trecho que mudaram de vigência. */
+  fatosMovidos: integer("fatos_movidos").notNull().default(0),
+  /** O que o reparo não tocou, com o motivo de cada caso. */
+  ignoradas: jsonb("ignoradas").notNull().default([]),
+  aplicadoEm: timestamp("aplicado_em", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const snapshotScopeTable = pgTable(
   "snapshot_scope",
   {

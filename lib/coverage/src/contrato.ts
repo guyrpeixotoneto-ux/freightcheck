@@ -2,7 +2,6 @@ import { and, eq, isNull, or, sql } from "drizzle-orm";
 import type { Database } from "@workspace/db";
 import { coverageExpectationTable, curationEventTable } from "@workspace/db";
 import { PLANO_DA_DRE } from "@workspace/dre";
-import { datasetFamilyFor } from "@workspace/ingest";
 import {
   CATALOGO_DECLARADO,
   entraNaDRE,
@@ -197,7 +196,25 @@ function declaradoDoCatalogo(atributo: AtributoDeclarado): EsperadoDeclarado {
   return {
     attributeCode: atributo.code,
     entityType: atributo.entityType,
-    datasetFamily: datasetFamilyFor(atributo.entityType),
+    /*
+      O eixo de família da Cobertura é o do **contrato**, não o da identidade da
+      vigência — e é por isso que ele não seguiu `datasetFamilyFor` quando a
+      `0099` deu família própria ao trecho.
+
+      A matriz mede "quanto do universo declarado nós temos", e a linha de
+      TRECHO existe nela justamente porque o trecho está no catálogo e **nunca
+      chegou em arquivo nenhum**: sem ela, a cobertura fecharia 100% ignorando
+      110 atributos declarados (ver `cobertura-real.test.ts`). Movendo a
+      expectativa para a família da tabela de frete, ela passaria a depender de
+      existir uma vigência daquela família para ter onde ser contada — e o
+      buraco que a linha denuncia sumiria justamente no acervo onde ele é maior.
+
+      `FAMILIA_DA_DRE` já era a família de toda expectativa vinda da DRE, pelo
+      mesmo motivo. Unificar os dois eixos — o do contrato e o da identidade — é
+      uma decisão de produto sobre como a Cobertura deve agrupar, e não um
+      efeito colateral que a correção da identidade deva tomar sozinha.
+    */
+    datasetFamily: FAMILIA_DA_DRE,
     canal: null,
     scopeKey: null,
     criticidade: naDRE ? "RELEVANTE" : "INFORMATIVO",

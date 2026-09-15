@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { FAMILIAS_QUE_A_UNIDADE_ENTREGA } from "@workspace/ingest/familias";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ArrowRight, GitCompareArrows } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
@@ -76,9 +77,18 @@ export default function Comparar() {
     setJanela((atual) => (atual.pagina === 1 ? atual : { ...atual, pagina: 1 }));
   }, [filters, set?.id]);
 
+  /*
+    Duas famílias, e não o padrão: esta lista é "o que a unidade entregou", e
+    desde a `0099` a tabela de frete é entrega própria (`TABELA_DE_FRETE`). Sem
+    pedi-la, as vigências de trecho sumiriam daqui — elas só apareciam antes por
+    estarem, indevidamente, na família do equipamento.
+  */
   const { data: snapshots = [], error: snapshotsError } = useQuery({
-    queryKey: ["snapshots"],
-    queryFn: () => fetchJson<Snapshot[]>("/snapshots"),
+    queryKey: ["snapshots", ...FAMILIAS_QUE_A_UNIDADE_ENTREGA],
+    queryFn: () =>
+      fetchJson<Snapshot[]>(
+        `/snapshots?datasetFamily=${FAMILIAS_QUE_A_UNIDADE_ENTREGA.join(",")}`,
+      ),
   });
 
   /**

@@ -174,27 +174,53 @@ describe("a ingestão continua fazendo o que fazia", () => {
   });
 
   /**
-   * 10. A leitura que depende de trecho **e** equipamento continua possível.
+   * 10. A leitura que depende de trecho **e** equipamento continua possível —
+   * agora com as duas em famílias diferentes.
    *
-   * O que garante isso não é uma asserção de tela: é o trecho continuar na mesma
-   * família de dataset e no mesmo contexto do equipamento, que é o que faz os
-   * dois caberem na mesma identidade canônica quando a data é a mesma. Separar
-   * TRECHO em família própria arrumaria o seletor e quebraria a remuneração —
-   * por isso o eixo de análise é **tipo**, e a navegação exclui só a casca
-   * autônoma, não a família inteira.
+   * **Este teste afirmava o contrário, e a mudança é deliberada.** A versão
+   * anterior dizia: *"Separar TRECHO em família própria arrumaria o seletor e
+   * quebraria a remuneração — por isso o eixo de análise é tipo, e a navegação
+   * exclui só a casca autônoma, não a família inteira."* Era uma objeção
+   * correta ao remédio errado, e ela cobrava um preço que só ficou visível
+   * depois: partilhando a família, a tabela de frete e o export de equipamento
+   * da mesma data partilhavam a **identidade canônica**, e o segundo arquivo a
+   * chegar entrava como revisão do primeiro. A cobertura gravada virava
+   * `CAVALO+TRECHO`, e a Auditoria de Km Rodado abria sem par possível.
+   *
+   * A `0099` separou a família e a objeção continua valendo: a remuneração não
+   * podia quebrar. O que a mantém de pé não é mais o acidente de as duas
+   * estarem na mesma família — é `incluirCascaDeTrecho` pedir a família da
+   * tabela de frete junto (`listContexts`, em `series.ts`). A unidade que só
+   * entregou trecho continua aparecendo para quem a quer, e continua fora da
+   * navegação por vigência para quem não a quer.
+   *
+   * O que este teste guarda agora é a **unidade**: as duas vigências são de
+   * escopo único e continuam sendo uma só unidade no seletor. É a metade da
+   * afirmação original que nunca esteve em questão.
    */
-  it("mantém trecho e equipamento na mesma família e na mesma unidade", async () => {
+  it("separa trecho e equipamento em famílias, mantendo a unidade uma só", async () => {
     const { rows } = await ctx.db.execute<{ dataset_family: string; scope_hash: string }>(sql`
       SELECT DISTINCT s.dataset_family, s.scope_hash
-        FROM snapshot s WHERE s.status <> 'SUPERSEDED'`);
+        FROM snapshot s WHERE s.status <> 'SUPERSEDED'
+       ORDER BY s.dataset_family`);
 
-    expect(rows.map((r) => r.dataset_family)).toEqual(["REMUNERACAO_EQUIPAMENTO"]);
+    expect(rows.map((r) => r.dataset_family)).toEqual([
+      "REMUNERACAO_EQUIPAMENTO",
+      "TABELA_DE_FRETE",
+    ]);
     expect(new Set(rows.map((r) => r.scope_hash)).size).toBe(1);
 
     // A unidade continua uma só no seletor — ver o describe seguinte para o
     // que muda em `periodosDisponiveis`.
     const contextos = await listContexts(ctx.db);
     expect(contextos).toHaveLength(1);
+
+    /*
+      E a casca continua alcançável por quem a pede — a promessa que a objeção
+      original cobrava, agora cumprida pela família e não pelo acidente.
+    */
+    const comCasca = await listContexts(ctx.db, { incluirCascaDeTrecho: true });
+    expect(comCasca).toHaveLength(1);
   });
 });
 

@@ -3,6 +3,7 @@ import type { Database } from "@workspace/db";
 import {
   channelOf,
   DATASET_FAMILY_REMUNERACAO_EQUIPAMENTO,
+  DATASET_FAMILY_TABELA_DE_FRETE,
 } from "@workspace/ingest";
 
 /**
@@ -363,8 +364,28 @@ export async function listContexts(
     operacao?: Operacao | null;
   },
 ): Promise<ContextInfo[]> {
+  /*
+    A casca de trecho mudou de endereço: de `entity_type_set = 'TRECHO'` para
+    uma família própria (`TABELA_DE_FRETE`). Quem a quer passa a pedir a
+    família junto, e quem não a quer não precisa mais excluí-la — ela já está
+    fora por não ser da família pedida.
+
+    `naoEhSoTrecho` continua aplicado porque o acervo tem passado: uma vigência
+    promovida antes da `0099` e não alcançada pelo reparo ainda pode estar na
+    família do equipamento declarando só trecho, e para quem navega por vigência
+    ela continua sendo casca. Duas linhas de defesa para o mesmo defeito, e a
+    segunda custa um `<>` numa cláusula que já existia.
+  */
   const datasetFamily = opts?.datasetFamily ?? DATASET_FAMILY_REMUNERACAO_EQUIPAMENTO;
-  const familia = sql` AND ${datasetFamilyFilter("s", datasetFamily)}`;
+  /*
+    A família que o contexto **carrega** continua sendo uma só — a pedida —, e
+    não a lista. Quem leva o contexto adiante o usa em `contextFilter`, e ali
+    duas famílias significariam ler as duas em toda consulta seguinte. As duas
+    chamadoras da casca (o Radar de Trechos e a procedência da remuneração)
+    querem dela só o nome da unidade, e é o que a lista maior entrega.
+  */
+  const daCasca = opts?.incluirCascaDeTrecho ? [DATASET_FAMILY_TABELA_DE_FRETE] : [];
+  const familia = sql` AND ${datasetFamilyFilter("s", [datasetFamily, ...daCasca])}`;
   const semCasca = opts?.incluirCascaDeTrecho ? sql`` : sql` AND ${naoEhSoTrecho("s")}`;
   const operacao = normalizarOperacao(opts?.operacao ?? null);
   const daOperacao = sql` AND ${operacaoFilter("s", operacao)}`;
@@ -635,9 +656,49 @@ export function contextFilter(snapshotAlias: string, context: SeriesContext) {
  * consulta sem cláusula nenhuma — portanto todas as famílias — é a escolha de
  * misturar, e não a ausência de escolha.
  */
-export function datasetFamilyFilter(snapshotAlias: string, datasetFamily?: string) {
-  return sql`${sql.raw(`${snapshotAlias}.dataset_family`)} =
-             ${datasetFamily ?? DATASET_FAMILY_REMUNERACAO_EQUIPAMENTO}`;
+export function datasetFamilyFilter(
+  snapshotAlias: string,
+  /**
+   * Uma família, várias, ou nenhuma (o padrão de equipamento).
+   *
+   * A lista entrou com a tabela de frete. Há leituras que precisam de **duas**
+   * famílias ao mesmo tempo e não de todas: o Radar de Trechos e a procedência
+   * da remuneração leem a unidade que entregou equipamento *e* a que só
+   * entregou trecho, e a tela de Vigências lista o que a unidade entregou, seja
+   * qual for o documento. Antes da família própria do trecho as duas coisas
+   * chegavam juntas por acidente — o trecho estava na família do equipamento —,
+   * e é esse acidente que a lista substitui por uma escolha escrita.
+   *
+   * Lista vazia continua sendo o padrão de equipamento, e não "nenhuma
+   * família": uma consulta que não devolve nada nunca é o que quem chama quis.
+   */
+  datasetFamily?: string | readonly string[],
+) {
+  const familias = (
+    typeof datasetFamily === "string"
+      ? [datasetFamily]
+      : (datasetFamily ?? []).filter((f) => f !== "")
+  ).filter((f, i, todas) => todas.indexOf(f) === i);
+  if (familias.length === 0) {
+    return sql`${sql.raw(`${snapshotAlias}.dataset_family`)} =
+               ${DATASET_FAMILY_REMUNERACAO_EQUIPAMENTO}`;
+  }
+  if (familias.length === 1) {
+    return sql`${sql.raw(`${snapshotAlias}.dataset_family`)} = ${familias[0]}`;
+  }
+  /*
+    `IN (...)` com um parâmetro por família, e não `= ANY(${familias})`.
+
+    O segundo parece mais limpo e não funciona: o drizzle interpola um array de
+    JavaScript como **tupla** de parâmetros, e o que chega ao Postgres é
+    `= ANY(($1, $2))` — sintaxe inválida. O erro não aparece na montagem da
+    consulta; aparece quando ela roda, e foi assim que o Radar de Trechos
+    quebrou nos testes antes desta linha existir.
+  */
+  return sql`${sql.raw(`${snapshotAlias}.dataset_family`)} IN (${sql.join(
+    familias.map((f) => sql`${f}`),
+    sql`, `,
+  )})`;
 }
 
 /** A chave da série: contexto + cobertura de equipamento. */

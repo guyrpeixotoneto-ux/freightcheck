@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { FAMILIAS_QUE_A_UNIDADE_ENTREGA } from "@workspace/ingest/familias";
 import { Database, ArrowRight } from "lucide-react";
 import { Link } from "wouter";
 import { Layout } from "@/components/layout/layout";
@@ -27,9 +28,18 @@ interface Snapshot {
 }
 
 export default function Vigencias() {
+  /*
+    Duas famílias, e não o padrão: esta lista é "o que a unidade entregou", e
+    desde a `0099` a tabela de frete é entrega própria (`TABELA_DE_FRETE`). Sem
+    pedi-la, as vigências de trecho sumiriam daqui — elas só apareciam antes por
+    estarem, indevidamente, na família do equipamento.
+  */
   const { data: snapshots = [], isLoading, error } = useQuery({
-    queryKey: ["snapshots"],
-    queryFn: () => fetchJson<Snapshot[]>("/snapshots"),
+    queryKey: ["snapshots", ...FAMILIAS_QUE_A_UNIDADE_ENTREGA],
+    queryFn: () =>
+      fetchJson<Snapshot[]>(
+        `/snapshots?datasetFamily=${FAMILIAS_QUE_A_UNIDADE_ENTREGA.join(",")}`,
+      ),
   });
 
   const totalFacts = snapshots.reduce((sum, s) => sum + s.factCount, 0);

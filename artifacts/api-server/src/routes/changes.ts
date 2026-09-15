@@ -159,7 +159,29 @@ router.get("/contexts", async (req, res): Promise<void> => {
 });
 
 /**
- * As vigências vivas — **de uma família por vez, a de equipamento por padrão**.
+ * As famílias que a consulta pediu — uma, várias, ou o padrão de equipamento.
+ *
+ * `?datasetFamily=TABELA_DE_FRETE` para uma; separadas por vírgula para mais de
+ * uma. A lista entrou com a família própria da tabela de frete (`0099`): as
+ * telas de trecho pedem só ela, e as listagens gerais — Vigências, Comparar —
+ * pedem as duas, porque antes recebiam o trecho de graça, por ele estar na
+ * família do equipamento.
+ *
+ * Vazio continua sendo o padrão de equipamento, e não "todas": esta rota é de
+ * onde `/changes/latest` tira "a série mais recente", e uma quinzena de cargos
+ * entrando aqui trocava qual série a tela de Alterações abre.
+ */
+function familiasDaConsulta(valor: unknown): string[] | undefined {
+  if (typeof valor !== "string" || valor.trim() === "") return undefined;
+  const familias = valor
+    .split(",")
+    .map((f) => f.trim())
+    .filter((f) => f !== "");
+  return familias.length > 0 ? familias : undefined;
+}
+
+/**
+ * As vigências vivas — **das famílias pedidas, a de equipamento por padrão**.
  *
  * Era a lista inteira, e quem quisesse outra família recortava no cliente. A
  * tela do quadro de pessoal fazia exatamente isso, e por isso o padrão não
@@ -169,22 +191,14 @@ router.get("/contexts", async (req, res): Promise<void> => {
  * conversa de `/contexts`, e a mesma de `lib/qlp/src/contexto.ts`.
  */
 router.get("/snapshots", async (req, res): Promise<void> => {
-  const datasetFamily =
-    typeof req.query.datasetFamily === "string" &&
-    req.query.datasetFamily !== ""
-      ? req.query.datasetFamily
-      : undefined;
+  const datasetFamily = familiasDaConsulta(req.query.datasetFamily);
   const operacao = operacaoDaConsulta(req.query as Record<string, unknown>);
   res.json(await listComparableSnapshots(db, { datasetFamily, operacao }));
 });
 
 /** As comparações gravadas — mesma regra de família de `/snapshots`. */
 router.get("/change-sets", async (req, res): Promise<void> => {
-  const datasetFamily =
-    typeof req.query.datasetFamily === "string" &&
-    req.query.datasetFamily !== ""
-      ? req.query.datasetFamily
-      : undefined;
+  const datasetFamily = familiasDaConsulta(req.query.datasetFamily);
   const operacao = operacaoDaConsulta(req.query as Record<string, unknown>);
   res.json(await listChangeSets(db, { datasetFamily, operacao }));
 });

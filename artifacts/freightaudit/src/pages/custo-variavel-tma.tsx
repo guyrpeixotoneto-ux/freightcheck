@@ -14,6 +14,7 @@ import {
   vigenciasDaUnidade,
   vigenciasQueCobrem,
 } from "@workspace/comparison/recorte-de-rubrica";
+import { DATASET_FAMILY_TABELA_DE_FRETE } from "@workspace/ingest/familias";
 import { avisoDoParImpossivel } from "@/lib/par-de-vigencias";
 import { Layout } from "@/components/layout/layout";
 import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
@@ -103,9 +104,21 @@ export default function AuditoriaDeTma() {
   const [pagina, setPagina] = useState(1);
   const [porPagina, setPorPagina] = useState(50);
 
+  /*
+    A lista de vigências vem da família da **tabela de frete**, e não do padrão.
+
+    Desde a `0099` o trecho tem identidade própria (`TABELA_DE_FRETE`): a
+    tabela de frete de uma unidade deixou de partilhar a vigência com o export
+    de equipamento da mesma data, que era o que fundia as duas coberturas e
+    fazia esta tela abrir sem par possível. `/snapshots` sem família responde
+    equipamento — pedir a família errada aqui seria uma lista vazia.
+  */
   const vigencias = useQuery({
-    queryKey: ["snapshots"],
-    queryFn: () => fetchJson<VigenciaEscolhivel[]>("/snapshots"),
+    queryKey: ["snapshots", DATASET_FAMILY_TABELA_DE_FRETE],
+    queryFn: () =>
+      fetchJson<VigenciaEscolhivel[]>(
+        `/snapshots?datasetFamily=${DATASET_FAMILY_TABELA_DE_FRETE}`,
+      ),
   });
 
   /** A unidade aberta na lateral — sem isto, trocar de unidade trocaria de tela. */

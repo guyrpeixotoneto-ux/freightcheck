@@ -694,6 +694,13 @@
       "when": 1789501200000,
       "tag": "0098_justificativa_estruturada",
       "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1789503271371,
+      "tag": "0099_familia_da_tabela_de_frete",
+      "breakpoints": true
     }
   ]
 }

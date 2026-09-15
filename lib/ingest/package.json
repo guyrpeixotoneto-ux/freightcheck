@@ -10,7 +10,8 @@
     "./tipos": "./src/tipos.ts",
     "./apontamentos": "./src/apontamentos.ts",
     "./testing": "./src/testing.ts",
-    "./testing/planilha": "./src/__tests__/planilha-sintetica.ts"
+    "./testing/planilha": "./src/__tests__/planilha-sintetica.ts",
+    "./familias": "./src/familias.ts"
   },
   "scripts": {
     "test": "vitest run",
