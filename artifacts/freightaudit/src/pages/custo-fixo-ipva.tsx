@@ -25,12 +25,14 @@ import {
 } from "@/components/ui/select";
 import { SeletorDoPar, type VigenciaEscolhivel } from "@/components/comparacao/seletor-do-par";
 import {
-  parDePartida,
+  motivoSemPar,
+  parReconciliado,
   rotulosDasVigencias,
   TIPOS_DE_EQUIPAMENTO,
   vigenciasDaUnidade,
   vigenciasQueCobrem,
 } from "@workspace/comparison/recorte-de-rubrica";
+import { avisoDoParImpossivel } from "@/lib/par-de-vigencias";
 import { CartoesDeIpva } from "@/components/ipva/cartoes";
 import {
   AliquotaImplicita,
@@ -197,30 +199,43 @@ export default function AuditoriaDeIpva() {
   /**
    * O par aberto, mantido dentro da unidade aberta.
    *
-   * Duas coisas num efeito só porque são a mesma: **o par tem de existir dentro
-   * desta lista**. Ao trocar de unidade, o par anterior deixa de estar nela — e
+   * Quem decide é `parReconciliado`, e a regra dele é uma: **o que está na
+   * lista fica**. Ao trocar de unidade, o par anterior deixa de estar nela — e
    * mantê-lo faria a tela responder por Pernambuco sob a palavra CAMAÇARI. Ao
-   * abrir sem par nenhum, é `parDePartida` quem escolhe, com as duas recusas do
-   * motor antecipadas: mesma cobertura e mesmo escopo.
+   * abrir sem nenhuma ponta válida, é `parDePartida` quem escolhe, com as duas
+   * recusas do motor antecipadas: mesma cobertura e mesmo escopo.
+   *
+   * O que ele nunca faz é desfazer escolha de quem escolheu — o defeito
+   * relatado na Auditoria de Km Rodado, onde cada clique no seletor era apagado
+   * no quadro seguinte.
    */
   useEffect(() => {
     if (!vigencias.data || !unidadeResolvida) return;
-    const naLista = (id: string) => daUnidade.some((v) => v.id === id);
-    if (base && comparada && naLista(base) && naLista(comparada)) return;
-    const par = parDePartida(daUnidade);
-    setBase(par?.base.id ?? "");
-    setComparada(par?.comparada.id ?? "");
+    const par = parReconciliado(daUnidade, { base, comparada });
+    if (par.base !== base) setBase(par.base);
+    if (par.comparada !== comparada) setComparada(par.comparada);
   }, [vigencias.data, daUnidade, unidadeResolvida, base, comparada]);
 
   /**
-   * A unidade já respondeu e não tem duas vigências para comparar.
+   * Por que esta lista não dá par — quando não dá.
    *
    * Sai da lista, e não de "as duas pontas estão vazias": o par é escolhido num
    * efeito, que roda **depois** da renderização — ler o estado aqui piscaria a
    * tela vazia por um quadro em toda unidade que tem par.
    */
-  const semParPossivel =
-    Boolean(vigencias.data) && unidadeResolvida && parDePartida(daUnidade) === null;
+  const semPar =
+    Boolean(vigencias.data) && unidadeResolvida ? motivoSemPar(daUnidade) : null;
+  /** Há lista e mesmo assim não há par: a frase da tela vazia é outra. */
+  const parImpossivel = semPar ? avisoDoParImpossivel(semPar) : null;
+  /**
+   * A tela vazia fala enquanto ninguém escolheu o par inteiro.
+   *
+   * Com as duas pontas escolhidas à mão — o que `parReconciliado` agora
+   * preserva —, quem responde é a comparação, ou a recusa do servidor sobre
+   * aquele par. Manter a frase no ar ao lado do resultado negaria o que está
+   * logo abaixo dela.
+   */
+  const semParPossivel = semPar !== null && !(base && comparada);
 
   /**
    * Os números de cada candidata a "De", contra o "Para" aberto.
@@ -335,11 +350,17 @@ export default function AuditoriaDeIpva() {
         {semParPossivel && (
           <EstadoVazio
             icone={Receipt}
-            titulo="Esta unidade não tem duas vigências para comparar"
+            titulo={
+              parImpossivel
+                ? parImpossivel.titulo
+                : "Esta unidade não tem duas vigências para comparar"
+            }
             descricao={
-              escopoAberto
-                ? "A comparação de IPVA precisa de duas vigências da mesma unidade. Escolha outra unidade na lateral ou importe a vigência seguinte."
-                : "O acervo ainda não tem duas vigências da mesma unidade e da mesma cobertura para comparar."
+              parImpossivel
+                ? parImpossivel.descricao
+                : escopoAberto
+                  ? "A comparação de IPVA precisa de duas vigências da mesma unidade. Escolha outra unidade na lateral ou importe a vigência seguinte."
+                  : "O acervo ainda não tem duas vigências da mesma unidade e da mesma cobertura para comparar."
             }
           />
         )}

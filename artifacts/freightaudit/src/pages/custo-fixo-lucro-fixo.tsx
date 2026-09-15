@@ -9,12 +9,14 @@ import {
   VARIAVEIS_DE_LUCRO_FIXO,
 } from "@workspace/comparison/lucro-fixo";
 import {
-  parDePartida,
+  motivoSemPar,
+  parReconciliado,
   rotulosDasVigencias,
   TIPOS_DE_EQUIPAMENTO,
   vigenciasDaUnidade,
   vigenciasQueCobrem,
 } from "@workspace/comparison/recorte-de-rubrica";
+import { avisoDoParImpossivel } from "@/lib/par-de-vigencias";
 import { Layout } from "@/components/layout/layout";
 import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import { ApiErrorNotice } from "@/components/api-error";
@@ -162,18 +164,40 @@ export default function AuditoriaDeLucroFixo() {
     [daUnidade, nomePorEscopo],
   );
 
-  /** O par aberto, mantido dentro da unidade aberta. */
+  /**
+   * O par aberto, mantido dentro da lista que o seletor oferece — e só ele.
+   *
+   * `parReconciliado` preserva a ponta que continua na lista e nunca desfaz
+   * escolha de quem escolheu; quem some da lista — ao trocar de unidade — é que
+   * dá lugar ao par de partida.
+   */
   useEffect(() => {
     if (!vigencias.data || !unidadeResolvida) return;
-    const naLista = (id: string) => daUnidade.some((v) => v.id === id);
-    if (base && comparada && naLista(base) && naLista(comparada)) return;
-    const par = parDePartida(daUnidade);
-    setBase(par?.base.id ?? "");
-    setComparada(par?.comparada.id ?? "");
+    const par = parReconciliado(daUnidade, { base, comparada });
+    if (par.base !== base) setBase(par.base);
+    if (par.comparada !== comparada) setComparada(par.comparada);
   }, [vigencias.data, daUnidade, unidadeResolvida, base, comparada]);
 
-  const semParPossivel =
-    Boolean(vigencias.data) && unidadeResolvida && parDePartida(daUnidade) === null;
+  /**
+   * Por que esta lista não dá par — quando não dá.
+   *
+   * Sai da lista, e não de "as duas pontas estão vazias": o par é escolhido num
+   * efeito, que roda **depois** da renderização — ler o estado aqui piscaria a
+   * tela vazia por um quadro em toda unidade que tem par.
+   */
+  const semPar =
+    Boolean(vigencias.data) && unidadeResolvida ? motivoSemPar(daUnidade) : null;
+  /** Há lista e mesmo assim não há par: a frase da tela vazia é outra. */
+  const parImpossivel = semPar ? avisoDoParImpossivel(semPar) : null;
+  /**
+   * A tela vazia fala enquanto ninguém escolheu o par inteiro.
+   *
+   * Com as duas pontas escolhidas à mão — o que `parReconciliado` agora
+   * preserva —, quem responde é a comparação, ou a recusa do servidor sobre
+   * aquele par. Manter a frase no ar ao lado do resultado negaria o que está
+   * logo abaixo dela.
+   */
+  const semParPossivel = semPar !== null && !(base && comparada);
 
   /**
    * Os números de cada candidata a "De", contra o "Para" aberto.
@@ -304,11 +328,17 @@ export default function AuditoriaDeLucroFixo() {
         {semParPossivel && (
           <EstadoVazio
             icone={TrendingUp}
-            titulo="Esta unidade não tem duas vigências para comparar"
+            titulo={
+              parImpossivel
+                ? parImpossivel.titulo
+                : "Esta unidade não tem duas vigências para comparar"
+            }
             descricao={
-              escopoAberto
-                ? "A comparação de lucro fixo precisa de duas vigências da mesma unidade. Escolha outra unidade na lateral ou importe a vigência seguinte."
-                : "O acervo ainda não tem duas vigências da mesma unidade e da mesma cobertura para comparar."
+              parImpossivel
+                ? parImpossivel.descricao
+                : escopoAberto
+                  ? "A comparação de lucro fixo precisa de duas vigências da mesma unidade. Escolha outra unidade na lateral ou importe a vigência seguinte."
+                  : "O acervo ainda não tem duas vigências da mesma unidade e da mesma cobertura para comparar."
             }
           />
         )}

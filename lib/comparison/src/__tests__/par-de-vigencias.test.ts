@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  motivoSemPar,
   parDePartida,
+  parReconciliado,
   rotulosDasVigencias,
   TIPOS_DE_EQUIPAMENTO,
   vigenciasDaUnidade,
@@ -129,6 +131,126 @@ describe("o par de partida", () => {
   it("não inventa par para uma unidade com uma vigência só", () => {
     expect(parDePartida([vigencia("ca-ago", "2026-08-16", CAMACARI)])).toBeNull();
     expect(parDePartida([])).toBeNull();
+  });
+});
+
+/**
+ * A escolha de quem escolheu — o relato de 15/09/2026 na Auditoria de Km
+ * Rodado.
+ *
+ * *"tem duas vigências mas não tá selecionando"*: o seletor oferecia
+ * `agosto/2026` e `setembro/2026`, e clicar em qualquer uma não escrevia nada na
+ * caixa. As duas cobrem trecho, mas não formam par — e o efeito que reconciliava
+ * o par só deixava o estado quieto com as **duas** pontas válidas. Com uma ponta
+ * na mão, ele caía no par de partida, que ali é nulo, e limpava as duas. Cada
+ * clique era desfeito no quadro seguinte.
+ */
+describe("o par reconciliado", () => {
+  const semPar = [
+    vigencia("pe-set", "2026-09-01", PERNAMBUCO, "TRECHO"),
+    vigencia("pe-ago", "2026-08-01", PERNAMBUCO, "CAVALO+TRECHO"),
+  ];
+  const comPar = [
+    vigencia("pe-set", "2026-09-01", PERNAMBUCO),
+    vigencia("pe-ago", "2026-08-01", PERNAMBUCO),
+    vigencia("pe-jul", "2026-07-01", PERNAMBUCO),
+  ];
+
+  /* O defeito, dito como teste. */
+  it("preserva a ponta escolhida mesmo sem par de partida possível", () => {
+    expect(parReconciliado(semPar, { base: "", comparada: "pe-set" })).toEqual({
+      base: "",
+      comparada: "pe-set",
+    });
+  });
+
+  it("preserva as duas pontas escolhidas à mão", () => {
+    expect(parReconciliado(semPar, { base: "pe-ago", comparada: "pe-set" })).toEqual({
+      base: "pe-ago",
+      comparada: "pe-set",
+    });
+  });
+
+  /* Meia escolha fica meia escolha: completar dispararia comparação não pedida. */
+  it("não completa sozinho a outra ponta", () => {
+    expect(parReconciliado(comPar, { base: "pe-jul", comparada: "" })).toEqual({
+      base: "pe-jul",
+      comparada: "",
+    });
+  });
+
+  /* Trocar de unidade tira as duas da lista — e aí o par de partida entra. */
+  it("cai no par de partida quando nenhuma ponta sobrevive à lista", () => {
+    const outraUnidade = [
+      vigencia("ca-set", "2026-09-01", CAMACARI),
+      vigencia("ca-ago", "2026-08-01", CAMACARI),
+    ];
+    const par = parReconciliado(outraUnidade, { base: "pe-ago", comparada: "pe-set" });
+
+    expect(par).toEqual({ base: "ca-ago", comparada: "ca-set" });
+  });
+
+  /* A ponta que sobrou na lista fica; a que saiu, sai — sem reabrir o par. */
+  it("limpa só a ponta que saiu da lista", () => {
+    const soSetembro = [vigencia("pe-set", "2026-09-01", PERNAMBUCO, "TRECHO")];
+    const par = parReconciliado(soSetembro, { base: "pe-ago", comparada: "pe-set" });
+
+    expect(par).toEqual({ base: "", comparada: "pe-set" });
+  });
+
+  it("abre no par de partida quando não há escolha nenhuma", () => {
+    expect(parReconciliado(comPar, { base: "", comparada: "" })).toEqual({
+      base: "pe-ago",
+      comparada: "pe-set",
+    });
+  });
+});
+
+/**
+ * Por que não há par — a outra metade do mesmo relato.
+ *
+ * A tela dizia *"Esta unidade não tem duas vigências de trecho para comparar"*
+ * com duas na lista, as duas clicáveis. Contar quantas há é uma coisa; poder
+ * emparelhá-las é outra, e a frase tem de dizer qual das duas falhou.
+ */
+describe("o motivo de não haver par", () => {
+  it("não vê motivo nenhum quando há par", () => {
+    const lista = [
+      vigencia("pe-set", "2026-09-01", PERNAMBUCO),
+      vigencia("pe-ago", "2026-08-01", PERNAMBUCO),
+    ];
+
+    expect(motivoSemPar(lista)).toBeNull();
+  });
+
+  it("distingue a lista vazia de uma vigência só", () => {
+    expect(motivoSemPar([])).toEqual({ motivo: "LISTA_VAZIA" });
+    expect(motivoSemPar([vigencia("pe-ago", "2026-08-01", PERNAMBUCO)])).toEqual({
+      motivo: "UMA_SO",
+    });
+  });
+
+  /* O caso relatado: duas na lista, mesma unidade, coberturas que não casam. */
+  it("nomeia as coberturas quando são elas que impedem o par", () => {
+    const lista = [
+      vigencia("pe-set", "2026-09-01", PERNAMBUCO, "TRECHO"),
+      vigencia("pe-ago", "2026-08-01", PERNAMBUCO, "CAVALO+TRECHO"),
+    ];
+
+    expect(motivoSemPar(lista)).toEqual({
+      motivo: "COBERTURAS_DIFERENTES",
+      coberturas: ["CAVALO+TRECHO", "TRECHO"],
+    });
+  });
+
+  /* Sem unidade aberta a lista é o acervo inteiro — e aí o motivo é outro. */
+  it("aponta a unidade quando é ela que impede o par", () => {
+    const lista = [
+      vigencia("pe-ago", "2026-08-16", PERNAMBUCO),
+      vigencia("ca-ago", "2026-08-16", CAMACARI),
+    ];
+
+    expect(motivoSemPar(lista)).toEqual({ motivo: "UNIDADES_DIFERENTES" });
   });
 });
 
