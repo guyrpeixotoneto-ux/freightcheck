@@ -10,7 +10,6 @@ import {
   Gauge,
   History,
   Landmark,
-  Percent,
   Receipt,
   Route,
   Shield,
@@ -163,13 +162,13 @@ export const TELAS_EM_PREPARO: TelaEmPreparo[] = [
   // Custo Fixo
   // -------------------------------------------------------------------------
   /*
-    Os quatro módulos da seção Custo Fixo entram no menu com o nome, e no
-    catálogo com o que já se sabe de cada rubrica. A definição de cada tela — o
+    Os módulos da seção Custo Fixo que ainda não têm tela entram no menu com o
+    nome, e no catálogo com o que já se sabe de cada rubrica. A definição de cada tela — o
     que ela mostra, com que grão e comparada a quê — ainda vem; o que este
     catálogo recusa é o caminho contrário, um item de menu que abre página vazia
     enquanto a definição não chega.
 
-    O `depende` dos quatro tem uma linha em comum, e não é acaso: custo fixo de
+    O `depende` deles tem uma linha em comum, e não é acaso: custo fixo de
     um ativo só fecha quando a rubrica estiver separada na base e ligada ao
     equipamento e à vigência a que pertence. O que muda de um verbete para o
     outro é a segunda linha, que é a do dado próprio da rubrica.
@@ -185,32 +184,14 @@ export const TELAS_EM_PREPARO: TelaEmPreparo[] = [
     a tela diz o que **mudou** no que se paga, nunca o que ainda se deve. A
     distinção está escrita na própria tela.
   */
-  {
-    href: "/custo-fixo-juros-finame",
-    label: "Juros Finame",
-    icon: Percent,
-    cor: "text-nav-custo-fixo",
-    pergunta:
-      "Quanto do que se paga pelo financiamento é juro, e não amortização — por equipamento e por vigência.",
-    depende: [
-      "A separação entre principal e juro dentro da parcela: o export que chega a este banco traz o valor pago, e um total de juros tirado dele seria conta nossa apresentada como dado do Freightech.",
-      "A taxa contratada e a data de cada parcela, sem as quais não há como conferir o juro cobrado contra o juro devido — que é a pergunta que a auditoria faz aqui.",
-    ],
-    hoje: [
-      {
-        href: "/composicao",
-        label: "Composição",
-        porque:
-          "A parcela inteira do financiamento, como a vigência a declara, antes da separação entre principal e juro.",
-      },
-      {
-        href: "/book-operador",
-        label: "Book do Operador",
-        porque:
-          "A regra do financiamento está escrita lá — é a metade da resposta que não depende de importação.",
-      },
-    ],
-  },
+  /*
+    `/custo-fixo-juros-finame` saiu do catálogo junto com o item de menu que o
+    alcançava: o juro do financiamento não é rubrica ao lado da Finame, é uma
+    coluna dentro dela — a Auditoria de FINAME já compara juros, amortização e
+    taxa parcela a parcela. Um módulo próprio só repetiria, em outro lugar, o
+    que aquela tela mostra ao lado do principal, e verbete sem item que o
+    alcance é catálogo que ninguém lê.
+  */
   {
     href: "/custo-fixo-ipva",
     label: "IPVA",
