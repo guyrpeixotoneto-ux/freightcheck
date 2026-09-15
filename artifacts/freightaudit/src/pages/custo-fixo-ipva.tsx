@@ -1,9 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearch } from "wouter";
 import { useQuery } from "@tanstack/react-query";
-import { Banknote, Download, Search, SlidersHorizontal } from "lucide-react";
-import type { LinhaDeFiname } from "@workspace/comparison/finame";
-import { VARIAVEIS_DE_FINAME } from "@workspace/comparison/finame";
+import { Download, Receipt, Search, SlidersHorizontal } from "lucide-react";
+import type { LinhaDeIpva } from "@workspace/comparison/ipva";
+import {
+  VARIAVEIS_DE_DETALHE_DE_IPVA,
+  VARIAVEIS_DE_IPVA,
+} from "@workspace/comparison/ipva";
 import { Layout } from "@/components/layout/layout";
 import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import { ApiErrorNotice } from "@/components/api-error";
@@ -21,15 +24,21 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { SeletorDoPar, type VigenciaEscolhivel } from "@/components/comparacao/seletor-do-par";
-import { CartoesDeFiname } from "@/components/finame/cartoes";
 import {
+  parDePartida,
+  rotulosDasVigencias,
+  vigenciasDaUnidade,
+} from "@workspace/comparison/recorte-de-rubrica";
+import { CartoesDeIpva } from "@/components/ipva/cartoes";
+import {
+  AliquotaImplicita,
   AlteracoesPorVariavel,
   DistribuicaoPorEstado,
   EvolucaoEntreVigencias,
   TotalPorVigencia,
-} from "@/components/finame/graficos";
-import { TabelaDeFiname } from "@/components/finame/tabela";
-import { DetalheDoVeiculo } from "@/components/finame/detalhe";
+} from "@/components/ipva/graficos";
+import { TabelaDeIpva } from "@/components/ipva/tabela";
+import { DetalheDoVeiculo } from "@/components/ipva/detalhe";
 import { fetchJson, salvarArquivo } from "@/lib/api";
 import { csvComoBlob, paraNomeDeArquivo } from "@/lib/csv";
 import { formatNumber } from "@/lib/format";
@@ -39,67 +48,57 @@ import {
   contagemPorAba,
   filtrar,
   linhasDoCsv,
-  type ComparacaoDeFiname,
-  type FiltrosDeFiname,
-  type TotaisDeFiname,
-} from "@/lib/finame";
-import { type CandidatosDoPar } from "@/lib/candidatos";
-import {
-  parDePartida,
-  rotulosDasVigencias,
-  vigenciasDaUnidade,
-} from "@workspace/comparison/recorte-de-rubrica";
+  type ComparacaoDeIpva,
+  type FiltrosDeIpva,
+  type TotaisDeIpva,
+} from "@/lib/ipva";
 import { lerRecorte } from "@/lib/recorte";
 import { contextoAberto, unidadeDe, useContextosDaCasca } from "@/lib/contextos";
 import { cn } from "@/lib/utils";
 
 /**
- * AUDITORIA DE FINAME — o que mudou no financiamento entre duas vigências.
+ * AUDITORIA DE IPVA — o que mudou no tributo entre duas vigências.
  *
  * ---------------------------------------------------------------------------
- * A pergunta desta tela, e a razão de ela abrir mostrando só o que mudou
+ * A pergunta que esta tela responde, e a que ela continua não respondendo
  * ---------------------------------------------------------------------------
- * Quem a abre quer saber **o que se moveu** de uma planilha para a outra. O
- * acervo tem centenas de veículos e catorze variáveis de FINAME; listar as
- * ~4.000 linhas iguais ao lado das que mudaram esconderia o achado dentro da
- * massa. Por isso a tabela abre no recorte das alterações, e "Mostrar veículos
- * sem alteração" é um alternador desligado — quando ligado, o servidor lê as
- * duas vigências inteiras e devolve também as linhas iguais.
+ * O verbete desta rota, enquanto ela era tela em preparo, pedia a conferência do
+ * IPVA contra a base do veículo: ano, categoria e UF do emplacamento. Categoria e
+ * UF não estão no acervo, e não passariam a estar porque a tela foi escrita.
  *
- * **Nenhuma conta mora neste arquivo.** Estado, diferença, variação, impacto e
- * agregados vêm de `@workspace/comparison/finame`, que o servidor importa do
- * mesmo jeito. O que a página faz é escolher o par, filtrar, paginar e exportar
- * — e mesmo o filtro é uma função só, compartilhada com a contagem das abas,
- * para que a aba nunca prometa doze linhas e a tabela mostre nove.
+ * O que o acervo sustenta é outra pergunta, e ela não é menor: **o que mudou no
+ * IPVA de cada veículo entre duas vigências, e qual alíquota do valor de nota
+ * cada vigência está aplicando.** A segunda metade é o que separa um IPVA alto de
+ * um IPVA errado — e foi ela que revelou, sobre dado real, que a queda de R$ 720
+ * mil na linha de IPVA da frota de cavalos não foi economia: foi troca de
+ * fórmula, de 1,000% fixo da nota para 0,651% variável (`docs/ACHADO-IPVA.md`).
+ * O que falta continua escrito na própria tela, no rodapé da alíquota.
  *
- * **A comparação é sempre do motor.** `/finame/comparacao` reaproveita o change
- * set quando ele existe e manda calcular quando não existe: é o mesmo caminho
- * de Comparar vigências, de modo que as duas telas respondem o mesmo número
- * para o mesmo par. As recusas do motor — escopo diferente, cobertura diferente,
- * canal diferente — chegam com a frase dele.
+ * **Nenhuma conta mora neste arquivo.** Estado, diferença, variação, impacto,
+ * alíquota e agregados vêm de `@workspace/comparison/ipva`, que o servidor
+ * importa do mesmo jeito. O que a página faz é escolher o par, filtrar, paginar
+ * e exportar — e mesmo o filtro é uma função só, compartilhada com a contagem
+ * das abas, para que a aba nunca prometa doze linhas e a tabela mostre nove.
  *
- * ---------------------------------------------------------------------------
- * E a tela é **de uma unidade por vez**
- * ---------------------------------------------------------------------------
- * `/snapshots` responde pela operação inteira, e dentro dela duas unidades
- * importadas do mesmo arquivo têm o mesmo rótulo e a mesma data: no seletor,
- * duas linhas idênticas. Enquanto esta tela não lia a unidade aberta, o par
- * padrão podia casar uma com a outra — o único par que o motor recusa por
- * construção — e a tela abria num aviso de erro sem ninguém ter escolhido nada.
+ * **A tela é de uma unidade por vez**, pela mesma razão que a de FINAME é: uma
+ * importação do arquivo da Ambev produz uma vigência por unidade, com o mesmo
+ * rótulo e a mesma data — seis vigências × cinco unidades no acervo medido. Um
+ * par escolhido sem olhar o escopo casa CAMAÇARI com PERNAMBUCO, que é o único
+ * par que o motor recusa por construção, e a tela abriria recusada sem ninguém
+ * ter escolhido nada. As três funções que evitam isso são as mesmas do FINAME,
+ * e moram no núcleo (`@workspace/comparison/recorte-de-rubrica`) justamente para
+ * não existirem em duas versões.
  *
- * Agora ela lê a unidade aberta — `scopeHash` da URL quando há um, e o contexto
- * que a lateral nomeia quando não há (`contextoAberto`) —, recorta a lista por
- * ela e escolhe o par dentro do recorte (`vigenciasDaUnidade` e `parDePartida`,
- * em `lib/finame.ts`). Aberta CAMAÇARI, o seletor oferece Camaçari e nada mais.
- * É o que a põe em `TELAS_QUE_HONRAM_ESCOPO` (`lib/navegacao-do-escopo.ts`):
- * trocar de unidade na lateral troca o dado desta tela em vez de expulsar quem
- * trocou para Parâmetros. Uma unidade sem duas vigências abre **vazia, dizendo
- * isso** — que é a resposta certa, e não uma falha.
+ * **A comparação é sempre do motor.** `/ipva/comparacao` reaproveita o change set
+ * quando ele existe e manda calcular quando não existe: é o mesmo caminho de
+ * Comparar vigências e o mesmo da Auditoria de FINAME, de modo que as três telas
+ * respondem o mesmo número para o mesmo par. As recusas do motor — escopo
+ * diferente, cobertura diferente, canal diferente — chegam com a frase dele.
  */
-export default function AuditoriaDeFiname() {
+export default function AuditoriaDeIpva() {
   const [base, setBase] = useState("");
   const [comparada, setComparada] = useState("");
-  const [filtros, setFiltros] = useState<FiltrosDeFiname>(FILTROS_VAZIOS);
+  const [filtros, setFiltros] = useState<FiltrosDeIpva>(FILTROS_VAZIOS);
   const [comSemAlteracao, setComSemAlteracao] = useState(false);
   const [pagina, setPagina] = useState(1);
   const [porPagina, setPorPagina] = useState(50);
@@ -116,10 +115,9 @@ export default function AuditoriaDeFiname() {
   /**
    * A unidade aberta na lateral — e por que esta tela precisa saber dela.
    *
-   * Sem isto, trocar de unidade aqui não trocava o dado: trocava de tela.
+   * Sem isto, trocar de unidade aqui não trocaria o dado: trocaria de tela.
    * `enderecoDe` (`lib/navegacao-do-escopo.ts`) desvia para Parâmetros toda tela
-   * que não sabe ler o recorte, e esta não sabia — *"eu tento mudar de
-   * PERNAMBUCO para CAMAÇARI e saio do módulo"*. Estar naquela lista é uma
+   * que não sabe ler o recorte. Estar em `TELAS_QUE_HONRAM_ESCOPO` é uma
    * promessa, e o que a cumpre é o recorte abaixo.
    */
   const recorte = lerRecorte(useSearch());
@@ -132,8 +130,7 @@ export default function AuditoriaDeFiname() {
    * para ler. Quem traduz hash em "CAMAÇARI" é a lista de contextos, que a
    * lateral já consulta — daí `useContextosDaCasca`, que divide o mesmo cache e
    * nunca transforma uma falha em painel de erro. Sem ela, os rótulos ficam sem
-   * o nome da unidade e a tela volta a listar o acervo: é degradação, não
-   * quebra.
+   * o nome da unidade: é degradação, não quebra.
    */
   const { contextos, carregando: contextosCarregando } = useContextosDaCasca();
   const nomePorEscopo = useMemo(() => {
@@ -145,43 +142,32 @@ export default function AuditoriaDeFiname() {
   /**
    * A unidade aberta — **a mesma que a lateral nomeia**, com ou sem `scopeHash`.
    *
-   * `recorte.scopeHash` sozinho não responde isto. Sem ele na URL — quem chega
-   * por um link nu, ou pelo menu antes de escolher unidade —, a caixa "Unidade
-   * atual" continua escrevendo uma unidade: ela cai no primeiro contexto
-   * (`contextoAberto`). A tela, lendo só a URL, listava as cinco. É exatamente o
-   * desencontro que o cabeçalho de `contextoAberto` descreve, e que custou o
-   * mesmo defeito na Cobertura de dados: a lateral escrevendo PERNAMBUCO sobre
-   * uma tela que mostrava o acervo inteiro.
-   *
-   * Com a mesma função dos dois lados, a resposta é uma só: se a lateral diz
-   * CAMAÇARI, o seletor oferece as vigências de Camaçari e nada mais.
+   * `recorte.scopeHash` sozinho não responde isto, e é o erro que a Auditoria de
+   * FINAME já pagou: sem ele na URL — quem chega por um link nu, ou pelo menu
+   * antes de escolher unidade —, a caixa "Unidade atual" continua escrevendo uma
+   * unidade, porque cai no primeiro contexto (`contextoAberto`). Uma tela que
+   * lesse só a URL listaria as cinco sob o nome de uma.
    */
   const escopoAberto = contextoAberto(contextos, recorte.scopeHash)?.scopeHash ?? null;
 
   /**
    * Recortar antes de saber qual é a unidade daria a lista errada por um
-   * instante — e, pior, um par escolhido nela. Enquanto `/contexts` não
-   * responde e a URL não traz unidade, não há lista: nem a de todas, nem a de
-   * uma.
+   * instante — e, pior, um par escolhido nela.
    */
   const unidadeResolvida = recorte.scopeHash !== null || !contextosCarregando;
 
   /** As vigências da unidade aberta — a lista que o seletor oferece. */
   const daUnidade = useMemo(
-    () =>
-      unidadeResolvida ? vigenciasDaUnidade(vigencias.data ?? [], escopoAberto) : [],
+    () => (unidadeResolvida ? vigenciasDaUnidade(vigencias.data ?? [], escopoAberto) : []),
     [vigencias.data, escopoAberto, unidadeResolvida],
   );
 
   /**
    * O texto de cada opção do seletor, distinto por construção.
    *
-   * O arquivo que a Ambev entrega traz as cinco unidades juntas, e uma
-   * importação vira cinco vigências de mesmo rótulo e mesma data — medido no
-   * `EMPURRADA_Cavalo.xlsx`: seis vigências × cinco unidades = trinta. O
-   * seletor mostrava as cinco como a mesma frase, cinco vezes seguidas, e
-   * escolher ali era adivinhar. `rotulosDasVigencias` acrescenta a unidade — e
-   * só ela, e só onde desempata.
+   * Sem ele o seletor mostra a mesma frase cinco vezes seguidas — uma por
+   * unidade —, e escolher ali é adivinhar. `rotulosDasVigencias` acrescenta só o
+   * que desempata, e só onde desempata.
    */
   const rotulos = useMemo(
     () => rotulosDasVigencias(daUnidade, (hash) => nomePorEscopo.get(hash) ?? null),
@@ -195,11 +181,7 @@ export default function AuditoriaDeFiname() {
    * desta lista**. Ao trocar de unidade, o par anterior deixa de estar nela — e
    * mantê-lo faria a tela responder por Pernambuco sob a palavra CAMAÇARI. Ao
    * abrir sem par nenhum, é `parDePartida` quem escolhe, com as duas recusas do
-   * motor antecipadas (mesma cobertura, mesmo escopo).
-   *
-   * Sem par possível, as duas pontas ficam vazias e a consulta nem sai: uma
-   * unidade com uma vigência só não tem comparação, e pedi-la ao servidor
-   * traria a recusa dele para uma tela onde ninguém escolheu nada.
+   * motor antecipadas: mesma cobertura e mesmo escopo.
    */
   useEffect(() => {
     if (!vigencias.data || !unidadeResolvida) return;
@@ -220,67 +202,20 @@ export default function AuditoriaDeFiname() {
   const semParPossivel =
     Boolean(vigencias.data) && unidadeResolvida && parDePartida(daUnidade) === null;
 
-  /**
-   * Os números de cada candidata a "De", contra o "Para" aberto.
-   *
-   * Três decisões, e nenhuma é de estilo:
-   *
-   * **Só quando o menu abre.** `enabled` depende de `menuDeAberto`: calcular
-   * comparações para quem nunca abriu o seletor seria cobrar do banco por uma
-   * pergunta que ninguém fez. E a abertura não espera a resposta — o menu
-   * aparece inteiro na hora, os números entram depois.
-   *
-   * **A chave carrega o Para e a unidade.** Trocar qualquer um dos dois é uma
-   * pergunta nova, então é chave nova — não há invalidação manual a esquecer.
-   * É o que faz o número ao lado de junho mudar quando o Para vai de agosto
-   * para julho.
-   *
-   * **Os pendentes voltam.** O servidor calcula o que couber no orçamento dele
-   * e diz quantas ficaram de fora; `refetchInterval` pergunta de novo enquanto
-   * houver pendente, e a chamada seguinte continua de onde a anterior parou,
-   * porque o que foi calculado ficou gravado. Para no zero — e para também se o
-   * servidor não progredir, que é o que impede o laço infinito.
-   */
-  const [menuDeAberto, setMenuDeAberto] = useState(false);
-  /** Quantas ficaram pendentes na resposta anterior — a régua do progresso. */
-  const pendentesAnteriores = useRef<number | null>(null);
-  const candidatos = useQuery({
-    queryKey: ["finame", "candidatos", escopoAberto, comparada],
-    enabled: menuDeAberto && Boolean(comparada),
-    staleTime: 5 * 60_000,
-    queryFn: () =>
-      fetchJson<CandidatosDoPar>(`/finame/candidatos?para=${comparada}`),
-    refetchInterval: (query) => {
-      const dados = query.state.data;
-      if (!dados || dados.pendentes === 0) {
-        pendentesAnteriores.current = null;
-        return false;
-      }
-      const anterior = pendentesAnteriores.current;
-      pendentesAnteriores.current = dados.pendentes;
-      /* A primeira resposta com pendente sempre merece uma segunda pergunta; da
-         segunda em diante, só continua quem está diminuindo. Uma fila que não
-         anda não vai andar perguntando mais vezes — e insistir nela seria uma
-         consulta por segundo e meio, para sempre, contra o mesmo banco. */
-      if (anterior === null) return 1_500;
-      return dados.pendentes < anterior ? 1_500 : false;
-    },
-  });
-
   const comparacao = useQuery({
-    queryKey: ["finame", "comparacao", base, comparada, comSemAlteracao],
+    queryKey: ["ipva", "comparacao", base, comparada, comSemAlteracao],
     enabled: Boolean(base && comparada),
     queryFn: () =>
-      fetchJson<ComparacaoDeFiname>(
-        `/finame/comparacao?base=${base}&comparada=${comparada}` +
+      fetchJson<ComparacaoDeIpva>(
+        `/ipva/comparacao?base=${base}&comparada=${comparada}` +
           (comSemAlteracao ? "&semAlteracao=true" : ""),
       ),
   });
 
   const totais = useQuery({
-    queryKey: ["finame", "totais", base, comparada],
+    queryKey: ["ipva", "totais", base, comparada],
     enabled: Boolean(base && comparada),
-    queryFn: () => fetchJson<TotaisDeFiname>(`/finame/totais?base=${base}&comparada=${comparada}`),
+    queryFn: () => fetchJson<TotaisDeIpva>(`/ipva/totais?base=${base}&comparada=${comparada}`),
   });
 
   const linhas = useMemo(() => comparacao.data?.linhas ?? [], [comparacao.data]);
@@ -297,32 +232,33 @@ export default function AuditoriaDeFiname() {
   // Filtrar encurta a lista; a página em que se estava pode não existir mais.
   useEffect(() => setPagina(1), [filtros, base, comparada, comSemAlteracao]);
 
-  const rotuloBase =
-    vigencias.data?.find((v) => v.id === base)?.sourceLabel ?? "Vigência Base";
+  const rotuloBase = vigencias.data?.find((v) => v.id === base)?.sourceLabel ?? "De";
   const rotuloComparada =
-    vigencias.data?.find((v) => v.id === comparada)?.sourceLabel ?? "Vigência Comparada";
+    vigencias.data?.find((v) => v.id === comparada)?.sourceLabel ?? "Para";
 
   function exportar() {
     const blob = csvComoBlob(linhasDoCsv(filtradas));
     salvarArquivo(
       blob,
-      `finame-${paraNomeDeArquivo(rotuloBase)}-para-${paraNomeDeArquivo(rotuloComparada)}.csv`,
+      `ipva-${paraNomeDeArquivo(rotuloBase)}-para-${paraNomeDeArquivo(rotuloComparada)}.csv`,
     );
   }
+
+  const negativos = comparacao.data?.resumo.impacto.valoresNegativos ?? 0;
 
   return (
     <Layout>
       <CabecalhoDePagina
         titulo={
           <span className="flex flex-wrap items-center gap-2.5">
-            Auditoria de FINAME
+            Auditoria de IPVA
             <span className="rounded-full border border-brand/25 bg-brand/10 px-2.5 py-0.5 text-xs font-semibold text-brand">
               Comparação entre vigências
             </span>
           </span>
         }
-        icone={Banknote}
-        descricao="O que mudou no financiamento de cada veículo entre duas vigências: parcela, juros, amortização, taxa, prazo, carência, entrada e base de compra."
+        icone={Receipt}
+        descricao="O que mudou no IPVA e no licenciamento de cada veículo entre duas vigências — e qual alíquota do valor de nota cada vigência está aplicando."
         atualizando={comparacao.isFetching && !comparacao.isLoading}
       />
 
@@ -336,13 +272,6 @@ export default function AuditoriaDeFiname() {
         ) : (
           <SeletorDoPar
             vigencias={daUnidade}
-            rotulos={rotulos}
-            candidatos={candidatos.data}
-            carregandoCandidatos={candidatos.isFetching}
-            onAbrirDe={setMenuDeAberto}
-            erroDosCandidatos={
-              candidatos.error instanceof Error ? candidatos.error.message : null
-            }
             base={base}
             comparada={comparada}
             onBase={setBase}
@@ -351,26 +280,19 @@ export default function AuditoriaDeFiname() {
               setBase(comparada);
               setComparada(base);
             }}
+            rotulos={rotulos}
             carregando={comparacao.isFetching}
-            idPrefixo="finame"
+            idPrefixo="ipva"
           />
         )}
 
-        {/*
-          A unidade sem par não é uma falha, e não deve chegar como uma: é a
-          resposta certa para "o que mudou no FINAME de Camaçari?" quando
-          Camaçari entregou uma vigência só. Antes desta tela recortar por
-          unidade, o mesmo caso abria na recusa do motor — um aviso âmbar
-          dizendo que a comparação falhou, sobre uma comparação que nunca
-          existiu.
-        */}
         {semParPossivel && (
           <EstadoVazio
-            icone={Banknote}
+            icone={Receipt}
             titulo="Esta unidade não tem duas vigências para comparar"
             descricao={
               escopoAberto
-                ? "A comparação de FINAME precisa de duas vigências da mesma unidade. Escolha outra unidade na lateral ou importe a vigência seguinte."
+                ? "A comparação de IPVA precisa de duas vigências da mesma unidade. Escolha outra unidade na lateral ou importe a vigência seguinte."
                 : "O acervo ainda não tem duas vigências da mesma unidade e da mesma cobertura para comparar."
             }
           />
@@ -391,7 +313,7 @@ export default function AuditoriaDeFiname() {
         {comparacao.error && (
           <ApiErrorNotice
             error={comparacao.error}
-            what="a comparação de FINAME"
+            what="a comparação de IPVA"
             onTentarDeNovo={() => void comparacao.refetch()}
             tentando={comparacao.isFetching}
           />
@@ -399,16 +321,16 @@ export default function AuditoriaDeFiname() {
 
         {comparacao.data && (
           <>
-            <CartoesDeFiname resumo={comparacao.data.resumo} />
+            <CartoesDeIpva resumo={comparacao.data.resumo} />
 
-            {comparacao.data.resumo.impacto.cobertasPorParcelas > 0 && (
+            {comparacao.data.resumo.impacto.foraDaSoma > 0 && (
               <p className="text-xs text-muted-foreground">
-                {formatNumber(comparacao.data.resumo.impacto.cobertasPorParcelas, 0)}{" "}
-                {comparacao.data.resumo.impacto.cobertasPorParcelas === 1
-                  ? "parcela saiu"
-                  : "parcelas saíram"}{" "}
-                do total por já estarem representadas nas partes — o mesmo dinheiro não é
-                contado duas vezes.
+                {formatNumber(comparacao.data.resumo.impacto.foraDaSoma, 0)}{" "}
+                {comparacao.data.resumo.impacto.foraDaSoma === 1
+                  ? "alteração ficou"
+                  : "alterações ficaram"}{" "}
+                fora do impacto por serem da coluna “mensal” da carreta, que não é 1/12 da
+                anual — elas aparecem na tabela e no detalhe, nunca numa soma.
               </p>
             )}
 
@@ -421,6 +343,19 @@ export default function AuditoriaDeFiname() {
               <AlteracoesPorVariavel dados={comparacao.data.alteracoesPorVariavel} />
               <DistribuicaoPorEstado dados={comparacao.data.distribuicaoPorEstado} />
             </div>
+
+            {/*
+              A alíquota vem em largura inteira, e logo abaixo dos indicadores, por
+              ser a leitura própria desta tela — a única que nenhuma outra do
+              produto faz. Espremê-la numa das três colunas acima a deixaria com
+              cara de gráfico auxiliar, e ela é o oposto disso: é o que distingue
+              um IPVA alto de um IPVA errado.
+            */}
+            <AliquotaImplicita
+              aliquotas={totais.data?.aliquotas ?? []}
+              rotuloBase={rotuloBase}
+              rotuloComparada={rotuloComparada}
+            />
 
             <EvolucaoEntreVigencias
               totais={totais.data?.totais ?? []}
@@ -444,8 +379,8 @@ export default function AuditoriaDeFiname() {
                   )}
                 >
                   {/* Com o alternador ligado a lista deixa de ser só de
-                      alterações — chamar 1.589 linhas iguais de "alterações"
-                      seria o rótulo contradizendo a própria coluna Status. */}
+                      alterações — chamar centenas de linhas iguais de
+                      "alterações" seria o rótulo contradizendo a coluna Status. */}
                   {aba.chave === "TODAS" && comSemAlteracao ? "Todas as linhas" : aba.rotulo} (
                   {formatNumber(contagens[aba.chave] ?? 0, 0)})
                 </button>
@@ -459,7 +394,7 @@ export default function AuditoriaDeFiname() {
                   aria-hidden="true"
                 />
                 <Input
-                  id="finame-busca"
+                  id="ipva-busca"
                   value={filtros.busca}
                   onChange={(e) => setFiltros((f) => ({ ...f, busca: e.target.value }))}
                   placeholder="Buscar placa ou variável…"
@@ -486,12 +421,12 @@ export default function AuditoriaDeFiname() {
                 value={filtros.variavel}
                 onValueChange={(variavel) => setFiltros((f) => ({ ...f, variavel }))}
               >
-                <SelectTrigger className="w-[13rem]" aria-label="Variável de FINAME">
+                <SelectTrigger className="w-[15rem]" aria-label="Variável de IPVA">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="TODAS">Todas as variáveis</SelectItem>
-                  {VARIAVEIS_DE_FINAME.map((v) => (
+                  {[...VARIAVEIS_DE_IPVA, ...VARIAVEIS_DE_DETALHE_DE_IPVA].map((v) => (
                     <SelectItem key={v.chave} value={v.chave}>
                       {v.rotulo}
                     </SelectItem>
@@ -499,12 +434,39 @@ export default function AuditoriaDeFiname() {
                 </SelectContent>
               </Select>
 
+              {/*
+                O filtro de negativos é o único desta tela que não existe na de
+                FINAME, e existe porque o acervo o pediu: são 15 licenciamentos
+                abaixo de zero, até −R$ 1.709,86, e achá-los rolando 600 linhas
+                não é achar. Eles continuam somando — a planilha os declarou —,
+                mas ficam a um clique de distância de quem for perguntar à Ambev
+                se são estorno ou erro.
+              */}
               <label
-                htmlFor="finame-sem-alteracao"
+                htmlFor="ipva-so-negativos"
                 className="flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm"
               >
                 <Switch
-                  id="finame-sem-alteracao"
+                  id="ipva-so-negativos"
+                  checked={filtros.soNegativos}
+                  onCheckedChange={(soNegativos) =>
+                    setFiltros((f) => ({ ...f, soNegativos }))
+                  }
+                />
+                Só valores negativos
+                {negativos > 0 && (
+                  <span className="rounded-full bg-warning/15 px-2 py-0.5 text-xs font-semibold text-warning-foreground">
+                    {formatNumber(negativos, 0)}
+                  </span>
+                )}
+              </label>
+
+              <label
+                htmlFor="ipva-sem-alteracao"
+                className="flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm"
+              >
+                <Switch
+                  id="ipva-sem-alteracao"
                   checked={comSemAlteracao}
                   onCheckedChange={setComSemAlteracao}
                 />
@@ -526,12 +488,12 @@ export default function AuditoriaDeFiname() {
             {filtradas.length === 0 ? (
               linhas.length === 0 ? (
                 <EstadoVazio
-                  icone={Banknote}
-                  titulo="Nenhuma variável de FINAME mudou entre as duas vigências"
+                  icone={Receipt}
+                  titulo="Nenhuma variável de IPVA mudou entre as duas vigências"
                   descricao={`${formatNumber(
                     comparacao.data.resumo.veiculosComparados,
                     0,
-                  )} veículos comparados, e o financiamento de todos eles chegou igual nas duas planilhas.`}
+                  )} veículos comparados, e o IPVA de todos eles chegou igual nas duas planilhas.`}
                 />
               ) : (
                 <EstadoVazio
@@ -539,7 +501,11 @@ export default function AuditoriaDeFiname() {
                   titulo="Nenhuma linha para este filtro"
                   descricao="O recorte atual não tem nenhuma alteração. Limpe os filtros para ver as demais."
                   acao={
-                    <Button type="button" variant="outline" onClick={() => setFiltros(FILTROS_VAZIOS)}>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setFiltros(FILTROS_VAZIOS)}
+                    >
                       Limpar filtros
                     </Button>
                   }
@@ -547,7 +513,7 @@ export default function AuditoriaDeFiname() {
               )
             ) : (
               <>
-                <TabelaDeFiname
+                <TabelaDeIpva
                   linhas={naPagina}
                   onAbrir={(l) =>
                     setAberto({ entityLabel: l.entityLabel, entityType: l.entityType })
@@ -568,7 +534,7 @@ export default function AuditoriaDeFiname() {
 
             <DetalheDoVeiculo
               veiculo={aberto}
-              linhas={linhas as LinhaDeFiname[]}
+              linhas={linhas as LinhaDeIpva[]}
               rotuloBase={rotuloBase}
               rotuloComparada={rotuloComparada}
               onFechar={() => setAberto(null)}

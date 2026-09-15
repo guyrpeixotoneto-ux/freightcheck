@@ -172,6 +172,23 @@ export const TELAS_QUE_HONRAM_ESCOPO = new Set<string>([
     "todas as unidades de uma vez" não é uma comparação que exista aqui.
   */
   "/custo-fixo-finame",
+  /*
+    A Auditoria de IPVA, pelo mesmo motivo e com o mesmo mecanismo da linha
+    acima: `/snapshots` devolve o `scope_hash` de cada vigência, e a tela
+    (`pages/custo-fixo-ipva.tsx`) recorta a lista do seletor pela unidade aberta
+    antes de escolher o par — com as mesmas três funções, que por isso deixaram
+    de morar no arquivo de uma rubrica só.
+
+    Ela entra aqui no mesmo commit em que passa a ler o par, e não antes: estar
+    nesta lista é a promessa de que trocar de unidade troca o dado, e uma tela
+    que recebesse `scopeHash` sem lê-lo seria o filtro prometido e não aplicado
+    que esta lista existe para impedir.
+
+    Fica **fora** de `TELAS_QUE_HONRAM_VISAO_GERAL`, e é o motivo de sempre: o
+    motor recusa comparar vigências de escopos distintos, então "todas as
+    unidades de uma vez" não é uma comparação que exista aqui.
+  */
+  "/custo-fixo-ipva",
 ]);
 
 /**

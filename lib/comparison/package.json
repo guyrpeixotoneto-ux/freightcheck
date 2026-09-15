@@ -12,6 +12,8 @@
     "./painel-de-justificativas-escopo": "./src/painel-de-justificativas-escopo.ts",
     "./composition": "./src/composition.ts",
     "./finame": "./src/finame.ts",
+    "./ipva": "./src/ipva.ts",
+    "./recorte-de-rubrica": "./src/recorte-de-rubrica.ts",
     "./tipos": "./src/tipos.ts",
     "./tipos-da-vigencia": "./src/tipos-da-vigencia.ts",
     "./visao-geral-de-parametros": "./src/visao-geral-de-parametros.ts"

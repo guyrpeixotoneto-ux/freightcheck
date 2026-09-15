@@ -1,7 +1,7 @@
 import { ArrowLeftRight, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { numerosDaLinha, type CandidatosDeFiname } from "@/lib/finame";
+import { numerosDaLinha, type CandidatosDoPar } from "@/lib/candidatos";
 import { cn } from "@/lib/utils";
 import {
   Select,
@@ -66,6 +66,20 @@ export interface VigenciaEscolhivel {
  * "De" e "Para" continuam verdadeiros depois de inverter, e são o vocabulário
  * em que o resultado já é lido: a parcela saiu de X e chegou em Y. As colunas
  * da tabela e as da gaveta do veículo usam as mesmas duas palavras.
+ *
+ * ---------------------------------------------------------------------------
+ * Por que ele mora em `components/comparacao/` e não na pasta de uma tela
+ * ---------------------------------------------------------------------------
+ * Porque agora são duas as telas que escolhem um par de vigências — a Auditoria
+ * de FINAME e a de IPVA —, e serão mais à medida que as rubricas do Custo Fixo
+ * ganharem tela. Ele nasceu em `components/finame/` e mudou de endereço no dia
+ * em que a segunda chegou: uma cópia por rubrica divergiria no primeiro ajuste
+ * que alguém fizesse numa e esquecesse nas outras, e o aviso sobre a
+ * assimetria do percentual — que é a única coisa difícil desta peça — é o que
+ * menos pode existir em duas versões.
+ *
+ * O que ele **não** faz é adivinhar o par. Qual vigência abre selecionada é
+ * decisão da tela, que conhece a série que interessa a ela.
  */
 export function SeletorDoPar({
   vigencias,
@@ -76,6 +90,7 @@ export function SeletorDoPar({
   onComparada,
   onInverter,
   carregando = false,
+  idPrefixo,
   candidatos,
   carregandoCandidatos = false,
   onAbrirDe,
@@ -97,8 +112,12 @@ export function SeletorDoPar({
    * `undefined` enquanto ninguém perguntou ou a pergunta está no ar; uma
    * entrada com `numeros: null` é a candidata que o servidor ainda não
    * calculou. Os dois casos escrevem a mesma coisa na linha: **nada**.
+   *
+   * Opcional, e é o que mantém a Auditoria de IPVA intacta: sem a propriedade,
+   * o menu é exatamente o que era antes. Quando houver `/ipva/candidatos`,
+   * basta a tela passar a resposta — o componente já sabe desenhá-la.
    */
-  candidatos?: CandidatosDeFiname;
+  candidatos?: CandidatosDoPar;
   /** Há pergunta em voo: as linhas sem número mostram esqueleto, não vazio. */
   carregandoCandidatos?: boolean;
   /** Avisa a página de que o menu "De" abriu — é o que dispara a pergunta. */
@@ -111,6 +130,15 @@ export function SeletorDoPar({
   onComparada: (id: string) => void;
   onInverter: () => void;
   carregando?: boolean;
+  /**
+   * O prefixo dos `id` dos dois campos — `finame`, `ipva`.
+   *
+   * Existe porque `id` é global na página e `<label htmlFor>` resolve pelo
+   * primeiro que encontra: duas telas com o mesmo `finame-base` funcionariam
+   * até o dia em que as duas fossem montadas juntas, e então o rótulo de uma
+   * passaria a focar o campo da outra.
+   */
+  idPrefixo: string;
 }) {
   const rotulo = (v: VigenciaEscolhivel) =>
     rotulos.get(v.id) ??
@@ -161,13 +189,13 @@ export function SeletorDoPar({
       <div className="flex flex-wrap items-end gap-3">
         <div className="flex min-w-[15rem] flex-1 flex-col gap-1.5">
           <label
-            htmlFor="finame-base"
+            htmlFor={`${idPrefixo}-base`}
             className="text-[0.65rem] font-bold uppercase tracking-[0.1em] text-muted-foreground"
           >
             De
           </label>
           <Select value={base} onValueChange={onBase} onOpenChange={onAbrirDe}>
-            <SelectTrigger id="finame-base" aria-label="De (vigência de origem)">
+            <SelectTrigger id={`${idPrefixo}-base`} aria-label="De (vigência de origem)">
               {/*
                 O campo fechado mostra **só a vigência**, e não a linha inteira
                 da lista.
@@ -220,13 +248,13 @@ export function SeletorDoPar({
 
         <div className="flex min-w-[15rem] flex-1 flex-col gap-1.5">
           <label
-            htmlFor="finame-comparada"
+            htmlFor={`${idPrefixo}-comparada`}
             className="text-[0.65rem] font-bold uppercase tracking-[0.1em] text-muted-foreground"
           >
             Para
           </label>
           <Select value={comparada} onValueChange={onComparada}>
-            <SelectTrigger id="finame-comparada" aria-label="Para (vigência de destino)">
+            <SelectTrigger id={`${idPrefixo}-comparada`} aria-label="Para (vigência de destino)">
               <SelectValue placeholder="Escolha a vigência de destino" />
             </SelectTrigger>
             <SelectContent>

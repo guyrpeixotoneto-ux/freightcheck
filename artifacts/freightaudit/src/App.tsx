@@ -63,6 +63,7 @@ import Frota360 from '@/pages/frota-360';
 import RadarTrechos from '@/pages/radar-trechos';
 import QlpAdministrativo from '@/pages/qlp-administrativo';
 import AuditoriaDeFiname from '@/pages/custo-fixo-finame';
+import AuditoriaDeIpva from '@/pages/custo-fixo-ipva';
 import Remunerado from '@/pages/remunerado';
 import Justificativas from '@/pages/justificativas';
 import JustificativasPlaca from '@/pages/justificativas-placa';
@@ -503,6 +504,17 @@ function RotasDaAuditoria() {
         de FINAME. O menu não mudou uma vírgula, como manda o catálogo.
       */}
       <Route path="/custo-fixo-finame" component={AuditoriaDeFiname} />
+      {/*
+        IPVA saiu de `TELAS_EM_PREPARO` pelo mesmo caminho do Finame, e com a
+        mesma honestidade: o verbete pedia a conferência contra ano, categoria e
+        UF do emplacamento, e categoria e UF continuam não existindo no acervo.
+        O que existe é o valor de nota — e o IPVA dividido por ele é uma
+        alíquota, que é o que separa um IPVA alto de um IPVA errado. Foi ela que
+        mostrou que a queda de R$ 720 mil foi troca de fórmula, e não economia
+        (`docs/ACHADO-IPVA.md`). O menu não mudou uma vírgula, como manda o
+        catálogo.
+      */}
+      <Route path="/custo-fixo-ipva" component={AuditoriaDeIpva} />
       {/*
         QLP Administrativo saiu de `TELAS_EM_PREPARO` quando a importação
         passou a receber o export próprio dele (tipo QLP_ADMINISTRATIVO) — o
