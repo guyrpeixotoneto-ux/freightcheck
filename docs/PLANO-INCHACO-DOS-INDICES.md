@@ -50,10 +50,61 @@ O mesmo padrão nos grandes:
 | `fact_raw_cell_idx` | 60 MB | ~7 MB | ~9x |
 | `raw_cell_row_column_uq` | 53 MB | ~8 MB | ~6x |
 
-> **Estas são estimativas de catálogo, não medidas.** A medida de verdade é
-> `avg_leaf_density`, e está em `scripts/diagnostico/densidade-dos-indices.sql`.
-> **Rode-a antes de aprovar qualquer reindexação** — ela é o que transforma
-> "estimo 10x" em "as folhas estão com 9% de ocupação".
+> **Medido em 15/09/2026, 18h40**, com a seção 2 de
+> `scripts/diagnostico/densidade-dos-indices.sql`. A tabela completa está na
+> seção 1.1 abaixo.
+>
+> `pgstattuple` está **disponível (1.5) mas não instalada** neste banco, então
+> `pgstatindex` não rodou — instalar é DDL e não foi feito. A aproximação por
+> catálogo bastou: ela chegou a ~881 MB recuperáveis contra os ~865 MB que a
+> estimativa à mão previa, pelos dois caminhos independentes.
+
+### 1.1 A medição, índice a índice
+
+`fator` é quantas vezes o índice é maior que o mínimo teórico das chaves vivas.
+
+| Índice | Real | Linhas vivas | Mínimo | Fator | Recuperável |
+|---|--:|--:|--:|--:|--:|
+| `staged_fact_grain_uq` | 355 MB | 274.995 | 34 MB | **10,3x** | 320 MB |
+| `fact_grain_uq` | 172 MB | 274.995 | 17 MB | **9,9x** | 155 MB |
+| `fact_snapshot_attribute_idx` | 159 MB | 274.995 | 17 MB | **9,1x** | 142 MB |
+| `fact_raw_cell_idx` | 60 MB | 274.995 | 5,8 MB | **10,2x** | 54 MB |
+| `raw_cell_row_column_uq` | 53 MB | 430.978 | 11 MB | 4,8x | 42 MB |
+| `fact_pkey` | 42 MB | 274.995 | 5,8 MB | 7,3x | 37 MB |
+| `raw_cell_pkey` | 37 MB | 430.978 | 9,1 MB | 4,1x | 28 MB |
+| `staged_fact_raw_cell_idx` | 35 MB | 274.995 | 5,8 MB | 6,0x | 29 MB |
+| `staged_fact_pkey` | 35 MB | 274.995 | 5,8 MB | 6,0x | 29 MB |
+| `fact_entity_attribute_idx` | 35 MB | 274.995 | 13 MB | 2,7x | 22 MB |
+| `fact_snapshot_entity_idx` | 20 MB | 274.995 | 13 MB | 1,6x | 7,4 MB |
+| `fact_attribute_idx` | 15 MB | 274.995 | 8,2 MB | 1,8x | 6,6 MB |
+| `fact_origin_import_run_idx` | 13 MB | 274.995 | 8,2 MB | 1,6x | 4,6 MB |
+| `staged_fact_run_label_idx` | 12 MB | 274.995 | 14 MB | 0,9x | — |
+| `staged_fact_run_idx` | 11 MB | 274.995 | 8,2 MB | 1,3x | 2,4 MB |
+| `raw_cell_row_idx` | 11 MB | 430.978 | 9,1 MB | 1,2x | 2,1 MB |
+| | | | | | **~881 MB** |
+
+**As quatro últimas linhas são a razão para confiar na tabela.**
+`staged_fact_run_label_idx` mediu 0,9x — abaixo do mínimo teórico — e
+`raw_cell_row_idx` 1,2x. São índices saudáveis, nas mesmas tabelas, medidos pela
+mesma fórmula. Um método enviesado para acusar inchaço teria acusado esses
+também. (O 0,9x é o limite da aproximação: a largura média das colunas de texto
+vem da amostragem do ANALYZE e superestima um pouco; leia-se "sem inchaço
+mensurável".)
+
+E o contraste que fecha o argumento: `fact_grain_uq` e `fact_snapshot_entity_idx`
+estão na **mesma tabela**, com as **mesmas 274.995 linhas** — 9,9x contra 1,6x. A
+diferença não pode ser volume de dado, porque o dado é o mesmo.
+
+### 1.2 Uma variação entre as duas leituras, registrada
+
+`raw_cell` tinha 315.038 linhas às 17h29 e 430.978 às 18h40 — ~116 mil a mais em
+uma hora — enquanto `fact` ficou em 274.995 nas duas. É RAW capturado sem
+promoção: ou uma importação nova parou no preview, ou a estimativa anterior
+estava desatualizada.
+
+Não muda nada deste plano. Fica registrado porque é exatamente o que a seção 1
+de `crescimento.sql` existe para responder, e porque um número que muda entre
+duas leituras merece ser dito, não arredondado.
 
 ### O mecanismo
 
@@ -74,7 +125,8 @@ ao sistema de arquivos.
 
 ### Quais índices, e quanto volta
 
-Estimativa pós-reconstrução, a confirmar com `pgstatindex`:
+Números **medidos** (seção 1.1), não mais estimados. O "estimado" de cada
+linha é o mínimo teórico das chaves vivas:
 
 | # | Índice | Hoje | Estimado | Recuperável |
 |--:|---|--:|--:|--:|
@@ -91,14 +143,16 @@ Estimativa pós-reconstrução, a confirmar com `pgstatindex`:
 | 11 | `fact_snapshot_attribute_idx` | 159 MB | ~20 MB | ~139 MB |
 | 12 | `fact_grain_uq` | 172 MB | ~20 MB | ~152 MB |
 | 13 | `staged_fact_grain_uq` | 355 MB | ~30 MB | ~325 MB |
-| | **total** | **1.015 MB** | **~151 MB** | **~865 MB** |
+| | **total (13)** | **1.015 MB** | **~151 MB** | **~864 MB** |
+| | **+ os 3 saudáveis** | 43 MB | 43 MB | — |
+| | **soma medida (16)** | | | **~881 MB** |
 
-O banco iria de 1.282 MB para **~400 MB**.
+O banco iria de 1.282 MB para **~400 MB** — medido, não estimado (seção 1.1).
 
 **Os quatro últimos valem 75% do ganho.** Se a ideia for fazer o mínimo com o
 máximo de retorno, são `staged_fact_grain_uq`, `fact_grain_uq`,
 `fact_snapshot_attribute_idx` e `fact_raw_cell_idx`: 746 MB viram ~78 MB,
-recuperando ~670 MB em quatro operações em vez de treze.
+recuperando **671 MB** em quatro operações em vez de treze — 76% do ganho.
 
 ### Impacto no desempenho
 
@@ -148,6 +202,8 @@ para entender antes de tocar no de 355 MB.
 
 ```
 1. change_pkey                     3,7 MB   ← prova o procedimento
+   (não aparece na seção 1.1: a consulta corta em 8 MB. O fator de ~20x dele
+    vem da aritmética da seção 1, e é o maior do banco.)
 2. fact_origin_import_run_idx       13 MB
 3. fact_attribute_idx               15 MB
 4. fact_entity_attribute_idx        35 MB
@@ -286,12 +342,12 @@ definição de inchaço, medida sem precisar de extensão nenhuma.
 
 ## 4. Recomendação
 
-1. **Rodar `densidade-dos-indices.sql`.** Confirma a estimativa com medida. Se
-   `avg_leaf_density` vier acima de 50%, este plano inteiro está errado e eu
-   quero saber disso antes de você aprovar qualquer coisa.
-2. **Se confirmado, reindexar os quatro maiores**, um por vez, na ordem 11→13
-   da seção 2, fora de horário de importação. ~670 MB dos ~865 MB, em quatro
-   operações. Os outros nove podem esperar a próxima manutenção.
+1. ~~**Rodar `densidade-dos-indices.sql`.**~~ **Feito em 15/09/2026** — ver
+   seção 1.1. Confirmado: 9 a 10x nos quatro maiores, ~881 MB recuperáveis. O
+   teste que poderia ter derrubado o plano não o derrubou.
+2. **Reindexar os quatro maiores**, um por vez, na ordem 11→13
+   da seção 2, fora de horário de importação. **671 MB dos 881 MB — 76% do
+   ganho em 4 das 16 operações.** As outras podem esperar a próxima manutenção.
 3. **Não mexer em `staged_fact`** — nem na retenção, nem nas telas.
 4. **Medir o reprocessamento** (`crescimento.sql` §2). Só abrir a mudança de
    reaproveitamento de RAW se os números mostrarem releitura frequente.

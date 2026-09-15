@@ -25,6 +25,17 @@
 --
 -- Rode fora do horário de uso, e comece pelo menor para calibrar o tempo.
 --
+-- ---------------------------------------------------------------------------
+-- RODADO EM PRODUÇÃO — 15/09/2026
+-- ---------------------------------------------------------------------------
+-- `pgstattuple` está disponível (1.5) e NÃO instalada. A seção 1 falhou com
+-- "function pgstatindex(text) does not exist" — só ela, como previsto — e a
+-- seção 2 respondeu: fator 9 a 10x nos quatro maiores índices, ~881 MB
+-- recuperáveis. Resultado em `docs/PLANO-INCHACO-DOS-INDICES.md`, seção 1.1.
+--
+-- A aproximação bastou para decidir. Instalar a extensão daria a densidade
+-- exata das folhas, mas é DDL — e não foi feito.
+--
 -- Uso:  ./scripts/diagnostico/ler-producao.sh scripts/diagnostico/densidade-dos-indices.sql
 -- ===========================================================================
 
