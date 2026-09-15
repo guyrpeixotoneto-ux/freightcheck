@@ -137,5 +137,21 @@ Sem mudança no **o quê**; mudança na **ênfase**.
    RAW passa a ter retorno medido — e `Modelo Trecho.xlsx`, com seis exclusões,
    é o caso de teste pronto.
 
-Essa terceira você responde melhor que qualquer consulta: **as 37 exclusões
-foram você ajustando as importações, ou é assim que o trabalho acontece?**
+## A pergunta do ciclo, respondida
+
+**Respondida por Guy em 15/09/2026: as 37 exclusões foram ajuste e teste das
+importações durante o desenvolvimento.** Não representam, neste momento, o
+funcionamento esperado em produção.
+
+O que decorre disso:
+
+- **A reindexação é limpeza única**, e não manutenção contra um processo que
+  continua produzindo lixo. É o melhor caso possível para ela.
+- **O reaproveitamento de RAW não será implementado agora.** Fica documentado
+  como melhoria futura em `docs/PLANO-INCHACO-DOS-INDICES.md`, seção 3, com
+  gatilho medido: qualquer arquivo com 3 ou mais runs, ou mais de uma exclusão
+  por mês do mesmo SHA-256, **em uso real de produção**.
+- **A conferência trimestral de densidade continua valendo** — porque "não é o
+  funcionamento esperado" é uma previsão sobre o futuro, e a métrica é o que
+  avisa se a previsão não se confirmar. `bytes_por_celula` é o termômetro, e
+  custa uma consulta de catálogo.

@@ -286,7 +286,19 @@ idênticos; ainda assim a leitura grava um conjunto novo de `raw_cell`.
 
 ### Como reduzir
 
-**(c) é o alvo certo — o único com ganho real e risco contido.** Se o
+> **DECIDIDO EM 15/09/2026 — não implementar agora.** Guy confirmou que as 37
+> exclusões foram ajuste e teste das importações durante o desenvolvimento, e
+> **não representam o funcionamento esperado em produção**. Sem o ciclo, a
+> otimização abaixo resolveria um problema que não vai existir.
+>
+> Fica registrada como **melhoria futura, condicionada a um gatilho medido**: se
+> em produção os mesmos arquivos voltarem a ser excluídos e reimportados — a
+> seção 2 de `crescimento.sql` mostra isso na coluna `runs` por arquivo, e a
+> seção 3 na contagem de exclusões por SHA —, ela passa a ter retorno e volta
+> para a mesa. O gatilho concreto: **qualquer arquivo com 3 ou mais runs, ou
+> mais de uma exclusão por mês do mesmo SHA-256, em uso real.**
+
+**(c) seria o alvo certo — o único com ganho real e risco contido.** Se o
 `content_sha256` é o mesmo e a captura é determinística, o RAW do run anterior
 poderia ser **reaproveitado** em vez de recapturado. Evita uma cópia inteira de
 `raw_cell` por reprocessamento.
@@ -362,6 +374,39 @@ células vivas. Ela sobe quando o banco cresce sem que o acervo cresça — que 
 definição de inchaço, medida sem precisar de extensão nenhuma.
 
 ---
+
+## 3.5 Como executar a reindexação autorizada
+
+`scripts/manutencao/reindexar-os-quatro.sh` — **e ele mora em `manutencao/`, não
+em `diagnostico/`, de propósito.** Tudo em `diagnostico/` é somente leitura, e o
+runner de lá recusa este arquivo por conter `REINDEX`. Essa recusa está certa e
+não foi afrouxada: a operação de escrita ganhou casa própria e exige
+`--confirmar` explícito.
+
+```bash
+PRODUCTION_DATABASE_URL='postgres://…' \
+  ./scripts/manutencao/reindexar-os-quatro.sh --confirmar
+```
+
+Ele aborta **antes de escrever qualquer coisa** se encontrar:
+
+| Conferência | Por quê |
+|---|---|
+| importação em `PENDING`, `READING` ou `PROMOTING` | trabalho em curso — o REINDEX esperaria por ela |
+| importação em `STAGED` ou `PREVIEWED` | espera decisão humana e pode virar promoção a qualquer segundo |
+| transação aberta há mais de 30s | `REINDEX CONCURRENTLY` aguarda as transações que enxergam a tabela |
+| índice inválido preexistente | lixo de operação anterior; limpar antes |
+| algum dos quatro ausente | erro de premissa |
+
+Durante a execução, entre um índice e o seguinte, confere que o anterior ficou
+`indisvalid = true` e que não sobrou nenhum `%_ccnew%`. Qualquer um dos dois
+falhando **para ali**, e os índices seguintes não são tocados — o antigo
+continua válido e em uso, então a aplicação não sente.
+
+`statement_timeout = 0` é exceção deliberada: um `REINDEX` morto pelo relógio
+deixa índice inválido para trás. O teto é a pessoa olhando, não o relógio.
+`lock_timeout = 60s` fica, para falhar rápido e com nome em vez de pendurar em
+silêncio.
 
 ## 4. Recomendação
 
