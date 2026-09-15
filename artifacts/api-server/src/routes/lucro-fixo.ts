@@ -23,6 +23,8 @@ import {
 } from "@workspace/comparison";
 import { classificarFalha } from "../lib/classificar-falha";
 import { exigirOperacaoDoRecurso, operacaoDaConsulta } from "../lib/operacao";
+import { comTetoDeRota } from "../lib/timeout-de-rota";
+import { candidatasDoPar, TETO_DE_CANDIDATAS_MS } from "../lib/candidatas-do-par";
 
 /**
  * AUDITORIA DE LUCRO FIXO — o recorte da remuneração entre duas vigências.
@@ -293,5 +295,65 @@ function comoInteiro(bruto: string | null): number | null {
   const n = Number(bruto);
   return Number.isFinite(n) ? Math.trunc(n) : null;
 }
+
+/**
+ * O que cada candidata a "De" produz contra o "Para" escolhido, no lucro fixo.
+ *
+ * `GET /lucro-fixo/candidatos?para=<snapshotId>`
+ *
+ * A terceira irmã de `lib/candidatas-do-par.ts`, e a que melhor mostra por que
+ * aquele módulo existe: ela não tem uma linha de regra própria. Orçamento,
+ * reaproveitamento do que já foi comparado e recorte por unidade e cobertura
+ * são os mesmos do FINAME e do IPVA, e o que entra aqui é só o recorte do lucro
+ * fixo — quais atributos ler, e como contar o que mudou neles.
+ */
+router.get("/lucro-fixo/candidatos", async (req, res, next): Promise<void> => {
+  const para = typeof req.query.para === "string" ? req.query.para : "";
+  if (!para) {
+    res.status(400).json({ error: "Informe a vigência de destino." });
+    return;
+  }
+  await exigirOperacaoDoRecurso(req, "vigência", para, () => operacaoDoSnapshot(db, para));
+  const operacao = operacaoDaConsulta(req.query as Record<string, unknown>);
+
+  try {
+    await comTetoDeRota(TETO_DE_CANDIDATAS_MS, async (dbComTeto) => {
+      const resposta = await candidatasDoPar(
+        dbComTeto,
+        para,
+        {
+          attributeCodes: CODIGOS_DO_DETALHE_DE_LUCRO_FIXO,
+          numeros: (rows) => {
+            const linhas = linhasDeLucroFixo(rows);
+            /* A frota entra zerada: esta rota não publica "veículos
+               comparados", só o que se moveu. Derivar a frota de um zero seria
+               inventar um denominador que ninguém pediu. */
+            const { variaveisAlteradas, impacto } = resumirLucroFixo(linhas, {
+              comparados: 0,
+              novos: 0,
+              ausentes: 0,
+            });
+            return { alteracoes: variaveisAlteradas, impacto };
+          },
+        },
+        { operacao, computedBy: "api:lucro-fixo-candidatos" },
+      );
+
+      if ("naoEncontrada" in resposta) {
+        res.status(404).json({ error: "Essa vigência não existe." });
+        return;
+      }
+      res.json(resposta);
+    });
+  } catch (err) {
+    const desfecho = classificarFalha(err);
+    if (desfecho.tipo !== "REGRA") {
+      next(err);
+      return;
+    }
+    req.log.warn({ err }, "Candidatas de lucro fixo recusadas");
+    res.status(422).json({ error: desfecho.mensagem });
+  }
+});
 
 export default router;
