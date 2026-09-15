@@ -39,13 +39,15 @@ import {
   contagemPorAba,
   filtrar,
   linhasDoCsv,
-  parDePartida,
-  rotulosDasVigencias,
-  vigenciasDaUnidade,
   type ComparacaoDeFiname,
   type FiltrosDeFiname,
   type TotaisDeFiname,
 } from "@/lib/finame";
+import {
+  parDePartida,
+  rotulosDasVigencias,
+  vigenciasDaUnidade,
+} from "@workspace/comparison/recorte-de-rubrica";
 import { lerRecorte } from "@/lib/recorte";
 import { contextoAberto, unidadeDe, useContextosDaCasca } from "@/lib/contextos";
 import { cn } from "@/lib/utils";

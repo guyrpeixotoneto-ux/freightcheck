@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useSearch } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { Download, Receipt, Search, SlidersHorizontal } from "lucide-react";
 import type { LinhaDeIpva } from "@workspace/comparison/ipva";
@@ -23,6 +24,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { SeletorDoPar, type VigenciaEscolhivel } from "@/components/comparacao/seletor-do-par";
+import {
+  parDePartida,
+  rotulosDasVigencias,
+  vigenciasDaUnidade,
+} from "@workspace/comparison/recorte-de-rubrica";
 import { CartoesDeIpva } from "@/components/ipva/cartoes";
 import {
   AliquotaImplicita,
@@ -46,6 +52,8 @@ import {
   type FiltrosDeIpva,
   type TotaisDeIpva,
 } from "@/lib/ipva";
+import { lerRecorte } from "@/lib/recorte";
+import { contextoAberto, unidadeDe, useContextosDaCasca } from "@/lib/contextos";
 import { cn } from "@/lib/utils";
 
 /**
@@ -72,6 +80,15 @@ import { cn } from "@/lib/utils";
  * e exportar — e mesmo o filtro é uma função só, compartilhada com a contagem
  * das abas, para que a aba nunca prometa doze linhas e a tabela mostre nove.
  *
+ * **A tela é de uma unidade por vez**, pela mesma razão que a de FINAME é: uma
+ * importação do arquivo da Ambev produz uma vigência por unidade, com o mesmo
+ * rótulo e a mesma data — seis vigências × cinco unidades no acervo medido. Um
+ * par escolhido sem olhar o escopo casa CAMAÇARI com PERNAMBUCO, que é o único
+ * par que o motor recusa por construção, e a tela abriria recusada sem ninguém
+ * ter escolhido nada. As três funções que evitam isso são as mesmas do FINAME,
+ * e moram no núcleo (`@workspace/comparison/recorte-de-rubrica`) justamente para
+ * não existirem em duas versões.
+ *
  * **A comparação é sempre do motor.** `/ipva/comparacao` reaproveita o change set
  * quando ele existe e manda calcular quando não existe: é o mesmo caminho de
  * Comparar vigências e o mesmo da Auditoria de FINAME, de modo que as três telas
@@ -96,27 +113,94 @@ export default function AuditoriaDeIpva() {
   });
 
   /**
-   * O par de partida: as duas vigências mais recentes **da mesma série**.
+   * A unidade aberta na lateral — e por que esta tela precisa saber dela.
    *
-   * Pegar as duas últimas linhas da lista emparelharia cavalo com carreta assim
-   * que as duas séries existirem — elas compartilham as mesmas datas. O motor
-   * recusaria o par, corretamente, e a tela abriria num erro que não é do
-   * usuário. A mesma correção já foi feita em Comparar e em FINAME.
+   * Sem isto, trocar de unidade aqui não trocaria o dado: trocaria de tela.
+   * `enderecoDe` (`lib/navegacao-do-escopo.ts`) desvia para Parâmetros toda tela
+   * que não sabe ler o recorte. Estar em `TELAS_QUE_HONRAM_ESCOPO` é uma
+   * promessa, e o que a cumpre é o recorte abaixo.
+   */
+  const recorte = lerRecorte(useSearch());
+
+  /**
+   * Os contextos — de onde saem o **nome** de cada unidade e **qual delas está
+   * aberta**.
+   *
+   * A vigência traz o `scope_hash`, que é um hash: serve para recortar e não
+   * para ler. Quem traduz hash em "CAMAÇARI" é a lista de contextos, que a
+   * lateral já consulta — daí `useContextosDaCasca`, que divide o mesmo cache e
+   * nunca transforma uma falha em painel de erro. Sem ela, os rótulos ficam sem
+   * o nome da unidade: é degradação, não quebra.
+   */
+  const { contextos, carregando: contextosCarregando } = useContextosDaCasca();
+  const nomePorEscopo = useMemo(() => {
+    const nomes = new Map<string, string>();
+    for (const c of contextos) nomes.set(c.scopeHash, unidadeDe(c));
+    return nomes;
+  }, [contextos]);
+
+  /**
+   * A unidade aberta — **a mesma que a lateral nomeia**, com ou sem `scopeHash`.
+   *
+   * `recorte.scopeHash` sozinho não responde isto, e é o erro que a Auditoria de
+   * FINAME já pagou: sem ele na URL — quem chega por um link nu, ou pelo menu
+   * antes de escolher unidade —, a caixa "Unidade atual" continua escrevendo uma
+   * unidade, porque cai no primeiro contexto (`contextoAberto`). Uma tela que
+   * lesse só a URL listaria as cinco sob o nome de uma.
+   */
+  const escopoAberto = contextoAberto(contextos, recorte.scopeHash)?.scopeHash ?? null;
+
+  /**
+   * Recortar antes de saber qual é a unidade daria a lista errada por um
+   * instante — e, pior, um par escolhido nela.
+   */
+  const unidadeResolvida = recorte.scopeHash !== null || !contextosCarregando;
+
+  /** As vigências da unidade aberta — a lista que o seletor oferece. */
+  const daUnidade = useMemo(
+    () => (unidadeResolvida ? vigenciasDaUnidade(vigencias.data ?? [], escopoAberto) : []),
+    [vigencias.data, escopoAberto, unidadeResolvida],
+  );
+
+  /**
+   * O texto de cada opção do seletor, distinto por construção.
+   *
+   * Sem ele o seletor mostra a mesma frase cinco vezes seguidas — uma por
+   * unidade —, e escolher ali é adivinhar. `rotulosDasVigencias` acrescenta só o
+   * que desempata, e só onde desempata.
+   */
+  const rotulos = useMemo(
+    () => rotulosDasVigencias(daUnidade, (hash) => nomePorEscopo.get(hash) ?? null),
+    [daUnidade, nomePorEscopo],
+  );
+
+  /**
+   * O par aberto, mantido dentro da unidade aberta.
+   *
+   * Duas coisas num efeito só porque são a mesma: **o par tem de existir dentro
+   * desta lista**. Ao trocar de unidade, o par anterior deixa de estar nela — e
+   * mantê-lo faria a tela responder por Pernambuco sob a palavra CAMAÇARI. Ao
+   * abrir sem par nenhum, é `parDePartida` quem escolhe, com as duas recusas do
+   * motor antecipadas: mesma cobertura e mesmo escopo.
    */
   useEffect(() => {
-    const lista = vigencias.data;
-    if (!lista || lista.length < 2 || base || comparada) return;
-    const ordenadas = [...lista].sort((a, b) =>
-      b.effectiveDate.localeCompare(a.effectiveDate),
-    );
-    const ultima = ordenadas[0];
-    const anterior = ordenadas.find(
-      (v) => v.entityTypeSet === ultima.entityTypeSet && v.id !== ultima.id,
-    );
-    if (!anterior) return;
-    setBase(anterior.id);
-    setComparada(ultima.id);
-  }, [vigencias.data, base, comparada]);
+    if (!vigencias.data || !unidadeResolvida) return;
+    const naLista = (id: string) => daUnidade.some((v) => v.id === id);
+    if (base && comparada && naLista(base) && naLista(comparada)) return;
+    const par = parDePartida(daUnidade);
+    setBase(par?.base.id ?? "");
+    setComparada(par?.comparada.id ?? "");
+  }, [vigencias.data, daUnidade, unidadeResolvida, base, comparada]);
+
+  /**
+   * A unidade já respondeu e não tem duas vigências para comparar.
+   *
+   * Sai da lista, e não de "as duas pontas estão vazias": o par é escolhido num
+   * efeito, que roda **depois** da renderização — ler o estado aqui piscaria a
+   * tela vazia por um quadro em toda unidade que tem par.
+   */
+  const semParPossivel =
+    Boolean(vigencias.data) && unidadeResolvida && parDePartida(daUnidade) === null;
 
   const comparacao = useQuery({
     queryKey: ["ipva", "comparacao", base, comparada, comSemAlteracao],
@@ -148,10 +232,9 @@ export default function AuditoriaDeIpva() {
   // Filtrar encurta a lista; a página em que se estava pode não existir mais.
   useEffect(() => setPagina(1), [filtros, base, comparada, comSemAlteracao]);
 
-  const rotuloBase =
-    vigencias.data?.find((v) => v.id === base)?.sourceLabel ?? "Vigência Base";
+  const rotuloBase = vigencias.data?.find((v) => v.id === base)?.sourceLabel ?? "De";
   const rotuloComparada =
-    vigencias.data?.find((v) => v.id === comparada)?.sourceLabel ?? "Vigência Comparada";
+    vigencias.data?.find((v) => v.id === comparada)?.sourceLabel ?? "Para";
 
   function exportar() {
     const blob = csvComoBlob(linhasDoCsv(filtradas));
@@ -188,7 +271,7 @@ export default function AuditoriaDeIpva() {
           />
         ) : (
           <SeletorDoPar
-            vigencias={vigencias.data ?? []}
+            vigencias={daUnidade}
             base={base}
             comparada={comparada}
             onBase={setBase}
@@ -197,9 +280,21 @@ export default function AuditoriaDeIpva() {
               setBase(comparada);
               setComparada(base);
             }}
-            rotulos={new Map()}
+            rotulos={rotulos}
             carregando={comparacao.isFetching}
             idPrefixo="ipva"
+          />
+        )}
+
+        {semParPossivel && (
+          <EstadoVazio
+            icone={Receipt}
+            titulo="Esta unidade não tem duas vigências para comparar"
+            descricao={
+              escopoAberto
+                ? "A comparação de IPVA precisa de duas vigências da mesma unidade. Escolha outra unidade na lateral ou importe a vigência seguinte."
+                : "O acervo ainda não tem duas vigências da mesma unidade e da mesma cobertura para comparar."
+            }
           />
         )}
 
