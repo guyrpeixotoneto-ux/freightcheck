@@ -581,9 +581,30 @@ export interface VeiculoDeFiname {
    * mesma placa apareceria em duas leituras diferentes na mesma tela.
    */
   estado: EstadoDaLinhaDeFiname;
-  /** As linhas desta placa, na ordem em que vieram — o que a expansão mostra. */
+  /** As linhas desta placa, na ordem do catálogo — o que a expansão mostra. */
   linhas: LinhaDeFiname[];
 }
+
+/**
+ * A ordem em que a expansão lê as variáveis de uma placa.
+ *
+ * É a do catálogo, e não a que o motor entrega. Na ordem do motor a parcela
+ * FINAME caía no meio das duas parcelas que a compõem — "Amortização, Parcela
+ * FINAME, Juros" —, e o número que a linha de cima mostra ficava entre as duas
+ * metades dele: quem lê soma as três e chega ao dobro do que a placa custa. O
+ * catálogo já começa na parcela e segue por juros e amortização, que é a
+ * leitura que a tela quer — o total primeiro, o que o compõe logo abaixo.
+ *
+ * `veiculo` vem antes de tudo, porque entrada e saída de ativo explicam todas
+ * as outras linhas da placa; o que não está no catálogo vai para o fim.
+ */
+const ORDEM_DA_VARIAVEL = new Map<string, number>([
+  ["veiculo", -1],
+  ...TODAS.map((v, indice) => [v.chave, indice] as [string, number]),
+]);
+
+const ordemDa = (l: LinhaDeFiname): number =>
+  ORDEM_DA_VARIAVEL.get(l.variavel) ?? TODAS.length;
 
 const numeroDoTexto = (valor: string | null): number | null => {
   if (valor === null || valor === "") return null;
@@ -602,6 +623,9 @@ const numeroDoTexto = (valor: string | null): number | null => {
  *
  * **Não recalcula nada.** Contagem, estado e a parcela saem das linhas que o
  * motor já produziu; o que a função faz é juntar por `(placa, tipo)` e ordenar.
+ *
+ * Duas ordens, e nenhuma é a do motor: as linhas de dentro seguem o catálogo
+ * (ver {@link ORDEM_DA_VARIAVEL}), e as placas seguem o dinheiro.
  *
  * A ordem é a do dinheiro: primeiro quem moveu mais parcela em valor absoluto,
  * depois quem moveu mais variáveis, e a placa desempata. Uma ordem alfabética
@@ -651,6 +675,12 @@ export function agruparPorVeiculo(
     }
 
     veiculos.set(chave, veiculo);
+  }
+
+  /* Estável de propósito: duas linhas da mesma variável mantêm a ordem do
+     motor, e só as variáveis diferentes se movem. */
+  for (const veiculo of veiculos.values()) {
+    veiculo.linhas.sort((a, b) => ordemDa(a) - ordemDa(b));
   }
 
   return [...veiculos.values()].sort((a, b) => {
