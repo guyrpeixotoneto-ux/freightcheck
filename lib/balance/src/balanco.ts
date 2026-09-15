@@ -387,6 +387,8 @@ export function porQueNaoPromoveu(status: string): string | null {
       return "A leitura falhou, então nada foi promovido. O que está em STAGING é o que o leitor conseguiu preparar antes de parar.";
     case "ABORTED":
       return "A importação foi abortada; o que está em STAGING não será promovido.";
+    case "CANCELLED":
+      return "A importação foi cancelada por quem a enviou; o que está em STAGING não será promovido.";
     case "SKIPPED_DUPLICATE":
       return "O arquivo foi recusado como duplicata — o conteúdo já havia entrado por outra importação.";
     default:

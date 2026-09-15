@@ -542,6 +542,26 @@ function agendarVarreduraDeOrfas(): void {
   const varrer = async (momento: string): Promise<void> => {
     try {
       const relatorio = await varrerLeiturasOrfas(db);
+      if (relatorio.promocoes.length > 0) {
+        /*
+          Separadas das leituras porque o recado é outro: estas voltaram a
+          "conferida, esperando aprovação", e o que quem opera precisa saber é
+          que nada entrou e que basta aprovar de novo — não que exclua e
+          reenvie. Ver `varrerLeiturasOrfas`.
+        */
+        logger.warn(
+          { momento, promocoes: relatorio.promocoes },
+          "Aprovações órfãs devolvidas ao preview — o reinício levou o processo " +
+            "que as gravaria. Nada entrou; os arquivos podem ser aprovados de novo.",
+        );
+        void alertar({
+          tipo: "PROMOCAO_ORFA_DEVOLVIDA",
+          resumo:
+            `${relatorio.promocoes.length} aprovação(ões) interrompida(s) por reinício — ` +
+            `nada entrou, e os arquivos voltaram a esperar aprovação.`,
+          detalhe: { momento, promocoes: relatorio.promocoes.length },
+        });
+      }
       if (relatorio.importacoes.length > 0 || relatorio.chamados.length > 0) {
         logger.warn(
           {

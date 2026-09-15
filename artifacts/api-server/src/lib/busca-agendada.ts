@@ -29,6 +29,7 @@ const INTERVALO_DA_VARREDURA_MS = 60 * 1000;
 
 /** O `req.log` que a varredura não tem: ela roda fora de requisição nenhuma. */
 const registro = {
+  info: (obj: unknown, msg: string) => logger.info(obj as object, msg),
   warn: (obj: unknown, msg: string) => logger.warn(obj as object, msg),
   error: (obj: unknown, msg: string) => logger.error(obj as object, msg),
 };

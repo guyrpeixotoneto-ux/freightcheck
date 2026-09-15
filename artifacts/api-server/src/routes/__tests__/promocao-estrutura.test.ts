@@ -93,15 +93,54 @@ async function enviar(filePath: string): Promise<string> {
   throw new Error("O run não chegou a PREVIEWED.");
 }
 
+/**
+ * Aprovar como a tela aprova — e esperar, como ela espera.
+ *
+ * A rota responde 202: a aprovação **começou**. Numa planilha de verdade ela
+ * leva minutos, e era exatamente por rodar dentro da requisição que o proxy a
+ * cortava no meio — a transação voltava atrás e o run reaparecia em PREVIEWED,
+ * pedindo a aprovação que a pessoa já tinha dado.
+ *
+ * Por isso este `poll`: é o mesmo que o cartão de upload faz, e é o que torna
+ * este teste uma prova do caminho que roda em produção em vez de uma prova do
+ * caminho que cabia numa resposta. O `body` que ele devolve é o relatório da
+ * promoção, que agora fica gravado no run — mesmo conteúdo de antes, outro
+ * lugar, porque quando ele existe já não há resposta para carregá-lo.
+ */
 async function promover(importRunId: string): Promise<Resposta> {
   const previa = await get(`/imports/${importRunId}`);
-  return post(`/imports/${importRunId}/promote`, {
+  const pedido = await post(`/imports/${importRunId}/promote`, {
     confirmNewEntityTypes: previa.body.pendingIdentities ?? [],
     onExistingSnapshot: "FAIL",
   });
+  expect(pedido.status, JSON.stringify(pedido.body)).toBe(202);
+
+  for (let tentativa = 0; tentativa < 2400; tentativa++) {
+    const estado = await get(`/imports/${importRunId}/status`);
+    const status = estado.body.status as string;
+    /*
+      PROMOTED chega antes do fim: os fatos comitam, e só então a promoção
+      garante o que deriva deles — contrato de cobertura e comparações. O
+      relatório é a última escrita, então é ele que marca o fim. Esperar o
+      estado só faria este teste ler um acervo no meio de mudar.
+    */
+    if (estado.body.promotionReport) {
+      // Vale para os dois desfechos bem-sucedidos: PROMOTED, e o
+      // SKIPPED_DUPLICATE_DATA do reenvio cujo dado já estava todo registrado.
+      return { status: 200, body: estado.body.promotionReport };
+    }
+    if (["PREVIEWED", "VALIDATION_ERROR", "CANCELLED", "FAILED"].includes(status)) {
+      // Os desfechos em que a promoção não aconteceu: a recusa devolve o run a
+      // quem espera decisão, ou o marca como dado que não fecha.
+      return { status: 422, body: estado.body };
+    }
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  throw new Error("A promoção não terminou.");
 }
 
 let primeira: Resposta;
+let primeiraRunId: string;
 
 beforeAll(async () => {
   ctx = await createTestDatabase("api_promocao_estrutura");
@@ -137,7 +176,8 @@ beforeAll(async () => {
   if (typeof endereco === "string" || endereco === null) throw new Error("sem porta");
   base = `http://127.0.0.1:${endereco.port}`;
 
-  primeira = await promover(await enviar(realExportPath()));
+  primeiraRunId = await enviar(realExportPath());
+  primeira = await promover(primeiraRunId);
   expect(primeira.status, JSON.stringify(primeira.body)).toBe(200);
 }, 600_000);
 
@@ -164,6 +204,25 @@ describe("a promoção garante a estrutura obrigatória — banco vazio, sem see
     expect(primeira.body).toHaveProperty("semanticasConfirmadas");
     expect(primeira.body).not.toHaveProperty("proposal");
     expect(primeira.body).not.toHaveProperty("versions");
+  });
+
+  /**
+   * E o relatório sobrevive à requisição que não o esperou.
+   *
+   * É a diferença entre a aprovação assíncrona ser um detalhe de transporte e
+   * ser uma perda: sem `promotion_report`, uma importação de três minutos
+   * terminaria dizendo só "aprovada", e tudo o que a promoção garante depois do
+   * commit — taxonomia, semânticas, comparações — deixaria de ter prova fora do
+   * log do servidor.
+   */
+  it("o relatório fica gravado no run, e não só no momento em que aconteceu", async () => {
+    const estado = await get(`/imports/${primeiraRunId}/status`);
+    expect(estado.body.status).toBe("PROMOTED");
+    expect(estado.body.promotionReport).toMatchObject({
+      taxonomia: { nosCriados: 0, nosExistentes: NOS_CANONICOS },
+    });
+    // E a barra não sobrevive ao desfecho: nenhuma medida de trabalho em curso.
+    expect(estado.body.progressStep).toBeNull();
   });
 
   it("1. semeia a árvore canônica inteira", async () => {

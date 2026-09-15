@@ -13,4 +13,5 @@ export * from "./storage";
 export * from "./chamados";
 export * from "./chamados-deletion";
 export * from "./recuperacao";
+export * from "./cancelamento";
 export * from "./presenca";

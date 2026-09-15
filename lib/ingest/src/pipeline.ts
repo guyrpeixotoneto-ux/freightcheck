@@ -91,6 +91,7 @@ import {
   type OndeDoApontamento,
 } from "./apontamentos";
 import { abrirProgresso, progressoLimpo } from "./progresso";
+import { ImportacaoCancelada } from "./cancelamento";
 
 /**
  * F1 — ingestion.
@@ -605,6 +606,17 @@ async function insertChunked<T extends Record<string, unknown>>(
   table: Parameters<Database["insert"]>[0],
   rows: T[],
   paralelismo = 1,
+  /**
+   * O que dizer depois de cada lote — quantas linhas dele entraram.
+   *
+   * Existe para a gravação da promoção, que é um `insertChunked` de dezenas de
+   * milhares de fatos e era, até aqui, um bloco indivisível de um minuto: a
+   * barra ia de 0 a 100 num salto e o pedido de cancelamento não tinha onde ser
+   * lido. Com o aviso por lote, o mesmo laço publica dez vezes e pergunta dez
+   * vezes se ainda querem aquilo — sem nenhuma ida ao banco a mais, porque a
+   * publicação de progresso já traz a resposta.
+   */
+  aoLote?: (linhas: number) => Promise<void>,
 ): Promise<void> {
   if (rows.length === 0) return;
 
@@ -617,6 +629,7 @@ async function insertChunked<T extends Record<string, unknown>>(
     await emParalelo(
       lotes.map((lote) => async () => {
         await db.execute(comandoEmMassa(table, plano, lote));
+        await aoLote?.(lote.length);
       }),
       paralelismo,
     );
@@ -625,10 +638,12 @@ async function insertChunked<T extends Record<string, unknown>>(
 
   const chunk = linhasPorStatement(rows);
   for (let i = 0; i < rows.length; i += chunk) {
+    const lote = rows.slice(i, i + chunk);
     await db
       .insert(table)
-      .values(rows.slice(i, i + chunk) as never)
+      .values(lote as never)
       .execute();
+    await aoLote?.(lote.length);
   }
 }
 
@@ -1226,7 +1241,11 @@ export async function captureRaw(
     linha, com uma escrita por bloco delas.
   */
   const linhasPrevistas = plans.reduce((soma, p) => soma + (p.rowCount ?? 0), 0);
-  const progresso = await abrirProgresso(db, importRunId, "CAPTURA", linhasPrevistas);
+  const progresso = await abrirProgresso(db, importRunId, "CAPTURA", linhasPrevistas, {
+    aoCancelar: () => {
+      throw new ImportacaoCancelada(importRunId);
+    },
+  });
 
   /*
     As escritas em voo — no máximo {@link CONEXOES_DE_ESCRITA} ao mesmo tempo.
@@ -1560,7 +1579,11 @@ export async function stage(
     antes do fim num arquivo que tem uma aba de resumo.
   */
   const linhasDoPreparo = sheets.reduce((soma, s) => soma + (s.rowCount ?? 0), 0);
-  const progresso = await abrirProgresso(db, importRunId, "PREPARO", linhasDoPreparo);
+  const progresso = await abrirProgresso(db, importRunId, "PREPARO", linhasDoPreparo, {
+    aoCancelar: () => {
+      throw new ImportacaoCancelada(importRunId);
+    },
+  });
   /** Quantas linhas ficaram para trás nas abas já visitadas. */
   let linhasDasAbasAnteriores = 0;
 
@@ -2998,6 +3021,25 @@ export interface PromoteOptions {
    * como aviso para a pré-visualização, que é lida antes de promover.
    */
   confirmNewEntityTypes?: string[];
+  /**
+   * O run já está em PROMOTING, escrito e **comitado** por quem chamou.
+   *
+   * É o que a aprovação em segundo plano faz antes de responder ao navegador
+   * (ver `reservarPromocao`), e muda duas coisas aqui dentro:
+   *
+   *  1. **Não há `FOR UPDATE`.** A reserva é um `UPDATE … WHERE status =
+   *     'PREVIEWED'` atômico: quem o venceu é o único promotor possível, e a
+   *     trava de linha que existia para serializar duas promoções deixa de ter
+   *     o que serializar. Isso não é economia — é o que permite o item 2.
+   *  2. **A barra anda, e dá para parar.** Com a linha livre, o relator de
+   *     progresso escreve por **fora** da transação e é lido pela tela
+   *     enquanto a promoção corre; travada, cada publicação ficaria na fila
+   *     atrás da própria promoção — e o pedido de cancelamento junto com ela.
+   *
+   * Sem a reserva (testes, CLI, a entrada por API antiga) tudo continua como
+   * era: trava de linha, nenhuma barra, e a promoção inteira numa transação só.
+   */
+  reservado?: boolean;
 }
 
 export interface PromoteResult {
@@ -3193,9 +3235,21 @@ async function lockRun(
   tx: Database,
   importRunId: string,
   allowed: string[],
+  /**
+   * Ler sem travar — só para quem já venceu a reserva.
+   *
+   * A trava existe para que duas promoções do mesmo run não leiam PREVIEWED ao
+   * mesmo tempo. Quando o estado já é PROMOTING por um `UPDATE` condicional
+   * comitado, essa corrida já foi decidida antes de chegar aqui, e manter a
+   * linha travada custaria o que `PromoteOptions.reservado` explica: barra
+   * parada e cancelamento na fila atrás do trabalho que ele interrompe.
+   */
+  travar = true,
 ): Promise<typeof importRunTable.$inferSelect> {
   const { rows } = (await tx.execute(
-    sql`SELECT * FROM ${importRunTable} WHERE ${importRunTable.id} = ${importRunId} FOR UPDATE`,
+    travar
+      ? sql`SELECT * FROM ${importRunTable} WHERE ${importRunTable.id} = ${importRunId} FOR UPDATE`
+      : sql`SELECT * FROM ${importRunTable} WHERE ${importRunTable.id} = ${importRunId}`,
   )) as unknown as { rows: Record<string, unknown>[] };
   const row = rows[0];
   if (!row) throw new Error(`Import run ${importRunId} not found.`);
@@ -3237,6 +3291,101 @@ async function lockRun(
  * Em todos os casos, ao final existe **uma** vigência ativa para a identidade —
  * e o índice único do banco garante isso mesmo que este código erre.
  */
+/**
+ * Reservar a promoção — o único passo que precisa ser comitado antes de a
+ * resposta sair.
+ *
+ * Aprovar uma planilha grande leva minutos: 75 s de promoção medidos com 314
+ * mil fatos num Postgres local, e mais num banco gerenciado, a que se somam a
+ * garantia das comparações e a semeadura do contrato. Fazer isso dentro do
+ * ciclo da requisição é o defeito que esta função existe para fechar — o proxy
+ * corta a conexão antes do fim, a transação volta atrás inteira e o run
+ * reaparece em PREVIEWED, pedindo a aprovação que a pessoa **já deu**. Foi
+ * exatamente o que se viu: "eu já importei e ele está pedindo de novo", com a
+ * tela de Km Rodado vazia do outro lado, porque de fato nada tinha entrado.
+ *
+ * O `UPDATE … WHERE status = 'PREVIEWED'` é atômico e é o que decide quem
+ * promove: dois cliques, duas abas ou dois processos disputam esta linha, e só
+ * um a leva. Quem a leva não precisa mais travar a linha dentro da transação —
+ * ver `PromoteOptions.reservado`, que é o que permite a barra andar e o
+ * cancelamento chegar.
+ *
+ * Devolve `false` quando o run não estava em PREVIEWED: quem chamou relê o
+ * estado e responde por ele (já aprovada, ainda lendo, cancelada).
+ */
+export async function reservarPromocao(
+  db: Database,
+  importRunId: string,
+): Promise<boolean> {
+  const reservados = await db
+    .update(importRunTable)
+    // `promocaoEm` é a hora desta aprovação, e não a do run: é por ela que a
+    // varredura de órfãs mede a idade de uma gravação em curso. Sem ela, o
+    // único relógio disponível seria `startedAt`, que inclui os dias em que o
+    // arquivo ficou esperando decisão.
+    .set({ status: "PROMOTING", promocaoEm: new Date(), failureReason: null })
+    .where(
+      sql`${importRunTable.id} = ${importRunId} AND ${importRunTable.status} = 'PREVIEWED'`,
+    )
+    .returning({ id: importRunTable.id });
+  return reservados.length > 0;
+}
+
+/**
+ * Devolver um run reservado ao estado de quem espera decisão.
+ *
+ * A reserva é comitada, então o `ROLLBACK` da transação já não desfaz o
+ * PROMOTING como desfazia quando ele era escrito lá dentro. Sem isto, uma falha
+ * inesperada no meio da promoção deixaria o run em PROMOTING para sempre — o
+ * beco sem saída que a `recuperacao` fecha para a leitura e que não vale para
+ * a aprovação, cuja transação sempre volta sozinha.
+ *
+ * O motivo é gravado junto porque o cartão precisa dizer o que houve: sem ele,
+ * a tela voltaria a "Conferido, ainda não importado" como se ninguém tivesse
+ * clicado em nada.
+ */
+export async function devolverAoPreview(
+  db: Database,
+  importRunId: string,
+  motivo: string,
+): Promise<void> {
+  await db
+    .update(importRunTable)
+    .set({
+      status: "PREVIEWED",
+      failureReason: motivo,
+      promocaoEm: null,
+      ...progressoLimpo(),
+    })
+    .where(
+      sql`${importRunTable.id} = ${importRunId} AND ${importRunTable.status} = 'PROMOTING'`,
+    );
+}
+
+/**
+ * O que a aprovação fez, guardado onde ainda dá para ler.
+ *
+ * Ela responde 202 e trabalha depois: o relatório que voltava no corpo da
+ * resposta — vigências gravadas, taxonomia garantida, semânticas aplicadas,
+ * pares comparados — não tem mais destinatário no momento em que existe. Sem
+ * isto ele deixaria de existir, e uma importação de três minutos terminaria
+ * dizendo só "aprovada".
+ *
+ * Escreve sem condição de estado: é a última coisa que a promoção faz, e ela
+ * descreve um trabalho que já aconteceu. Um relatório de promoção nunca
+ * contradiz o estado do run — ele o detalha.
+ */
+export async function gravarRelatorioDaPromocao(
+  db: Database,
+  importRunId: string,
+  relatorio: unknown,
+): Promise<void> {
+  await db
+    .update(importRunTable)
+    .set({ promotionReport: relatorio })
+    .where(eq(importRunTable.id, importRunId));
+}
+
 export async function promote(
   db: Database,
   importRunId: string,
@@ -3248,13 +3397,21 @@ export async function promote(
       const tx = txRaw as unknown as Database;
 
       // 1. travar e reler o run — dentro da transação, nunca fora
-      const run = await lockRun(tx, importRunId, ["PREVIEWED"]);
+      const reservado = options.reservado === true;
+      const run = await lockRun(
+        tx,
+        importRunId,
+        reservado ? ["PROMOTING"] : ["PREVIEWED"],
+        !reservado,
+      );
       await recusarIdentidadeNaoDeclarada(tx, importRunId, options.confirmNewEntityTypes);
 
-      await tx
-        .update(importRunTable)
-        .set({ status: "PROMOTING" })
-        .where(eq(importRunTable.id, importRunId));
+      if (!reservado) {
+        await tx
+          .update(importRunTable)
+          .set({ status: "PROMOTING" })
+          .where(eq(importRunTable.id, importRunId));
+      }
 
       const [file] = await tx
         .select()
@@ -3281,6 +3438,30 @@ export async function promote(
           "VALIDATION_ERROR",
         );
       }
+
+      /*
+        A barra da aprovação — a medida que faltava justamente onde a espera é
+        maior.
+
+        Ler o arquivo sempre teve barra; aprovar nunca teve, e é o trecho mais
+        longo dos dois num arquivo grande: medido aqui, com 314 mil fatos num
+        Postgres local, a leitura leva 19 s e a promoção 75 s. Durante esses 75 s
+        a tela dizia "Importando…" num botão e mais nada — sem distinguir um
+        servidor trabalhando de um que morreu, que é exatamente o que a `0062`
+        tinha acabado de resolver do outro lado.
+
+        O total é o número de fatos preparados, porque é por fato que o trabalho
+        anda; o relator escreve por fora da transação (`db`, não `tx`), senão
+        ninguém leria o número antes do commit — e é essa mesma escrita que
+        pergunta, de graça, se já pediram para parar.
+      */
+      const progresso = reservado
+        ? await abrirProgresso(db, importRunId, "PROMOCAO", staged.length, {
+            aoCancelar: () => {
+              throw new ImportacaoCancelada(importRunId);
+            },
+          })
+        : null;
 
       const byLabel = new Map<string, typeof staged>();
       for (const fact of staged) {
@@ -3645,7 +3826,19 @@ export async function promote(
           // Nasceu deste arquivo, então a origem é esta importação.
           originImportRunId: importRunId,
         }));
-        await insertChunked(tx, factTable, factRows as never[]);
+        /*
+          A gravação dos fatos é o trecho mais longo da promoção — e é dentro
+          dele que a barra anda e o pedido de parar é lido.
+
+          Sem o aviso por lote, um arquivo de uma vigência só teria dois pontos
+          de checagem na promoção inteira: antes e depois do minuto que ela
+          leva. Parar aqui é um `ROLLBACK` sobre uma transação que ninguém mais
+          enxerga — nada do que já foi escrito chegou a existir para nenhum
+          leitor.
+        */
+        await insertChunked(tx, factTable, factRows as never[], 1, async (linhas) => {
+          await progresso?.avancar(linhas);
+        });
         factsInserted += factRows.length;
 
         // Os componentes que a revisão anterior tinha e este arquivo não toca
@@ -3935,6 +4128,16 @@ export async function promote(
       */
       await garantirClasseDeCustoPadrao(tx as unknown as Database);
 
+      /*
+        A barra chega ao fim antes do estado mudar — e some junto com ele.
+
+        `encerrar` publica o total; o `progressoLimpo` logo abaixo apaga a
+        medida na mesma escrita que grava PROMOTED, porque um progresso que
+        sobrevivesse ao desfecho afirmaria trabalho em curso que não existe
+        mais. Entre os dois há a última janela em que ainda dá para parar.
+      */
+      await progresso?.encerrar();
+
       // Um run em que **toda** vigência já existia idêntica não é uma promoção
       // vazia: é uma duplicata de dados, e o estado diz isso.
       const nadaEntrou = result.length === 0 && duplicadasPorDados.length > 0;
@@ -3944,6 +4147,10 @@ export async function promote(
           status: nadaEntrou ? "SKIPPED_DUPLICATE_DATA" : "PROMOTED",
           finishedAt: new Date(),
           snapshotCount: result.length,
+          // A aprovação acabou: nada mais está aprovando, e a coluna que diz
+          // "está" não pode sobreviver ao trabalho que ela media.
+          promocaoEm: null,
+          ...progressoLimpo(),
           failureReason: nadaEntrou
             ? `O arquivo é diferente, mas os dados normalizados já estavam registrados (${duplicadasPorDados.join(", ")}). Nada foi duplicado.`
             : null,

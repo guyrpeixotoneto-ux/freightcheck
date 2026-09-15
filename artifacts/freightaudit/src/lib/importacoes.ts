@@ -40,6 +40,7 @@ export const ESTADOS: Record<
   VALIDATION_ERROR: { rotulo: "dado não fecha", tom: "erro" },
   SKIPPED_DUPLICATE: { rotulo: "arquivo já recebido", tom: "neutro" },
   SKIPPED_DUPLICATE_DATA: { rotulo: "dados já registrados", tom: "neutro" },
+  CANCELLED: { rotulo: "cancelada", tom: "neutro" },
 };
 
 export function estadoDaImportacao(status: string) {
@@ -54,7 +55,14 @@ export function estadoDaImportacao(status: string) {
  * no run — `motivoPadrao` é o que se diz quando ele não gravou nenhum.
  */
 export interface FaceDoCartao {
-  face: "lendo" | "conferida" | "recusada" | "duplicata" | "aprovada";
+  face:
+    | "lendo"
+    | "aprovando"
+    | "conferida"
+    | "recusada"
+    | "duplicata"
+    | "aprovada"
+    | "cancelada";
   /** A frase em negrito do cartão. */
   titulo: string;
   /** O run ainda vai mudar sozinho: o cartão continua perguntando ao servidor. */
@@ -79,6 +87,31 @@ export interface FaceDoCartao {
  */
 export function faceDoCartao(status: string | undefined): FaceDoCartao {
   switch (status) {
+    /*
+      Aprovando tem cara própria desde que aprovar passou a acontecer fora da
+      requisição.
+
+      Antes ele caía no `default` — "Lendo o arquivo…" — e era mentira barata:
+      o arquivo estava lido havia minutos, e o que corria era a gravação. A
+      diferença importa porque é a única cara em que o botão some e o de parar
+      fica: parar uma leitura e parar uma gravação custam o mesmo (nada entrou
+      nos dois casos), mas quem olha precisa saber qual das duas está vendo.
+    */
+    case "PROMOTING":
+      return {
+        face: "aprovando",
+        titulo: "Importando…",
+        emAndamento: true,
+        motivoPadrao: null,
+      };
+    case "CANCELLED":
+      return {
+        face: "cancelada",
+        titulo: "Importação cancelada.",
+        emAndamento: false,
+        motivoPadrao:
+          "Ninguém aprovou e nada deste arquivo entrou no sistema. Para enviá-lo de novo, exclua esta importação primeiro — é o que libera o arquivo.",
+      };
     case "PREVIEWED":
       return {
         face: "conferida",
@@ -209,6 +242,17 @@ const FAIXA_DO_TRECHO: Record<
 > = {
   CAPTURA: { inicio: 10, fim: 55, rotulo: "lendo" },
   PREPARO: { inicio: 55, fim: 85, rotulo: "preparando" },
+  /*
+    A promoção tem a barra inteira, e não a sobra da leitura.
+
+    As duas primeiras faixas dividem uma barra só porque são um trabalho só:
+    ler o arquivo. Gravar é outro, separado do primeiro por uma decisão humana
+    que pode demorar dias — e é o mais longo dos dois: medido nesta base, 19 s
+    de leitura contra 75 s de gravação num arquivo de 314 mil fatos. Continuar
+    a régua da leitura faria a barra da aprovação começar em 85% e passar um
+    minuto ali; ela recomeça do zero porque é outra coisa que começa.
+  */
+  PROMOCAO: { inicio: 0, fim: 100, rotulo: "importando" },
 };
 
 /**
@@ -218,14 +262,20 @@ const FAIXA_DO_TRECHO: Record<
  * uma barra vazia contaria o contrário. READING sem trecho é a janela de
  * milissegundos entre o estado virar READING e o primeiro trecho abrir — vale
  * o começo da faixa dele, e não um meio inventado, senão a primeira medida
- * publicada faria a barra recuar. PROMOTING chega a 100 porque a leitura, a
- * essa altura, terminou: quem ainda anda é a aprovação.
+ * publicada faria a barra recuar.
+ *
+ * PROMOTING **era** 100, porque a barra era só da leitura e a leitura tinha
+ * acabado. Agora que a promoção tem barra sua, 100 seria a pior mentira
+ * possível: a barra encheria no instante do clique e voltaria a zero na
+ * primeira medida publicada — e uma barra que volta atrás não é imprecisa, é
+ * uma barra em que ninguém acredita mais. Zero é o começo honesto do trabalho
+ * que está começando, e é onde a faixa de PROMOCAO também começa.
  */
 const DEGRAUS_DA_LEITURA: Record<string, number> = {
   PENDING: 10,
   READING: 10,
   STAGED: 90,
-  PROMOTING: 100,
+  PROMOTING: 0,
 };
 
 export function progressoDaLeitura(

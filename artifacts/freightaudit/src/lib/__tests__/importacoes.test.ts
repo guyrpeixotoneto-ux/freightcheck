@@ -33,6 +33,7 @@ const IMPORT_RUN_STATUS = [
   "SKIPPED_DUPLICATE",
   "SKIPPED_DUPLICATE_DATA",
   "VALIDATION_ERROR",
+  "CANCELLED",
 ] as const;
 
 /** Os únicos estados em que o run ainda muda sozinho. */
@@ -64,6 +65,27 @@ describe("faceDoCartao", () => {
     }
   });
 
+  it("cancelada não é erro nem duplicata: é decisão, e diz que nada entrou", () => {
+    const cara = faceDoCartao("CANCELLED");
+    // Terminal: o cartão para de perguntar. Era o que faltava para um estado
+    // novo do pipeline não virar "Lendo o arquivo…" para sempre.
+    expect(cara.emAndamento).toBe(false);
+    expect(cara.face).toBe("cancelada");
+    expect(cara.motivoPadrao).toMatch(/nada deste arquivo entrou/i);
+    // E diz o que fazer para tentar de novo: reenviar sem excluir é recusado
+    // pelo SHA-256, porque o arquivo continua registrado como recebido.
+    expect(cara.motivoPadrao).toMatch(/exclua esta importação/i);
+  });
+
+  it("aprovando é andamento, e não a leitura de novo", () => {
+    const cara = faceDoCartao("PROMOTING");
+    // Caía no `default` — "Lendo o arquivo…" — e era falso: o arquivo estava
+    // lido havia minutos, e o que corria era a gravação.
+    expect(cara.face).toBe("aprovando");
+    expect(cara.emAndamento).toBe(true);
+    expect(cara.titulo).not.toMatch(/lendo/i);
+  });
+
   it("duplicata não é erro: cara própria, dizendo que nada entrou de novo", () => {
     expect(faceDoCartao("SKIPPED_DUPLICATE").face).toBe("duplicata");
     expect(faceDoCartao("SKIPPED_DUPLICATE_DATA").face).toBe("duplicata");
@@ -72,7 +94,11 @@ describe("faceDoCartao", () => {
   it("todo desfecho sem resumo tem o que dizer quando o run não gravou motivo", () => {
     for (const status of IMPORT_RUN_STATUS) {
       const cara = faceDoCartao(status);
-      if (cara.face !== "lendo" && cara.face !== "conferida") {
+      // A condição é `emAndamento`, e não uma lista de caras: o que não tem
+      // motivo padrão é o que ainda está acontecendo — ali o cartão mostra a
+      // barra, e uma frase de desfecho seria um desfecho que não houve. Era
+      // uma lista escrita à mão, e "aprovando" nasceu fora dela.
+      if (!cara.emAndamento && cara.face !== "conferida") {
         expect(cara.motivoPadrao, status).toBeTruthy();
       }
     }
@@ -141,14 +167,45 @@ describe("progressoDaLeitura", () => {
       lendo({ progressStep: "PREPARO", progressDone: 0 }),
       lendo({ progressStep: "PREPARO", progressDone: 100 }),
       { status: "STAGED", progressStep: null },
-      { status: "PROMOTING", progressStep: null },
     ];
     const pcts = caminho.map((run) => progressoDaLeitura(run)!.pct);
     for (let i = 1; i < pcts.length; i++) {
       expect(pcts[i], `${caminho[i].status}/${caminho[i].progressStep}`)
         .toBeGreaterThanOrEqual(pcts[i - 1]!);
     }
-    expect(pcts.at(-1)).toBe(100);
+    // A leitura não chega a 100 porque não é a última coisa a acontecer:
+    // depois dela vem a decisão de aprovar, que é de quem olha.
+    expect(pcts.at(-1)).toBe(90);
+  });
+
+  /**
+   * A gravação tem barra sua — e ela é outra barra.
+   *
+   * O caminho da leitura acaba em STAGED e espera; o que começa depois é outro
+   * trabalho, separado do primeiro por uma decisão humana que pode demorar
+   * dias, e o mais longo dos dois num arquivo grande. Continuar a régua da
+   * leitura faria a aprovação começar em 85% e passar um minuto ali.
+   *
+   * E é por isso que PROMOTING sem medida vale 0, e não os 100 que valia quando
+   * a barra era só da leitura: 100 encheria a barra no instante do clique, e a
+   * primeira medida publicada a faria voltar a zero.
+   */
+  it("a promoção anda do zero ao fim, sem herdar a régua da leitura", () => {
+    const promovendo = (sobrepor: Partial<AndamentoDoRun> = {}) =>
+      progressoDaLeitura({
+        status: "PROMOTING",
+        progressStep: "PROMOCAO",
+        progressDone: 0,
+        progressTotal: 1000,
+        ...sobrepor,
+      })!;
+
+    expect(progressoDaLeitura({ status: "PROMOTING", progressStep: null })!.pct)
+      .toBe(0);
+    expect(promovendo().pct).toBe(0);
+    expect(promovendo({ progressDone: 500 }).pct).toBe(50);
+    expect(promovendo({ progressDone: 1000 }).pct).toBe(100);
+    expect(promovendo().rotulo).toBe("importando");
   });
 
   it("nomeia o trecho, e não o enum: 'lendo' e 'preparando'", () => {
