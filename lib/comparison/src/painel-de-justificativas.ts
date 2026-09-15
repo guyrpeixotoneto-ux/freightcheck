@@ -232,6 +232,17 @@ export interface LinhaDoPainel {
   impactPeriodicity: string | null;
   /** `null` é a pendência: nunca foi justificada. */
   texto: string | null;
+  /*
+    A justificativa estruturada da linha — a mesma da tabela, e pelo mesmo
+    motivo que `texto` viaja junto: reabrir uma linha já justificada no painel
+    tem de trazer de volta a fórmula e a regra que foram gravadas, ou o
+    diálogo pediria de novo o que já está escrito.
+  */
+  formula: string | null;
+  regra: string | null;
+  conforme: boolean | null;
+  motivoExcecao: string | null;
+  responsavelAprovacao: string | null;
   criadoPor: string | null;
   criadoEm: Date | null;
 }
@@ -273,6 +284,11 @@ export async function linhasDoPainel(
     .select({
       changeId: justificativaTable.changeId,
       texto: justificativaTable.texto,
+      formula: justificativaTable.formula,
+      regra: justificativaTable.regra,
+      conforme: justificativaTable.conforme,
+      motivoExcecao: justificativaTable.motivoExcecao,
+      responsavelAprovacao: justificativaTable.responsavelAprovacao,
       criadoPor: justificativaTable.criadoPor,
       criadoEm: justificativaTable.criadoEm,
       ordem: sql<number>`row_number() OVER (
@@ -324,6 +340,11 @@ export async function linhasDoPainel(
       ),
       impactPeriodicity: changeTable.impactPeriodicity,
       texto: ultimas.texto,
+      formula: ultimas.formula,
+      regra: ultimas.regra,
+      conforme: ultimas.conforme,
+      motivoExcecao: ultimas.motivoExcecao,
+      responsavelAprovacao: ultimas.responsavelAprovacao,
       criadoPor: ultimas.criadoPor,
       criadoEm: ultimas.criadoEm,
     })

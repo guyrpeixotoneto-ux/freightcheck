@@ -11,6 +11,11 @@ import {
   type SituacaoDaJustificativa,
 } from "@workspace/comparison";
 import {
+  lerJustificativaEstruturada,
+  resumoDaJustificativa,
+  ROTULO_DO_CAMPO,
+} from "@workspace/comparison/justificativa-estruturada";
+import {
   iniciarFase,
   instrumentarCicloDaRequisicao,
 } from "../lib/observabilidade";
@@ -232,8 +237,15 @@ router.get("/justificativas", async (req, res): Promise<void> => {
 });
 
 /**
- * Justificar uma ou mais alterações de uma vez — o mesmo texto vale para
- * todas as selecionadas, uma linha por alteração.
+ * Justificar uma ou mais alterações de uma vez — a mesma justificativa vale
+ * para todas as selecionadas, uma linha por alteração.
+ *
+ * O corpo deixou de ser `{ texto }` e passou a ser a justificativa estruturada
+ * — fórmula, regra, conformidade e, na exceção, motivo e responsável. `texto`
+ * continua sendo gravado, e continua sendo o que as telas de uma linha só
+ * mostram, mas é **derivado aqui** e não aceito do cliente: um resumo que o
+ * cliente mandasse poderia contradizer os campos que o acompanham, e a coluna
+ * que a auditoria lê não pode discordar da decisão que ela resume.
  */
 router.post("/justificativas", async (req, res): Promise<void> => {
   const changeSetId =
@@ -245,9 +257,6 @@ router.post("/justificativas", async (req, res): Promise<void> => {
         (v: unknown): v is number => typeof v === "number" && Number.isFinite(v),
       )
     : [];
-  const texto =
-    typeof req.body?.texto === "string" ? req.body.texto.trim() : "";
-
   if (!changeSetId) {
     res.status(400).json({ error: "changeSetId é obrigatório." });
     return;
@@ -259,12 +268,18 @@ router.post("/justificativas", async (req, res): Promise<void> => {
     res.status(400).json({ error: "Selecione ao menos uma alteração." });
     return;
   }
-  if (texto === "") {
-    res
-      .status(400)
-      .json({ error: "A justificativa não pode ficar em branco." });
+  const lida = lerJustificativaEstruturada(req.body);
+  if (!lida.ok) {
+    res.status(400).json({
+      error: `A justificativa está incompleta: ${lida.faltam
+        .map((campo) => ROTULO_DO_CAMPO[campo])
+        .join(", ")}.`,
+      faltam: lida.faltam,
+    });
     return;
   }
+  const justificativa = lida.valor;
+  const texto = resumoDaJustificativa(justificativa);
 
   const criadoPor = req.user?.email ?? DEFAULT_ACTOR;
 
@@ -306,6 +321,11 @@ router.post("/justificativas", async (req, res): Promise<void> => {
         entityLabel: change.entityLabel ?? "",
         entityType: change.entityType,
         texto,
+        formula: justificativa.formula,
+        regra: justificativa.regra,
+        conforme: justificativa.conforme,
+        motivoExcecao: justificativa.motivoExcecao,
+        responsavelAprovacao: justificativa.responsavelAprovacao,
         criadoPor,
       })),
     )
