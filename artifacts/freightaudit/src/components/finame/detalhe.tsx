@@ -170,8 +170,8 @@ export function DetalheDoVeiculo({
                 <thead>
                   <tr className="border-b bg-muted/60 text-[0.65rem] uppercase tracking-[0.07em] text-muted-foreground">
                     <th scope="col" className="px-3 py-2 text-left font-bold">Variável</th>
-                    <th scope="col" className="px-3 py-2 text-right font-bold">Base</th>
-                    <th scope="col" className="px-3 py-2 text-right font-bold">Comparada</th>
+                    <th scope="col" className="px-3 py-2 text-right font-bold">De</th>
+                    <th scope="col" className="px-3 py-2 text-right font-bold">Para</th>
                     <th scope="col" className="px-3 py-2 text-right font-bold">Δ</th>
                     <th scope="col" className="px-3 py-2 text-left font-bold">Status</th>
                   </tr>

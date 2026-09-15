@@ -40,12 +40,14 @@ import {
   filtrar,
   linhasDoCsv,
   parDePartida,
+  rotulosDasVigencias,
   vigenciasDaUnidade,
   type ComparacaoDeFiname,
   type FiltrosDeFiname,
   type TotaisDeFiname,
 } from "@/lib/finame";
 import { lerRecorte } from "@/lib/recorte";
+import { contextoAberto, unidadeDe, useContextosDaCasca } from "@/lib/contextos";
 import { cn } from "@/lib/utils";
 
 /**
@@ -82,8 +84,10 @@ import { cn } from "@/lib/utils";
  * padrão podia casar uma com a outra — o único par que o motor recusa por
  * construção — e a tela abria num aviso de erro sem ninguém ter escolhido nada.
  *
- * Agora ela lê `scopeHash` da URL, recorta a lista por ele e escolhe o par
- * dentro do recorte (`vigenciasDaUnidade` e `parDePartida`, em `lib/finame.ts`).
+ * Agora ela lê a unidade aberta — `scopeHash` da URL quando há um, e o contexto
+ * que a lateral nomeia quando não há (`contextoAberto`) —, recorta a lista por
+ * ela e escolhe o par dentro do recorte (`vigenciasDaUnidade` e `parDePartida`,
+ * em `lib/finame.ts`). Aberta CAMAÇARI, o seletor oferece Camaçari e nada mais.
  * É o que a põe em `TELAS_QUE_HONRAM_ESCOPO` (`lib/navegacao-do-escopo.ts`):
  * trocar de unidade na lateral troca o dado desta tela em vez de expulsar quem
  * trocou para Parâmetros. Uma unidade sem duas vigências abre **vazia, dizendo
@@ -117,10 +121,68 @@ export default function AuditoriaDeFiname() {
    */
   const recorte = lerRecorte(useSearch());
 
+  /**
+   * Os contextos — de onde saem o **nome** de cada unidade e **qual delas está
+   * aberta**.
+   *
+   * A vigência traz o `scope_hash`, que é um hash: serve para recortar e não
+   * para ler. Quem traduz hash em "CAMAÇARI" é a lista de contextos, que a
+   * lateral já consulta — daí `useContextosDaCasca`, que divide o mesmo cache e
+   * nunca transforma uma falha em painel de erro. Sem ela, os rótulos ficam sem
+   * o nome da unidade e a tela volta a listar o acervo: é degradação, não
+   * quebra.
+   */
+  const { contextos, carregando: contextosCarregando } = useContextosDaCasca();
+  const nomePorEscopo = useMemo(() => {
+    const nomes = new Map<string, string>();
+    for (const c of contextos) nomes.set(c.scopeHash, unidadeDe(c));
+    return nomes;
+  }, [contextos]);
+
+  /**
+   * A unidade aberta — **a mesma que a lateral nomeia**, com ou sem `scopeHash`.
+   *
+   * `recorte.scopeHash` sozinho não responde isto. Sem ele na URL — quem chega
+   * por um link nu, ou pelo menu antes de escolher unidade —, a caixa "Unidade
+   * atual" continua escrevendo uma unidade: ela cai no primeiro contexto
+   * (`contextoAberto`). A tela, lendo só a URL, listava as cinco. É exatamente o
+   * desencontro que o cabeçalho de `contextoAberto` descreve, e que custou o
+   * mesmo defeito na Cobertura de dados: a lateral escrevendo PERNAMBUCO sobre
+   * uma tela que mostrava o acervo inteiro.
+   *
+   * Com a mesma função dos dois lados, a resposta é uma só: se a lateral diz
+   * CAMAÇARI, o seletor oferece as vigências de Camaçari e nada mais.
+   */
+  const escopoAberto = contextoAberto(contextos, recorte.scopeHash)?.scopeHash ?? null;
+
+  /**
+   * Recortar antes de saber qual é a unidade daria a lista errada por um
+   * instante — e, pior, um par escolhido nela. Enquanto `/contexts` não
+   * responde e a URL não traz unidade, não há lista: nem a de todas, nem a de
+   * uma.
+   */
+  const unidadeResolvida = recorte.scopeHash !== null || !contextosCarregando;
+
   /** As vigências da unidade aberta — a lista que o seletor oferece. */
   const daUnidade = useMemo(
-    () => vigenciasDaUnidade(vigencias.data ?? [], recorte.scopeHash),
-    [vigencias.data, recorte.scopeHash],
+    () =>
+      unidadeResolvida ? vigenciasDaUnidade(vigencias.data ?? [], escopoAberto) : [],
+    [vigencias.data, escopoAberto, unidadeResolvida],
+  );
+
+  /**
+   * O texto de cada opção do seletor, distinto por construção.
+   *
+   * O arquivo que a Ambev entrega traz as cinco unidades juntas, e uma
+   * importação vira cinco vigências de mesmo rótulo e mesma data — medido no
+   * `EMPURRADA_Cavalo.xlsx`: seis vigências × cinco unidades = trinta. O
+   * seletor mostrava as cinco como a mesma frase, cinco vezes seguidas, e
+   * escolher ali era adivinhar. `rotulosDasVigencias` acrescenta a unidade — e
+   * só ela, e só onde desempata.
+   */
+  const rotulos = useMemo(
+    () => rotulosDasVigencias(daUnidade, (hash) => nomePorEscopo.get(hash) ?? null),
+    [daUnidade, nomePorEscopo],
   );
 
   /**
@@ -137,13 +199,13 @@ export default function AuditoriaDeFiname() {
    * traria a recusa dele para uma tela onde ninguém escolheu nada.
    */
   useEffect(() => {
-    if (!vigencias.data) return;
+    if (!vigencias.data || !unidadeResolvida) return;
     const naLista = (id: string) => daUnidade.some((v) => v.id === id);
     if (base && comparada && naLista(base) && naLista(comparada)) return;
     const par = parDePartida(daUnidade);
     setBase(par?.base.id ?? "");
     setComparada(par?.comparada.id ?? "");
-  }, [vigencias.data, daUnidade, base, comparada]);
+  }, [vigencias.data, daUnidade, unidadeResolvida, base, comparada]);
 
   /**
    * A unidade já respondeu e não tem duas vigências para comparar.
@@ -153,7 +215,7 @@ export default function AuditoriaDeFiname() {
    * tela vazia por um quadro em toda unidade que tem par.
    */
   const semParPossivel =
-    Boolean(vigencias.data) && parDePartida(daUnidade) === null;
+    Boolean(vigencias.data) && unidadeResolvida && parDePartida(daUnidade) === null;
 
   const comparacao = useQuery({
     queryKey: ["finame", "comparacao", base, comparada, comSemAlteracao],
@@ -224,6 +286,7 @@ export default function AuditoriaDeFiname() {
         ) : (
           <SeletorDoPar
             vigencias={daUnidade}
+            rotulos={rotulos}
             base={base}
             comparada={comparada}
             onBase={setBase}
@@ -249,7 +312,7 @@ export default function AuditoriaDeFiname() {
             icone={Banknote}
             titulo="Esta unidade não tem duas vigências para comparar"
             descricao={
-              recorte.scopeHash
+              escopoAberto
                 ? "A comparação de FINAME precisa de duas vigências da mesma unidade. Escolha outra unidade na lateral ou importe a vigência seguinte."
                 : "O acervo ainda não tem duas vigências da mesma unidade e da mesma cobertura para comparar."
             }
