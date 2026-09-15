@@ -16,10 +16,12 @@ import {
 import { unidadeDe } from "@workspace/composition";
 import {
   apurarUnidade,
+  lerIdentidadesDaFrota,
   lerMaterial,
   resolverVigencias,
   unidadesEconomicas,
   type EscopoApuravel,
+  type MaterialDaDRE,
   type OpcoesDeApuracao,
   type UnidadeEconomica,
   type Vigencias,
@@ -125,10 +127,25 @@ export async function getDREDaFrota(
   const vigencias = await resolverVigencias(db, context, opcoes.period);
   if (!vigencias) return null;
 
-  const material = await lerMaterial(db, vigencias.alvo.effectiveDate, context);
-  const materialAnterior = vigencias.anterior
-    ? await lerMaterial(db, vigencias.anterior.effectiveDate, context)
-    : null;
+  /*
+    O cadastro uma vez, e as duas vigências em paralelo.
+
+    Eram duas leituras **em série** — a da vigência alvo e a da anterior —, cada
+    uma relendo o cadastro de identidade por conta própria. Nada nelas depende da
+    outra: a anterior existe para dizer o que variou, e o `effectiveDate` das
+    duas já veio de `resolverVigencias`. Serializá-las custava uma espera inteira
+    de graça.
+
+    Ver `lerIdentidadesDaFrota` em `apuracao.ts` para o porquê de o cadastro sair
+    de dentro de `lerMaterial`.
+  */
+  const identidades = await lerIdentidadesDaFrota(db);
+  const [material, materialAnterior] = await Promise.all([
+    lerMaterial(db, vigencias.alvo.effectiveDate, context, identidades),
+    vigencias.anterior
+      ? lerMaterial(db, vigencias.anterior.effectiveDate, context, identidades)
+      : Promise.resolve<MaterialDaDRE | null>(null),
+  ]);
 
   const unidades = unidadesEconomicas(material, escopo);
   const unidadesAnteriores = materialAnterior

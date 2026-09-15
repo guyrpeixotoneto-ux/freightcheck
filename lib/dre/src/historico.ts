@@ -13,6 +13,7 @@ import type { Database } from "@workspace/db";
 import { resolveContext, type SeriesContext } from "@workspace/comparison";
 import {
   apurarUnidade,
+  lerIdentidadesDaFrota,
   lerMaterial,
   resolverVigencias,
   unidadesEconomicas,
@@ -70,12 +71,29 @@ export async function getHistoricoDaDRE(
   const vigencias = await resolverVigencias(db, context);
   if (!vigencias) return null;
 
+  /*
+    O cadastro de identidade sai do laço.
+
+    `lerMaterial` precisa saber, para cada `entity_id`, se ele é cavalo ou
+    carreta — e isso é cadastro, não vigência: é o mesmo em dezembro e em
+    agosto. Lido lá dentro, virava duas consultas por volta do laço; com 18
+    vigências, **18 execuções da mesma leitura** apareciam no log do Postgres
+    desta rota, de 52 consultas no total.
+
+    O que ele não sai é do `Promise.all` de `lerMaterial`: a leitura dos fatos
+    da vigência continua concorrente com a das classificações, como era.
+
+    Ver `lerIdentidadesDaFrota`, e o mesmo padrão em
+    `lib/composition/src/conjunto.ts:355`.
+  */
+  const identidades = await lerIdentidadesDaFrota(db);
+
   const pontos: PontoDaSerie[] = [];
   const porComponente = new Map<string, { titulo: string; valores: (number | null)[] }>();
   let rotulo = escopo === "CAVALO" ? "Cavalos" : escopo === "CARRETA" ? "Carretas" : "Conjuntos";
 
   for (const vigencia of vigencias.todas) {
-    const material = await lerMaterial(db, vigencia.effectiveDate, context);
+    const material = await lerMaterial(db, vigencia.effectiveDate, context, identidades);
     const unidades = unidadesEconomicas(material, escopo);
 
     const alvo = opcoes.entityId

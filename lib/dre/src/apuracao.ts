@@ -60,6 +60,43 @@ export interface IdentidadeDoAtivo {
   chassi: string | null;
 }
 
+/**
+ * O cadastro de identidade dos dois tipos, numa leitura.
+ *
+ * ---------------------------------------------------------------------------
+ * Por que existe, e por que o resultado se passa adiante em vez de se reler
+ * ---------------------------------------------------------------------------
+ * Quem lê uma vigência precisa saber, para cada `entity_id`, se ele é cavalo ou
+ * carreta e qual a placa. Isso não depende da vigência: é o cadastro, e ele é o
+ * mesmo em dezembro e em agosto.
+ *
+ * `lerMaterial` lia esse cadastro por conta própria, duas consultas por
+ * chamada. Numa tela de uma vigência só isso é invisível. Em `getHistoricoDaDRE`,
+ * que chama `lerMaterial` **uma vez por vigência**, deixa de ser: medido no log
+ * do Postgres com o acervo real (18 vigências), `/api/dre/history` disparava 52
+ * consultas, e **18 delas eram esta mesma leitura**, repetida sobre um catálogo
+ * que não muda entre uma vigência e a seguinte.
+ *
+ * Em `localhost` isso custa pouco — a consulta responde em menos de 1 ms. O que
+ * ela custa é **ida e volta**: a inclinação medida de `/dre/history` é de 19,0 ms
+ * por ms de RTT até o banco, e cada consulta a mais é ~1 ms dessa conta. Contra
+ * um Postgres a 15 ms, as 18 repetições sozinhas valiam ~270 ms.
+ *
+ * A saída é a que `lib/composition/src/conjunto.ts:284` já usa: quem chama em
+ * laço lê o cadastro uma vez e o passa adiante. Não é cache — não há
+ * invalidação, prazo nem estado guardado entre requisições. É um argumento, com
+ * o tempo de vida da requisição que o criou.
+ */
+export async function lerIdentidadesDaFrota(
+  db: Database,
+): Promise<Map<string, IdentidadeDoAtivo>> {
+  const [cavalos, carretas] = await Promise.all([
+    lerIdentidades(db, "CAVALO"),
+    lerIdentidades(db, "CARRETA"),
+  ]);
+  return new Map([...cavalos, ...carretas]);
+}
+
 async function lerIdentidades(
   db: Database,
   entityType: string,
@@ -168,15 +205,22 @@ export async function lerMaterial(
   db: Database,
   effectiveDate: string,
   context: SeriesContext,
+  /**
+   * O cadastro de identidade, quando quem chama já o tem.
+   *
+   * Opcional de propósito: quem lê **uma** vigência (a DRE de um veículo, a
+   * frota de uma vigência) não ganha nada em carregá-lo antes, e obrigá-lo a
+   * fazê-lo só acrescentaria cerimônia. Quem lê em laço — `getHistoricoDaDRE` —
+   * passa, e deixa de pagar duas consultas por volta. Ver
+   * {@link lerIdentidadesDaFrota}.
+   */
+  identidadesPrecarregadas?: Map<string, IdentidadeDoAtivo>,
 ): Promise<MaterialDaDRE> {
-  const [classificacoes, fatosPorAtivo, cavalos, carretas] = await Promise.all([
+  const [classificacoes, fatosPorAtivo, identidades] = await Promise.all([
     loadAttributeClassificationsAt(db, effectiveDate),
     lerFatosDaVigencia(db, effectiveDate, context),
-    lerIdentidades(db, "CAVALO"),
-    lerIdentidades(db, "CARRETA"),
+    identidadesPrecarregadas ?? lerIdentidadesDaFrota(db),
   ]);
-
-  const identidades = new Map([...cavalos, ...carretas]);
 
   const aprovadosPorAtivo = new Map<string, Map<string, ValorAprovado>>();
   for (const [entityId, fatos] of fatosPorAtivo) {
