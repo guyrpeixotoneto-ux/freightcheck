@@ -1,6 +1,12 @@
 import { Info, TriangleAlert } from "lucide-react";
 import type { LinhaDeIpva } from "@workspace/comparison/ipva";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  CelulaDeJustificativa,
+  COLUNA_DE_JUSTIFICATIVA,
+  type AbrirJustificativa,
+} from "@/components/justificativas/coluna";
+import type { Justificativa } from "@/lib/justificativas";
 import { cn } from "@/lib/utils";
 import {
   ROTULO_DO_ESTADO,
@@ -41,10 +47,16 @@ const ROTULO_DO_TIPO: Record<string, string> = { CAVALO: "Cavalo", CARRETA: "Car
  */
 export function TabelaDeIpva({
   linhas,
+  justificadaPor,
   onAbrir,
+  onJustificar,
 }: {
   linhas: LinhaDeIpva[];
+  /** A justificativa mais recente de cada alteração, por `change.id`. */
+  justificadaPor?: ReadonlyMap<number, Justificativa>;
   onAbrir: (linha: LinhaDeIpva) => void;
+  /** Sem ele a coluna é só de leitura — ver `CelulaDeJustificativa`. */
+  onJustificar?: AbrirJustificativa;
 }) {
   return (
     <div className="superficie overflow-x-auto">
@@ -63,6 +75,7 @@ export function TabelaDeIpva({
               "Diferença",
               "Variação %",
               "Status",
+              COLUNA_DE_JUSTIFICATIVA,
             ].map((titulo, i) => (
               <th
                 key={titulo}
@@ -193,6 +206,14 @@ export function TabelaDeIpva({
                       </Tooltip>
                     )}
                   </span>
+                </td>
+                {/* O clique da célula é dela: a linha inteira abre o detalhe. */}
+                <td className="px-3 py-2 text-xs">
+                  <CelulaDeJustificativa
+                    linha={l}
+                    justificativa={l.id === null ? undefined : justificadaPor?.get(l.id)}
+                    onJustificar={onJustificar}
+                  />
                 </td>
               </tr>
             );

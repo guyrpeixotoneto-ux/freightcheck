@@ -40,6 +40,8 @@ import {
   TempoPagoContraPraticado,
 } from "@/components/velocidade-media/graficos";
 import { TabelaDeVelocidade } from "@/components/velocidade-media/tabela";
+import { JustificarDialog } from "@/components/justificativas/justificar-dialog";
+import { useJustificarNaTabela } from "@/lib/justificar-na-tabela";
 import { DetalheDoTrecho } from "@/components/velocidade-media/detalhe";
 import { fetchJson, salvarArquivo } from "@/lib/api";
 import { csvComoBlob, paraNomeDeArquivo } from "@/lib/csv";
@@ -205,6 +207,17 @@ export default function AuditoriaDeVelocidadeMedia() {
   const rotuloBase = vigencias.data?.find((v) => v.id === base)?.sourceLabel ?? "De";
   const rotuloComparada =
     vigencias.data?.find((v) => v.id === comparada)?.sourceLabel ?? "Para";
+
+  /*
+    Justificar sem sair daqui — a mesma caixa de Chamados, o mesmo POST, e a
+    vigência escrita nela: quem justifica a partir desta tela escolheu o par no
+    seletor acima, e um diálogo que não diz onde grava deixa a decisão sem a
+    metade que a torna verificável.
+  */
+  const justificar = useJustificarNaTabela(
+    comparacao.data?.changeSetId,
+    `comparação ${rotuloBase} → ${rotuloComparada}`,
+  );
 
   function exportar() {
     const blob = csvComoBlob(linhasDoCsv(filtradas));
@@ -500,7 +513,9 @@ export default function AuditoriaDeVelocidadeMedia() {
               <>
                 <TabelaDeVelocidade
                   linhas={naPagina}
+                  justificadaPor={justificar.justificadaPor}
                   onAbrir={(l) => setAberto({ entityLabel: l.entityLabel })}
+                  onJustificar={justificar.abrir}
                 />
                 <Paginacao
                   pagina={pagina}
@@ -514,6 +529,8 @@ export default function AuditoriaDeVelocidadeMedia() {
                 />
               </>
             )}
+
+            <JustificarDialog {...justificar.propsDoDialogo} />
 
             <DetalheDoTrecho
               trecho={aberto}

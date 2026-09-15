@@ -40,6 +40,8 @@ import {
   ViradasDeCiclo,
 } from "@/components/lucro-fixo/graficos";
 import { TabelaDeLucroFixo } from "@/components/lucro-fixo/tabela";
+import { JustificarDialog } from "@/components/justificativas/justificar-dialog";
+import { useJustificarNaTabela } from "@/lib/justificar-na-tabela";
 import { DetalheDoVeiculo } from "@/components/lucro-fixo/detalhe";
 import { fetchJson, salvarArquivo } from "@/lib/api";
 import { type CandidatosDoPar } from "@/lib/candidatos";
@@ -239,6 +241,17 @@ export default function AuditoriaDeLucroFixo() {
   const rotuloBase = vigencias.data?.find((v) => v.id === base)?.sourceLabel ?? "De";
   const rotuloComparada =
     vigencias.data?.find((v) => v.id === comparada)?.sourceLabel ?? "Para";
+
+  /*
+    Justificar sem sair daqui — a mesma caixa de Chamados, o mesmo POST, e a
+    vigência escrita nela: quem justifica a partir desta tela escolheu o par no
+    seletor acima, e um diálogo que não diz onde grava deixa a decisão sem a
+    metade que a torna verificável.
+  */
+  const justificar = useJustificarNaTabela(
+    comparacao.data?.changeSetId,
+    `comparação ${rotuloBase} → ${rotuloComparada}`,
+  );
 
   function exportar() {
     const blob = csvComoBlob(linhasDoCsv(filtradas));
@@ -528,9 +541,11 @@ export default function AuditoriaDeLucroFixo() {
               <>
                 <TabelaDeLucroFixo
                   linhas={naPagina}
+                  justificadaPor={justificar.justificadaPor}
                   onAbrir={(l) =>
                     setAberto({ entityLabel: l.entityLabel, entityType: l.entityType })
                   }
+                  onJustificar={justificar.abrir}
                 />
                 <Paginacao
                   pagina={pagina}
@@ -544,6 +559,8 @@ export default function AuditoriaDeLucroFixo() {
                 />
               </>
             )}
+
+            <JustificarDialog {...justificar.propsDoDialogo} />
 
             <DetalheDoVeiculo
               veiculo={aberto}

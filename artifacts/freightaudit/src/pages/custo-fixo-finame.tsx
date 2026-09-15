@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearch } from "wouter";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { Banknote, Download, Search, SlidersHorizontal } from "lucide-react";
 import type { LinhaDeFiname } from "@workspace/comparison/finame";
 import { VARIAVEIS_DE_FINAME, agruparPorVeiculo } from "@workspace/comparison/finame";
@@ -44,12 +44,8 @@ import {
   type TotaisDeFiname,
 } from "@/lib/finame";
 import { type CandidatosDoPar } from "@/lib/candidatos";
-import {
-  JustificarDialog,
-  type AlvoDaJustificativa,
-} from "@/components/justificativas/justificar-dialog";
-import { useJustificadaPor, type Justificativa } from "@/lib/justificativas";
-import type { JustificativaEstruturada } from "@workspace/comparison/justificativa-estruturada";
+import { JustificarDialog } from "@/components/justificativas/justificar-dialog";
+import { useJustificarNaTabela } from "@/lib/justificar-na-tabela";
 import {
   parDePartida,
   rotulosDasVigencias,
@@ -325,47 +321,6 @@ export default function AuditoriaDeFiname() {
    * inteira, com a coluna em branco. A comparação é o dado da tela; a
    * justificativa é o comentário sobre ele.
    */
-  const { justificadaPor } = useJustificadaPor(comparacao.data?.changeSetId);
-
-  /**
-   * Justificar sem sair da tabela.
-   *
-   * A explicação de uma queda nasce olhando a linha que caiu — e era
-   * exatamente ali que não dava para escrevê-la: quem via a amortização zerar
-   * tinha de abrir Chamados, reencontrar a vigência no seletor, reencontrar a
-   * placa na fila e só então escrever. Duas telas para uma frase.
-   *
-   * O que muda é **de onde se abre**, e nada do que justificar significa: o
-   * diálogo é o mesmo componente de Chamados e o POST é o mesmo `/justificativas`
-   * — mesma rota, mesmo `changeSetId`, uma linha de `justificativa` por
-   * alteração. Gravar de novo não edita a anterior: é histórico, e a tela lê
-   * sempre a mais recente. Por isso também não há gravação otimista aqui; o que
-   * volta para a tabela é o que o banco confirmou.
-   */
-  const queryClient = useQueryClient();
-  const [alvo, setAlvo] = useState<AlvoDaJustificativa[] | null>(null);
-  const [justificativaAtual, setJustificativaAtual] = useState<Justificativa | null>(null);
-
-  const gravarJustificativa = useMutation({
-    mutationFn: (input: { changeIds: number[]; justificativa: JustificativaEstruturada }) =>
-      fetchJson<{ justificativas: Justificativa[] }>("/justificativas", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          changeSetId: comparacao.data?.changeSetId,
-          changeIds: input.changeIds,
-          ...input.justificativa,
-        }),
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["justificativas", comparacao.data?.changeSetId],
-      });
-      setAlvo(null);
-      setJustificativaAtual(null);
-    },
-  });
-
   const linhas = useMemo(() => comparacao.data?.linhas ?? [], [comparacao.data]);
   const filtradas = useMemo(() => filtrar(linhas, filtros), [linhas, filtros]);
   const contagens = useMemo(
@@ -398,6 +353,23 @@ export default function AuditoriaDeFiname() {
     vigencias.data?.find((v) => v.id === base)?.sourceLabel ?? "Vigência Base";
   const rotuloComparada =
     vigencias.data?.find((v) => v.id === comparada)?.sourceLabel ?? "Vigência Comparada";
+
+  /*
+    Justificar sem sair da tabela — o mesmo gancho das outras cinco rubricas.
+
+    A leitura é uma consulta à parte da comparação: pendurá-la no
+    `/finame/comparacao` faria a tela recalcular a comparação inteira toda vez
+    que alguém justificasse uma linha. E é resiliente por dentro
+    (`useConsultaResiliente`), o que garante que uma falha aqui não vire painel
+    de erro: sem justificativas a tabela continua inteira, com a coluna em
+    branco. A comparação é o dado da tela; a justificativa é o comentário sobre
+    ele.
+  */
+  const justificar = useJustificarNaTabela(
+    comparacao.data?.changeSetId,
+    `comparação ${rotuloBase} → ${rotuloComparada}`,
+  );
+  const { justificadaPor } = justificar;
 
   function exportar() {
     const blob = csvComoBlob(linhasDoCsv(filtradas, justificadaPor));
@@ -650,11 +622,7 @@ export default function AuditoriaDeFiname() {
                   onAbrir={(v) =>
                     setAberto({ entityLabel: v.entityLabel, entityType: v.entityType })
                   }
-                  onJustificar={(alvos, atual) => {
-                    gravarJustificativa.reset();
-                    setJustificativaAtual(atual ?? null);
-                    setAlvo(alvos);
-                  }}
+                  onJustificar={justificar.abrir}
                 />
                 <Paginacao
                   pagina={pagina}
@@ -673,23 +641,7 @@ export default function AuditoriaDeFiname() {
                 justifica a partir daqui escolheu o par no seletor acima, e uma
                 caixa que não diz onde grava deixa a decisão sem a metade que a
                 torna verificável. */}
-            <JustificarDialog
-              alvo={alvo}
-              contexto={`comparação ${rotuloBase} → ${rotuloComparada}`}
-              justificativaAtual={justificativaAtual}
-              pendente={gravarJustificativa.isPending}
-              erro={gravarJustificativa.error}
-              onClose={() => {
-                setAlvo(null);
-                setJustificativaAtual(null);
-              }}
-              onConfirmar={(justificativa) =>
-                gravarJustificativa.mutate({
-                  changeIds: (alvo ?? []).map((a) => a.id),
-                  justificativa,
-                })
-              }
-            />
+            <JustificarDialog {...justificar.propsDoDialogo} />
 
             <DetalheDoVeiculo
               veiculo={aberto}
