@@ -88,6 +88,7 @@ const JUSTIFICADA: Justificativa = {
   formula: "Amortização mensal = Valor financiado ÷ Prazo",
   regra: "O valor acompanha o contrato de financiamento.",
   conforme: true,
+  naoConformidade: null,
   motivoExcecao: null,
   responsavelAprovacao: null,
   criadoPor: "gestor@ambev.com.br",
@@ -229,7 +230,8 @@ describe("justificar direto na tabela", () => {
     fireEvent.click(
       screen.getByRole("button", { name: /Justificar as 2 alterações de QYW6D15/ }),
     );
-    // As duas alterações da placa, num alvo só — mesmo texto para todas.
+    // As duas alterações da placa, num alvo só — a fila do diálogo pergunta
+    // uma por uma.
     expect(onJustificar).toHaveBeenCalledTimes(1);
     expect(onJustificar.mock.calls[0]![0]).toHaveLength(2);
     // O clique no botão não pode subir para a linha e abrir a expansão.
@@ -259,15 +261,9 @@ describe("justificar direto na tabela", () => {
         name: "Reescrever a justificativa de Amortização de QYW6D15",
       }),
     );
-    // A justificativa atual viaja junto: o diálogo abre com ela nos campos,
-    // dizendo o que se está substituindo.
-    expect(onJustificar).toHaveBeenCalledWith(
-      [expect.objectContaining({ id: 2 })],
-      expect.objectContaining({
-        regra: "O valor acompanha o contrato de financiamento.",
-        conforme: true,
-      }),
-    );
+    // A célula manda só a alteração; a justificativa que já existe o diálogo
+    // acha por `change.id` no mapa da página, e abre com ela nos campos.
+    expect(onJustificar).toHaveBeenCalledWith([expect.objectContaining({ id: 2 })]);
   });
 
   it("sem onJustificar, a coluna fica só de leitura", () => {

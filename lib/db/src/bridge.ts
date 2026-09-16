@@ -2964,6 +2964,20 @@ function planoUp(): PassoUp[] {
     );
   }
 
+  /*
+    A `0100` — o tipo da não conformidade, pelo mesmo motivo da `0098` logo
+    acima: o `down` derruba `justificativa` inteira, e o `CREATE TABLE` da
+    `0058` não conhece esta coluna. Sem esta linha o `up` devolveria a tabela
+    sem ela, e o caso que compara o banco reposto com um banco novo diria
+    exatamente isso — uma coluna a menos.
+  */
+  const M100 = "0100_descumprimento_nao_e_excecao";
+  add(
+    M100,
+    "justificativa.nao_conformidade",
+    levantar(M100, /ADD COLUMN IF NOT EXISTS "nao_conformidade"/),
+  );
+
   const M44 = "0044_partes_cadastradas";
   add(M44, "fechamento_parte", levantar(M44, /CREATE TABLE IF NOT EXISTS "fechamento_parte" \(/));
   add(

@@ -1,0 +1,24 @@
+-- ---------------------------------------------------------------------------
+-- Justificativa: descumprir não é excetuar.
+--
+-- De `0098` até aqui, a resposta sobre a regra era um booleano, e o "não" dele
+-- queria dizer uma coisa só: exceção aprovada — com motivo **e responsável**,
+-- os dois obrigatórios. Mas nem todo desvio é aprovado. Quando a regra de
+-- remuneração é descumprida não há aprovador; e a caixa, que exigia um,
+-- obrigava quem justificava a escrever um nome no campo "Responsável pela
+-- aprovação" para conseguir salvar. O registro passava a afirmar que alguém
+-- autorizou o que ninguém autorizou — o contrário do que uma trilha de
+-- auditoria existe para fazer.
+--
+-- `conforme` continua sendo o booleano de sempre; esta coluna diz **que tipo**
+-- de não conformidade foi (`EXCECAO` ou `DESCUMPRIMENTO`), e só faz sentido
+-- quando ele é falso.
+--
+-- Anulável, e sem preenchimento retroativo: as justificativas gravadas antes
+-- desta migration não têm o tipo porque a pergunta não existia. Elas são lidas
+-- como exceção — era o único "não" que a tela oferecia, ver
+-- `conformidadeDaJustificativa` —, e isso é diferente de afirmar no banco uma
+-- resposta que ninguém deu.
+-- ---------------------------------------------------------------------------
+
+ALTER TABLE "justificativa" ADD COLUMN IF NOT EXISTS "nao_conformidade" text;

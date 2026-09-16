@@ -22,28 +22,45 @@ describe("o que falta numa justificativa", () => {
   });
 
   it("não cobra motivo nem responsável de quem seguiu a regra", () => {
-    expect(faltamNaJustificativa({ ...completa, conforme: true })).toEqual([]);
+    expect(faltamNaJustificativa({ ...completa, conformidade: "CONFORME" })).toEqual([]);
   });
 
   it("cobra motivo e responsável da exceção — exceção sem dono não é exceção", () => {
-    expect(faltamNaJustificativa({ ...completa, conforme: false })).toEqual([
+    expect(faltamNaJustificativa({ ...completa, conformidade: "EXCECAO" })).toEqual([
       "motivoExcecao",
       "responsavelAprovacao",
     ]);
     expect(
       faltamNaJustificativa({
         ...completa,
-        conforme: false,
+        conformidade: "EXCECAO",
         motivoExcecao: "Troca de eixo aprovada pela manutenção.",
       }),
     ).toEqual(["responsavelAprovacao"]);
   });
 
-  it("espaço em branco não preenche campo", () => {
-    expect(faltamNaJustificativa({ formula: "   ", regra: "  ", conforme: true })).toEqual([
-      "formula",
-      "regra",
+  /*
+    O descumprimento não tem aprovador: exigir um obrigaria quem registra que a
+    regra foi descumprida a escrever um nome no campo "Responsável pela
+    aprovação" — e o registro afirmaria um aval que não existiu.
+  */
+  it("do descumprimento cobra só o motivo, porque ninguém aprovou", () => {
+    expect(faltamNaJustificativa({ ...completa, conformidade: "DESCUMPRIMENTO" })).toEqual([
+      "motivoExcecao",
     ]);
+    expect(
+      faltamNaJustificativa({
+        ...completa,
+        conformidade: "DESCUMPRIMENTO",
+        motivoExcecao: "Pagou acima da tabela do acordo.",
+      }),
+    ).toEqual([]);
+  });
+
+  it("espaço em branco não preenche campo", () => {
+    expect(
+      faltamNaJustificativa({ formula: "   ", regra: "  ", conformidade: "CONFORME" }),
+    ).toEqual(["formula", "regra"]);
   });
 
   /*
@@ -74,6 +91,9 @@ describe("o corpo do POST virando justificativa", () => {
         formula: "Amortização mensal = valor ÷ prazo",
         regra: "Só muda com novo prazo.",
         conforme: false,
+        /* Corpo sem tipo é o que as versões anteriores da tela mandavam, e
+           continua valendo como exceção — era o único "não" que havia. */
+        naoConformidade: "EXCECAO",
         motivoExcecao: "Contrato renegociado.",
         responsavelAprovacao: "Ana Souza",
       },
@@ -82,8 +102,33 @@ describe("o corpo do POST virando justificativa", () => {
 
   it("descarta motivo e responsável quando a alteração é conforme", () => {
     const lida = lerJustificativaEstruturada({ ...corpo, conforme: true });
+    expect(lida.ok && lida.valor.naoConformidade).toBeNull();
     expect(lida.ok && lida.valor.motivoExcecao).toBeNull();
     expect(lida.ok && lida.valor.responsavelAprovacao).toBeNull();
+  });
+
+  /* O aprovador escrito antes de trocar para descumprimento não sobrevive: a
+     linha gravada afirmaria um aval que a própria resposta nega. */
+  it("no descumprimento, guarda o motivo e descarta o responsável", () => {
+    const lida = lerJustificativaEstruturada({
+      ...corpo,
+      conforme: false,
+      naoConformidade: "DESCUMPRIMENTO",
+    });
+    expect(lida.ok && lida.valor.naoConformidade).toBe("DESCUMPRIMENTO");
+    expect(lida.ok && lida.valor.motivoExcecao).toBe("Contrato renegociado.");
+    expect(lida.ok && lida.valor.responsavelAprovacao).toBeNull();
+  });
+
+  it("descumprimento sem motivo é recusado, e não cobra aprovador", () => {
+    expect(
+      lerJustificativaEstruturada({
+        formula: "f",
+        regra: "r",
+        conforme: false,
+        naoConformidade: "DESCUMPRIMENTO",
+      }),
+    ).toEqual({ ok: false, faltam: ["motivoExcecao"] });
   });
 
   it("nomeia o que falta em vez de gravar pela metade", () => {
@@ -106,6 +151,7 @@ describe("o resumo que fica em `texto`", () => {
         formula: "f",
         regra: "Só muda com novo prazo.",
         conforme: true,
+        naoConformidade: null,
         motivoExcecao: null,
         responsavelAprovacao: null,
       }),
@@ -118,9 +164,23 @@ describe("o resumo que fica em `texto`", () => {
         formula: "f",
         regra: "r",
         conforme: false,
+        naoConformidade: "EXCECAO",
         motivoExcecao: "Contrato renegociado",
         responsavelAprovacao: "Ana Souza",
       }),
     ).toBe("Exceção à regra: Contrato renegociado — aprovada por Ana Souza.");
+  });
+
+  it("do descumprimento, cita o que houve — e não diz que alguém aprovou", () => {
+    expect(
+      resumoDaJustificativa({
+        formula: "f",
+        regra: "r",
+        conforme: false,
+        naoConformidade: "DESCUMPRIMENTO",
+        motivoExcecao: "Pagou acima da tabela do acordo",
+        responsavelAprovacao: null,
+      }),
+    ).toBe("Regra de remuneração descumprida: Pagou acima da tabela do acordo");
   });
 });

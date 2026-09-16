@@ -54,6 +54,7 @@ const JUSTIFICADA: Justificativa = {
   formula: "IPVA = alíquota do estado × valor de NF",
   regra: "O IPVA acompanha a tabela do estado de emplacamento.",
   conforme: true,
+  naoConformidade: null,
   motivoExcecao: null,
   responsavelAprovacao: null,
   criadoPor: "gestor@ambev.com.br",
@@ -121,10 +122,9 @@ describe("a coluna de justificativa da tabela de rubrica", () => {
     });
     expect(botao.textContent).toContain("Conforme a regra");
     fireEvent.click(botao);
-    expect(onJustificar).toHaveBeenCalledWith(
-      [expect.objectContaining({ id: 1 })],
-      expect.objectContaining({ regra: JUSTIFICADA.regra }),
-    );
+    /* Só a alteração: o que já está gravado o diálogo procura por `change.id`
+       no mapa da página — ver `AbrirJustificativa`. */
+    expect(onJustificar).toHaveBeenCalledWith([expect.objectContaining({ id: 1 })]);
   });
 
   it("sem onJustificar a coluna é só de leitura", () => {

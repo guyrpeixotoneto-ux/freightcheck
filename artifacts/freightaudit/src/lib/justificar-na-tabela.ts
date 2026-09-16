@@ -22,6 +22,14 @@ import { useJustificadaPor, type Justificativa } from "@/lib/justificativas";
  * recente. Por isso também não há gravação otimista aqui; o que volta para a
  * tabela é o que o banco confirmou.
  *
+ * Com o diálogo virando assistente — uma variável de cada vez —, o POST passou
+ * a ser **de uma alteração**, e não mais da seleção inteira: abrir as quatro
+ * pendências de uma placa dispara quatro gravações, cada uma com a fórmula e a
+ * regra da sua variável. Por isso a mutação é esperada (`mutateAsync`): é a
+ * promessa que diz ao assistente se pode avançar, e quem fecha a caixa no meio
+ * deixa gravadas as que concluiu. Quem fecha também não some com a caixa
+ * sozinho: fechar é do diálogo, e a página só limpa o alvo quando ele avisa.
+ *
  * Isto nasceu escrito por extenso dentro da página do FINAME. Ao valer para as
  * seis rubricas, a escolha era copiar trinta linhas de estado e mutação seis
  * vezes — e seis cópias de uma regra de gravação discordam no dia em que uma
@@ -37,7 +45,6 @@ export function useJustificarNaTabela(
   const { justificadaPor, consulta } = useJustificadaPor(changeSetId);
 
   const [alvo, setAlvo] = useState<AlvoDaJustificativa[] | null>(null);
-  const [justificativaAtual, setJustificativaAtual] = useState<Justificativa | null>(null);
 
   const gravar = useMutation({
     mutationFn: (input: { changeIds: number[]; justificativa: JustificativaEstruturada }) =>
@@ -52,19 +59,15 @@ export function useJustificarNaTabela(
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["justificativas", changeSetId] });
-      setAlvo(null);
-      setJustificativaAtual(null);
     },
   });
 
-  const abrir = useCallback<AbrirJustificativa>((alvos, atual) => {
+  const abrir = useCallback<AbrirJustificativa>((alvos) => {
     setAlvo(alvos);
-    setJustificativaAtual(atual ?? null);
   }, []);
 
   const fechar = useCallback(() => {
     setAlvo(null);
-    setJustificativaAtual(null);
     gravar.reset();
   }, [gravar]);
 
@@ -79,12 +82,14 @@ export function useJustificarNaTabela(
     propsDoDialogo: {
       alvo,
       contexto,
-      justificativaAtual,
+      justificativas: justificadaPor,
       pendente: gravar.isPending,
       erro: gravar.error,
       onClose: fechar,
-      onConfirmar: (justificativa: JustificativaEstruturada) =>
-        gravar.mutate({ changeIds: (alvo ?? []).map((a) => a.id), justificativa }),
+      onConfirmar: (
+        umAlvo: AlvoDaJustificativa,
+        justificativa: JustificativaEstruturada,
+      ) => gravar.mutateAsync({ changeIds: [umAlvo.id], justificativa }),
     },
   };
 }

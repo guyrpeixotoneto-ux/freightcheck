@@ -90,6 +90,8 @@ export interface LinhaDoPainel {
   formula: string | null;
   regra: string | null;
   conforme: boolean | null;
+  /** `EXCECAO` ou `DESCUMPRIMENTO`, de `0100` em diante. */
+  naoConformidade: string | null;
   motivoExcecao: string | null;
   responsavelAprovacao: string | null;
   criadoPor: string | null;

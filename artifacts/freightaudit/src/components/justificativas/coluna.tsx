@@ -46,15 +46,16 @@ export interface LinhaJustificavel {
  * Justificar a partir da tabela — o que o componente pede de fora.
  *
  * A tabela não grava nada: ela **abre o diálogo** que a página já sabe gravar.
- * `alvos` são as alterações que vão receber a justificativa (uma, ou todas as
- * da placa), e `atual` é o que já está gravado, quando se está reescrevendo — o
- * diálogo abre com ele nos campos, porque quem reabre uma linha explicada quase
- * sempre quer corrigir, não redigir do zero.
+ * `alvos` são as alterações que vão receber a justificativa — uma, ou todas as
+ * da placa, que o diálogo percorre uma a uma.
+ *
+ * O que já está gravado não viaja por aqui: o diálogo o procura por
+ * `change.id` no mapa que a página lhe passa. Mandar a justificativa da linha
+ * junto funcionava enquanto a caixa era de uma alteração só; com a fila, ela
+ * precisa da justificativa de **cada** variável aberta, e uma delas
+ * escolhida na célula clicada não diria nada sobre as outras três.
  */
-export type AbrirJustificativa = (
-  alvos: AlvoDaJustificativa[],
-  atual?: Justificativa | null,
-) => void;
+export type AbrirJustificativa = (alvos: AlvoDaJustificativa[]) => void;
 
 /** Uma linha do motor como o diálogo de justificar a enxerga. */
 export const alvoDaLinha = (l: LinhaJustificavel): AlvoDaJustificativa => ({
@@ -149,7 +150,7 @@ export function CelulaDeJustificativa({
       type="button"
       onClick={(e) => {
         e.stopPropagation();
-        abrir([alvoDaLinha(l)], justificativa);
+        abrir([alvoDaLinha(l)]);
       }}
       aria-label={`Reescrever a justificativa de ${l.rotuloDaVariavel} de ${veiculo}`}
       className="max-w-full text-left underline decoration-dotted underline-offset-2 hover:text-foreground"
