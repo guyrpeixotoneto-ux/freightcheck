@@ -22,17 +22,20 @@ import { Superficie } from "@/components/ui/superficie";
 import { EstadoVazio } from "@/components/ui/estado-vazio";
 import { Paginacao } from "@/components/ui/paginacao";
 import { SeletorDoPar, type VigenciaEscolhivel } from "@/components/comparacao/seletor-do-par";
+import { AbasDoMonitorDeEquipe } from "@/components/monitor-equipe/abas";
 import { CartoesDoMonitorDeEquipe } from "@/components/monitor-equipe/cartoes";
 import { AlteracoesPorModuloDeEquipe } from "@/components/monitor-equipe/por-modulo";
 import { TabelaDoMonitorDeEquipe } from "@/components/monitor-equipe/tabela";
 import { DetalheDaAlteracaoDeEquipe } from "@/components/monitor-equipe/detalhe";
 import { FiltrosDoMonitorDeEquipeGlobais } from "@/components/monitor-equipe/filtros";
+import { useCandidatosDoPar, useTextoAdiado } from "@/hooks/use-candidatos-do-par";
 import { fetchJson } from "@/lib/api";
 import { lerRecorte } from "@/lib/recorte";
 import {
   ORDENACAO_PADRAO,
   enderecoDaOrigem,
   escreverFiltros,
+  escreverRecorteDoMenuDeEquipe,
   lerFiltros,
   ordenar,
   paginar,
@@ -70,13 +73,20 @@ import {
  * adivinhação.
  *
  * ---------------------------------------------------------------------------
- * Dois seletores, porque são duas séries
+ * Duas abas, porque são duas séries
  * ---------------------------------------------------------------------------
  * O administrativo e o operacional são séries próprias dentro da mesma família:
- * o motor recusa um par entre coberturas diferentes. Um seletor só obrigaria a
- * casar as duas séries por posição — e a casaria em silêncio, na tela cujo
- * trabalho é dizer o que se moveu. Cada quadro escolhe as duas pontas dele, e o
- * quadro que não tem par aparece dizendo por quê.
+ * o motor recusa um par entre coberturas diferentes, cada um tem o par dele e
+ * catálogos de coluna que nem se parecem. Lidos juntos, os cartões do topo
+ * somariam duas populações num total que nenhuma das duas telas publica, e cada
+ * linha da tabela precisaria da coluna "Quadro" para dizer de quem ela fala.
+ *
+ * Então a tela abre **uma população de cada vez**, na mesma aba que o QLP já
+ * usa, e cada aba carrega o seletor de par dela, os cartões dela e a tabela
+ * dela. A aba não é um segundo estado: ela é o filtro `?quadro=` que a tela já
+ * tinha, agora com uma escolha de cada vez — um link mandado continua abrindo
+ * na população de quem mandou. O quadro sem par abre dizendo por quê, em vez de
+ * abrir vazio.
  */
 export default function MonitorEquipe() {
   const search = useSearch();
@@ -125,6 +135,39 @@ export default function MonitorEquipe() {
   }, [vigencias.data]);
 
   /*
+    A aba aberta é a população que o endereço pede — e o endereço já tinha onde
+    dizê-la: `?quadro=`, o filtro por quadro do Monitor. A aba não cria um
+    segundo estado para a mesma pergunta; ela restringe aquele filtro a uma
+    escolha de cada vez.
+
+    Sem quadro no endereço, abre o operacional — que é a população maior e a que
+    quase sempre se move. A exceção é quando só o administrativo tem vigência
+    importada: abrir na aba que não tem o que mostrar faria a tela parecer vazia
+    quando o que falta é só a outra importação.
+  */
+  const abaPadrao: QuadroDeQlp =
+    porQuadro.OPERACIONAL.length === 0 && porQuadro.ADMINISTRATIVO.length > 0
+      ? "ADMINISTRATIVO"
+      : "OPERACIONAL";
+  const aba: QuadroDeQlp = filtros.quadros[0] ?? abaPadrao;
+
+  /*
+    O que vai para o servidor é sempre **uma** população: enquanto o endereço não
+    traz `quadro=`, a consulta já pede a da aba aberta. Pedir as duas e escolher
+    uma depois publicaria, por um instante, cartões somando o operacional com o
+    administrativo — o total que nenhuma das duas telas tem.
+  */
+  const filtrosDaAba = useMemo(
+    () => ({ ...filtros, quadros: [aba] }),
+    [filtros, aba],
+  );
+
+  const parDaAba =
+    aba === "OPERACIONAL"
+      ? { base: filtros.baseOperacional, comparada: filtros.comparadaOperacional }
+      : { base: filtros.baseAdministrativo, comparada: filtros.comparadaAdministrativo };
+
+  /*
     O par de partida de cada quadro — e a guarda que faz o par do endereço
     sobreviver: `/snapshots` chega depois da primeira renderização, e sem ela o
     efeito rodaria contra a lista vazia e limparia as duas pontas de um link que
@@ -150,16 +193,23 @@ export default function MonitorEquipe() {
         mudou = true;
       }
     }
+    /*
+      E a aba aberta desce para o endereço, para que o link mandado carregue a
+      população que quem mandou estava lendo — e não a que o próximo leitor
+      abriria por padrão.
+    */
+    if (filtros.quadros.length !== 1 || filtros.quadros[0] !== aba) {
+      proximos.quadros = [aba];
+      mudou = true;
+    }
     if (mudou) aplicar(proximos);
-  }, [vigencias.data, porQuadro, filtros]);
+  }, [vigencias.data, porQuadro, filtros, aba]);
 
   const consulta = useQuery({
-    queryKey: ["monitor-equipe", filtros, recorte.scopeHash, recorte.canal],
-    enabled:
-      (filtros.baseOperacional !== "" && filtros.comparadaOperacional !== "") ||
-      (filtros.baseAdministrativo !== "" && filtros.comparadaAdministrativo !== ""),
+    queryKey: ["monitor-equipe", filtrosDaAba, recorte.scopeHash, recorte.canal],
+    enabled: parDaAba.base !== "" && parDaAba.comparada !== "",
     queryFn: () => {
-      const q = new URLSearchParams(escreverFiltros(filtros));
+      const q = new URLSearchParams(escreverFiltros(filtrosDaAba));
       if (recorte.scopeHash) q.set("scopeHash", recorte.scopeHash);
       if (recorte.canal) q.set("canal", recorte.canal);
       return fetchJson<{
@@ -173,7 +223,7 @@ export default function MonitorEquipe() {
   });
 
   /* Trocar o recorte recomeça a leitura da primeira página, e não no meio. */
-  useEffect(() => setPagina(1), [filtros, ordem]);
+  useEffect(() => setPagina(1), [filtrosDaAba, ordem]);
 
   const rotulos = consulta.data?.rotulos ?? {};
   const linhas = consulta.data?.linhas ?? [];
@@ -205,32 +255,56 @@ export default function MonitorEquipe() {
       <CabecalhoDePagina
         titulo="Monitor Equipe"
         icone={Users}
-        descricao="Acompanhe todas as alterações do quadro de pessoal, nos dois quadros."
+        descricao="Acompanhe todas as alterações do quadro de pessoal, um quadro de cada vez."
         atualizando={consulta.isFetching}
       />
 
       <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-4 px-4 pb-10 sm:px-8">
+        <AbasDoMonitorDeEquipe
+          aba={aba}
+          onTrocar={(quadro) => aplicar({ ...filtros, quadros: [quadro] })}
+        />
+
         <Superficie className="flex flex-col gap-4 px-4 py-4">
-          <div className="grid gap-4 lg:grid-cols-2">
-            {(["OPERACIONAL", "ADMINISTRATIVO"] as const).map((quadro) => (
-              <SeletorDoQuadro
-                key={quadro}
-                quadro={quadro}
-                vigencias={porQuadro[quadro]}
-                filtros={filtros}
-                aplicar={aplicar}
-                carregando={vigencias.isLoading}
-              />
-            ))}
-          </div>
+          {/*
+            O seletor é o da aba aberta, e só dele: o par do outro quadro
+            continua no endereço, intacto, e volta a aparecer quando a aba dele
+            for aberta. Mostrar os dois aqui obrigaria a ler qual das duas caixas
+            manda na tabela logo abaixo.
+          */}
+          <SeletorDoQuadro
+            quadro={aba}
+            vigencias={porQuadro[aba]}
+            filtros={filtros}
+            aplicar={aplicar}
+            carregando={vigencias.isLoading}
+            escopo={recorte.scopeHash}
+          />
 
           <FiltrosDoMonitorDeEquipeGlobais
-            filtros={filtros}
+            filtros={filtrosDaAba}
             modulos={modulos}
             onMudar={aplicar}
             ignorados={consulta.data?.ignorados ?? []}
           />
         </Superficie>
+
+        {!consulta.isLoading &&
+          !vigencias.isLoading &&
+          !vigencias.error &&
+          (parDaAba.base === "" || parDaAba.comparada === "") && (
+            <Superficie className="px-4 py-8">
+              <EstadoVazio
+                icone={SearchX}
+                titulo={`O ${ROTULO_DO_QUADRO[aba]} não tem par nesta leitura`}
+                descricao={
+                  porQuadro[aba].length === 0
+                    ? "Nenhuma vigência deste quadro foi importada ainda — ele entra na leitura quando a primeira chegar. A outra aba continua disponível."
+                    : "Escolha as duas vigências deste quadro acima para comparar. A outra aba continua disponível."
+                }
+              />
+            </Superficie>
+          )}
 
         {vigencias.error && (
           <ApiErrorNotice
@@ -263,7 +337,7 @@ export default function MonitorEquipe() {
 
         {consulta.data && (
           <>
-            <CartoesDoMonitorDeEquipe resumo={consulta.data.resumo} />
+            <CartoesDoMonitorDeEquipe resumo={consulta.data.resumo} quadro={aba} />
 
             <AlteracoesPorModuloDeEquipe
               resumos={consulta.data.resumo.porModulo}
@@ -300,12 +374,18 @@ export default function MonitorEquipe() {
                 <EstadoVazio
                   icone={SearchX}
                   titulo="Nenhuma alteração neste recorte"
-                  descricao="Os pares escolhidos não têm alteração de quadro de pessoal que atenda aos filtros aplicados. Afrouxar o filtro de módulo ou de situação costuma ser o caminho — e um recorte vazio também é uma resposta: pode não ter havido mudança."
+                  descricao="O par escolhido para este quadro não tem alteração de quadro de pessoal que atenda aos filtros aplicados. Afrouxar o filtro de módulo ou de situação costuma ser o caminho — e um recorte vazio também é uma resposta: pode não ter havido mudança."
                 />
               ) : (
                 <>
+                  {/*
+                    Sem a coluna "Quadro": dentro da aba ela repetiria a mesma
+                    palavra em todas as linhas, e a repetição é ruído onde o que
+                    se procura é o cargo.
+                  */}
                   <TabelaDoMonitorDeEquipe
                     linhas={daPagina}
+                    mostrarQuadro={false}
                     rotulos={rotulos}
                     ordem={ordem}
                     onOrdenar={ordenarPor}
@@ -341,11 +421,22 @@ export default function MonitorEquipe() {
 /**
  * O seletor de um quadro — o par daquela série, e só dela.
  *
- * Sem coluna de números ao lado de cada vigência, e a ausência é deliberada:
- * aquela coluna escreve dinheiro, e a resposta dela para um par sem movimento é
- * `R$ 0,00`. Numa tela que recusa somar reais no QLP, um `R$ 0,00` ao lado de
- * cada vigência seria a porta dos fundos por onde o número que a seção não tem
- * entraria — dito, ainda por cima, onde não cabe a ressalva.
+ * ---------------------------------------------------------------------------
+ * A coluna do menu conta alterações, e **não escreve dinheiro**
+ * ---------------------------------------------------------------------------
+ * É o mesmo seletor das outras oito telas, com a mesma coluna à direita de cada
+ * vigência: ela é o que faz escolher, e sem ela esta tela era a única do produto
+ * em que o menu abria mudo — sete linhas de `agosto/2026 · 1ª quinzena` e nada
+ * ao lado, que neste seletor é a forma de dizer *ainda não calculei*.
+ *
+ * O que ela **não** tem é o `R$ 0,00` que a ausência da coluna existia para
+ * evitar: `/monitor-equipe/candidatos` devolve `semImpacto` com a frase do
+ * travamento, e a linha sai com a contagem sozinha. A recusa de somar reais no
+ * QLP continua inteira — o que mudou é que agora ela é dita, em vez de ser
+ * cumprida pelo silêncio de uma coluna que não existia.
+ *
+ * O recorte da tela vai junto na pergunta: o número do menu é o número que o
+ * clique entrega, e não a contagem de um quadro que ninguém está lendo.
  */
 function SeletorDoQuadro({
   quadro,
@@ -353,22 +444,40 @@ function SeletorDoQuadro({
   filtros,
   aplicar,
   carregando,
+  escopo,
 }: {
   quadro: QuadroDeQlp;
   vigencias: VigenciaEscolhivel[];
   filtros: FiltrosDoMonitorDeEquipe;
   aplicar: (proximos: FiltrosDoMonitorDeEquipe) => void;
   carregando: boolean;
+  /** A unidade aberta na lateral — trocar de unidade é pergunta nova. */
+  escopo: string | null;
 }) {
   const chaveBase = quadro === "OPERACIONAL" ? "baseOperacional" : "baseAdministrativo";
   const chaveComparada =
     quadro === "OPERACIONAL" ? "comparadaOperacional" : "comparadaAdministrativo";
   const rotulos = rotulosDasVigencias(vigencias);
 
+  /*
+    A busca chega adiada: ela escreve no endereço a cada tecla, e o recorte vai
+    na chave da consulta. Sem a espera, "gerente" dispararia sete rodadas, e as
+    seis primeiras são perguntas que ninguém queria fazer. Enquanto o texto está
+    em trânsito o menu mostra esqueleto, e não os números do recorte anterior —
+    eles não estariam desatualizados, estariam respondendo outra pergunta.
+  */
+  const busca = useTextoAdiado(filtros.busca);
+  const candidatos = useCandidatosDoPar(
+    "monitor-equipe",
+    filtros[chaveComparada],
+    escopo,
+    escreverRecorteDoMenuDeEquipe(filtros, quadro, busca.valor),
+  );
+
   return (
     <div className="flex flex-col gap-2">
       <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-        {ROTULO_DO_QUADRO[quadro]}
+        Vigências comparadas
       </h2>
       {vigencias.length === 0 && !carregando ? (
         <p className="text-xs text-muted-foreground">
@@ -392,6 +501,11 @@ function SeletorDoQuadro({
           }
           carregando={carregando}
           idPrefixo={`monitor-equipe-${quadro.toLowerCase()}`}
+          candidatos={busca.emTransito ? undefined : candidatos.data}
+          carregandoCandidatos={busca.emTransito || candidatos.isFetching}
+          erroDosCandidatos={
+            candidatos.error instanceof Error ? candidatos.error.message : null
+          }
         />
       )}
     </div>

@@ -112,8 +112,15 @@ function Par({ rotulo, valor }: { rotulo: string; valor: string }) {
   );
 }
 
-/** Em que quadro este assunto se moveu, e quanto em cada um. */
+/**
+ * Em que quadro este assunto se moveu, e quanto em cada um.
+ *
+ * Com uma população só na leitura — que é como a tela abre, por aba —, a quebra
+ * repetiria o número que o cartão já publica acima, sob o nome que a aba já
+ * disse. Aí ela some.
+ */
 function QuadrosDoModulo({ resumo }: { resumo: ResumoDoModuloDeEquipe }) {
+  if (resumo.porQuadro.length <= 1) return null;
   return (
     <div className="flex flex-col gap-0.5 border-t pt-2">
       {resumo.porQuadro.map(({ quadro, alteracoes }) => (

@@ -1093,6 +1093,125 @@ export function totaisPorVigencia(
     .sort((a, b) => a.entityType.localeCompare(b.entityType) || a.ponta.localeCompare(b.ponta));
 }
 
+/**
+ * A diferença de um tipo, aberta nas três parcelas que a produzem.
+ *
+ * O total de cada ponta inclui quem não mudou, quem só a base tem e quem só a
+ * comparada tem — e era isso que fazia a diferença do painel não reconciliar
+ * com a tabela, que só mostra diferença para quem está nas duas. As três
+ * parcelas são a conta inteira, e a identidade é exata:
+ *
+ * ```
+ * base + alterados + entradas − saidas = comparada
+ * ```
+ *
+ * Sem ela o painel dizia "+35,66%" sobre uma frota em que vinte carretas
+ * saíram e dezoito entraram, e quem lia entendia reajuste de contrato.
+ */
+export interface EvolucaoDoTipo {
+  entityType: string;
+  /** O total da ponta base — o mesmo de {@link totaisPorVigencia}. */
+  base: number;
+  comparada: number;
+  /** Σ(comparada − base) dos veículos com parcela nas **duas** pontas. */
+  alterados: number;
+  /** Σ da parcela de quem só a comparada tem — frota que entrou. */
+  entradas: number;
+  /**
+   * Σ da parcela de quem só a base tem — frota que saiu.
+   *
+   * Positivo, e **subtraído** na identidade: escrevê-lo negativo obrigaria
+   * quem lê a somar três números de sinais misturados para conferir um quarto.
+   */
+  saidas: number;
+  /** Veículos nas duas pontas cuja parcela se moveu — os que valem a soma. */
+  veiculosAlterados: number;
+  veiculosEntradas: number;
+  veiculosSaidas: number;
+}
+
+/**
+ * A evolução de cada tipo, decomposta — a mesma leitura que os totais.
+ *
+ * Recebe as duas leituras de vigência com **o veículo de cada valor**, porque
+ * a classificação é por veículo: o mesmo real entra em `alterados` ou em
+ * `entradas` conforme a outra ponta tenha ou não aquele veículo, e uma soma por
+ * tipo não sabe dizer qual dos dois.
+ *
+ * Um veículo cuja parcela é nula numa das pontas conta como entrada ou saída —
+ * é o que o dinheiro faz no total, que é a pergunta desta função. Ele pode não
+ * estar na aba Novos nem na Ausentes da tabela, que contam **veículo** e não
+ * parcela; por isso o painel diz "veíc. com parcela", e não "novos".
+ */
+export function evolucaoPorTipo(
+  valores: readonly {
+    ponta: "BASE" | "COMPARADA";
+    entityType: string;
+    /** Quem sustenta o valor. Sem ele não há como saber se o veículo tem as duas pontas. */
+    entityId: string;
+    attributeCode: string;
+    valor: number | null;
+  }[],
+): EvolucaoDoTipo[] {
+  /* Um mapa por tipo, e dentro dele um par de valores por veículo: `undefined`
+     é "aquela ponta não tem parcela deste veículo", que é justamente o que
+     separa uma entrada de uma alteração. */
+  const porTipo = new Map<string, Map<string, { base?: number; comparada?: number }>>();
+  for (const v of valores) {
+    const variavel = variavelDoCodigo(v.attributeCode);
+    if (!variavel || variavel.chave !== "parcela" || v.valor === null) continue;
+    const veiculos = porTipo.get(v.entityType) ?? new Map();
+    const atual = veiculos.get(v.entityId) ?? {};
+    if (v.ponta === "BASE") atual.base = (atual.base ?? 0) + v.valor;
+    else atual.comparada = (atual.comparada ?? 0) + v.valor;
+    veiculos.set(v.entityId, atual);
+    porTipo.set(v.entityType, veiculos);
+  }
+
+  const duasCasas = (n: number) => Number(n.toFixed(2));
+
+  return [...porTipo.entries()]
+    .map(([entityType, veiculos]) => {
+      const e: EvolucaoDoTipo = {
+        entityType,
+        base: 0,
+        comparada: 0,
+        alterados: 0,
+        entradas: 0,
+        saidas: 0,
+        veiculosAlterados: 0,
+        veiculosEntradas: 0,
+        veiculosSaidas: 0,
+      };
+      for (const { base, comparada } of veiculos.values()) {
+        e.base += base ?? 0;
+        e.comparada += comparada ?? 0;
+        if (base !== undefined && comparada !== undefined) {
+          const delta = comparada - base;
+          e.alterados += delta;
+          /* Quem não se moveu não é contado: ele contribui zero para a soma, e
+             um contador que o incluísse diria "412 veíc." ao lado de R$ 0,00. */
+          if (delta !== 0) e.veiculosAlterados += 1;
+        } else if (comparada !== undefined) {
+          e.entradas += comparada;
+          e.veiculosEntradas += 1;
+        } else if (base !== undefined) {
+          e.saidas += base;
+          e.veiculosSaidas += 1;
+        }
+      }
+      return {
+        ...e,
+        base: duasCasas(e.base),
+        comparada: duasCasas(e.comparada),
+        alterados: duasCasas(e.alterados),
+        entradas: duasCasas(e.entradas),
+        saidas: duasCasas(e.saidas),
+      };
+    })
+    .sort((a, b) => a.entityType.localeCompare(b.entityType));
+}
+
 // ---------------------------------------------------------------------------
 // Exportação
 // ---------------------------------------------------------------------------

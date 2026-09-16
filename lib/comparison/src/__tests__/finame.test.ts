@@ -14,6 +14,7 @@ import {
   linhaSemAlteracao,
   linhasDeFiname,
   resumirFiname,
+  evolucaoPorTipo,
   totaisPorVigencia,
   variavelDoCodigo,
   VARIAVEIS_DE_FINAME,
@@ -528,6 +529,72 @@ describe("os indicadores e as séries", () => {
       { ponta: "BASE", entityType: "CAVALO", total: 10000, veiculos: 2 },
       { ponta: "COMPARADA", entityType: "CAVALO", total: 8760, veiculos: 1 },
     ]);
+  });
+
+  it("decompõe a diferença em alterados, entradas e saídas — e a identidade fecha", () => {
+    const parcela = (
+      ponta: "BASE" | "COMPARADA",
+      entityId: string,
+      valor: number | null,
+    ) => ({ ponta, entityType: "CAVALO", entityId, attributeCode: "cavalo.finame_cavalo", valor });
+
+    const [cavalo] = evolucaoPorTipo([
+      /* Nas duas pontas e mexeu: +310. */
+      parcela("BASE", "v1", 8450),
+      parcela("COMPARADA", "v1", 8760),
+      /* Nas duas pontas e parado: entra nos dois totais e em nenhuma parcela. */
+      parcela("BASE", "v2", 1000),
+      parcela("COMPARADA", "v2", 1000),
+      /* Só na comparada: entrada. */
+      parcela("COMPARADA", "v3", 4395.36),
+      /* Só na base: saída. */
+      parcela("BASE", "v4", 2200),
+      /* Nulo não é zero: não entra em soma nenhuma. */
+      parcela("COMPARADA", "v5", null),
+      /* Juros não são parcela, em nenhuma das três. */
+      { ...parcela("BASE", "v1", 2180), attributeCode: "cavalo.juros_finame_cavalo" },
+    ]);
+
+    expect(cavalo).toEqual({
+      entityType: "CAVALO",
+      base: 11650,
+      comparada: 14155.36,
+      alterados: 310,
+      entradas: 4395.36,
+      saidas: 2200,
+      veiculosAlterados: 1,
+      veiculosEntradas: 1,
+      veiculosSaidas: 1,
+    });
+    /* A identidade é a razão de o painel existir: as três parcelas são a
+       diferença inteira, e não uma amostra dela. */
+    expect(cavalo.base + cavalo.alterados + cavalo.entradas - cavalo.saidas).toBeCloseTo(
+      cavalo.comparada,
+      2,
+    );
+  });
+
+  it("não conta como alterado quem está nas duas pontas e não se moveu", () => {
+    const [cavalo] = evolucaoPorTipo([
+      { ponta: "BASE", entityType: "CAVALO", entityId: "v1", attributeCode: "cavalo.finame_cavalo", valor: 4096.31 },
+      { ponta: "COMPARADA", entityType: "CAVALO", entityId: "v1", attributeCode: "cavalo.finame_cavalo", valor: 4096.31 },
+    ]);
+    expect(cavalo.alterados).toBe(0);
+    expect(cavalo.veiculosAlterados).toBe(0);
+  });
+
+  it("lê os totais e a decomposição da mesma leitura, e eles não divergem", () => {
+    const valores = [
+      { ponta: "BASE" as const, entityType: "CARRETA", entityId: "c1", attributeCode: "carreta.finame_implemento", valor: 3120 },
+      { ponta: "COMPARADA" as const, entityType: "CARRETA", entityId: "c1", attributeCode: "carreta.finame_implemento", valor: 3400 },
+      { ponta: "COMPARADA" as const, entityType: "CARRETA", entityId: "c2", attributeCode: "carreta.finame_implemento", valor: 900 },
+      /* O total composto da carreta embute a parcela do cavalo: fora das duas. */
+      { ponta: "BASE" as const, entityType: "CARRETA", entityId: "c1", attributeCode: "carreta.finame", valor: 11570 },
+    ];
+    const totais = totaisPorVigencia(valores);
+    const [carreta] = evolucaoPorTipo(valores);
+    expect(carreta.base).toBe(totais.find((t) => t.ponta === "BASE")!.total);
+    expect(carreta.comparada).toBe(totais.find((t) => t.ponta === "COMPARADA")!.total);
   });
 });
 

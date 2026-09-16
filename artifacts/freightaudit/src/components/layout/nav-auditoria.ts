@@ -1,4 +1,5 @@
 import {
+  Wrench,
   ArrowRightLeft,
   BadgeCheck,
   Banknote,
@@ -499,6 +500,7 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
         { href: "/custo-fixo-ipva", label: "IPVA", icon: Receipt },
         { href: "/custo-fixo-lucro-fixo", label: "Lucro Fixo", icon: TrendingUp },
         { href: "/custo-fixo-impostos", label: "Impostos", icon: Landmark },
+        { href: "/custo-fixo-seguro", label: "Seguro e Aparato", icon: ShieldCheck },
       ],
     },
     {
@@ -614,6 +616,7 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
       icon: ChartNoAxesCombined,
       cor: "text-nav-custo-variavel",
       itens: [
+        { href: "/custo-variavel-manutencao", label: "Manutenção e Pneu", icon: Wrench },
         { href: "/custo-variavel-km-rodado", label: "Km Rodado", icon: Route },
         { href: "/custo-variavel-velocidade-media", label: "Velocidade Média", icon: Gauge },
         { href: "/custo-variavel-tma", label: "TMA", icon: Timer },

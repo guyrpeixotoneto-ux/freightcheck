@@ -1,9 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useLocation, useSearch } from "wouter";
 import { useQuery } from "@tanstack/react-query";
-import { Banknote, Download, Search, SlidersHorizontal } from "lucide-react";
-import type { LinhaDeFiname } from "@workspace/comparison/finame";
-import { VARIAVEIS_DE_FINAME, agruparPorVeiculo } from "@workspace/comparison/finame";
+import { Download, Search, ShieldCheck, SlidersHorizontal } from "lucide-react";
+import type { LinhaDeSeguro } from "@workspace/comparison/seguro";
+import {
+  agruparPorVeiculoDeSeguro,
+  VARIAVEIS_DE_DETALHE_DE_SEGURO,
+  VARIAVEIS_DE_SEGURO,
+} from "@workspace/comparison/seguro";
 import { Layout } from "@/components/layout/layout";
 import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import { ApiErrorNotice } from "@/components/api-error";
@@ -25,37 +29,6 @@ import {
   RecorteDeEquipamento,
   type RecorteDeTipo,
 } from "@/components/comparacao/recorte-de-equipamento";
-import { CartoesDeFiname } from "@/components/finame/cartoes";
-import {
-  AlteracoesPorVariavel,
-  DistribuicaoPorEstado,
-  EvolucaoEntreVigencias,
-  TotalPorVigencia,
-} from "@/components/finame/graficos";
-import { TabelaDeFiname } from "@/components/finame/tabela";
-import { DetalheDoVeiculo } from "@/components/finame/detalhe";
-import { fetchJson, salvarArquivo } from "@/lib/api";
-import { csvComoBlob, paraNomeDeArquivo } from "@/lib/csv";
-import { formatNumber } from "@/lib/format";
-import { PainelDaEvolucao } from "@/components/comparacao/evolucao/painel";
-import { EVOLUCAO_DO_FINAME } from "@/components/finame/evolucao";
-import {
-  ABAS_DE_ESTADO,
-  ehModoDeFiname,
-  ehRecorteDeTipo,
-  enderecoComTroca,
-  type ModoDeFiname,
-  FILTROS_VAZIOS,
-  contagemPorAba,
-  filtrar,
-  linhasDoCsv,
-  type ComparacaoDeFiname,
-  type FiltrosDeFiname,
-  type TotaisDeFiname,
-} from "@/lib/finame";
-import { useCandidatosDoPar } from "@/hooks/use-candidatos-do-par";
-import { JustificarDialog } from "@/components/justificativas/justificar-dialog";
-import { useJustificarNaTabela } from "@/lib/justificar-na-tabela";
 import {
   motivoSemPar,
   parReconciliado,
@@ -65,77 +38,105 @@ import {
   vigenciasQueCobrem,
 } from "@workspace/comparison/recorte-de-rubrica";
 import { avisoDoParImpossivel, parDaUrl } from "@/lib/par-de-vigencias";
+import { CartoesDeSeguro } from "@/components/seguro/cartoes";
+import {
+  ConferenciaDoCustoFixo,
+  AlteracoesPorVariavel,
+  DistribuicaoPorEstado,
+  EvolucaoEntreVigencias,
+  TotalPorVigencia,
+} from "@/components/seguro/graficos";
+import { TabelaDeSeguro } from "@/components/seguro/tabela";
+import { JustificarDialog } from "@/components/justificativas/justificar-dialog";
+import { useJustificarNaTabela } from "@/lib/justificar-na-tabela";
+import { DetalheDoVeiculo } from "@/components/seguro/detalhe";
+import { fetchJson, salvarArquivo } from "@/lib/api";
+import { useCandidatosDoPar } from "@/hooks/use-candidatos-do-par";
+import { csvComoBlob, paraNomeDeArquivo } from "@/lib/csv";
+import { formatNumber } from "@/lib/format";
+import {
+  ABAS_DE_ESTADO,
+  FILTROS_VAZIOS,
+  contagemPorAba,
+  filtrar,
+  linhasDoCsv,
+  type ComparacaoDeSeguro,
+  type FiltrosDeSeguro,
+  type TotaisDeSeguro,
+} from "@/lib/seguro";
 import { lerRecorte } from "@/lib/recorte";
+import { PainelDaEvolucao } from "@/components/comparacao/evolucao/painel";
+import { EVOLUCAO_DO_SEGURO } from "@/components/seguro/evolucao";
+import {
+  ehModoDaAuditoria,
+  ehRecorteDeTipo,
+  trocaNaRota,
+  type ModoDaAuditoria,
+} from "@/lib/modo-da-auditoria";
 import { contextoAberto, unidadeDe, useContextosDaCasca } from "@/lib/contextos";
 import { cn } from "@/lib/utils";
 
 /**
- * AUDITORIA DE FINAME — o que mudou no financiamento entre duas vigências.
+ * AUDITORIA DE SEGURO E APARATO — o que se paga por equipar a carreta.
  *
  * ---------------------------------------------------------------------------
- * A pergunta desta tela, e a razão de ela abrir mostrando só o que mudou
+ * A pergunta desta tela, e o achado que a fez existir
  * ---------------------------------------------------------------------------
- * Quem a abre quer saber **o que se moveu** de uma planilha para a outra. O
- * acervo tem centenas de veículos e catorze variáveis de FINAME; listar as
- * ~4.000 linhas iguais ao lado das que mudaram esconderia o achado dentro da
- * massa. Por isso a tabela abre no recorte das alterações, e "Mostrar veículos
- * sem alteração" é um alternador desligado — quando ligado, o servidor lê as
- * duas vigências inteiras e devolve também as linhas iguais.
+ * **Seguro, rastreador, tacógrafo, revestimento e faixa refletiva de cada
+ * carreta entre duas vigências — e se esse dinheiro está em algum total que a
+ * casa já usa.** A segunda metade é a razão da tela.
  *
- * ---------------------------------------------------------------------------
- * A tabela é **por placa**, e as variáveis moram dentro dela
- * ---------------------------------------------------------------------------
- * A tabela nasceu por variável — uma linha por (veículo × variável) —, e a
- * mesma placa aparecia até catorze vezes, espalhada por várias páginas. Hoje
- * `agruparPorVeiculo` junta as linhas por placa, e clicar abre as alterações
- * daquela placa ali mesmo; a gaveta de detalhe continua a um botão de distância,
- * com o diagnóstico e as variáveis que só existem nela.
- *
- * Três consequências, todas deliberadas:
- *
- * **Filtra primeiro, agrupa depois.** As abas, a busca e os dois seletores
- * continuam sendo sobre a alteração — é nela que moram o estado e a variável —,
- * e a placa entra na lista quando sobra alguma linha dela. Agrupar antes
- * obrigaria cada filtro a decidir o que é "uma placa alterada".
- *
- * **As abas contam alterações; a paginação conta veículos.** Cada uma conta o
- * que de fato mostra: a aba conta o que o filtro dela recorta, e o rodapé conta
- * as linhas que a tabela desenhou.
- *
- * **O CSV continua por variável.** Ele é o arquivo que a auditoria confere linha
- * a linha, e agrupá-lo esconderia justamente a variável que se moveu.
- *
- * **Nenhuma conta mora neste arquivo.** Estado, diferença, variação, impacto e
- * agregados vêm de `@workspace/comparison/finame`, que o servidor importa do
- * mesmo jeito. O que a página faz é escolher o par, filtrar, paginar e exportar
- * — e mesmo o filtro é uma função só, compartilhada com a contagem das abas,
- * para que a aba nunca prometa doze linhas e a tabela mostre nove.
- *
- * **A comparação é sempre do motor.** `/finame/comparacao` reaproveita o change
- * set quando ele existe e manda calcular quando não existe: é o mesmo caminho
- * de Comparar vigências, de modo que as duas telas respondem o mesmo número
- * para o mesmo par. As recusas do motor — escopo diferente, cobertura diferente,
- * canal diferente — chegam com a frase dele.
+ * Medido nas 657 linhas do acervo: `carreta.custo_fixo` é, ao centavo e em 657
+ * de 657, `carreta.finame` + `carreta.lucro_fixomodelo_novo_ciclo`. Some-se o
+ * aparato a essa conta e ela deixa de fechar nas 657. Ou seja, entre R$ 391,81 e
+ * R$ 1.104,53 por carreta existem na planilha, aparecem na tela de Custo Fixo
+ * Total do Freightech — onde as cinco colunas batem por **valor** com o nosso
+ * export (ver `lib/knowledge/src/catalogo.ts`) — e não estão em nenhum total que
+ * o acervo entrega. Quem orçar a carreta pelo custo fixo declarado vai orçá-la a
+ * menos.
  *
  * ---------------------------------------------------------------------------
- * E a tela é **de uma unidade por vez**
+ * As três coisas que esta tela diz e as outras não dizem
  * ---------------------------------------------------------------------------
- * `/snapshots` responde pela operação inteira, e dentro dela duas unidades
- * importadas do mesmo arquivo têm o mesmo rótulo e a mesma data: no seletor,
- * duas linhas idênticas. Enquanto esta tela não lia a unidade aberta, o par
- * padrão podia casar uma com a outra — o único par que o motor recusa por
- * construção — e a tela abria num aviso de erro sem ninguém ter escolhido nada.
+ * **A rubrica é só da carreta.** O cavalo não declara nenhuma das cinco colunas
+ * — não é que venham zeradas, é que não existem. A aba Cavalo abre vazia, e isso
+ * é a resposta certa.
  *
- * Agora ela lê a unidade aberta — `scopeHash` da URL quando há um, e o contexto
- * que a lateral nomeia quando não há (`contextoAberto`) —, recorta a lista por
- * ela e escolhe o par dentro do recorte (`vigenciasDaUnidade` e `parDePartida`,
- * em `lib/finame.ts`). Aberta CAMAÇARI, o seletor oferece Camaçari e nada mais.
- * É o que a põe em `TELAS_QUE_HONRAM_ESCOPO` (`lib/navegacao-do-escopo.ts`):
- * trocar de unidade na lateral troca o dado desta tela em vez de expulsar quem
- * trocou para Parâmetros. Uma unidade sem duas vigências abre **vazia, dizendo
- * isso** — que é a resposta certa, e não uma falha.
+ * **O rastreador é coluna sem dado.** Zero nas 657 linhas, nas duas pontas. Ele
+ * fica na tabela porque escondê-lo apagaria o achado, e fica fora da soma porque
+ * um total que o inclui afirma que rastrear custa R$ 0,00 — a mesma recusa que o
+ * montante de ICMS recebe na Auditoria de Impostos.
+ *
+ * **Só o seguro é negociado.** Revestimento (R$ 277,94), faixa refletiva
+ * (R$ 15,94) e tacógrafo (R$ 21,03 ou zero) têm um valor só para a frota
+ * inteira: quando um deles muda, as 657 carretas mudam juntas. O seguro tem 38
+ * valores distintos, de R$ 97,93 a R$ 789,62 — e é por isso que é ele que resume
+ * a placa, e que tem um alternador só dele na barra de filtros.
+ *
+ * ---------------------------------------------------------------------------
+ * O alternador "sem alteração" importa mais aqui do que nas outras telas
+ * ---------------------------------------------------------------------------
+ * Porque três das cinco colunas são taxa fixa, e a comparação típica não move
+ * nada. Desligado, a tela diz "nada mudou" e para aí — que é verdade e é pouco.
+ * Ligado, ela mostra **quanto** é o aparato de cada carreta, que é a outra
+ * metade da pergunta.
+ *
+ * **Nenhuma conta mora neste arquivo.** Estado, diferença, variação, impacto, a
+ * conferência contra o custo fixo e os agregados vêm de
+ * `@workspace/comparison/seguro`, que o servidor importa do mesmo jeito. O que a
+ * página faz é escolher o par, filtrar, paginar e exportar.
  */
-export default function AuditoriaDeFiname() {
+/**
+ * A rota desta auditoria — uma só, para os dois modos.
+ *
+ * `trocarNoEndereco` preserva tudo que não foi pedido: entrar na Evolução e
+ * voltar devolve a comparação exatamente como estava — mesma unidade, mesmo
+ * canal, mesmo par de vigências, mesmo recorte de equipamento.
+ */
+const ROTA = "/custo-fixo-seguro";
+const trocarNoEndereco = trocaNaRota(ROTA);
+
+export default function AuditoriaDeSeguro() {
   /**
    * O par que o endereço traz, quando traz — o que faz o **Abrir auditoria** do
    * Monitor Custo Fixo chegar aqui no mesmo par que ele estava mostrando.
@@ -148,7 +149,7 @@ export default function AuditoriaDeFiname() {
   const parInicial = parDaUrl(useSearch());
   const [base, setBase] = useState(parInicial.base);
   const [comparada, setComparada] = useState(parInicial.comparada);
-  const [filtros, setFiltros] = useState<FiltrosDeFiname>(FILTROS_VAZIOS);
+  const [filtros, setFiltros] = useState<FiltrosDeSeguro>(FILTROS_VAZIOS);
   const [comSemAlteracao, setComSemAlteracao] = useState(false);
   const [pagina, setPagina] = useState(1);
   const [porPagina, setPorPagina] = useState(50);
@@ -156,14 +157,6 @@ export default function AuditoriaDeFiname() {
     entityLabel: string | null;
     entityType: string;
   } | null>(null);
-  /**
-   * As abas da tabela — para onde os chips da Evolução rolam a página.
-   *
-   * Sem isto o clique trocava o filtro de uma tabela que estava fora da tela, e
-   * a única coisa que se via mudar era o próprio chip: o painel parecia não
-   * fazer nada.
-   */
-  const abasDaTabela = useRef<HTMLDivElement>(null);
 
   const vigencias = useQuery({
     queryKey: ["snapshots"],
@@ -173,17 +166,16 @@ export default function AuditoriaDeFiname() {
   /**
    * A unidade aberta na lateral — e por que esta tela precisa saber dela.
    *
-   * Sem isto, trocar de unidade aqui não trocava o dado: trocava de tela.
+   * Sem isto, trocar de unidade aqui não trocaria o dado: trocaria de tela.
    * `enderecoDe` (`lib/navegacao-do-escopo.ts`) desvia para Parâmetros toda tela
-   * que não sabe ler o recorte, e esta não sabia — *"eu tento mudar de
-   * PERNAMBUCO para CAMAÇARI e saio do módulo"*. Estar naquela lista é uma
+   * que não sabe ler o recorte. Estar em `TELAS_QUE_HONRAM_ESCOPO` é uma
    * promessa, e o que a cumpre é o recorte abaixo.
    */
   const recorte = lerRecorte(useSearch());
 
   /**
-   * O modo aberto, e o recorte **da evolução** — duas chaves próprias no
-   * mesmo endereço.
+   * O modo aberto, e o recorte **da evolução** — duas chaves próprias no mesmo
+   * endereço.
    *
    * São chaves separadas de `filtros.tipo` de propósito, e é isso que faz a ida
    * e volta não custar nada: entrar na Evolução não toca no recorte da
@@ -198,7 +190,7 @@ export default function AuditoriaDeFiname() {
   const [, navegar] = useLocation();
   const parametrosDaUrl = useMemo(() => new URLSearchParams(busca), [busca]);
   const modoPedido = parametrosDaUrl.get("modo");
-  const modo: ModoDeFiname = ehModoDeFiname(modoPedido) ? modoPedido : "comparacao";
+  const modo: ModoDaAuditoria = ehModoDaAuditoria(modoPedido) ? modoPedido : "comparacao";
   const recortePedido = parametrosDaUrl.get("recorteEvolucao");
   const recorteDaEvolucao: RecorteDeTipo = ehRecorteDeTipo(recortePedido)
     ? recortePedido
@@ -206,7 +198,7 @@ export default function AuditoriaDeFiname() {
   const anoDaEvolucao = parametrosDaUrl.get("ano");
 
   const trocarNaUrl = (mudancas: Record<string, string | null>) =>
-    navegar(enderecoComTroca(busca, mudancas));
+    navegar(trocarNoEndereco(busca, mudancas));
 
   /** O contexto da unidade aberta, que atravessa os dois modos sem ser tocado. */
   const consultaDoContexto = useMemo(() => {
@@ -226,8 +218,7 @@ export default function AuditoriaDeFiname() {
    * para ler. Quem traduz hash em "CAMAÇARI" é a lista de contextos, que a
    * lateral já consulta — daí `useContextosDaCasca`, que divide o mesmo cache e
    * nunca transforma uma falha em painel de erro. Sem ela, os rótulos ficam sem
-   * o nome da unidade e a tela volta a listar o acervo: é degradação, não
-   * quebra.
+   * o nome da unidade: é degradação, não quebra.
    */
   const { contextos, carregando: contextosCarregando } = useContextosDaCasca();
   const nomePorEscopo = useMemo(() => {
@@ -239,38 +230,20 @@ export default function AuditoriaDeFiname() {
   /**
    * A unidade aberta — **a mesma que a lateral nomeia**, com ou sem `scopeHash`.
    *
-   * `recorte.scopeHash` sozinho não responde isto. Sem ele na URL — quem chega
-   * por um link nu, ou pelo menu antes de escolher unidade —, a caixa "Unidade
-   * atual" continua escrevendo uma unidade: ela cai no primeiro contexto
-   * (`contextoAberto`). A tela, lendo só a URL, listava as cinco. É exatamente o
-   * desencontro que o cabeçalho de `contextoAberto` descreve, e que custou o
-   * mesmo defeito na Cobertura de dados: a lateral escrevendo PERNAMBUCO sobre
-   * uma tela que mostrava o acervo inteiro.
-   *
-   * Com a mesma função dos dois lados, a resposta é uma só: se a lateral diz
-   * CAMAÇARI, o seletor oferece as vigências de Camaçari e nada mais.
+   * `recorte.scopeHash` sozinho não responde isto, e é o erro que a Auditoria de
+   * FINAME já pagou: sem ele na URL — quem chega por um link nu, ou pelo menu
+   * antes de escolher unidade —, a caixa "Unidade atual" continua escrevendo uma
+   * unidade, porque cai no primeiro contexto (`contextoAberto`). Uma tela que
+   * lesse só a URL listaria as cinco sob o nome de uma.
    */
   const escopoAberto = contextoAberto(contextos, recorte.scopeHash)?.scopeHash ?? null;
 
   /**
    * Recortar antes de saber qual é a unidade daria a lista errada por um
-   * instante — e, pior, um par escolhido nela. Enquanto `/contexts` não
-   * responde e a URL não traz unidade, não há lista: nem a de todas, nem a de
-   * uma.
+   * instante — e, pior, um par escolhido nela.
    */
   const unidadeResolvida = recorte.scopeHash !== null || !contextosCarregando;
 
-  /**
-   * A série aberta — cavalo, carreta, ou as duas.
-   *
-   * Declarada **antes** da lista de vigências porque é ela que a recorta: na
-   * aba Cavalo o seletor do par só oferece vigências que têm cavalo. O
-   * mecanismo continua sendo `filtros.tipo`, que a tabela, as abas de estado e
-   * o CSV já respeitavam; o que mudou é quem o comanda e o quanto ele alcança.
-   */
-  const recorteDeTipo = (filtros.tipo === "TODOS" ? "TODOS" : filtros.tipo) as RecorteDeTipo;
-
-  /** As vigências da unidade aberta — a lista que o seletor oferece. */
   /**
    * As vigências que o seletor oferece: as da unidade aberta **que cobrem
    * equipamento**.
@@ -281,6 +254,16 @@ export default function AuditoriaDeFiname() {
    * é a recusa do motor em tela ("Coberturas diferentes") ou zero linhas sem
    * explicação, nas duas vezes por um erro que não é de quem clicou.
    */
+  /**
+   * A série aberta — cavalo, carreta, ou as duas.
+   *
+   * Declarada **antes** da lista de vigências porque é ela que a recorta: na
+   * aba Cavalo o seletor do par só oferece vigências que têm cavalo. O
+   * mecanismo continua sendo `filtros.tipo`, que a tabela, as abas de estado e
+   * o CSV já respeitavam; o que mudou é quem o comanda e o quanto ele alcança.
+   */
+  const recorteDeTipo = (filtros.tipo === "TODOS" ? "TODOS" : filtros.tipo) as RecorteDeTipo;
+
   /**
    * As vigências de equipamento da unidade — **antes** da aba.
    *
@@ -352,12 +335,9 @@ export default function AuditoriaDeFiname() {
   /**
    * O texto de cada opção do seletor, distinto por construção.
    *
-   * O arquivo que a Ambev entrega traz as cinco unidades juntas, e uma
-   * importação vira cinco vigências de mesmo rótulo e mesma data — medido no
-   * `EMPURRADA_Cavalo.xlsx`: seis vigências × cinco unidades = trinta. O
-   * seletor mostrava as cinco como a mesma frase, cinco vezes seguidas, e
-   * escolher ali era adivinhar. `rotulosDasVigencias` acrescenta a unidade — e
-   * só ela, e só onde desempata.
+   * Sem ele o seletor mostra a mesma frase cinco vezes seguidas — uma por
+   * unidade —, e escolher ali é adivinhar. `rotulosDasVigencias` acrescenta só o
+   * que desempata, e só onde desempata.
    */
   /*
     Sobre `daUnidadeTodas`, e nunca sobre a lista da aba.
@@ -382,16 +362,11 @@ export default function AuditoriaDeFiname() {
    * lista fica**. Ao trocar de unidade, o par anterior deixa de estar nela — e
    * mantê-lo faria a tela responder por Pernambuco sob a palavra CAMAÇARI. Ao
    * abrir sem nenhuma ponta válida, é `parDePartida` quem escolhe, com as duas
-   * recusas do motor antecipadas (mesma cobertura, mesmo escopo).
+   * recusas do motor antecipadas: mesma cobertura e mesmo escopo.
    *
-   * O que ele nunca faz é desfazer escolha de quem escolheu. Era o defeito
-   * relatado na Auditoria de Km Rodado: com uma ponta só na mão e nenhum par de
-   * partida possível, o efeito limpava as duas, e cada clique no seletor era
-   * apagado no quadro seguinte.
-   *
-   * Sem nenhuma ponta escolhida a consulta nem sai: uma unidade com uma
-   * vigência só não tem comparação, e pedi-la ao servidor traria a recusa dele
-   * para uma tela onde ninguém escolheu nada.
+   * O que ele nunca faz é desfazer escolha de quem escolheu — o defeito
+   * relatado na Auditoria de Km Rodado, onde cada clique no seletor era apagado
+   * no quadro seguinte.
    */
   useEffect(() => {
     if (!vigencias.data || !unidadeResolvida) return;
@@ -421,82 +396,35 @@ export default function AuditoriaDeFiname() {
    */
   const semParPossivel = semPar !== null && !(base && comparada);
 
-  const comparacao = useQuery({
-    queryKey: ["finame", "comparacao", base, comparada, comSemAlteracao],
-    enabled: Boolean(base && comparada),
-    queryFn: () =>
-      fetchJson<ComparacaoDeFiname>(
-        `/finame/comparacao?base=${base}&comparada=${comparada}` +
-          (comSemAlteracao ? "&semAlteracao=true" : ""),
-      ),
-  });
-
-  const totais = useQuery({
-    queryKey: ["finame", "totais", base, comparada],
-    enabled: Boolean(base && comparada),
-    queryFn: () => fetchJson<TotaisDeFiname>(`/finame/totais?base=${base}&comparada=${comparada}`),
-  });
-
-  /**
-   * O conteúdo principal da tela já assentou?
-   *
-   * "Assentou" é ter terminado — com dado ou com erro, tanto faz. O que
-   * interessa aqui não é o desfecho da consulta, é a conexão ter voltado ao
-   * pool: uma comparação que falhou soltou a conexão igual a uma que deu certo,
-   * e continuar segurando as candidatas por causa dela seria punir o menu por um
-   * defeito que não é dele.
-   *
-   * Sem par escolhido as duas consultas estão desligadas e nunca vão terminar —
-   * por isso a primeira cláusula. Sem ela, entrar na tela sem "De" e sem "Para"
-   * deixaria o menu esperando três segundos de teto para perguntar o que já
-   * poderia ter perguntado.
-   */
-  const parEscolhido = Boolean(base && comparada);
-  const assentou = (q: { isFetching: boolean; isSuccess: boolean; isError: boolean }) =>
-    !q.isFetching && (q.isSuccess || q.isError);
-  const principaisAssentadas = !parEscolhido || (assentou(comparacao) && assentou(totais));
-
   /**
    * Os números de cada candidata a "De", contra o "Para" aberto.
    *
    * A pergunta, a chave e a cadência moram em `useCandidatosDoPar`, com as
    * outras duas auditorias: a pergunta é a mesma, e telas irmãs respondendo com
    * fôlegos diferentes seria diferença sem motivo. O que esta tela decide é só
-   * o que é dela — a rubrica, o "Para" aberto, a unidade do recorte, e a ordem.
-   *
-   * **A ordem é o quinto argumento, e ela é a correção.** Esta rota drena uma
-   * fila pedindo de novo a cada 300 ms, e cada pedido pode segurar uma conexão
-   * por até doze segundos — no mesmo pool de dez que serve a comparação e os
-   * totais, que são o que a pessoa veio ler. Saindo junto, ela ganhava a
-   * disputa: medido com o banco a 15 ms, o conteúdo principal levava 2.281 ms
-   * com dez pessoas na tela, contra 1.452 ms quando as candidatas vão atrás —
-   * 36% a menos, sem a tela inteira demorar mais para assentar. O menu continua
-   * pronto antes de alguém precisar dele, que é a promessa que ele tem de
-   * cumprir; deixá-lo para depois do clique, que era a outra saída, quebraria
-   * justamente essa.
+   * o que é dela — a rubrica, o "Para" aberto e a unidade do recorte.
    */
-  const candidatos = useCandidatosDoPar(
-    "finame",
-    comparada,
-    escopoAberto,
-    "",
-    principaisAssentadas,
-  );
+  const candidatos = useCandidatosDoPar("seguro", comparada, escopoAberto);
 
-  /**
-   * As justificativas desta comparação, por `change.id` — a última coluna.
-   *
-   * É uma segunda consulta, e não um campo da comparação: a justificativa é
-   * escrita depois, por um gestor, sobre uma alteração que já existia. Pendurá-la
-   * no `/finame/comparacao` faria a tela recalcular a comparação inteira toda vez
-   * que alguém justificasse uma linha.
-   *
-   * `useConsultaResiliente`, que mora dentro do hook, é o que garante que uma
-   * falha aqui não vire painel de erro: sem justificativas a tabela continua
-   * inteira, com a coluna em branco. A comparação é o dado da tela; a
-   * justificativa é o comentário sobre ele.
-   */
+  const comparacao = useQuery({
+    queryKey: ["seguro", "comparacao", base, comparada, comSemAlteracao],
+    enabled: Boolean(base && comparada),
+    queryFn: () =>
+      fetchJson<ComparacaoDeSeguro>(
+        `/seguro/comparacao?base=${base}&comparada=${comparada}` +
+          (comSemAlteracao ? "&semAlteracao=true" : ""),
+      ),
+  });
+
+  const totais = useQuery({
+    queryKey: ["seguro", "totais", base, comparada],
+    enabled: Boolean(base && comparada),
+    queryFn: () => fetchJson<TotaisDeSeguro>(`/seguro/totais?base=${base}&comparada=${comparada}`),
+  });
+
   const linhas = useMemo(() => comparacao.data?.linhas ?? [], [comparacao.data]);
+  const filtradas = useMemo(() => filtrar(linhas, filtros), [linhas, filtros]);
+
 
   const agregados =
     recorteDeTipo === "TODOS"
@@ -506,31 +434,32 @@ export default function AuditoriaDeFiname() {
   /**
    * Quantos veículos cada recorte tem — o número ao lado de cada aba.
    *
-   * Comparados + novos + ausentes: os três estados da frota no par, que é o
-   * mesmo universo que o cartão "Veículos comparados" abre. Zero desabilita a
-   * aba, porque uma vigência sem carreta não tem tela de carreta para mostrar.
+   * Comparados + novos + ausentes: os três estados da frota no par. Zero
+   * desabilita a aba, porque uma vigência sem carreta não tem tela de carreta.
    */
   const contagensDoRecorte = useMemo(() => {
-    const quantos = (a: { resumo: { veiculosComparados: number; novosNaVigencia: number; ausentesNaComparada: number } } | undefined) =>
-      a ? a.resumo.veiculosComparados + a.resumo.novosNaVigencia + a.resumo.ausentesNaComparada : 0;
+    const quantos = (
+      a:
+        | {
+            resumo: {
+              veiculosComparados: number;
+              novosNaVigencia: number;
+              ausentesNaComparada: number;
+            };
+          }
+        | undefined,
+    ) =>
+      a
+        ? a.resumo.veiculosComparados +
+          a.resumo.novosNaVigencia +
+          a.resumo.ausentesNaComparada
+        : 0;
     return {
       TODOS: quantos(comparacao.data),
       CAVALO: quantos(comparacao.data?.porTipo?.CAVALO),
       CARRETA: quantos(comparacao.data?.porTipo?.CARRETA),
     } as Record<RecorteDeTipo, number>;
   }, [comparacao.data]);
-
-  /**
-   * A evolução decomposta, no recorte aberto — a série já vem por tipo.
-   *
-   * Mesmo filtro dos totais, e pela mesma razão: o painel escreve os dois lados
-   * da mesma identidade, e um recorte que valesse só para metade dela mostraria
-   * três parcelas que não somam o total ao lado.
-   */
-  const evolucaoDoRecorte = useMemo(() => {
-    const toda = totais.data?.evolucao ?? [];
-    return recorteDeTipo === "TODOS" ? toda : toda.filter((e) => e.entityType === recorteDeTipo);
-  }, [totais.data, recorteDeTipo]);
 
   /** Os totais do gráfico, no recorte aberto — a série já vem por tipo. */
   const totaisDoRecorte = useMemo(() => {
@@ -539,7 +468,6 @@ export default function AuditoriaDeFiname() {
       ? todos
       : todos.filter((t) => t.entityType === recorteDeTipo);
   }, [totais.data, recorteDeTipo]);
-  const filtradas = useMemo(() => filtrar(linhas, filtros), [linhas, filtros]);
   const contagens = useMemo(
     () => contagemPorAba(linhas, { ...filtros, estado: "TODAS" }),
     [linhas, filtros],
@@ -548,16 +476,16 @@ export default function AuditoriaDeFiname() {
   /**
    * As placas — o que a tabela lista desde que deixou de listar variáveis.
    *
-   * **Agrupa depois de filtrar, e não antes.** As abas, a busca e os dois
-   * seletores continuam sendo sobre a alteração — é ali que moram o estado e a
-   * variável —, e a placa entra na lista quando sobra alguma linha dela no
-   * recorte. Agrupar primeiro obrigaria cada filtro a decidir o que significa
-   * "uma placa alterada", e a aba diria 33 sobre uma tabela de 7 linhas.
+   * **Agrupa depois de filtrar, e não antes.** As abas, a busca e os seletores
+   * continuam sendo sobre a alteração — é ali que moram o estado e a variável —,
+   * e a placa entra na lista quando sobra alguma linha dela no recorte. Agrupar
+   * primeiro obrigaria cada filtro a decidir o que significa "uma placa
+   * alterada", e a aba diria 33 sobre uma tabela de 7 linhas.
    *
    * Por isso a contagem das abas continua em alterações: é o que elas contam. A
    * paginação, essa sim, passou a ser de veículos — é o que a tabela mostra.
    */
-  const veiculos = useMemo(() => agruparPorVeiculo(filtradas), [filtradas]);
+  const veiculos = useMemo(() => agruparPorVeiculoDeSeguro(filtradas), [filtradas]);
   const naPagina = useMemo(
     () => veiculos.slice((pagina - 1) * porPagina, pagina * porPagina),
     [veiculos, pagina, porPagina],
@@ -586,65 +514,49 @@ export default function AuditoriaDeFiname() {
     desempate entre duas linhas que seguiriam indistinguíveis.
   */
   const rotuloBase =
-    rotulos.get(base) ??
-    vigencias.data?.find((v) => v.id === base)?.sourceLabel ??
-    "Vigência Base";
+    rotulos.get(base) ?? vigencias.data?.find((v) => v.id === base)?.sourceLabel ?? "De";
   const rotuloComparada =
     rotulos.get(comparada) ??
     vigencias.data?.find((v) => v.id === comparada)?.sourceLabel ??
-    "Vigência Comparada";
+    "Para";
 
   /*
-    Justificar sem sair da tabela — o mesmo gancho das outras cinco rubricas.
-
-    A leitura é uma consulta à parte da comparação: pendurá-la no
-    `/finame/comparacao` faria a tela recalcular a comparação inteira toda vez
-    que alguém justificasse uma linha. E é resiliente por dentro
-    (`useConsultaResiliente`), o que garante que uma falha aqui não vire painel
-    de erro: sem justificativas a tabela continua inteira, com a coluna em
-    branco. A comparação é o dado da tela; a justificativa é o comentário sobre
-    ele.
+    Justificar sem sair daqui — a mesma caixa de Chamados, o mesmo POST, e a
+    vigência escrita nela: quem justifica a partir desta tela escolheu o par no
+    seletor acima, e um diálogo que não diz onde grava deixa a decisão sem a
+    metade que a torna verificável.
   */
   const justificar = useJustificarNaTabela(
     comparacao.data?.changeSetId,
     `comparação ${rotuloBase} → ${rotuloComparada}`,
   );
-  const { justificadaPor } = justificar;
 
   function exportar() {
-    const blob = csvComoBlob(linhasDoCsv(filtradas, justificadaPor));
+    const blob = csvComoBlob(linhasDoCsv(filtradas, justificar.justificadaPor));
     salvarArquivo(
       blob,
-      `finame-${paraNomeDeArquivo(rotuloBase)}-para-${paraNomeDeArquivo(rotuloComparada)}.csv`,
+      `seguro-${paraNomeDeArquivo(rotuloBase)}-para-${paraNomeDeArquivo(rotuloComparada)}.csv`,
     );
   }
 
+  const deTaxa = comparacao.data?.resumo.impacto.alteracoesDeTaxa ?? 0;
+
   return (
     <Layout>
-      {/*
-        O cabeçalho segue o modo aberto.
-
-        A pastilha e a frase descrevem *a pergunta que a tela responde*, e no
-        modo Evolução ela é outra: não é o que mudou entre duas vigências, é
-        como cada veículo se moveu ao longo do ano. Deixá-las fixas punha a
-        matriz do ano sob a promessa de uma comparação entre duas datas — o
-        título de um recorte sobre o número de outro, que é exatamente o que
-        esta tela persegue em toda parte.
-      */}
       <CabecalhoDePagina
         titulo={
           <span className="flex flex-wrap items-center gap-2.5">
-            Auditoria de FINAME
+            Auditoria de Seguro e Aparato
             <span className="rounded-full border border-brand/25 bg-brand/10 px-2.5 py-0.5 text-xs font-semibold text-brand">
               {modo === "evolucao" ? "Evolução anual" : "Comparação entre vigências"}
             </span>
           </span>
         }
-        icone={Banknote}
+        icone={ShieldCheck}
         descricao={
           modo === "evolucao"
-            ? "Como o financiamento de cada veículo se moveu ao longo do ano, uma coluna por vigência — com o impacto dos movimentos e a variação ponta a ponta lidos separadamente."
-            : "O que mudou no financiamento de cada veículo entre duas vigências: parcela, juros, amortização, taxa, prazo, carência, entrada e base de compra."
+            ? "Como o seguro e o aparato de cada carreta se moveram ao longo do ano, uma coluna por vigência — com o impacto dos movimentos e a variação ponta a ponta lidos separadamente."
+            : "Seguro, rastreador, tacógrafo, revestimento e faixa refletiva de cada carreta entre duas vigências — e se esse dinheiro está no custo fixo que o export declara."
         }
         atualizando={
           modo === "comparacao" && comparacao.isFetching && !comparacao.isLoading
@@ -670,7 +582,7 @@ export default function AuditoriaDeFiname() {
                 if (modo !== "comparacao") trocarNaUrl({ modo: null });
               }}
               disponiveis={disponiveis}
-              idPrefixo="finame"
+              idPrefixo="seguro"
               abaExtra={{
                 rotulo: "Evolução",
                 ativa: modo === "evolucao",
@@ -685,7 +597,7 @@ export default function AuditoriaDeFiname() {
             />
             {modo === "evolucao" && (
               <PainelDaEvolucao
-                rubrica={EVOLUCAO_DO_FINAME}
+                rubrica={EVOLUCAO_DO_SEGURO}
                 consulta={consultaDoContexto}
                 datas={datasDaUnidade}
                 recorte={recorteDaEvolucao}
@@ -699,12 +611,6 @@ export default function AuditoriaDeFiname() {
             <SeletorDoPar
               vigencias={daUnidade}
               foco={recorteDeTipo === "TODOS" ? null : recorteDeTipo}
-              rotulos={rotulos}
-              candidatos={candidatos.data}
-              carregandoCandidatos={candidatos.isFetching}
-              erroDosCandidatos={
-                candidatos.error instanceof Error ? candidatos.error.message : null
-              }
               base={base}
               comparada={comparada}
               onBase={setBase}
@@ -713,26 +619,30 @@ export default function AuditoriaDeFiname() {
                 setBase(comparada);
                 setComparada(base);
               }}
+              rotulos={rotulos}
               carregando={comparacao.isFetching}
-              idPrefixo="finame"
+              idPrefixo="seguro"
+              candidatos={candidatos.data}
+              carregandoCandidatos={candidatos.isFetching}
+              erroDosCandidatos={
+                candidatos.error instanceof Error ? candidatos.error.message : null
+              }
             />
             )}
           </>
         )}
 
         {/*
-          A unidade sem par não é uma falha, e não deve chegar como uma: é a
-          resposta certa para "o que mudou no FINAME de Camaçari?" quando
-          Camaçari entregou uma vigência só. Antes desta tela recortar por
-          unidade, o mesmo caso abria na recusa do motor — um aviso âmbar
-          dizendo que a comparação falhou, sobre uma comparação que nunca
-          existiu.
+          Tudo abaixo é da comparação: a tela vazia, os cartões, os gráficos, a
+          tabela e a gaveta. Na Evolução o painel acima responde sozinho, e
+          deixar esta metade no ar poria a matriz do ano sob os cartões de um par
+          de vigências — o número de um recorte sob o título de outro.
         */}
         {modo === "comparacao" && (
           <>
         {semParPossivel && (
           <EstadoVazio
-            icone={Banknote}
+            icone={ShieldCheck}
             titulo={
               parImpossivel
                 ? parImpossivel.titulo
@@ -742,7 +652,7 @@ export default function AuditoriaDeFiname() {
               parImpossivel
                 ? parImpossivel.descricao
                 : escopoAberto
-                  ? "A comparação de FINAME precisa de duas vigências da mesma unidade. Escolha outra unidade na lateral ou importe a vigência seguinte."
+                  ? "A comparação do aparato precisa de duas vigências da mesma unidade. Escolha outra unidade na lateral ou importe a vigência seguinte."
                   : "O acervo ainda não tem duas vigências da mesma unidade e da mesma cobertura para comparar."
             }
           />
@@ -763,7 +673,7 @@ export default function AuditoriaDeFiname() {
         {comparacao.error && (
           <ApiErrorNotice
             error={comparacao.error}
-            what="a comparação de FINAME"
+            what="a comparação do aparato"
             onTentarDeNovo={() => void comparacao.refetch()}
             tentando={comparacao.isFetching}
           />
@@ -771,35 +681,17 @@ export default function AuditoriaDeFiname() {
 
         {comparacao.data && (
           <>
-            <CartoesDeFiname resumo={(agregados ?? comparacao.data).resumo} />
+            <CartoesDeSeguro resumo={(agregados ?? comparacao.data).resumo} />
 
-            {(agregados ?? comparacao.data).resumo.impacto.cobertasPorParcelas > 0 && (
-              <p className="text-xs text-muted-foreground">
-                {formatNumber((agregados ?? comparacao.data).resumo.impacto.cobertasPorParcelas, 0)}{" "}
-                {(agregados ?? comparacao.data).resumo.impacto.cobertasPorParcelas === 1
-                  ? "parcela saiu"
-                  : "parcelas saíram"}{" "}
-                do total por já estarem representadas nas partes — o mesmo dinheiro não é
-                contado duas vezes.
-              </p>
-            )}
-
-            {/*
-              O segundo aviso é de outra natureza, e por isso é outra frase: ali,
-              dinheiro deste módulo já contado noutra linha **deste** módulo;
-              aqui, dinheiro que não é deste módulo. A base de compra e os dois
-              tributos da aquisição ficam na tabela porque conferem o
-              financiamento, e saem do total porque quem os soma é a Auditoria de
-              Impostos — ou ninguém, no caso do valor de nota.
-            */}
             {(agregados ?? comparacao.data).resumo.impacto.foraDaSoma > 0 && (
               <p className="text-xs text-muted-foreground">
                 {formatNumber((agregados ?? comparacao.data).resumo.impacto.foraDaSoma, 0)}{" "}
                 {(agregados ?? comparacao.data).resumo.impacto.foraDaSoma === 1
                   ? "alteração ficou"
                   : "alterações ficaram"}{" "}
-                fora do total por serem de outra rubrica — valor de NF é o preço do ativo,
-                e ICMS e PIS/COFINS da compra são somados pela Auditoria de Impostos.
+                fora do impacto: o rastreador é zero em todas as linhas do acervo, e o
+                custo fixo do conjunto é total — ele já contém o FINAME e o lucro fixo.
+                As duas aparecem na tabela e no detalhe, nunca numa soma.
               </p>
             )}
 
@@ -809,41 +701,31 @@ export default function AuditoriaDeFiname() {
                 rotuloBase={rotuloBase}
                 rotuloComparada={rotuloComparada}
               />
-              <AlteracoesPorVariavel
-                dados={(agregados ?? comparacao.data).alteracoesPorVariavel}
-              />
-              <DistribuicaoPorEstado
-                dados={(agregados ?? comparacao.data).distribuicaoPorEstado}
-              />
+              <AlteracoesPorVariavel dados={(agregados ?? comparacao.data).alteracoesPorVariavel} />
+              <DistribuicaoPorEstado dados={(agregados ?? comparacao.data).distribuicaoPorEstado} />
             </div>
 
             {/*
-              Cada parcela do painel leva a tabela para o recorte que a sustenta
-              — é o que transforma o número em algo que se confere. Escreve os
-              três filtros de uma vez, e não só o estado: com a busca de outro
-              recorte ainda no ar, o chip mandaria para uma tabela vazia e o
-              número pareceria mentira.
+              A conferência vem em largura inteira, e logo abaixo dos
+              indicadores, por ser a leitura própria desta tela — a única que
+              nenhuma outra do produto faz. Espremê-la numa das três colunas
+              acima a deixaria com cara de gráfico auxiliar, e ela é o oposto
+              disso: é o que diz se este dinheiro está em algum total que a casa
+              já usa.
             */}
-            <EvolucaoEntreVigencias
-              evolucao={evolucaoDoRecorte}
+            <ConferenciaDoCustoFixo
+              conferencias={totais.data?.conferencias ?? []}
               rotuloBase={rotuloBase}
               rotuloComparada={rotuloComparada}
-              onRecorte={(r) => {
-                setFiltros((f) => ({
-                  ...f,
-                  busca: "",
-                  tipo: r.tipo,
-                  estado: r.estado,
-                  variavel: r.variavel,
-                }));
-                abasDaTabela.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-              }}
             />
 
-            <div
-              ref={abasDaTabela}
-              className="flex flex-wrap items-center gap-x-5 gap-y-1 border-b scroll-mt-4"
-            >
+            <EvolucaoEntreVigencias
+              totais={totaisDoRecorte}
+              rotuloBase={rotuloBase}
+              rotuloComparada={rotuloComparada}
+            />
+
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-1 border-b">
               {ABAS_DE_ESTADO.map((aba) => (
                 <button
                   key={aba.chave}
@@ -859,8 +741,8 @@ export default function AuditoriaDeFiname() {
                   )}
                 >
                   {/* Com o alternador ligado a lista deixa de ser só de
-                      alterações — chamar 1.589 linhas iguais de "alterações"
-                      seria o rótulo contradizendo a própria coluna Status. */}
+                      alterações — chamar centenas de linhas iguais de
+                      "alterações" seria o rótulo contradizendo a coluna Status. */}
                   {aba.chave === "TODAS" && comSemAlteracao ? "Todas as linhas" : aba.rotulo} (
                   {formatNumber(contagens[aba.chave] ?? 0, 0)})
                 </button>
@@ -874,7 +756,7 @@ export default function AuditoriaDeFiname() {
                   aria-hidden="true"
                 />
                 <Input
-                  id="finame-busca"
+                  id="seguro-busca"
                   value={filtros.busca}
                   onChange={(e) => setFiltros((f) => ({ ...f, busca: e.target.value }))}
                   placeholder="Buscar placa ou variável…"
@@ -887,20 +769,19 @@ export default function AuditoriaDeFiname() {
                 O seletor "Tipo de equipamento" morava aqui e subiu para o topo
                 da tela (`RecorteDeEquipamento`). Duas caixas comandando o mesmo
                 `filtros.tipo` seriam duas respostas possíveis para "qual
-                recorte está aberto" — e a de baixo, por estar entre filtros de
-                tabela, sugeriria que o recorte é da tabela, quando ele agora
-                governa os cartões e os gráficos também.
+                recorte está aberto" — e a de baixo, entre filtros de tabela,
+                sugeriria que o recorte é só da tabela.
               */}
               <Select
                 value={filtros.variavel}
                 onValueChange={(variavel) => setFiltros((f) => ({ ...f, variavel }))}
               >
-                <SelectTrigger className="w-[13rem]" aria-label="Variável de FINAME">
+                <SelectTrigger className="w-[15rem]" aria-label="Variável do aparato">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="TODAS">Todas as variáveis</SelectItem>
-                  {VARIAVEIS_DE_FINAME.map((v) => (
+                  {[...VARIAVEIS_DE_SEGURO, ...VARIAVEIS_DE_DETALHE_DE_SEGURO].map((v) => (
                     <SelectItem key={v.chave} value={v.chave}>
                       {v.rotulo}
                     </SelectItem>
@@ -908,12 +789,36 @@ export default function AuditoriaDeFiname() {
                 </SelectContent>
               </Select>
 
+              {/*
+                O alternador do seguro é o filtro próprio desta tela, e existe
+                porque quatro das cinco colunas se movem em bloco: quando a
+                tabela de revestimento muda, as 657 carretas mudam juntas, e a
+                lista inteira vira ruído sobre o que aconteceu com *uma* placa.
+                Ligado, sobra só o que foi negociado ativo a ativo.
+              */}
               <label
-                htmlFor="finame-sem-alteracao"
+                htmlFor="seguro-so-seguro"
                 className="flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm"
               >
                 <Switch
-                  id="finame-sem-alteracao"
+                  id="seguro-so-seguro"
+                  checked={filtros.soSeguro}
+                  onCheckedChange={(soSeguro) => setFiltros((f) => ({ ...f, soSeguro }))}
+                />
+                Só o seguro
+                {deTaxa > 0 && (
+                  <span className="rounded-full bg-warning/15 px-2 py-0.5 text-xs font-semibold text-warning-foreground">
+                    {formatNumber(deTaxa, 0)} de taxa
+                  </span>
+                )}
+              </label>
+
+              <label
+                htmlFor="seguro-sem-alteracao"
+                className="flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm"
+              >
+                <Switch
+                  id="seguro-sem-alteracao"
                   checked={comSemAlteracao}
                   onCheckedChange={setComSemAlteracao}
                 />
@@ -935,12 +840,12 @@ export default function AuditoriaDeFiname() {
             {filtradas.length === 0 ? (
               linhas.length === 0 ? (
                 <EstadoVazio
-                  icone={Banknote}
-                  titulo="Nenhuma variável de FINAME mudou entre as duas vigências"
+                  icone={ShieldCheck}
+                  titulo="Nenhuma coluna do aparato mudou entre as duas vigências"
                   descricao={`${formatNumber(
-                    comparacao.data.resumo.veiculosComparados,
+                    (agregados ?? comparacao.data).resumo.veiculosComparados,
                     0,
-                  )} veículos comparados, e o financiamento de todos eles chegou igual nas duas planilhas.`}
+                  )} veículos comparados, e o aparato de todos eles chegou igual nas duas planilhas. Três das cinco colunas são taxa fixa — ligue “Mostrar veículos sem alteração” para ver quanto cada carreta paga.`}
                 />
               ) : (
                 <EstadoVazio
@@ -948,7 +853,11 @@ export default function AuditoriaDeFiname() {
                   titulo="Nenhuma linha para este filtro"
                   descricao="O recorte atual não tem nenhuma alteração. Limpe os filtros para ver as demais."
                   acao={
-                    <Button type="button" variant="outline" onClick={() => setFiltros(FILTROS_VAZIOS)}>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setFiltros(FILTROS_VAZIOS)}
+                    >
                       Limpar filtros
                     </Button>
                   }
@@ -956,9 +865,9 @@ export default function AuditoriaDeFiname() {
               )
             ) : (
               <>
-                <TabelaDeFiname
+                <TabelaDeSeguro
                   veiculos={naPagina}
-                  justificadaPor={justificadaPor}
+                  justificadaPor={justificar.justificadaPor}
                   onAbrir={(v) =>
                     setAberto({ entityLabel: v.entityLabel, entityType: v.entityType })
                   }
@@ -977,15 +886,11 @@ export default function AuditoriaDeFiname() {
               </>
             )}
 
-            {/* O diálogo é o de Chamados, e a vigência vai escrita nele: quem
-                justifica a partir daqui escolheu o par no seletor acima, e uma
-                caixa que não diz onde grava deixa a decisão sem a metade que a
-                torna verificável. */}
             <JustificarDialog {...justificar.propsDoDialogo} />
 
             <DetalheDoVeiculo
               veiculo={aberto}
-              linhas={linhas as LinhaDeFiname[]}
+              linhas={linhas as LinhaDeSeguro[]}
               rotuloBase={rotuloBase}
               rotuloComparada={rotuloComparada}
               onFechar={() => setAberto(null)}

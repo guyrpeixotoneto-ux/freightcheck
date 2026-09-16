@@ -6,6 +6,7 @@ import {
   type LinhaDeFiname,
   type MedidaDaVariavel,
 } from "@workspace/comparison/finame";
+import type { EvolucaoDoTipo } from "@workspace/comparison/finame";
 import type { RecorteDeTipo } from "@/components/comparacao/recorte-de-equipamento";
 import {
   ehModoDaAuditoria,
@@ -95,6 +96,14 @@ export interface TotaisDeFiname {
     total: number;
     veiculos: number;
   }[];
+  /**
+   * A mesma leitura, aberta nas três parcelas que produzem a diferença.
+   *
+   * Vem do servidor junto dos totais, e não de uma conta na tela, pela regra
+   * desta casa: a decomposição e o total que ela explica têm de sair da mesma
+   * leitura, ou a tela mostra duas versões da mesma diferença.
+   */
+  evolucao: EvolucaoDoTipo[];
 }
 
 /**
@@ -209,6 +218,19 @@ export function corDaDiferenca(
   if (diferenca === null || diferenca === 0 || medida !== "DINHEIRO") return "";
   return diferenca > 0 ? "text-success" : "text-destructive";
 }
+
+/**
+ * O tipo de equipamento, escrito.
+ *
+ * Exportado, e não repetido em cada componente, porque o painel da Evolução e
+ * a gaveta de detalhe mostram o mesmo campo do mesmo veículo na mesma tela:
+ * dois mapas seriam duas chances de a mesma placa ser "Cavalo" no painel e
+ * "CAVALO" na gaveta.
+ */
+export const ROTULO_DO_TIPO: Record<string, string> = {
+  CAVALO: "Cavalo",
+  CARRETA: "Carreta",
+};
 
 /** O selo de cada estado. Cor **e** texto — nunca só a cor. */
 export const SELO_DO_ESTADO: Record<EstadoDaLinhaDeFiname, string> = {

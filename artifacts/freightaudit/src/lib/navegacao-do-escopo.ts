@@ -219,6 +219,26 @@ export const TELAS_QUE_HONRAM_ESCOPO = new Set<string>([
   */
   "/custo-fixo-impostos",
   /*
+    A Auditoria de Seguro e Aparato, pelo mesmo mecanismo das quatro acima: a
+    tela (`pages/custo-fixo-seguro.tsx`) recorta a lista do seletor pela unidade
+    aberta antes de escolher o par, com as mesmas três funções do núcleo.
+
+    Fora de `TELAS_QUE_HONRAM_VISAO_GERAL` pelo motivo de sempre: o motor recusa
+    comparar vigências de escopos distintos.
+  */
+  "/custo-fixo-seguro",
+  /*
+    A Auditoria de Manutenção e Pneu. Ela é de custo variável pela unidade — mede
+    R$/km, e não reais —, mas o grão dela é o **equipamento**, e não o trecho: o
+    contrato de manutenção é de um caminhão, não de uma rota. Por isso ela entra
+    aqui com o filtro das outras quatro de cima, e não com o filtro de trecho das
+    três de baixo.
+
+    Fora de `TELAS_QUE_HONRAM_VISAO_GERAL` pelo motivo de sempre: o motor recusa
+    comparar vigências de escopos distintos.
+  */
+  "/custo-variavel-manutencao",
+  /*
     A Auditoria de Km Rodado, pelo mesmo mecanismo das quatro acima e com um
     filtro a mais: a tela (`pages/custo-variavel-km-rodado.tsx`) recorta a lista
     do seletor pela unidade aberta **e** pelas vigências que cobrem trecho, que é
