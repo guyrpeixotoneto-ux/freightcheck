@@ -37,7 +37,8 @@ import { DetalheDoVeiculo } from "@/components/finame/detalhe";
 import { fetchJson, salvarArquivo } from "@/lib/api";
 import { csvComoBlob, paraNomeDeArquivo } from "@/lib/csv";
 import { formatNumber } from "@/lib/format";
-import { PainelDaEvolucaoDeFiname } from "@/components/finame/evolucao/painel-da-evolucao";
+import { PainelDaEvolucao } from "@/components/comparacao/evolucao/painel";
+import { EVOLUCAO_DO_FINAME } from "@/components/finame/evolucao";
 import {
   ABAS_DE_ESTADO,
   ehModoDeFiname,
@@ -627,7 +628,8 @@ export default function AuditoriaDeFiname() {
               }}
             />
             {modo === "evolucao" && (
-              <PainelDaEvolucaoDeFiname
+              <PainelDaEvolucao
+                rubrica={EVOLUCAO_DO_FINAME}
                 consulta={consultaDoContexto}
                 datas={datasDaUnidade}
                 recorte={recorteDaEvolucao}

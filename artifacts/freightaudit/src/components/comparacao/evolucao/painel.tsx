@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Banknote } from "lucide-react";
-import { CODIGOS_DA_TABELA, codigosDoRecorte } from "@workspace/comparison/finame";
+import type { LucideIcon } from "lucide-react";
 import { ApiErrorNotice } from "@/components/api-error";
 import { EstadoVazio } from "@/components/ui/estado-vazio";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -19,7 +18,7 @@ import {
 } from "@/components/comparacao/recorte-de-equipamento";
 import { MatrizDaEvolucao } from "@/components/evolucao-por-placa/matriz";
 import { PainelDaPlaca } from "@/components/evolucao-por-placa/painel-da-placa";
-import { CartoesDaEvolucaoDeFiname } from "@/components/finame/evolucao/cartoes";
+import { CartoesDaEvolucao } from "@/components/comparacao/evolucao/cartoes";
 import {
   opcoesDaEvolucao,
   type FiltroDaEvolucao,
@@ -28,16 +27,16 @@ import {
 } from "@/lib/evolucao-por-placa";
 import type { PontaAPonta } from "@/lib/analise";
 import { fetchJsonOrNull } from "@/lib/api";
-import { anosDasVigencias, pontasDoAno } from "@/lib/finame";
+import { anosDasVigencias, pontasDoAno } from "@/lib/modo-da-auditoria";
 import { periodicityAdjective } from "@/lib/format";
 
 /**
- * A EVOLUÇÃO ANUAL DO FINAME — a matriz veículo × vigência, recortada.
+ * A EVOLUÇÃO ANUAL DE UMA RUBRICA — a matriz veículo × vigência, recortada.
  *
  * ---------------------------------------------------------------------------
  * Não há matriz nova aqui
  * ---------------------------------------------------------------------------
- * Esta tela é `evolucaoPorPlaca` com `parameters = CODIGOS_DA_TABELA`, desenhada
+ * Esta tela é `evolucaoPorPlaca` com os `parameters` da rubrica, desenhada
  * por `MatrizDaEvolucao`, com `PainelDaPlaca` numa gaveta. Uma segunda
  * matriz — mesmo que idêntica no dia em que fosse escrita — seria a quinta
  * resposta do produto para "qual foi o impacto?", e `deduplicacao.ts` documenta
@@ -63,6 +62,15 @@ import { periodicityAdjective } from "@/lib/format";
  * corrigido.
  *
  * ---------------------------------------------------------------------------
+ * Uma tela, quatro rubricas
+ * ---------------------------------------------------------------------------
+ * Nasceu no FINAME e serve também a IPVA, Lucro Fixo e Impostos. O que cada uma
+ * traz é {@link RubricaDaEvolucao}: o nome, o ícone da tela vazia, os códigos de
+ * atributo que a matriz pede e como a leitura chama o acumulado. Nenhuma conta
+ * entra por aí — quatro cópias desta tela seriam a quinta, a sexta e a sétima
+ * resposta do produto para "qual foi o impacto?".
+ *
+ * ---------------------------------------------------------------------------
  * O ano é atalho, e não eixo
  * ---------------------------------------------------------------------------
  * `pontasDoAno` traduz "2026" no par `from`/`to` que o motor já entende, com
@@ -72,29 +80,55 @@ import { periodicityAdjective } from "@/lib/format";
  * colunas, e vigência sem comparação vira lacuna nomeada.
  */
 /**
- * Como esta tela lê os números — o FINAME é **rubrica da tabela de frete**.
+ * O que uma rubrica precisa dizer sobre si para ter evolução anual.
  *
- * Tudo que o FreightCheck mede é o que a transportadora recebe, e o FINAME é
+ * ---------------------------------------------------------------------------
+ * Sobre a leitura — e o que ela **não** faz
+ * ---------------------------------------------------------------------------
+ * Tudo que o FreightCheck mede é o que a transportadora recebe, e cada rubrica é
  * uma linha dessa tabela como qualquer outra: quando `cavalo.finame_cavalo` cai
  * de R$ 10.578,03 para R$ 0, o impacto gravado é −10.578,03 porque é isso que
  * deixa de entrar. Negativo é perda, em vermelho; positivo é ganho, em verde —
  * a mesma régua da Evolução por Placa, de onde a matriz veio.
  *
- * Houve aqui uma leitura "de custo" que invertia a cor desta tela, tratando o
- * FINAME como despesa da casa. Era a hipótese errada sobre o dado, e foi
- * removida: o produto tem um idioma só.
+ * Houve uma leitura "de custo" que invertia a cor desta tela, tratando o FINAME
+ * como despesa da casa. Era a hipótese errada sobre o dado, e foi removida: o
+ * produto tem um idioma só.
  *
- * O que a leitura ainda faz é nome, e só nome — "Variação do FINAME no ano" no
- * lugar de "Impacto acumulado". Nenhum número é tocado: `net`, `acumulado`,
- * `ganho` e `perda` saem daqui com o mesmo valor e o mesmo sinal com que
- * chegaram do servidor.
+ * O que a leitura faz é nome, e só nome — "Variação do FINAME no ano" no lugar
+ * de "Impacto acumulado". Nenhum número é tocado: `net`, `acumulado`, `ganho` e
+ * `perda` saem daqui com o mesmo valor e o mesmo sinal com que chegaram do
+ * servidor.
  */
-const LEITURA_DO_FINAME: LeituraDaMatriz = {
-  titulo: "Variação do FINAME por veículo ao longo do ano",
-  acumulado: "Variação no ano",
-};
+export interface RubricaDaEvolucao {
+  /** O nome, como a frase o diz: "FINAME", "IPVA", "lucro fixo", "impostos". */
+  nome: string;
+  /** O ícone da tela vazia e dos avisos — o mesmo do cabeçalho da auditoria. */
+  icone: LucideIcon;
+  /** O prefixo dos `id` dos seletores, para não colidirem com os da comparação. */
+  idPrefixo: string;
+  /** Os códigos de atributo que a matriz pede ao motor. */
+  codigosDaTabela: readonly string[];
+  /**
+   * Os códigos de um recorte de equipamento.
+   *
+   * Existe porque nem toda leitura aceita recortar por `entity_type`: a matriz
+   * aceita (`tipo`), mas a leitura ponta a ponta só aceita uma lista de
+   * atributos — e as duas precisam responder pelo **mesmo** recorte quando a aba
+   * Cavalo está aberta, ou a tela publica a variação do acervo inteiro sob o
+   * título de um equipamento só.
+   */
+  codigosDoRecorte: (recorte: RecorteDeTipo) => string[];
+  /** Como a matriz nomeia o que mostra e o que acumula. */
+  leitura: LeituraDaMatriz;
+  /** As variáveis sem preço da rubrica, citadas por extenso no cartão. */
+  semValoracao: string;
+  /** A frase da rubrica que não se moveu no ano, na tela vazia. */
+  descricaoSemMovimento: (colunas: number) => string;
+}
 
-export function PainelDaEvolucaoDeFiname({
+export function PainelDaEvolucao({
+  rubrica,
   consulta,
   datas,
   recorte,
@@ -103,6 +137,7 @@ export function PainelDaEvolucaoDeFiname({
   onAno,
   disponiveis,
 }: {
+  rubrica: RubricaDaEvolucao;
   /** `scopeHash` e `canal` da unidade aberta — o contexto, intacto. */
   consulta: URLSearchParams;
   /** As vigências de equipamento da unidade, de onde saem os anos. */
@@ -137,7 +172,7 @@ export function PainelDaEvolucaoDeFiname({
 
   const evolucao = useQuery({
     ...opcoesDaEvolucao(consulta, pontas?.de ?? null, pontas?.ate ?? null, tipo, periodicidade, null, {
-      parameters: CODIGOS_DA_TABELA,
+      parameters: rubrica.codigosDaTabela,
     }),
     enabled: pontas !== null,
   });
@@ -160,12 +195,12 @@ export function PainelDaEvolucaoDeFiname({
        quando recebe este, e por FAMÍLIA|parâmetro quando recebe aquele — e o
        segundo não separa cavalo de carreta. Ver `attributeCodes`, em
        `getEndToEndAnalysis`. */
-    q.set("attributeCodes", codigosDoRecorte(recorte).join(","));
+    q.set("attributeCodes", rubrica.codigosDoRecorte(recorte).join(","));
     return q;
-  }, [consulta, pontas, recorte]);
+  }, [consulta, pontas, recorte, rubrica]);
 
   const ponta = useQuery({
-    queryKey: ["finame-ponta-a-ponta", consultaDaPonta.toString()],
+    queryKey: [`${rubrica.idPrefixo}-ponta-a-ponta`, consultaDaPonta.toString()],
     queryFn: () => fetchJsonOrNull<PontaAPonta>(`/changes/end-to-end?${consultaDaPonta}`),
     enabled: pontas !== null,
     staleTime: 60_000,
@@ -180,7 +215,7 @@ export function PainelDaEvolucaoDeFiname({
   if (anos.length === 0) {
     return (
       <EstadoVazio
-        icone={Banknote}
+        icone={rubrica.icone}
         titulo="Esta unidade não tem vigência importada"
         descricao="A evolução anual lê as vigências da unidade aberta. Escolha outra unidade na lateral ou importe a primeira vigência."
       />
@@ -199,7 +234,7 @@ export function PainelDaEvolucaoDeFiname({
             valor={recorte}
             onValor={onRecorte}
             disponiveis={disponiveis}
-            idPrefixo="finame-evolucao"
+            idPrefixo={`${rubrica.idPrefixo}-evolucao`}
           />
           <p className="max-w-[46ch] text-xs text-muted-foreground">
             Recorta cartões, matriz, impactos, veículos e painel — recarregando do servidor,
@@ -213,7 +248,7 @@ export function PainelDaEvolucaoDeFiname({
               Ano
             </span>
             <Select value={anoAberto ?? undefined} onValueChange={onAno}>
-              <SelectTrigger id="finame-evolucao-ano" className="h-9">
+              <SelectTrigger id={`${rubrica.idPrefixo}-evolucao-ano`} className="h-9">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -235,7 +270,10 @@ export function PainelDaEvolucaoDeFiname({
                 value={dados.periodicidade}
                 onValueChange={(v) => setPeriodicidade(v)}
               >
-                <SelectTrigger id="finame-evolucao-periodicidade" className="h-9">
+                <SelectTrigger
+                  id={`${rubrica.idPrefixo}-evolucao-periodicidade`}
+                  className="h-9"
+                >
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -272,7 +310,7 @@ export function PainelDaEvolucaoDeFiname({
       {evolucao.error && (
         <ApiErrorNotice
           error={evolucao.error}
-          what="a evolução anual do FINAME"
+          what={`a evolução anual de ${rubrica.nome}`}
           onTentarDeNovo={() => void evolucao.refetch()}
           tentando={evolucao.isFetching}
         />
@@ -280,18 +318,20 @@ export function PainelDaEvolucaoDeFiname({
 
       {dados && dados.totais.alteracoes === 0 && (
         <EstadoVazio
-          icone={Banknote}
-          titulo={`Nenhuma variável de FINAME se moveu em ${anoAberto}`}
-          descricao={`As ${dados.colunas.length} vigências comparadas deste recorte têm o mesmo financiamento em todos os veículos. Troque o ano ou o equipamento.`}
+          icone={rubrica.icone}
+          titulo={`Nenhuma variável de ${rubrica.nome} se moveu em ${anoAberto}`}
+          descricao={rubrica.descricaoSemMovimento(dados.colunas.length)}
         />
       )}
 
       {dados && dados.totais.alteracoes > 0 && (
         <>
-          <CartoesDaEvolucaoDeFiname
+          <CartoesDaEvolucao
             evolucao={dados}
             ponta={ponta.data ?? null}
             carregandoPonta={ponta.isLoading}
+            rubrica={rubrica.nome}
+            semValoracao={rubrica.semValoracao}
           />
 
           {/* As lacunas são nomeadas, e não uma coluna de zeros: uma vigência
@@ -334,7 +374,7 @@ export function PainelDaEvolucaoDeFiname({
                  fechar a gaveta. */
               setPlaca((atual) => (!historico && atual === id ? null : id));
             }}
-            leitura={LEITURA_DO_FINAME}
+            leitura={rubrica.leitura}
           />
 
           <Sheet
@@ -358,7 +398,7 @@ export function PainelDaEvolucaoDeFiname({
                     key={`${aberta.entityId}:${comHistorico}`}
                     ativo={aberta}
                     evolucao={dados}
-                    leitura={LEITURA_DO_FINAME}
+                    leitura={rubrica.leitura}
                     historicoInicial={comHistorico}
                     /* A gaveta já é a casca, e já tem o seu × no canto. */
                     className="rounded-none border-0 bg-transparent p-6 shadow-none lg:static"

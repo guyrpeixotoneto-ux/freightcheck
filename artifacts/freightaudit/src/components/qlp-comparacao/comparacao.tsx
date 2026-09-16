@@ -293,6 +293,10 @@ export function ComparacaoDoQuadro({
         carregando={comparacao.isFetching}
         idPrefixo={`qlp-${quadro.toLowerCase()}`}
         candidatos={candidatos.data}
+        carregandoCandidatos={candidatos.isFetching}
+        erroDosCandidatos={
+          candidatos.error instanceof Error ? candidatos.error.message : null
+        }
       />
 
       {erroDasVigencias && (

@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { useSearch } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { Download, Receipt, Search, SlidersHorizontal } from "lucide-react";
 import type { LinhaDeIpva } from "@workspace/comparison/ipva";
 import {
+  agruparPorVeiculoDeIpva,
   VARIAVEIS_DE_DETALHE_DE_IPVA,
   VARIAVEIS_DE_IPVA,
 } from "@workspace/comparison/ipva";
@@ -64,6 +65,14 @@ import {
   type TotaisDeIpva,
 } from "@/lib/ipva";
 import { lerRecorte } from "@/lib/recorte";
+import { PainelDaEvolucao } from "@/components/comparacao/evolucao/painel";
+import { EVOLUCAO_DO_IPVA } from "@/components/ipva/evolucao";
+import {
+  ehModoDaAuditoria,
+  ehRecorteDeTipo,
+  trocaNaRota,
+  type ModoDaAuditoria,
+} from "@/lib/modo-da-auditoria";
 import { contextoAberto, unidadeDe, useContextosDaCasca } from "@/lib/contextos";
 import { cn } from "@/lib/utils";
 
@@ -106,6 +115,16 @@ import { cn } from "@/lib/utils";
  * respondem o mesmo número para o mesmo par. As recusas do motor — escopo
  * diferente, cobertura diferente, canal diferente — chegam com a frase dele.
  */
+/**
+ * A rota desta auditoria — uma só, para os dois modos.
+ *
+ * `trocarNoEndereco` preserva tudo que não foi pedido: entrar na Evolução e
+ * voltar devolve a comparação exatamente como estava — mesma unidade, mesmo
+ * canal, mesmo par de vigências, mesmo recorte de equipamento.
+ */
+const ROTA = "/custo-fixo-ipva";
+const trocarNoEndereco = trocaNaRota(ROTA);
+
 export default function AuditoriaDeIpva() {
   /**
    * O par que o endereço traz, quando traz — o que faz o **Abrir auditoria** do
@@ -142,6 +161,43 @@ export default function AuditoriaDeIpva() {
    * promessa, e o que a cumpre é o recorte abaixo.
    */
   const recorte = lerRecorte(useSearch());
+
+  /**
+   * O modo aberto, e o recorte **da evolução** — duas chaves próprias no mesmo
+   * endereço.
+   *
+   * São chaves separadas de `filtros.tipo` de propósito, e é isso que faz a ida
+   * e volta não custar nada: entrar na Evolução não toca no recorte da
+   * comparação, que continua no estado e volta como estava ao sair. Unidade,
+   * canal, `scopeHash` e o par de vigências nem são mencionados aqui — eles
+   * vivem na URL e no estado da tela, e a troca de modo passa ao largo deles.
+   *
+   * Valor adulterado cai no padrão em vez de quebrar: `comparacao` para o modo,
+   * que é a tela que sempre existiu, e `TODOS` para o recorte da evolução.
+   */
+  const busca = useSearch();
+  const [, navegar] = useLocation();
+  const parametrosDaUrl = useMemo(() => new URLSearchParams(busca), [busca]);
+  const modoPedido = parametrosDaUrl.get("modo");
+  const modo: ModoDaAuditoria = ehModoDaAuditoria(modoPedido) ? modoPedido : "comparacao";
+  const recortePedido = parametrosDaUrl.get("recorteEvolucao");
+  const recorteDaEvolucao: RecorteDeTipo = ehRecorteDeTipo(recortePedido)
+    ? recortePedido
+    : "TODOS";
+  const anoDaEvolucao = parametrosDaUrl.get("ano");
+
+  const trocarNaUrl = (mudancas: Record<string, string | null>) =>
+    navegar(trocarNoEndereco(busca, mudancas));
+
+  /** O contexto da unidade aberta, que atravessa os dois modos sem ser tocado. */
+  const consultaDoContexto = useMemo(() => {
+    const q = new URLSearchParams();
+    for (const chave of ["scopeHash", "canal", "operacao"]) {
+      const valor = parametrosDaUrl.get(chave);
+      if (valor !== null && valor !== "") q.set(chave, valor);
+    }
+    return q;
+  }, [parametrosDaUrl]);
 
   /**
    * Os contextos — de onde saem o **nome** de cada unidade e **qual delas está
@@ -214,6 +270,19 @@ export default function AuditoriaDeIpva() {
           )
         : [],
     [vigencias.data, escopoAberto, unidadeResolvida],
+  );
+
+  /**
+   * As datas da unidade — o eixo do ano, na Evolução.
+   *
+   * Sai de `daUnidadeTodas` (o acervo da unidade, antes da aba) pelo mesmo
+   * motivo que os rótulos: quais anos existem é pergunta sobre a unidade, e não
+   * sobre o recorte aberto. Recortada pela aba, a lista de anos mudaria ao
+   * trocar de equipamento — e um ano sumiria do seletor por ter só carreta.
+   */
+  const datasDaUnidade = useMemo(
+    () => [...new Set(daUnidadeTodas.map((v) => v.effectiveDate))],
+    [daUnidadeTodas],
   );
 
   /**
@@ -392,9 +461,23 @@ export default function AuditoriaDeIpva() {
     () => contagemPorAba(linhas, { ...filtros, estado: "TODAS" }),
     [linhas, filtros],
   );
+
+  /**
+   * As placas — o que a tabela lista desde que deixou de listar variáveis.
+   *
+   * **Agrupa depois de filtrar, e não antes.** As abas, a busca e os seletores
+   * continuam sendo sobre a alteração — é ali que moram o estado e a variável —,
+   * e a placa entra na lista quando sobra alguma linha dela no recorte. Agrupar
+   * primeiro obrigaria cada filtro a decidir o que significa "uma placa
+   * alterada", e a aba diria 33 sobre uma tabela de 7 linhas.
+   *
+   * Por isso a contagem das abas continua em alterações: é o que elas contam. A
+   * paginação, essa sim, passou a ser de veículos — é o que a tabela mostra.
+   */
+  const veiculos = useMemo(() => agruparPorVeiculoDeIpva(filtradas), [filtradas]);
   const naPagina = useMemo(
-    () => filtradas.slice((pagina - 1) * porPagina, pagina * porPagina),
-    [filtradas, pagina, porPagina],
+    () => veiculos.slice((pagina - 1) * porPagina, pagina * porPagina),
+    [veiculos, pagina, porPagina],
   );
 
   // Filtrar encurta a lista; a página em que se estava pode não existir mais.
@@ -454,13 +537,19 @@ export default function AuditoriaDeIpva() {
           <span className="flex flex-wrap items-center gap-2.5">
             Auditoria de IPVA
             <span className="rounded-full border border-brand/25 bg-brand/10 px-2.5 py-0.5 text-xs font-semibold text-brand">
-              Comparação entre vigências
+              {modo === "evolucao" ? "Evolução anual" : "Comparação entre vigências"}
             </span>
           </span>
         }
         icone={Receipt}
-        descricao="O que mudou no IPVA e no licenciamento de cada veículo entre duas vigências — e qual alíquota do valor de nota cada vigência está aplicando."
-        atualizando={comparacao.isFetching && !comparacao.isLoading}
+        descricao={
+          modo === "evolucao"
+            ? "Como o IPVA e o licenciamento de cada veículo se moveram ao longo do ano, uma coluna por vigência — com o impacto dos movimentos e a variação ponta a ponta lidos separadamente."
+            : "O que mudou no IPVA e no licenciamento de cada veículo entre duas vigências — e qual alíquota do valor de nota cada vigência está aplicando."
+        }
+        atualizando={
+          modo === "comparacao" && comparacao.isFetching && !comparacao.isLoading
+        }
       />
 
       <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-4 px-4 pb-10 sm:px-8">
@@ -474,10 +563,40 @@ export default function AuditoriaDeIpva() {
           <>
             <RecorteDeEquipamento
               valor={recorteDeTipo}
-              onValor={(tipo) => setFiltros((f) => ({ ...f, tipo }))}
+              onValor={(tipo) => {
+                /* Escolher um equipamento é sair da Evolução: os três primeiros
+                   botões são da comparação, e clicar num deles é pedir a tela
+                   deles. O recorte da evolução fica guardado para a volta. */
+                setFiltros((f) => ({ ...f, tipo }));
+                if (modo !== "comparacao") trocarNaUrl({ modo: null });
+              }}
               disponiveis={disponiveis}
               idPrefixo="ipva"
+              abaExtra={{
+                rotulo: "Evolução",
+                ativa: modo === "evolucao",
+                onAbrir: () => trocarNaUrl({ modo: "evolucao" }),
+                ...(daUnidadeTodas.length === 0
+                  ? {
+                      indisponivel:
+                        "Esta unidade ainda não tem vigência de equipamento importada — não há ano para acompanhar.",
+                    }
+                  : {}),
+              }}
             />
+            {modo === "evolucao" && (
+              <PainelDaEvolucao
+                rubrica={EVOLUCAO_DO_IPVA}
+                consulta={consultaDoContexto}
+                datas={datasDaUnidade}
+                recorte={recorteDaEvolucao}
+                onRecorte={(r) => trocarNaUrl({ recorteEvolucao: r === "TODOS" ? null : r })}
+                ano={anoDaEvolucao}
+                onAno={(a) => trocarNaUrl({ ano: a })}
+                disponiveis={disponiveis}
+              />
+            )}
+            {modo === "comparacao" && (
             <SeletorDoPar
               vigencias={daUnidade}
               foco={recorteDeTipo === "TODOS" ? null : recorteDeTipo}
@@ -498,9 +617,18 @@ export default function AuditoriaDeIpva() {
                 candidatos.error instanceof Error ? candidatos.error.message : null
               }
             />
+            )}
           </>
         )}
 
+        {/*
+          Tudo abaixo é da comparação: a tela vazia, os cartões, os gráficos, a
+          tabela e a gaveta. Na Evolução o painel acima responde sozinho, e
+          deixar esta metade no ar poria a matriz do ano sob os cartões de um par
+          de vigências — o número de um recorte sob o título de outro.
+        */}
+        {modo === "comparacao" && (
+          <>
         {semParPossivel && (
           <EstadoVazio
             icone={Receipt}
@@ -728,22 +856,22 @@ export default function AuditoriaDeIpva() {
             ) : (
               <>
                 <TabelaDeIpva
-                  linhas={naPagina}
+                  veiculos={naPagina}
                   justificadaPor={justificar.justificadaPor}
-                  onAbrir={(l) =>
-                    setAberto({ entityLabel: l.entityLabel, entityType: l.entityType })
+                  onAbrir={(v) =>
+                    setAberto({ entityLabel: v.entityLabel, entityType: v.entityType })
                   }
                   onJustificar={justificar.abrir}
                 />
                 <Paginacao
                   pagina={pagina}
                   porPagina={porPagina}
-                  total={filtradas.length}
+                  total={veiculos.length}
                   onPagina={setPagina}
                   onPorPagina={setPorPagina}
                   tamanhos={[50, 100, 300]}
-                  unidade="linhas"
-                  unidadeSingular="linha"
+                  unidade="veículos"
+                  unidadeSingular="veículo"
                 />
               </>
             )}
@@ -757,6 +885,8 @@ export default function AuditoriaDeIpva() {
               rotuloComparada={rotuloComparada}
               onFechar={() => setAberto(null)}
             />
+          </>
+        )}
           </>
         )}
       </div>

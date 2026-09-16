@@ -4,7 +4,7 @@ import type { PontaAPonta } from "@/lib/analise";
 import { formatBrlShort, formatNumber, periodicitySuffix } from "@/lib/format";
 
 /**
- * OS QUATRO CARTÕES DA EVOLUÇÃO ANUAL DO FINAME.
+ * OS QUATRO CARTÕES DA EVOLUÇÃO ANUAL — os mesmos nas quatro rubricas.
  *
  * ---------------------------------------------------------------------------
  * Por que os dois primeiros são dois, e não um
@@ -26,6 +26,16 @@ import { formatBrlShort, formatNumber, periodicitySuffix } from "@/lib/format";
  * exatamente como este produto ganha uma resposta a mais para a mesma pergunta.
  *
  * ---------------------------------------------------------------------------
+ * A rubrica entra por parâmetro, e é a única coisa que muda
+ * ---------------------------------------------------------------------------
+ * Nasceu no FINAME e serve às quatro auditorias de custo fixo. O que varia de
+ * uma para a outra é o nome na frase — "Toda alteração de IPVA do intervalo" —
+ * e as variáveis que ela cita como exemplo de "sem valoração". Nenhum número
+ * muda, nenhuma régua muda, e nenhum rótulo de cartão muda: a pergunta é a
+ * mesma, e telas irmãs respondendo-a com palavras diferentes seria diferença sem
+ * motivo.
+ *
+ * ---------------------------------------------------------------------------
  * Nenhuma conta mora aqui
  * ---------------------------------------------------------------------------
  * `liquido`, `ganho` e `perda` vêm de `evolucaoPorPlaca`; a ponta a ponta vem
@@ -34,14 +44,20 @@ import { formatBrlShort, formatNumber, periodicitySuffix } from "@/lib/format";
  * impedir (ver `docs/ACHADO-FINAME-TOTAL-COMPOSTO.md`).
  */
 
-export function CartoesDaEvolucaoDeFiname({
+export function CartoesDaEvolucao({
   evolucao,
   ponta,
   carregandoPonta,
+  rubrica,
+  semValoracao,
 }: {
   evolucao: EvolucaoPorPlaca;
   ponta: PontaAPonta | null;
   carregandoPonta: boolean;
+  /** O nome da rubrica, como a frase a diz: "FINAME", "IPVA", "lucro fixo". */
+  rubrica: string;
+  /** As variáveis que a rubrica tem sem preço, citadas por extenso na dica. */
+  semValoracao: string;
 }) {
   const { totais } = evolucao;
   const sufixo = periodicitySuffix(evolucao.periodicidade);
@@ -145,9 +161,9 @@ export function CartoesDaEvolucaoDeFiname({
           </>
         }
         dica={
-          "Toda alteração de FINAME do intervalo. As sem valoração — taxa, prazo, " +
-          "carência — são contadas e nunca viram R$ 0; as de outra grandeza têm " +
-          "preço, mas não nesta periodicidade."
+          `Toda alteração de ${rubrica} do intervalo. As sem valoração — ${semValoracao} ` +
+          "— são contadas e nunca viram R$ 0; as de outra grandeza têm preço, mas não " +
+          "nesta periodicidade."
         }
       />
 
@@ -177,7 +193,7 @@ export function CartoesDaEvolucaoDeFiname({
           </>
         }
         dica={
-          "Veículos com ao menos uma variável de FINAME alterada no intervalo. A " +
+          `Veículos com ao menos uma variável de ${rubrica} alterada no intervalo. A ` +
           "diferença para a frota são os que não mudaram — e não os que sumiram."
         }
       />
@@ -189,9 +205,9 @@ export function CartoesDaEvolucaoDeFiname({
  * O número, com o sinal dito pela cor e pelo símbolo — nunca só pela cor.
  *
  * Negativo é vermelho e positivo é verde, como em toda tela do produto: o que
- * está medido aqui é a tabela de frete que a transportadora recebe, e um FINAME
- * menor é menos dinheiro entrando. A cor invertida que havia aqui vinha de ler
- * o FINAME como despesa da casa, que ele não é.
+ * está medido aqui é a tabela de frete que a transportadora recebe, e uma
+ * rubrica menor é menos dinheiro entrando. A cor invertida que já houve aqui
+ * vinha de ler o FINAME como despesa da casa, que ele não é.
  */
 function Dinheiro({ valor, sufixo }: { valor: number; sufixo: string }) {
   const cor =

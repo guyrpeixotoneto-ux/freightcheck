@@ -67,6 +67,11 @@ import {
   type MedidaDaVariavel,
   type AlteracaoDoMotor,
 } from "./recorte-de-rubrica";
+import {
+  agruparVeiculos,
+  type OpcoesDoAgrupamento,
+  type VeiculoDaRubrica,
+} from "./agrupamento-por-veiculo";
 
 export {
   estadoDaAlteracao,
@@ -200,6 +205,33 @@ export function codigosDeIpva(variaveis: readonly VariavelDeIpva[]): string[] {
 
 /** O recorte que a tabela pede ao motor. */
 export const CODIGOS_DA_TABELA_DE_IPVA = codigosDeIpva(VARIAVEIS_DE_IPVA);
+
+/**
+ * Os códigos de um recorte de equipamento — `TODOS`, `CAVALO` ou `CARRETA`.
+ *
+ * Existe porque nem toda leitura aceita recortar por `entity_type`. A Evolução
+ * por Placa aceita (`tipo`), mas a leitura ponta a ponta (`end-to-end.ts`) só
+ * aceita uma lista de atributos — e as duas precisam responder pelo **mesmo**
+ * recorte quando a aba Cavalo está aberta, ou a tela publica a variação ponta a
+ * ponta do acervo inteiro sob o título de um equipamento só.
+ *
+ * A tradução é exata, e não uma aproximação: cada variável tem um código por
+ * equipamento (`cavalo.ipva_licenciamento` e `carreta.ipva_licenciamento` são atributos distintos), então filtrar pelos
+ * códigos de um lado é o mesmo conjunto de linhas que filtrar pelo `entity_type`
+ * daquele lado.
+ */
+export function codigosDoRecorteDeIpva(
+  recorte: "TODOS" | "CAVALO" | "CARRETA",
+  variaveis: readonly VariavelDeIpva[] = VARIAVEIS_DE_IPVA,
+): string[] {
+  if (recorte === "TODOS") return codigosDeIpva(variaveis);
+  const codigos = new Set<string>();
+  for (const v of variaveis) {
+    const codigo = v.codigo[recorte];
+    if (codigo) codigos.add(codigo);
+  }
+  return [...codigos].sort();
+}
 
 /** O recorte do detalhe: tudo, inclusive a coluna que não soma. */
 export const CODIGOS_DO_DETALHE_DE_IPVA = codigosDeIpva(TODAS);
@@ -962,4 +994,57 @@ export function celulasDoCsvDeIpva(
     l.foraDaSoma,
     justificativa ?? null,
   ];
+}
+
+
+// ---------------------------------------------------------------------------
+// O agrupamento por veículo — uma linha por placa
+// ---------------------------------------------------------------------------
+
+/**
+ * Um veículo da tabela de IPVA: a placa, o que ela moveu, e as linhas
+ * por baixo.
+ *
+ * O corpo do agrupamento mora em `agrupamento-por-veiculo.ts`, com as outras
+ * rubricas de custo fixo — inclusive o FINAME, que foi onde ele nasceu. Quatro
+ * cópias da mesma função seriam quatro definições de "o estado de uma placa"
+ * livres para divergir.
+ */
+export type VeiculoDeIpva = VeiculoDaRubrica<LinhaDeIpva>;
+
+/**
+ * A ordem em que a expansão lê as variáveis de uma placa, e quem é o destaque.
+ *
+ * A ordem é a do catálogo, e não a que o motor entrega: o catálogo começa pela
+ * variável que a tela resume e segue pelo que a explica, e é essa a leitura que
+ * a expansão quer. `veiculo` vem antes de tudo, porque entrada e saída de ativo
+ * explicam todas as outras linhas da placa; e por isso mesmo fica **fora da
+ * contagem**, em vez de fazer uma placa que só entrou na frota aparecer com
+ * "1 alteração".
+ *
+ * O destaque é o IPVA/licenciamento anual — **uma** variável, e nunca a soma das monetárias.
+ * É a coluna anual, e nunca a "mensal" da carreta: aquela não é 1/12 desta, ninguém sabe o que ela é, e é justamente por isso que ela fica fora de toda soma — inclusive desta. Somar as duas na mesma célula daria o número mais lido e menos verdadeiro da tela.
+ */
+export const AGRUPAMENTO_DE_IPVA = {
+  ordemDasVariaveis: ["veiculo", ...TODAS.map((v) => v.chave)],
+  destaque: "ipva",
+  foraDaContagem: ["veiculo"],
+} as const satisfies OpcoesDoAgrupamento;
+
+/**
+ * As linhas viradas uma linha por placa.
+ *
+ * A tabela nasceu por variável — uma linha por (veículo × variável) —, e a mesma
+ * placa aparecia tantas vezes quantas são as variáveis do catálogo, espalhada
+ * por várias páginas: ler "o que aconteceu com a QYW6D15" era procurar as linhas
+ * dela na lista. Agrupar responde essa pergunta de uma vez, e a lista de baixo
+ * continua inteira dentro da placa.
+ *
+ * **Não recalcula nada.** Contagem, estado e destaque saem das linhas que o
+ * motor já produziu; o que a função faz é juntar por `(placa, tipo)` e ordenar.
+ */
+export function agruparPorVeiculoDeIpva(
+  linhas: readonly LinhaDeIpva[],
+): VeiculoDeIpva[] {
+  return agruparVeiculos(linhas, AGRUPAMENTO_DE_IPVA);
 }
