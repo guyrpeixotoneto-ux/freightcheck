@@ -219,17 +219,19 @@ describe("a lateral", () => {
     Derivada, ela acende sozinha; este teste é o que impede alguém de voltar a
     escrevê-la.
 
-    As duas telas de quadro abrem a seção e são escritas à mão, porque são duas
-    e não saem de catálogo nenhum: elas vieram de Custo Fixo quando o critério
-    da seção passou a ser a população, e por isso entram aqui **antes** dos
-    módulos — o quadro inteiro primeiro, o assunto depois.
+    O Monitor Equipe abre a seção, e as duas telas de quadro vêm logo depois:
+    ele é a leitura de quem chega — os dois quadros e todos os assuntos numa
+    tabela —, e elas são a descida ao quadro inteiro. Os três são escritos à
+    mão, porque não saem de catálogo nenhum, e por isso entram aqui **antes**
+    dos módulos: o consolidado primeiro, o quadro depois, o assunto por último.
   */
-  it("abre a seção Equipe pelos dois quadros e lista os módulos do catálogo", () => {
+  it("abre a seção Equipe pelo Monitor e pelos dois quadros, e lista os módulos do catálogo", () => {
     const secao = navGroupsAuditoria("auditoria").find((g) => g.id === "modulos-do-qlp");
     expect(secao, "a seção Equipe precisa existir na lateral").toBeTruthy();
     expect(secao!.titulo).toBe("Equipe");
 
     expect(secao!.itens.map((i) => i.href)).toEqual([
+      "/monitor-equipe",
       "/qlp-operacional",
       "/qlp-administrativo",
       ...modulosDoQlp().map((m) => `/qlp/${m.chave}`),
