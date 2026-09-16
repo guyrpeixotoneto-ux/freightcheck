@@ -330,14 +330,14 @@ export function SeletorDoPar({
                 className={cn(
                   "font-semibold tabular-nums",
                   /*
-                    A cor sai da **mesma** leitura que escolheu a palavra
+                    A cor sai da **mesma** leitura que escolheu o sinal
                     (`numerosDaLinha`), e não de uma segunda conta sobre o
                     número. Era o defeito que havia: a cor lia o sinal aqui, o
                     texto o escrevia lá, e bastaria uma das duas mudar para a
-                    linha dizer "Perda" em verde.
+                    linha escrever `−` em verde.
 
-                    Zero não é ganho nem perda: a linha zerada fica na cor do
-                    texto secundário, e o verde/vermelho continua reservado a
+                    Zero não é positivo nem negativo: a linha zerada fica na cor
+                    do texto secundário, e o verde/vermelho continua reservado a
                     quem tem direção.
                   */
                   valor.leitura === "NEUTRO"

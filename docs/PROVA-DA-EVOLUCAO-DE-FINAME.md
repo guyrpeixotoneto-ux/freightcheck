@@ -59,13 +59,20 @@ fossem iguais, o segundo cartão não teria razão de existir; a diferença vem
 escrita no próprio cartão — quem saiu da frota e o que voltou ao ponto de
 partida.
 
-### 5. O idioma é de custo
+### 5. O idioma é um só — e é o de quem recebe
 
-A matriz fala **Redução de custo** e **Aumento de custo**, não "Ganho" e
-"Perda". Não é preferência de palavra: o sinal do impacto é a direção do
-valor, e `cavalo.finame_cavalo` indo de R$ 10.578,03 para R$ 0 — financiamento
-quitado — grava −10.578,03. No vocabulário de origem isso era "Perda", em
-vermelho, sob o cartão que pintava o mesmo número de verde.
+O FINAME é rubrica da tabela de frete que a transportadora **recebe**, e não
+despesa da casa: `cavalo.finame_cavalo` indo de R$ 10.578,03 para R$ 0 grava
+−10.578,03 porque é isso que deixa de entrar. Logo **negativo é vermelho e
+positivo é verde**, aqui como em toda tela do produto.
+
+Houve aqui uma "leitura de custo" que invertia a cor desta tela e falava
+"Redução de custo"/"Aumento de custo". Era a hipótese errada sobre o dado, e
+foi removida.
+
+A direção sai pelo **sinal e pela cor**, sem a palavra ao lado: `−R$ 105.052,06`
+em vermelho já é perda para quem lê, e "Perda −R$ 105.052,06" dizia a mesma
+coisa três vezes.
 
 Confira que a célula, o acumulado da linha, a gaveta e o cartão concordam na
 cor para o mesmo veículo.

@@ -51,16 +51,16 @@ describe("os números de cada linha do menu", () => {
   });
 
   /*
-    A palavra no lugar do sinal: negativo é perda, positivo é ganho, e o valor
-    vem em módulo. "Perda −R$ 302.261,18" diria a mesma coisa duas vezes, e o
-    `−` sobraria parecendo sinal de outra conta.
+    O sinal no lugar da palavra: negativo é perda, positivo é ganho, e o valor
+    vem em módulo. O prefixo é quem carrega a direção — "−−R$ 302.261,18" diria
+    a mesma coisa duas vezes.
   */
   it("escreve o dinheiro com a periodicidade, e a leitura certa", () => {
     const linha = numerosDaLinha(comImpacto(457, { MENSAL: -302261.18 }));
 
     expect(linha?.alteracoes).toBe("457 alterações");
     expect(linha?.valores).toHaveLength(1);
-    expect(linha?.valores[0].texto).toBe("Perda R$ 302.261,18/mês");
+    expect(linha?.valores[0].texto).toBe("−R$ 302.261,18/mês");
     expect(linha?.valores[0].leitura).toBe("PERDA");
     expect(linha?.valores[0].bruto).toBeLessThan(0);
   });
@@ -68,7 +68,7 @@ describe("os números de cada linha do menu", () => {
   it("positivo é ganho, e é a mesma régua", () => {
     const linha = numerosDaLinha(comImpacto(7, { MENSAL: 7238.85 }));
 
-    expect(linha?.valores[0].texto).toBe("Ganho R$ 7.238,85/mês");
+    expect(linha?.valores[0].texto).toBe("+R$ 7.238,85/mês");
     expect(linha?.valores[0].leitura).toBe("GANHO");
   });
 
@@ -138,8 +138,8 @@ describe("os números de cada linha do menu", () => {
       expect(linha?.valores).toHaveLength(2);
       /* As duas se leem pela mesma régua — o sinal do líquido —, e o custo e a
          receita continuam em linhas separadas, cada uma com a sua. */
-      expect(linha?.valores[0].texto).toBe("Ganho R$ 1.200,00/mês");
-      expect(linha?.valores[1].texto).toBe("Perda R$ 900,00/mês");
+      expect(linha?.valores[0].texto).toBe("+R$ 1.200,00/mês");
+      expect(linha?.valores[1].texto).toBe("−R$ 900,00/mês");
       /* 1200 e −900 continuam dois números. Nenhum 300 em lugar nenhum. */
       expect(linha?.valores.map((v) => v.bruto)).toEqual([1200, -900]);
     });
@@ -153,7 +153,7 @@ describe("os números de cada linha do menu", () => {
         ]),
       );
 
-      expect(linha?.valores.map((v) => v.texto)).toEqual(["Ganho R$ 1.200,00/mês"]);
+      expect(linha?.valores.map((v) => v.texto)).toEqual(["+R$ 1.200,00/mês"]);
     });
 
     /*
