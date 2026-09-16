@@ -82,6 +82,7 @@ const justificativaGravada = (extra: Partial<Justificativa> = {}): Justificativa
   formula: "Valor amortizável ÷ prazo",
   regra: "Só muda com novo prazo.",
   conforme: false,
+  naoConformidade: "EXCECAO",
   motivoExcecao: "Contrato renegociado.",
   responsavelAprovacao: "Ana Souza",
   criadoPor: "gestor@ambev.com.br",
@@ -159,9 +160,61 @@ describe("o diálogo de justificar", () => {
       formula: "Valor amortizável ÷ prazo",
       regra: "Só muda com novo prazo.",
       conforme: false,
+      naoConformidade: "EXCECAO",
       motivoExcecao: "Contrato renegociado.",
       responsavelAprovacao: "Ana Souza",
     });
+  });
+
+  /*
+    A terceira resposta: descumprimento não é exceção. Ele cobra o que houve e
+    **não** cobra aprovador — exigir um obrigaria quem registra o
+    descumprimento a escrever um nome no campo "Responsável pela aprovação", e
+    a linha gravada afirmaria um aval que ninguém deu.
+  */
+  it("o descumprimento cobra o que houve, e nenhum aprovador", () => {
+    const { onConfirmar } = renderizar();
+    escrever(FORMULA, "Valor amortizável ÷ prazo");
+    escrever(REGRA, "Só muda com novo prazo.");
+    fireEvent.click(screen.getByRole("radio", { name: /regra de remuneração descumprida/i }));
+
+    expect(screen.queryByPlaceholderText(/Nome de quem autorizou/)).toBeNull();
+    expect(salvar(/^Salvar descumprimento$/).hasAttribute("disabled")).toBe(true);
+
+    escrever(/Descreva a regra de remuneração que não foi cumprida/, "Pagou acima da tabela.");
+    fireEvent.click(salvar(/^Salvar descumprimento$/));
+
+    expect(onConfirmar).toHaveBeenCalledWith(ALVO[0], {
+      formula: "Valor amortizável ÷ prazo",
+      regra: "Só muda com novo prazo.",
+      conforme: false,
+      naoConformidade: "DESCUMPRIMENTO",
+      motivoExcecao: "Pagou acima da tabela.",
+      responsavelAprovacao: null,
+    });
+  });
+
+  /* Quem trocou de "exceção" para "descumprimento" mudou de decisão: o
+     aprovador que já estava escrito não vai junto. */
+  it("trocar a exceção por descumprimento descarta o aprovador", () => {
+    const { onConfirmar } = renderizar();
+    escrever(FORMULA, "f");
+    escrever(REGRA, "r");
+    fireEvent.click(screen.getByRole("radio", { name: /foi uma exceção/ }));
+    escrever(/Explique por que o valor foi alterado/, "Contrato renegociado.");
+    fireEvent.change(screen.getByPlaceholderText(/Nome de quem autorizou/), {
+      target: { value: "Ana Souza" },
+    });
+    fireEvent.click(screen.getByRole("radio", { name: /descumprida/i }));
+
+    fireEvent.click(salvar(/^Salvar descumprimento$/));
+    expect(onConfirmar).toHaveBeenCalledWith(
+      ALVO[0],
+      expect.objectContaining({
+        naoConformidade: "DESCUMPRIMENTO",
+        responsavelAprovacao: null,
+      }),
+    );
   });
 
   /*
@@ -180,8 +233,41 @@ describe("o diálogo de justificar", () => {
     fireEvent.click(salvar());
     expect(onConfirmar).toHaveBeenCalledWith(
       ALVO[0],
-      expect.objectContaining({ conforme: true, motivoExcecao: null, responsavelAprovacao: null }),
+      expect.objectContaining({
+        conforme: true,
+        naoConformidade: null,
+        motivoExcecao: null,
+        responsavelAprovacao: null,
+      }),
     );
+  });
+
+  /* Justificativa anterior a `0100` não tem tipo, e o "não" dela era sempre a
+     exceção — era a única que a caixa oferecia. */
+  it("o \"não\" gravado antes do descumprimento reabre como exceção", () => {
+    renderizar({ justificativas: new Map([[2, justificativaGravada({ naoConformidade: null })]]) });
+    expect(
+      screen.getByRole("radio", { name: /foi uma exceção/ }).getAttribute("aria-checked"),
+    ).toBe("true");
+  });
+
+  it("reabrir um descumprimento traz de volta o descumprimento", () => {
+    renderizar({
+      justificativas: new Map([
+        [
+          2,
+          justificativaGravada({
+            naoConformidade: "DESCUMPRIMENTO",
+            motivoExcecao: "Pagou acima da tabela.",
+            responsavelAprovacao: null,
+          }),
+        ],
+      ]),
+    });
+    expect(
+      screen.getByRole("radio", { name: /descumprida/i }).getAttribute("aria-checked"),
+    ).toBe("true");
+    expect(screen.getByDisplayValue("Pagou acima da tabela.")).toBeTruthy();
   });
 
   it("reabrir uma alteração já justificada traz de volta o que foi gravado", () => {

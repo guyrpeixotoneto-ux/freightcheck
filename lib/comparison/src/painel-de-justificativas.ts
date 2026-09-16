@@ -241,6 +241,7 @@ export interface LinhaDoPainel {
   formula: string | null;
   regra: string | null;
   conforme: boolean | null;
+  naoConformidade: string | null;
   motivoExcecao: string | null;
   responsavelAprovacao: string | null;
   criadoPor: string | null;
@@ -287,6 +288,7 @@ export async function linhasDoPainel(
       formula: justificativaTable.formula,
       regra: justificativaTable.regra,
       conforme: justificativaTable.conforme,
+      naoConformidade: justificativaTable.naoConformidade,
       motivoExcecao: justificativaTable.motivoExcecao,
       responsavelAprovacao: justificativaTable.responsavelAprovacao,
       criadoPor: justificativaTable.criadoPor,
@@ -343,6 +345,7 @@ export async function linhasDoPainel(
       formula: ultimas.formula,
       regra: ultimas.regra,
       conforme: ultimas.conforme,
+      naoConformidade: ultimas.naoConformidade,
       motivoExcecao: ultimas.motivoExcecao,
       responsavelAprovacao: ultimas.responsavelAprovacao,
       criadoPor: ultimas.criadoPor,

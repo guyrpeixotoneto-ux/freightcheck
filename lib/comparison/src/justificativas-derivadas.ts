@@ -2,7 +2,10 @@ import { and, desc, eq, inArray, isNotNull } from "drizzle-orm";
 import type { Database } from "@workspace/db";
 import { changeTable, justificativaTable } from "@workspace/db";
 
-import { resumoDaJustificativa } from "./justificativa-estruturada";
+import {
+  conformidadeDaJustificativa,
+  resumoDaJustificativa,
+} from "./justificativa-estruturada";
 import {
   formulaDoTotalDerivado,
   regraDoTotalDerivado,
@@ -96,6 +99,7 @@ export async function gravarJustificativasDerivadas(
     .select({
       changeId: justificativaTable.changeId,
       conforme: justificativaTable.conforme,
+      naoConformidade: justificativaTable.naoConformidade,
       responsavelAprovacao: justificativaTable.responsavelAprovacao,
     })
     .from(justificativaTable)
@@ -137,25 +141,45 @@ export async function gravarJustificativasDerivadas(
     const rotulo = (a: (typeof alteracoes)[number]) =>
       rotuloDaVariavel(a.attributeCode) ?? a.attributeName ?? a.attributeCode ?? "—";
     const rotulosDasParcelas = parcelas.map(rotulo);
-    const excecoes = parcelas.filter((_, i) => suasJustificativas[i]!.conforme === false);
-    const conforme = excecoes.length === 0;
+    const foraDaRegra = parcelas.filter((_, i) => suasJustificativas[i]!.conforme === false);
+    const conforme = foraDaRegra.length === 0;
+    /*
+      Descumprimento predomina sobre exceção. Um total que se moveu por causa de
+      uma regra descumprida não vira exceção por haver outra parcela aprovada ao
+      lado: o que a auditoria tem de ver ali é o descumprimento, e chamá-lo de
+      exceção afirmaria um aval que ninguém deu.
+    */
+    const descumprimentos = foraDaRegra.filter(
+      (p) => conformidadeDaJustificativa(maisRecente.get(p.id)!) === "DESCUMPRIMENTO",
+    );
+    const naoConformidade = conforme
+      ? null
+      : descumprimentos.length > 0
+        ? ("DESCUMPRIMENTO" as const)
+        : ("EXCECAO" as const);
+    const culpadas = naoConformidade === "DESCUMPRIMENTO" ? descumprimentos : foraDaRegra;
 
     const justificativa = {
       formula: formulaDoTotalDerivado(rotulo(total), composicao.forma, rotulosDasParcelas),
       regra: regraDoTotalDerivado(rotulosDasParcelas),
       conforme,
+      naoConformidade,
       motivoExcecao: conforme
         ? null
-        : `Total calculado: acompanha a exceção de ${excecoes.map(rotulo).join(", ")}.`,
-      responsavelAprovacao: conforme
-        ? null
-        : [
-            ...new Set(
-              excecoes
-                .map((p) => maisRecente.get(p.id)!.responsavelAprovacao)
-                .filter((nome): nome is string => !!nome),
-            ),
-          ].join(", ") || "—",
+        : naoConformidade === "DESCUMPRIMENTO"
+          ? `Total calculado: acompanha o descumprimento em ${culpadas.map(rotulo).join(", ")}.`
+          : `Total calculado: acompanha a exceção de ${culpadas.map(rotulo).join(", ")}.`,
+      /* Só a exceção tem aprovador — no descumprimento não há o que herdar. */
+      responsavelAprovacao:
+        naoConformidade !== "EXCECAO"
+          ? null
+          : [
+              ...new Set(
+                culpadas
+                  .map((p) => maisRecente.get(p.id)!.responsavelAprovacao)
+                  .filter((nome): nome is string => !!nome),
+              ),
+            ].join(", ") || "—",
     };
 
     aGravar.push({

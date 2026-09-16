@@ -17,7 +17,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { ApiErrorNotice } from "@/components/api-error";
 import {
+  conformidadeDaJustificativa,
   faltamNaJustificativa,
+  montarJustificativa,
+  ROTULO_DA_CONFORMIDADE,
+  type Conformidade,
   type JustificativaEstruturada,
   type RascunhoDaJustificativa,
 } from "@workspace/comparison/justificativa-estruturada";
@@ -65,10 +69,13 @@ export interface AlvoDaJustificativa {
 const VAZIO: RascunhoDaJustificativa = {
   formula: "",
   regra: "",
-  conforme: null,
+  conformidade: null,
   motivoExcecao: "",
   responsavelAprovacao: "",
 };
+
+/** As três respostas, na ordem em que a tela as oferece. */
+const CONFORMIDADES: Conformidade[] = ["CONFORME", "EXCECAO", "DESCUMPRIMENTO"];
 
 /** O que já está gravado, aberto nos campos para ser corrigido. */
 function comoRascunho(j: Justificativa | null | undefined): RascunhoDaJustificativa {
@@ -82,19 +89,11 @@ function comoRascunho(j: Justificativa | null | undefined): RascunhoDaJustificat
   return {
     formula: j.formula ?? "",
     regra: j.regra ?? "",
-    conforme: j.conforme,
+    conformidade: conformidadeDaJustificativa(j),
     motivoExcecao: j.motivoExcecao ?? "",
     responsavelAprovacao: j.responsavelAprovacao ?? "",
   };
 }
-
-const completa = (r: RascunhoDaJustificativa): JustificativaEstruturada => ({
-  formula: (r.formula ?? "").trim(),
-  regra: (r.regra ?? "").trim(),
-  conforme: r.conforme === true,
-  motivoExcecao: r.conforme ? null : (r.motivoExcecao ?? "").trim(),
-  responsavelAprovacao: r.conforme ? null : (r.responsavelAprovacao ?? "").trim(),
-});
 
 /**
  * O formulário de justificar — uma variável de cada vez, ainda que se tenha
@@ -273,7 +272,8 @@ export function JustificarDialog({
   }, [fila]);
 
   const faltam = faltamNaJustificativa(resposta);
-  const excecao = resposta.conforme === false;
+  const foraDaRegra = !!resposta.conformidade && resposta.conformidade !== "CONFORME";
+  const excecao = resposta.conformidade === "EXCECAO";
   const varias = total > 1;
 
   const alterar = (mudanca: Partial<RascunhoDaJustificativa>) => {
@@ -301,7 +301,7 @@ export function JustificarDialog({
   const confirmar = async () => {
     if (!atual || faltam.length > 0) return;
     try {
-      await onConfirmar(atual, completa(resposta));
+      await onConfirmar(atual, montarJustificativa(resposta));
     } catch {
       /* A recusa já chega em `erro`; o que importa aqui é não avançar. */
       return;
@@ -337,7 +337,9 @@ export function JustificarDialog({
       : "Salvar e concluir"
     : excecao
       ? "Salvar exceção"
-      : "Salvar justificativa";
+      : resposta.conformidade === "DESCUMPRIMENTO"
+        ? "Salvar descumprimento"
+        : "Salvar justificativa";
 
   return (
     <Dialog
@@ -509,46 +511,57 @@ export function JustificarDialog({
                   grupo
                   nota={varias ? atual.attributeName : null}
                 >
-                  <div className="grid gap-2 sm:grid-cols-2" role="radiogroup">
-                    <OpcaoDeConformidade
-                      marcada={resposta.conforme === true}
-                      onSelecionar={() => alterar({ conforme: true })}
-                    >
-                      Sim, está conforme
-                    </OpcaoDeConformidade>
-                    <OpcaoDeConformidade
-                      marcada={resposta.conforme === false}
-                      onSelecionar={() => alterar({ conforme: false })}
-                    >
-                      Não, foi uma exceção
-                    </OpcaoDeConformidade>
+                  {/*
+                      Empilhadas, e não lado a lado: com três respostas, a
+                      terceira ("Não, regra de remuneração descumprida") é a
+                      mais longa das três, e numa fileira de três colunas ela
+                      quebra em duas linhas enquanto as outras ficam com meia
+                      caixa vazia. Empilhado, as três se leem na mesma varredura
+                      e nenhuma depende da largura da caixa.
+                  */}
+                  <div className="grid gap-2" role="radiogroup">
+                    {CONFORMIDADES.map((opcao) => (
+                      <OpcaoDeConformidade
+                        key={opcao}
+                        marcada={resposta.conformidade === opcao}
+                        onSelecionar={() => alterar({ conformidade: opcao })}
+                      >
+                        {ROTULO_DA_CONFORMIDADE[opcao]}
+                      </OpcaoDeConformidade>
+                    ))}
                   </div>
                 </Campo>
 
                 {/*
-                    Motivo e responsável aparecem juntos, e só na exceção:
-                    pedi-los de quem marcou "conforme" seria pedir a explicação
-                    de uma exceção que não houve.
+                    O motivo aparece nos dois desvios — é ele que diz o que
+                    houve —, e o aprovador só na exceção. Pedi-los de quem
+                    marcou "conforme" seria pedir a explicação de um desvio que
+                    não houve; pedir um aprovador de um descumprimento seria
+                    registrar um aval que ninguém deu.
                 */}
-                {excecao && (
-                  <>
-                    <Campo rotulo="Motivo da exceção" obrigatorio>
-                      <Textarea
-                        value={resposta.motivoExcecao ?? ""}
-                        onChange={(e) => alterar({ motivoExcecao: e.target.value })}
-                        placeholder="Explique por que o valor foi alterado mesmo não atendendo à regra definida."
-                        rows={2}
-                      />
-                    </Campo>
+                {foraDaRegra && (
+                  <Campo rotulo={excecao ? "Motivo da exceção" : "O que foi descumprido"} obrigatorio>
+                    <Textarea
+                      value={resposta.motivoExcecao ?? ""}
+                      onChange={(e) => alterar({ motivoExcecao: e.target.value })}
+                      placeholder={
+                        excecao
+                          ? "Explique por que o valor foi alterado mesmo não atendendo à regra definida."
+                          : "Descreva a regra de remuneração que não foi cumprida nesta alteração."
+                      }
+                      rows={2}
+                    />
+                  </Campo>
+                )}
 
-                    <Campo rotulo="Responsável pela aprovação" obrigatorio>
-                      <Input
-                        value={resposta.responsavelAprovacao ?? ""}
-                        onChange={(e) => alterar({ responsavelAprovacao: e.target.value })}
-                        placeholder="Nome de quem autorizou a exceção"
-                      />
-                    </Campo>
-                  </>
+                {excecao && (
+                  <Campo rotulo="Responsável pela aprovação" obrigatorio>
+                    <Input
+                      value={resposta.responsavelAprovacao ?? ""}
+                      onChange={(e) => alterar({ responsavelAprovacao: e.target.value })}
+                      placeholder="Nome de quem autorizou a exceção"
+                    />
+                  </Campo>
                 )}
               </div>
 

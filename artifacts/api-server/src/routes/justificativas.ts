@@ -338,6 +338,7 @@ router.post("/justificativas", async (req, res): Promise<void> => {
         formula: justificativa.formula,
         regra: justificativa.regra,
         conforme: justificativa.conforme,
+        naoConformidade: justificativa.naoConformidade,
         motivoExcecao: justificativa.motivoExcecao,
         responsavelAprovacao: justificativa.responsavelAprovacao,
         criadoPor,

@@ -88,6 +88,7 @@ const JUSTIFICADA: Justificativa = {
   formula: "Amortização mensal = Valor financiado ÷ Prazo",
   regra: "O valor acompanha o contrato de financiamento.",
   conforme: true,
+  naoConformidade: null,
   motivoExcecao: null,
   responsavelAprovacao: null,
   criadoPor: "gestor@ambev.com.br",

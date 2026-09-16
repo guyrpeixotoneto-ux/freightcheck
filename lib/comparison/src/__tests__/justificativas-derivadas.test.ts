@@ -89,6 +89,7 @@ async function justificar(
   chave: string,
   campos: {
     conforme: boolean | null;
+    naoConformidade?: string | null;
     responsavelAprovacao?: string | null;
     motivoExcecao?: string | null;
   },
@@ -102,6 +103,7 @@ async function justificar(
     formula: "f",
     regra: "r",
     conforme: campos.conforme,
+    naoConformidade: campos.naoConformidade ?? null,
     motivoExcecao: campos.motivoExcecao ?? null,
     responsavelAprovacao: campos.responsavelAprovacao ?? null,
     criadoPor: "gestor@x.com",
@@ -134,6 +136,7 @@ it("com as duas parcelas conformes, a parcela fecha sozinha", async () => {
 it("exceção numa parcela faz do total uma exceção, com o responsável de lá", async () => {
   await justificar(`AAA1A11|${JUROS}`, {
     conforme: false,
+    naoConformidade: "EXCECAO",
     motivoExcecao: "Taxa renegociada.",
     responsavelAprovacao: "Ana Souza",
   });
@@ -142,8 +145,36 @@ it("exceção numa parcela faz do total uma exceção, com o responsável de lá
   const [derivada] = await deduzir();
 
   expect(derivada.conforme).toBe(false);
+  expect(derivada.naoConformidade).toBe("EXCECAO");
   expect(derivada.motivoExcecao).toContain("Juros FINAME");
   expect(derivada.responsavelAprovacao).toBe("Ana Souza");
+});
+
+/*
+  Descumprimento predomina sobre exceção: um total que se moveu por causa de uma
+  regra descumprida não vira exceção por haver uma parcela aprovada ao lado —
+  chamá-lo de exceção afirmaria um aval que ninguém deu.
+*/
+it("descumprimento numa parcela predomina, e não herda aprovador", async () => {
+  await justificar(`AAA1A11|${JUROS}`, {
+    conforme: false,
+    naoConformidade: "EXCECAO",
+    motivoExcecao: "Taxa renegociada.",
+    responsavelAprovacao: "Ana Souza",
+  });
+  await justificar(`AAA1A11|${AMORTIZACAO}`, {
+    conforme: false,
+    naoConformidade: "DESCUMPRIMENTO",
+    motivoExcecao: "Pagou acima da tabela do acordo.",
+  });
+
+  const [derivada] = await deduzir();
+
+  expect(derivada.conforme).toBe(false);
+  expect(derivada.naoConformidade).toBe("DESCUMPRIMENTO");
+  expect(derivada.motivoExcecao).toContain("Amortização");
+  expect(derivada.responsavelAprovacao).toBeNull();
+  expect(derivada.texto).toContain("Regra de remuneração descumprida");
 });
 
 it("faltando a justificativa de uma parcela, não deduz nada", async () => {
@@ -162,7 +193,11 @@ it("parcela com justificativa antiga, sem conformidade, não deduz", async () =>
 it("o total que alguém justificou à mão não é sobrescrito", async () => {
   await justificar(`AAA1A11|${JUROS}`, { conforme: true });
   await justificar(`AAA1A11|${AMORTIZACAO}`, { conforme: true });
-  await justificar(`AAA1A11|${PARCELA}`, { conforme: false, responsavelAprovacao: "Ana" });
+  await justificar(`AAA1A11|${PARCELA}`, {
+    conforme: false,
+    naoConformidade: "EXCECAO",
+    responsavelAprovacao: "Ana",
+  });
   expect(await deduzir()).toEqual([]);
 });
 

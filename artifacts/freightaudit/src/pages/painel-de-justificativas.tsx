@@ -550,6 +550,7 @@ export default function PainelDeJustificativas() {
         formula: linha.formula,
         regra: linha.regra,
         conforme: linha.conforme,
+        naoConformidade: linha.naoConformidade,
         motivoExcecao: linha.motivoExcecao,
         responsavelAprovacao: linha.responsavelAprovacao,
         criadoPor: linha.criadoPor ?? "",

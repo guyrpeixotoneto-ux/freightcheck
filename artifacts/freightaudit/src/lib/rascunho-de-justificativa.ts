@@ -57,7 +57,12 @@ export function lerRascunho(changeId: number): RascunhoDaJustificativa | null {
     return {
       formula: typeof lido.formula === "string" ? lido.formula : "",
       regra: typeof lido.regra === "string" ? lido.regra : "",
-      conforme: typeof lido.conforme === "boolean" ? lido.conforme : null,
+      conformidade:
+        lido.conformidade === "CONFORME" ||
+        lido.conformidade === "EXCECAO" ||
+        lido.conformidade === "DESCUMPRIMENTO"
+          ? lido.conformidade
+          : null,
       motivoExcecao: typeof lido.motivoExcecao === "string" ? lido.motivoExcecao : "",
       responsavelAprovacao:
         typeof lido.responsavelAprovacao === "string" ? lido.responsavelAprovacao : "",
@@ -94,7 +99,7 @@ export function rascunhoVazio(rascunho: RascunhoDaJustificativa): boolean {
   return (
     !rascunho.formula?.trim() &&
     !rascunho.regra?.trim() &&
-    typeof rascunho.conforme !== "boolean" &&
+    !rascunho.conformidade &&
     !rascunho.motivoExcecao?.trim() &&
     !rascunho.responsavelAprovacao?.trim()
   );

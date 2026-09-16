@@ -54,6 +54,7 @@ const JUSTIFICADA: Justificativa = {
   formula: "IPVA = alíquota do estado × valor de NF",
   regra: "O IPVA acompanha a tabela do estado de emplacamento.",
   conforme: true,
+  naoConformidade: null,
   motivoExcecao: null,
   responsavelAprovacao: null,
   criadoPor: "gestor@ambev.com.br",
