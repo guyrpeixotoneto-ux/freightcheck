@@ -1,6 +1,5 @@
 import { Search, X } from "lucide-react";
 import {
-  ROTULO_DO_QUADRO,
   SITUACOES_DA_EQUIPE,
   type SituacaoDaLinhaDeEquipe,
 } from "@workspace/comparison/monitor-equipe";
@@ -12,7 +11,6 @@ import {
   AJUDA_DA_SITUACAO_DE_EQUIPE,
   FILTROS_VAZIOS,
   FRASE_DA_SITUACAO_DE_EQUIPE,
-  QUADROS_DO_MONITOR,
   escreverModulo,
   type FiltrosDoMonitorDeEquipe,
 } from "@/lib/monitor-equipe";
@@ -25,6 +23,10 @@ import { cn } from "@/lib/utils";
  * respondem à mesma resposta do servidor: o recorte acontece antes do resumo,
  * lá, e não em três lugares aqui. É o que faz o cartão não contradizer a
  * tabela.
+ *
+ * **O quadro não está entre eles**: a população é a aba, escolhida acima. Um
+ * selo aqui que pudesse ligar as duas ao mesmo tempo desfaria a separação que a
+ * aba existe para fazer.
  *
  * **Os módulos oferecidos são os que este recorte devolveu**, e não a lista
  * inteira do catálogo. São dezesseis assuntos, e a maioria não se move numa
@@ -47,27 +49,19 @@ export function FiltrosDoMonitorDeEquipeGlobais({
   const alternar = <T,>(lista: T[], valor: T): T[] =>
     lista.includes(valor) ? lista.filter((v) => v !== valor) : [...lista, valor];
 
+  /*
+    O quadro não entra nesta conta: ele é a **aba**, e não um filtro que se
+    limpa. "Limpar filtros" que fechasse a aba aberta devolveria quem lê a uma
+    população que ele não escolheu.
+  */
   const limpo =
     filtros.modulos.length === 0 &&
-    filtros.quadros.length === 0 &&
     filtros.situacoes.length === 0 &&
     filtros.busca.trim() === "";
 
   return (
     <section className="flex flex-col gap-3" aria-label="Filtros do Monitor Equipe">
       <div className="flex flex-wrap items-end gap-4">
-        <Grupo titulo="Quadro">
-          {QUADROS_DO_MONITOR.map((q) => (
-            <Alternador
-              key={q}
-              ativo={filtros.quadros.includes(q)}
-              onClick={() => onMudar({ ...filtros, quadros: alternar(filtros.quadros, q) })}
-            >
-              {ROTULO_DO_QUADRO[q].replace("QLP ", "")}
-            </Alternador>
-          ))}
-        </Grupo>
-
         {modulos.length > 0 && (
           <Grupo titulo="Módulo">
             {modulos.map((m) => (
@@ -123,6 +117,7 @@ export function FiltrosDoMonitorDeEquipeGlobais({
             onClick={() =>
               onMudar({
                 ...FILTROS_VAZIOS,
+                quadros: filtros.quadros,
                 baseOperacional: filtros.baseOperacional,
                 comparadaOperacional: filtros.comparadaOperacional,
                 baseAdministrativo: filtros.baseAdministrativo,

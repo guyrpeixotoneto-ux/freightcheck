@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { Link } from "wouter";
 import type {
+  QuadroDeQlp,
   QuadroNoMonitor,
   ResumoDoMonitorDeEquipe,
 } from "@workspace/comparison/monitor-equipe";
@@ -32,8 +33,15 @@ import { cn } from "@/lib/utils";
  */
 export function CartoesDoMonitorDeEquipe({
   resumo,
+  quadro,
 }: {
   resumo: ResumoDoMonitorDeEquipe;
+  /**
+   * A população da aba aberta. O bloco do outro quadro não aparece aqui: ele é
+   * o resumo de uma leitura que esta aba não fez — par próprio, change set
+   * próprio —, e publicá-lo ao lado destes cartões convidaria a somar os dois.
+   */
+  quadro: QuadroDeQlp;
 }) {
   return (
     <div className="flex flex-col gap-3">
@@ -76,10 +84,17 @@ export function CartoesDoMonitorDeEquipe({
         />
       </div>
 
+      {/*
+        Meia largura, e não a página inteira: o bloco é o mesmo de antes, quando
+        os dois quadros dividiam a linha. Esticado de ponta a ponta, o rótulo e
+        o número de cada par ficariam a um palmo um do outro.
+      */}
       <div className="grid gap-3 lg:grid-cols-2">
-        {resumo.porQuadro.map((quadro) => (
-          <BlocoDoQuadro key={quadro.quadro} quadro={quadro} />
-        ))}
+        {resumo.porQuadro
+          .filter((q) => q.quadro === quadro)
+          .map((q) => (
+            <BlocoDoQuadro key={q.quadro} quadro={q} />
+          ))}
       </div>
 
       <p className="flex items-start gap-2 text-xs text-muted-foreground">

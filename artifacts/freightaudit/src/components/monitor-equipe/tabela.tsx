@@ -61,6 +61,7 @@ export function TabelaDoMonitorDeEquipe({
   onOrdenar,
   selecionada,
   onSelecionar,
+  mostrarQuadro = true,
 }: {
   linhas: readonly LinhaDoMonitorDeEquipe[];
   rotulos: Record<string, string>;
@@ -68,13 +69,20 @@ export function TabelaDoMonitorDeEquipe({
   onOrdenar: (coluna: ColunaOrdenavel) => void;
   selecionada: string | null;
   onSelecionar: (linha: LinhaDoMonitorDeEquipe) => void;
+  /**
+   * A coluna "Quadro" só faz sentido quando a tabela mistura as duas
+   * populações. Lida dentro de uma aba, ela escreve a mesma palavra em todas as
+   * linhas — e a aba já disse qual é.
+   */
+  mostrarQuadro?: boolean;
 }) {
   return (
     <div className="overflow-x-auto">
       <Table>
         <caption className="sr-only">
           Todas as alterações do quadro de pessoal do recorte, com módulo,
-          quadro, cargo, variável, valores, diferença e situação.
+          {mostrarQuadro ? " quadro," : ""} cargo, variável, valores, diferença e
+          situação.
         </caption>
         <TableHeader>
           <TableRow>
@@ -84,9 +92,11 @@ export function TabelaDoMonitorDeEquipe({
             <Cabecalho coluna="modulo" ordem={ordem} onOrdenar={onOrdenar}>
               Módulo
             </Cabecalho>
-            <Cabecalho coluna="quadro" ordem={ordem} onOrdenar={onOrdenar}>
-              Quadro
-            </Cabecalho>
+            {mostrarQuadro && (
+              <Cabecalho coluna="quadro" ordem={ordem} onOrdenar={onOrdenar}>
+                Quadro
+              </Cabecalho>
+            )}
             <TableHead scope="col">Vigência</TableHead>
             <Cabecalho coluna="cargo" ordem={ordem} onOrdenar={onOrdenar}>
               Cargo
@@ -131,9 +141,11 @@ export function TabelaDoMonitorDeEquipe({
                 <TableCell className="whitespace-nowrap text-xs">
                   {escreverModulo(l.modulo)}
                 </TableCell>
-                <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
-                  {ROTULO_DO_QUADRO[l.quadro].replace("QLP ", "")}
-                </TableCell>
+                {mostrarQuadro && (
+                  <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
+                    {ROTULO_DO_QUADRO[l.quadro].replace("QLP ", "")}
+                  </TableCell>
+                )}
                 <TableCell className="whitespace-nowrap text-xs text-muted-foreground">
                   {l.par.baseRotulo ?? "—"} → {l.par.comparadaRotulo ?? "—"}
                 </TableCell>

@@ -20,6 +20,7 @@ import {
   listComparableSnapshots,
   operacaoDoSnapshot,
   resumirFiname,
+  evolucaoPorTipo,
   totaisPorVigencia,
   variavelDoCodigo,
   VARIAVEIS_DE_FINAME,
@@ -321,6 +322,11 @@ router.get("/finame/comparacao", async (req, res, next): Promise<void> => {
  * amortização e nunca o total composto da carreta, que embute a parcela do
  * cavalo vinculado.
  *
+ * Devolve também a `evolucao`: a mesma leitura aberta nas três parcelas que
+ * produzem a diferença — o que se moveu em quem está nas duas pontas, o que
+ * entrou de frota e o que saiu. Sai daqui, e não de uma segunda consulta, para
+ * que o total e a decomposição não possam discordar: são a mesma leitura.
+ *
  * E lê **a unidade do par**, e não a primeira do acervo: ver
  * {@link contextoDoPar}. Sem isso, este total era o único número da tela que
  * podia estar respondendo por outra unidade — e é justamente o número que a
@@ -349,6 +355,9 @@ router.get("/finame/totais", async (req, res): Promise<void> => {
   const valores: {
     ponta: "BASE" | "COMPARADA";
     entityType: string;
+    /* Quem sustenta o valor. O total não precisa dele; a decomposição precisa,
+       porque é por veículo que se sabe se um real é alteração ou entrada. */
+    entityId: string;
     attributeCode: string;
     valor: number | null;
   }[] = [];
@@ -375,6 +384,7 @@ router.get("/finame/totais", async (req, res): Promise<void> => {
           valores.push({
             ponta,
             entityType,
+            entityId: linha.entityId,
             attributeCode: code,
             valor: numero !== null && Number.isFinite(numero) ? numero : null,
           });
@@ -392,7 +402,7 @@ router.get("/finame/totais", async (req, res): Promise<void> => {
     return;
   }
 
-  res.json({ totais: totaisPorVigencia(valores) });
+  res.json({ totais: totaisPorVigencia(valores), evolucao: evolucaoPorTipo(valores) });
 });
 
 /**

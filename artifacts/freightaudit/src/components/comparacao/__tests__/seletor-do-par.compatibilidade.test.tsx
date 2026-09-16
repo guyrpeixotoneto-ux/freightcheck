@@ -147,28 +147,33 @@ describe("o campo De, que é o que dá acesso à outra série", () => {
 
     const outra = screen.getByRole("option", { name: /agosto\/2026 · 2ª quinzena/ });
     expect(within(outra).getByText("Somente cavalo")).toBeTruthy();
-    expect(screen.getByText("Como o cavalo veio na vigência")).toBeTruthy();
+    expect(screen.getByText("Trocar para outra série")).toBeTruthy();
   });
 
   /**
-   * O defeito que trocou este rótulo: "Outra cobertura" dentro da aba Cavalo,
-   * com as linhas dizendo "Cavalo". O nome descrevia a identidade do arquivo no
-   * banco e contradizia a aba — as duas séries **têm** cavalo, e o que as separa
-   * é o arquivo ter vindo só com ele ou com a carreta junto.
+   * Os dois rótulos que este cabeçalho já teve, e por que nenhum volta.
+   *
+   * "Outra cobertura" dentro da aba Cavalo, com as linhas dizendo "Cavalo":
+   * descrevia a identidade do arquivo no banco e contradizia a aba. "Como o
+   * equipamento veio na vigência" corrigiu a contradição e trouxe outra —
+   * repetia, em cima do grupo, o que cada linha dele já diz à direita, e foi
+   * relatado (16/09/2026) como *"confunde mais que ajuda"*.
    */
-  it("nunca escreve 'Outra cobertura'", () => {
+  it("não descreve a composição no título do grupo", () => {
     montar("jul-ambos", "ago1-ambos", ACERVO, "CAVALO");
     abrir("De (vigência de origem)");
 
     expect(screen.queryByText(/Outra cobertura/i)).toBeNull();
+    expect(screen.queryByText(/veio na vigência/i)).toBeNull();
   });
 
-  /* A mesma vigência, lida da pergunta que está sendo feita. */
-  it("lê a composição pelo equipamento da aba aberta", () => {
+  /* O título não muda com a aba: o que ele oferece é o mesmo gesto nas duas, e
+     qual série é cada linha continua escrito na própria linha. */
+  it("oferece a troca de série com as mesmas palavras em qualquer aba", () => {
     montar("jul-ambos", "ago1-ambos", ACERVO, "CARRETA");
     abrir("De (vigência de origem)");
 
-    expect(screen.getByText("Como a carreta veio na vigência")).toBeTruthy();
+    expect(screen.getByText("Trocar para outra série")).toBeTruthy();
   });
 
   /* O defeito relatado: linha muda ao lado de linhas que dizem "nenhuma
