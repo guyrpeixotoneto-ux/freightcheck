@@ -7,6 +7,7 @@ import {
   FILTROS_DA_EVOLUCAO,
   ORDENS_DA_EVOLUCAO,
   corDaCelula,
+  type LeituraDaMatriz,
   intensidadeDaCelula,
   maiorCelulaAbsoluta,
   recorteDaMatriz,
@@ -74,6 +75,7 @@ export function MatrizDaEvolucao({
   onBusca,
   onLimparInsight,
   onEscolherPlaca,
+  leitura,
 }: {
   evolucao: EvolucaoPorPlaca;
   filtro: FiltroDaEvolucao;
@@ -86,6 +88,14 @@ export function MatrizDaEvolucao({
   onBusca: (busca: string) => void;
   onLimparInsight: () => void;
   onEscolherPlaca: (entityId: string) => void;
+  /**
+   * Como a rubrica se chama e para que lado ela é boa — ver {@link LeituraDaMatriz}.
+   *
+   * Ausente, a matriz fala o idioma de remuneração com que nasceu: "Ganho",
+   * "Perda", e negativo em vermelho. A Evolução anual do FINAME passa a leitura
+   * de custo, onde quitar um financiamento é economia e não perda.
+   */
+  leitura?: LeituraDaMatriz;
 }) {
   const [pagina, setPagina] = useState(0);
 
@@ -116,7 +126,7 @@ export function MatrizDaEvolucao({
     <section className="superficie p-5">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-base font-bold leading-tight">
-          Impacto por {vocabulario.singular} ao longo do tempo{" "}
+          {leitura?.titulo ?? `Impacto por ${vocabulario.singular} ao longo do tempo`}{" "}
           <span className="font-normal text-muted-foreground">(R${sufixo})</span>
         </h2>
         <p className="text-xs text-muted-foreground">
@@ -228,7 +238,7 @@ export function MatrizDaEvolucao({
                   </th>
                 ))}
                 <th className="sticky right-0 z-20 bg-card px-2 pb-2 text-right font-semibold whitespace-nowrap shadow-[-1px_0_0_0_hsl(var(--border))]">
-                  Acumulado
+                  {leitura?.acumulado ?? "Acumulado"}
                   <span className="block font-normal normal-case">(R${sufixo})</span>
                 </th>
               </tr>
@@ -243,6 +253,7 @@ export function MatrizDaEvolucao({
                   sufixo={sufixo}
                   selecionada={selecionada === ativo.entityId}
                   onEscolher={() => onEscolherPlaca(ativo.entityId)}
+                  leitura={leitura}
                 />
               ))}
             </tbody>
@@ -281,7 +292,7 @@ export function MatrizDaEvolucao({
         )}
       </div>
 
-      <Legenda />
+      <Legenda leitura={leitura} />
 
       {evolucao.gaps.length > 0 && (
         <p className="mt-3 text-xs text-amber-700">
@@ -306,6 +317,7 @@ const CLASSE_DO_FILTRO_ATIVO: Record<string, string> = {
 };
 
 function LinhaDaPlaca({
+  leitura,
   ativo,
   colunas,
   maior,
@@ -319,6 +331,7 @@ function LinhaDaPlaca({
   sufixo: string;
   selecionada: boolean;
   onEscolher: () => void;
+  leitura?: LeituraDaMatriz;
 }) {
   const porPeriodo = new Map(ativo.celulas.map((c) => [c.period, c]));
 
@@ -372,6 +385,7 @@ function LinhaDaPlaca({
       </th>
       {colunas.map((coluna) => (
         <Celula
+          leitura={leitura}
           key={coluna.period}
           placa={ativo.rotulo}
           coluna={coluna}
@@ -384,13 +398,17 @@ function LinhaDaPlaca({
         className={cn(
           "sticky right-0 z-10 px-2 py-2 text-right font-bold tabular-nums whitespace-nowrap shadow-[-1px_0_0_0_hsl(var(--border))]",
           selecionada ? "bg-primary/5" : "bg-card",
+          /* A mesma régua da célula: o sinal é do domínio, e a leitura decide
+             qual deles recebe a cor ruim. */
           ativo.acumulado === null
             ? "text-amber-700"
-            : ativo.acumulado < 0
-              ? "text-red-700"
-              : ativo.acumulado > 0
-                ? "text-emerald-700"
-                : "text-muted-foreground",
+            : ativo.acumulado === 0
+              ? "text-muted-foreground"
+              : (leitura?.subirEhRuim === true
+                    ? ativo.acumulado > 0
+                    : ativo.acumulado < 0)
+                ? "text-red-700"
+                : "text-emerald-700",
         )}
         title={
           ativo.acumulado === null
@@ -405,6 +423,7 @@ function LinhaDaPlaca({
 }
 
 function Celula({
+  leitura,
   placa,
   coluna,
   celula,
@@ -416,8 +435,9 @@ function Celula({
   celula: CelulaDaPlaca | undefined;
   maior: number;
   sufixo: string;
+  leitura?: LeituraDaMatriz;
 }) {
-  const cor = corDaCelula(celula);
+  const cor = corDaCelula(celula, leitura);
   const grau = intensidadeDaCelula(celula?.net ?? null, maior);
 
   return (
@@ -426,7 +446,7 @@ function Celula({
         "px-1.5 py-1.5 text-center tabular-nums whitespace-nowrap",
         CLASSE_DA_CELULA[cor][grau - 1],
       )}
-      title={dica(placa, coluna, celula, sufixo)}
+      title={dica(placa, coluna, celula, sufixo, leitura)}
     >
       {celula === undefined ? (
         <span className="text-muted-foreground/60">—</span>
@@ -500,6 +520,7 @@ function dica(
   coluna: { label: string },
   celula: CelulaDaPlaca | undefined,
   sufixo: string,
+  leitura?: LeituraDaMatriz,
 ): string {
   if (celula === undefined) {
     return `${placa} · ${coluna.label}\nSem alteração nesta vigência.`;
@@ -508,8 +529,8 @@ function dica(
     `${placa} · ${coluna.label}`,
     "",
     `${celula.alteracoes} ${celula.alteracoes === 1 ? "alteração" : "alterações"}`,
-    `Ganhos: ${formatBrlShort(celula.ganho)}${sufixo}`,
-    `Perdas: ${formatBrlShort(celula.perda)}${sufixo}`,
+    `${leitura?.positivo ?? "Ganhos"}: ${formatBrlShort(celula.ganho)}${sufixo}`,
+    `${leitura?.negativo ?? "Perdas"}: ${formatBrlShort(celula.perda)}${sufixo}`,
     `Sem valoração: ${celula.semValoracao}`,
   ];
   if (celula.foraDoTotal > 0) {
@@ -520,16 +541,24 @@ function dica(
   }
   linhas.push(
     celula.net === null
-      ? "Impacto líquido: ainda sem valoração"
-      : `Impacto líquido: ${formatBrlShort(celula.net)}${sufixo}`,
+      ? `${leitura?.acumulado ?? "Impacto líquido"}: ainda sem valoração`
+      : `${leitura?.acumulado ?? "Impacto líquido"}: ${formatBrlShort(celula.net)}${sufixo}`,
   );
   return linhas.join("\n");
 }
 
-function Legenda() {
+function Legenda({ leitura }: { leitura?: LeituraDaMatriz }) {
+  /* A cor é papel, e não sinal: `bg-red-200` é sempre "a direção ruim". Quem
+     decide qual sinal é ruim é a leitura — ver `corDaCelula`. */
   const itens = [
-    { cor: "bg-emerald-200", texto: "Ganho" },
-    { cor: "bg-red-200", texto: "Perda" },
+    {
+      cor: "bg-emerald-200",
+      texto: leitura ? (leitura.subirEhRuim ? leitura.negativo : leitura.positivo) : "Ganho",
+    },
+    {
+      cor: "bg-red-200",
+      texto: leitura ? (leitura.subirEhRuim ? leitura.positivo : leitura.negativo) : "Perda",
+    },
     { cor: "bg-muted border", texto: "Sem alteração" },
     { cor: "bg-amber-50 border border-amber-200", texto: "Sem valoração" },
   ];

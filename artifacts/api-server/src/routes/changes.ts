@@ -555,8 +555,23 @@ router.get("/changes/evolucao-por-placa", async (req, res): Promise<void> => {
     em `OpcoesDaEvolucao`.
   */
   const grao = texto("grao") === "CONJUNTO" ? "CONJUNTO" : "ATIVO";
+  /*
+    `parameters` recorta a leitura a um universo de atributos — é o que permite a
+    Evolução anual do FINAME ser esta mesma matriz, e não uma segunda cópia
+    dela. Vazio ou ausente é o intervalo inteiro, como sempre foi.
+
+    O recorte é aplicado dentro do domínio, e de propósito: ele tem de acontecer
+    **depois** de a janela montar o índice de dupla contagem (ver `parameters`,
+    em `OpcoesDaEvolucao`). Uma rota que filtrasse a resposta aqui devolveria os
+    mesmos ativos com o dinheiro errado.
+  */
+  const parameters = (texto("parameters") ?? "")
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean);
   const evolucao = await evolucaoPorPlaca(db, {
     grao,
+    ...(parameters.length > 0 ? { parameters } : {}),
     ...(texto("from") ? { from: texto("from")! } : {}),
     ...(texto("to") ? { to: texto("to")! } : {}),
     context: parseContext(req.query as Record<string, unknown>),
@@ -617,8 +632,29 @@ router.get("/changes/end-to-end", async (req, res): Promise<void> => {
     .split(",")
     .map((p) => p.trim())
     .filter(Boolean);
+  /*
+    `attributeCodes` recorta por coluna, e não por parâmetro. É o que a Evolução
+    anual do FINAME manda: `parameters` (FAMÍLIA|parâmetro) é grosso demais para
+    ela — as 24 colunas do financiamento caem em seis parâmetros, quatro deles
+    compartilhados entre cavalo e carreta —, e a aba Cavalo receberia a carreta
+    junto. Ver `attributeCodes`, em `getEndToEndAnalysis`.
+  */
+  const attributeCodes = (typeof req.query.attributeCodes === "string"
+    ? req.query.attributeCodes
+    : ""
+  )
+    .split(",")
+    .map((c) => c.trim())
+    .filter(Boolean);
   const context = parseContext(req.query as Record<string, unknown>);
-  const analysis = await getEndToEndAnalysis(db, from, to, context, parameters);
+  const analysis = await getEndToEndAnalysis(
+    db,
+    from,
+    to,
+    context,
+    parameters,
+    attributeCodes,
+  );
   if (!analysis) {
     res.status(404).json({ error: "Nenhuma vigência importada ainda." });
     return;

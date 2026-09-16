@@ -113,3 +113,85 @@ describe("a série que a unidade não tem", () => {
     ).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// A quarta aba — que não é um recorte
+// ---------------------------------------------------------------------------
+//
+// A Auditoria de FINAME ganhou a aba Evolução ao lado de Carreta, por pedido
+// explícito. Ela é um modo de leitura, e não um quarto equipamento — e este
+// bloco prende as duas consequências que isso tem de ter: a aba só existe onde
+// foi pedida, e abri-la não deixa nenhum recorte aceso por baixo.
+describe("a aba extra", () => {
+  it("não existe quando a página não a pede", () => {
+    montar("TODOS", AMBOS);
+    expect(screen.getAllByRole("tab")).toHaveLength(3);
+    expect(screen.queryByText("Evolução")).toBeNull();
+  });
+
+  it("entra como quarto item, e não vira um recorte", () => {
+    const onValor = vi.fn();
+    const onAbrir = vi.fn();
+    render(
+      <RecorteDeEquipamento
+        valor="CARRETA"
+        onValor={onValor}
+        disponiveis={AMBOS}
+        idPrefixo="finame"
+        abaExtra={{ rotulo: "Evolução", ativa: false, onAbrir }}
+      />,
+    );
+
+    const abas = screen.getAllByRole("tab");
+    expect(abas).toHaveLength(4);
+    expect(abas[3].textContent).toBe("Evolução");
+
+    /* Clicar nela não escolhe equipamento nenhum: o recorte da comparação fica
+       onde estava, para voltar como estava. */
+    fireEvent.click(abas[3]);
+    expect(onAbrir).toHaveBeenCalledTimes(1);
+    expect(onValor).not.toHaveBeenCalled();
+  });
+
+  it("com a aba aberta, nenhum recorte continua marcado", () => {
+    render(
+      <RecorteDeEquipamento
+        valor="CARRETA"
+        onValor={vi.fn()}
+        disponiveis={AMBOS}
+        idPrefixo="finame"
+        abaExtra={{ rotulo: "Evolução", ativa: true, onAbrir: vi.fn() }}
+      />,
+    );
+
+    const marcadas = screen
+      .getAllByRole("tab")
+      .filter((b) => b.getAttribute("aria-selected") === "true");
+    expect(marcadas).toHaveLength(1);
+    expect(marcadas[0].textContent).toBe("Evolução");
+  });
+
+  it("desabilitada, diz por quê em vez de levar a uma tela vazia", () => {
+    const onAbrir = vi.fn();
+    render(
+      <RecorteDeEquipamento
+        valor="TODOS"
+        onValor={vi.fn()}
+        disponiveis={AMBOS}
+        idPrefixo="finame"
+        abaExtra={{
+          rotulo: "Evolução",
+          ativa: false,
+          onAbrir,
+          indisponivel: "Esta unidade ainda não tem vigência de equipamento importada.",
+        }}
+      />,
+    );
+
+    const aba = screen.getAllByRole("tab")[3];
+    expect(aba.hasAttribute("disabled")).toBe(true);
+    expect(aba.getAttribute("title")).toContain("não tem vigência");
+    fireEvent.click(aba);
+    expect(onAbrir).not.toHaveBeenCalled();
+  });
+});

@@ -190,11 +190,22 @@ export function consultaDaEvolucao(
   tipo?: TipoDaLinhaDoTempo | null,
   periodicidade?: string | null,
   grao?: GraoDaEvolucao | null,
+  /**
+   * O universo de atributos, quando a leitura é de uma rubrica só.
+   *
+   * Chega como objeto, e não como um sétimo posicional, porque seis já era o
+   * limite do que se lê numa chamada sem contar vírgulas — e porque quem o usa
+   * (a Evolução anual do FINAME) não passa `grao` nem `tipo` pela mesma via.
+   */
+  extras?: { parameters?: readonly string[] | null },
 ): URLSearchParams {
   const query = new URLSearchParams(consulta);
   query.delete("period");
   if (de) query.set("from", de);
   if (ate) query.set("to", ate);
+  if (extras?.parameters && extras.parameters.length > 0) {
+    query.set("parameters", extras.parameters.join(","));
+  }
   /*
     `tipo` e o grão de conjunto não se combinam — um conjunto recortado a um dos
     dois lados seria a aba Cavalo com outro nome. A tela nem chega a mandar os
@@ -215,8 +226,9 @@ export function opcoesDaEvolucao(
   tipo?: TipoDaLinhaDoTempo | null,
   periodicidade?: string | null,
   grao?: GraoDaEvolucao | null,
+  extras?: { parameters?: readonly string[] | null },
 ): Pick<UseQueryOptions<EvolucaoPorPlaca | null>, "queryKey" | "queryFn" | "staleTime"> {
-  const query = consultaDaEvolucao(consulta, de, ate, tipo, periodicidade, grao);
+  const query = consultaDaEvolucao(consulta, de, ate, tipo, periodicidade, grao, extras);
   return {
     queryKey: ["evolucao-por-placa", query.toString()],
     queryFn: () => fetchJsonOrNull<EvolucaoPorPlaca>(`/changes/evolucao-por-placa?${query}`),
@@ -444,15 +456,84 @@ export function recorteDaMatriz(
 // A cor da célula
 // ---------------------------------------------------------------------------
 
+/**
+ * O papel visual da célula — verde, vermelho, neutro, âmbar.
+ *
+ * Os nomes são de **remuneração** porque é de lá que a matriz vem, e renomeá-los
+ * tocaria em dezenas de linhas que funcionam. O que eles significam, hoje, é o
+ * papel na tela: `ganho` é a cor de "o número foi na direção boa", `perda` é a
+ * de "foi na direção ruim". Qual direção é a boa depende da rubrica — ver
+ * {@link LeituraDaMatriz}.
+ */
 export type CorDaCelula = "ganho" | "perda" | "sem-alteracao" | "sem-valoracao";
 
+/**
+ * A LEITURA DA MATRIZ — como a rubrica se chama, e para que lado ela é boa.
+ *
+ * ---------------------------------------------------------------------------
+ * Por que isto existe
+ * ---------------------------------------------------------------------------
+ * Porque o sinal do impacto é **a direção do valor**, não um juízo. Medido na
+ * base real: `cavalo.finame_cavalo` indo de R$ 10.578,03 para R$ 0 — um
+ * financiamento quitado — grava `impact_amount = −10.578,03`.
+ *
+ * Numa rubrica de **remuneração**, negativo é menos dinheiro entrando: perda,
+ * vermelho. Numa rubrica de **custo**, negativo é menos dinheiro saindo:
+ * economia, verde. O mesmo número, o mesmo sinal, cores opostas — e a matriz
+ * nasceu falando só o primeiro idioma, porque só ele existia.
+ *
+ * Sem isto, a Evolução anual do FINAME pintava de vermelho, sob a palavra
+ * "Perda", um financiamento que acabou de ser quitado — enquanto o cartão logo
+ * acima do mesmo número o pintava de verde. Dois idiomas na mesma tela, sobre o
+ * mesmo dado.
+ *
+ * ---------------------------------------------------------------------------
+ * O que ela **não** faz
+ * ---------------------------------------------------------------------------
+ * Não toca em conta nenhuma. `net`, `ganho`, `perda` e `acumulado` chegam
+ * prontos do servidor e saem daqui com o mesmo valor e o mesmo sinal: o que
+ * muda é o nome e a cor com que a tela os escreve. Inverter o **número** seria
+ * a tela discordando do domínio, que é outra coisa — e proibida.
+ *
+ * Ausente, a matriz continua exatamente como sempre foi.
+ */
+export interface LeituraDaMatriz {
+  /** O título da seção, sem a grandeza (que a matriz acrescenta). */
+  titulo: string;
+  /** Como se chama um valor positivo. Ex.: "Aumento de custo". */
+  positivo: string;
+  /** Como se chama um valor negativo. Ex.: "Redução de custo". */
+  negativo: string;
+  /** O cabeçalho da coluna do acumulado. Ex.: "Variação no ano". */
+  acumulado: string;
+  /**
+   * Se subir é a direção ruim — o caso de qualquer custo.
+   *
+   * `true` inverte **a cor**, e só ela: positivo vira vermelho e negativo vira
+   * verde.
+   */
+  subirEhRuim: boolean;
+}
+
+/** A leitura de uma rubrica de custo — o FINAME, e qualquer despesa. */
+export const LEITURA_DE_CUSTO: Omit<LeituraDaMatriz, "titulo" | "acumulado"> = {
+  positivo: "Aumento de custo",
+  negativo: "Redução de custo",
+  subirEhRuim: true,
+};
+
 /** O que a célula é, para a tela pintar — e nunca um R$ 0 no lugar do vazio. */
-export function corDaCelula(celula: CelulaDaPlaca | undefined): CorDaCelula {
+export function corDaCelula(
+  celula: CelulaDaPlaca | undefined,
+  leitura?: Pick<LeituraDaMatriz, "subirEhRuim">,
+): CorDaCelula {
   if (celula === undefined) return "sem-alteracao";
   if (celula.net === null) return "sem-valoracao";
-  if (celula.net > 0) return "ganho";
-  if (celula.net < 0) return "perda";
-  return "sem-alteracao";
+  if (celula.net === 0) return "sem-alteracao";
+  /* O sinal é do domínio; o que a leitura decide é qual sinal recebe a cor
+     ruim. Ver `LeituraDaMatriz`. */
+  const ruim = leitura?.subirEhRuim === true ? celula.net > 0 : celula.net < 0;
+  return ruim ? "perda" : "ganho";
 }
 
 /**

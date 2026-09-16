@@ -16,6 +16,7 @@ import {
   ROTULO_DA_TENDENCIA,
   serieDaPlaca,
   type AtivoNaEvolucao,
+  type LeituraDaMatriz,
   type EvolucaoPorPlaca,
 } from "@/lib/evolucao-por-placa";
 import { ComposicaoNoTempoDoPar } from "@/components/evolucao-por-placa/composicao";
@@ -43,10 +44,19 @@ export function PainelDaPlaca({
   ativo,
   evolucao,
   onFechar,
+  leitura,
 }: {
   ativo: AtivoNaEvolucao;
   evolucao: EvolucaoPorPlaca;
   onFechar: () => void;
+  /**
+   * Como a rubrica se chama e para que lado ela é boa — ver `LeituraDaMatriz`.
+   *
+   * O painel mostra o **mesmo número** que a célula da matriz. Sem isto, os dois
+   * ficavam de cores opostas na mesma tela assim que a matriz aprendeu a ler
+   * custo: o acumulado em verde na linha e em vermelho na gaveta.
+   */
+  leitura?: LeituraDaMatriz;
 }) {
   const [historico, setHistorico] = useState(false);
   const sufixo = periodicitySuffix(evolucao.periodicidade);
@@ -84,14 +94,16 @@ export function PainelDaPlaca({
 
       <div className="mt-4">
         <p className="text-[0.6875rem] uppercase tracking-wide text-muted-foreground">
-          Impacto acumulado
+          {leitura?.acumulado ?? "Impacto acumulado"}
         </p>
         <p
           className={cn(
             "text-2xl font-bold tabular-nums leading-none mt-1",
             ativo.acumulado === null
               ? "text-amber-700"
-              : ativo.acumulado < 0
+              : (leitura?.subirEhRuim === true
+                    ? ativo.acumulado > 0
+                    : ativo.acumulado < 0)
                 ? "text-red-700"
                 : "text-emerald-700",
           )}
@@ -180,7 +192,9 @@ export function PainelDaPlaca({
 
       {/* ---- o gráfico do acumulado ----------------------------------------- */}
       <div className="mt-5">
-        <p className="text-sm font-semibold">Impacto acumulado (R${sufixo})</p>
+        <p className="text-sm font-semibold">
+          {leitura?.acumulado ?? "Impacto acumulado"} (R${sufixo})
+        </p>
         <p className="text-xs text-muted-foreground">
           A linha é o acumulado do período — não o movimento de cada vigência, que está
           no histórico abaixo.

@@ -7,6 +7,41 @@ export type RecorteDeTipo = "TODOS" | "CAVALO" | "CARRETA";
 export const RECORTES: readonly RecorteDeTipo[] = ["TODOS", "CAVALO", "CARRETA"];
 
 /**
+ * Uma quarta aba que **não é um recorte** — hoje, só a Evolução do FINAME.
+ *
+ * ---------------------------------------------------------------------------
+ * Por que ela é opcional, e não um quarto item de `RECORTES`
+ * ---------------------------------------------------------------------------
+ * Porque este controle é de quatro auditorias — FINAME, IPVA, Lucro Fixo e
+ * Impostos — e só uma delas tem uma evolução para abrir. Acrescentar a aba à
+ * lista a faria brotar nas outras três, onde ela levaria a lugar nenhum.
+ * Ausente esta prop, o componente renderiza exatamente os três de sempre.
+ *
+ * ---------------------------------------------------------------------------
+ * O que ela custa, e o que paga esse custo
+ * ---------------------------------------------------------------------------
+ * A fileira deixa de ser homogênea: três botões escolhem *o que se audita* e um
+ * escolhe *como se lê*. É o preço de a evolução ficar ao lado de Carreta, e ele
+ * é pago em três lugares:
+ *
+ * 1. **Um fio antes dela.** A separação visual é a única coisa que diz, sem
+ *    texto, que aquele botão não é o quarto equipamento.
+ * 2. **A tela aberta repõe o recorte.** Quem entra na Evolução encontra lá
+ *    dentro um seletor Cavalo + Carreta / Cavalo / Carreta próprio — sem ele, a
+ *    aba teria comido o filtro que ela substitui na fileira.
+ * 3. **O recorte anterior não é perdido.** Ele continua no endereço e volta
+ *    como estava ao sair — a aba não escolhe equipamento nenhum, nem ao entrar
+ *    nem ao sair.
+ */
+export interface AbaExtraDoRecorte {
+  rotulo: string;
+  ativa: boolean;
+  onAbrir: () => void;
+  /** Por que está desabilitada, quando está. Vira o `title`, como nos outros. */
+  indisponivel?: string;
+}
+
+/**
  * A SÉRIE QUE SE AUDITA — CAVALO, CARRETA, OU OS DOIS.
  *
  * ---------------------------------------------------------------------------
@@ -53,6 +88,7 @@ export function RecorteDeEquipamento({
   onValor,
   disponiveis,
   idPrefixo,
+  abaExtra,
 }: {
   valor: RecorteDeTipo;
   onValor: (v: RecorteDeTipo) => void;
@@ -71,9 +107,17 @@ export function RecorteDeEquipamento({
    */
   disponiveis: Record<RecorteDeTipo, boolean>;
   idPrefixo: string;
+  /** Ver {@link AbaExtraDoRecorte}. Ausente, a fileira é só os três recortes. */
+  abaExtra?: AbaExtraDoRecorte;
 }) {
   const rotulo = (r: RecorteDeTipo) =>
     r === "TODOS" ? "Cavalo + Carreta" : rotuloDaCobertura(r);
+
+  /* Com a aba extra aberta, **nenhum** recorte aparece marcado. O recorte
+     continua guardado e volta ao sair; o que ele não pode é seguir aceso sob
+     uma tela que não é a dele — dois botões marcados na mesma fileira diriam
+     que os dois estão valendo. */
+  const extraAtiva = abaExtra?.ativa === true;
 
   return (
     <div
@@ -92,7 +136,7 @@ export function RecorteDeEquipamento({
             id={`${idPrefixo}-recorte-${r.toLowerCase()}`}
             type="button"
             role="tab"
-            aria-selected={valor === r}
+            aria-selected={!extraAtiva && valor === r}
             disabled={vazio}
             title={
               vazio
@@ -102,7 +146,7 @@ export function RecorteDeEquipamento({
             onClick={() => onValor(r)}
             className={cn(
               "rounded-md px-3 py-1.5 text-sm font-semibold transition-colors",
-              valor === r
+              !extraAtiva && valor === r
                 ? "bg-background text-brand shadow-sm"
                 : "text-muted-foreground hover:text-foreground",
               vazio && "cursor-not-allowed opacity-40 hover:text-muted-foreground",
@@ -112,6 +156,36 @@ export function RecorteDeEquipamento({
           </button>
         );
       })}
+
+      {abaExtra && (
+        <>
+          {/* O fio é a única coisa que diz, sem texto, que o que vem depois
+              não é o quarto equipamento. */}
+          <span
+            aria-hidden="true"
+            className="mx-1 self-stretch border-l border-border/70"
+          />
+          <button
+            id={`${idPrefixo}-recorte-extra`}
+            type="button"
+            role="tab"
+            aria-selected={extraAtiva}
+            disabled={Boolean(abaExtra.indisponivel)}
+            title={abaExtra.indisponivel}
+            onClick={abaExtra.onAbrir}
+            className={cn(
+              "rounded-md px-3 py-1.5 text-sm font-semibold transition-colors",
+              extraAtiva
+                ? "bg-brand text-brand-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground",
+              abaExtra.indisponivel &&
+                "cursor-not-allowed opacity-40 hover:text-muted-foreground",
+            )}
+          >
+            {abaExtra.rotulo}
+          </button>
+        </>
+      )}
     </div>
   );
 }

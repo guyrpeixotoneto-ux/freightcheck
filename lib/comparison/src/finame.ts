@@ -300,6 +300,33 @@ export function codigosDe(variaveis: readonly VariavelDeFiname[]): string[] {
 /** O recorte que a tabela pede ao motor. */
 export const CODIGOS_DA_TABELA = codigosDe(VARIAVEIS_DE_FINAME);
 
+/**
+ * Os códigos de um recorte de equipamento — `TODOS`, `CAVALO` ou `CARRETA`.
+ *
+ * Existe porque nem toda leitura aceita recortar por `entity_type`. A Evolução
+ * por Placa aceita (`tipo`), mas a leitura ponta a ponta (`end-to-end.ts`) só
+ * aceita uma lista de atributos — e as duas precisam responder pelo **mesmo**
+ * recorte quando a aba Cavalo está aberta, ou a tela publica a variação ponta a
+ * ponta do acervo inteiro sob o título de um equipamento só.
+ *
+ * A tradução é exata, e não uma aproximação: cada variável de FINAME tem um
+ * código por equipamento (`cavalo.finame_cavalo` e `carreta.finame_implemento`
+ * são atributos distintos), então filtrar pelos códigos de um lado é o mesmo
+ * conjunto de linhas que filtrar pelo `entity_type` daquele lado.
+ */
+export function codigosDoRecorte(
+  recorte: "TODOS" | "CAVALO" | "CARRETA",
+  variaveis: readonly VariavelDeFiname[] = VARIAVEIS_DE_FINAME,
+): string[] {
+  if (recorte === "TODOS") return codigosDe(variaveis);
+  const codigos = new Set<string>();
+  for (const v of variaveis) {
+    const codigo = v.codigo[recorte];
+    if (codigo) codigos.add(codigo);
+  }
+  return [...codigos].sort();
+}
+
 /** O recorte do detalhe: tudo, inclusive o total composto e os spreads. */
 export const CODIGOS_DO_DETALHE = codigosDe(TODAS);
 

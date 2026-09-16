@@ -737,6 +737,30 @@ export interface OpcoesDaEvolucao {
   grao?: GraoDaEvolucao;
   /** A periodicidade pedida. Fora das existentes, cai na de maior peso. */
   periodicidade?: string;
+  /**
+   * O universo de atributos da leitura — vazio ou ausente é o intervalo inteiro.
+   *
+   * Existe para a matriz poder ser desenhada sobre **uma rubrica só** (a
+   * Evolução anual do FINAME é a mesma matriz recortada às variáveis do
+   * financiamento), sem uma segunda cópia desta varredura para cada recorte
+   * nomeado que o produto ganhar.
+   *
+   * **Ele recorta as linhas, e nunca a janela.** O filtro é aplicado sobre
+   * `janela.linhas`, depois de `abrirJanelaDeComparacoes` ter montado o índice
+   * de dupla contagem sobre o intervalo inteiro — que é a decisão 3 do
+   * cabeçalho de `janela-de-comparacoes.ts`, e não uma preferência de estilo:
+   * "um total mora numa gaveta e a parcela dele noutra". `carreta.finame` só sai
+   * do total porque o `cavalo.finame_cavalo` do cavalo vinculado mudou na mesma
+   * comparação; recortar antes esconderia a linha que motiva a exclusão, e a
+   * exclusão deixaria de acontecer — o mesmo dinheiro contado duas vezes,
+   * justamente no recorte em que ele mais aparece.
+   *
+   * É pelo mesmo motivo que ele mora aqui e não em quem chama: uma tela que
+   * pedisse o intervalo inteiro e jogasse fora o que não interessa somaria
+   * certo por acidente hoje e erraria no dia em que a dedupe passasse a
+   * depender de uma linha descartada.
+   */
+  parameters?: readonly string[];
   contextosCarregados?: ContextInfo[];
 }
 
@@ -783,8 +807,22 @@ export async function evolucaoPorPlaca(
     carreta, que é a linha em que ela chega. TRECHO já saiu recortado da
     consulta da janela.
   */
+  /*
+    O universo de atributos — ver `parameters`, em `OpcoesDaEvolucao`. Fica
+    junto do recorte por tipo, e não antes da janela, porque o `dedup` que
+    `abrirJanelaDeComparacoes` devolve foi montado sobre o intervalo inteiro:
+    as duas exclusões continuam valendo aqui mesmo quando a linha que as motiva
+    não está na lista recortada.
+  */
+  const universo =
+    options.parameters && options.parameters.length > 0
+      ? new Set(options.parameters)
+      : null;
+
   const linhas = janela.linhas.filter(
-    (r) => !tipo || tipo === "TRECHO" || r.entity_type === tipo,
+    (r) =>
+      (!tipo || tipo === "TRECHO" || r.entity_type === tipo) &&
+      (!universo || (r.attribute_code !== null && universo.has(r.attribute_code))),
   );
 
   const existentes = periodicidadesDoIntervalo(linhas, dedup);

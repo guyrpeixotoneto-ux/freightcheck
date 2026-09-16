@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useSearch } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { Banknote, Download, Search, SlidersHorizontal } from "lucide-react";
 import type { LinhaDeFiname } from "@workspace/comparison/finame";
@@ -37,8 +37,13 @@ import { DetalheDoVeiculo } from "@/components/finame/detalhe";
 import { fetchJson, salvarArquivo } from "@/lib/api";
 import { csvComoBlob, paraNomeDeArquivo } from "@/lib/csv";
 import { formatNumber } from "@/lib/format";
+import { PainelDaEvolucaoDeFiname } from "@/components/finame/evolucao/painel-da-evolucao";
 import {
   ABAS_DE_ESTADO,
+  ehModoDeFiname,
+  ehRecorteDeTipo,
+  enderecoComTroca,
+  type ModoDeFiname,
   FILTROS_VAZIOS,
   contagemPorAba,
   filtrar,
@@ -168,6 +173,43 @@ export default function AuditoriaDeFiname() {
   const recorte = lerRecorte(useSearch());
 
   /**
+   * O modo aberto, e o recorte **da evolução** — duas chaves próprias no
+   * mesmo endereço.
+   *
+   * São chaves separadas de `filtros.tipo` de propósito, e é isso que faz a ida
+   * e volta não custar nada: entrar na Evolução não toca no recorte da
+   * comparação, que continua no estado e volta como estava ao sair. Unidade,
+   * canal, `scopeHash` e o par de vigências nem são mencionados aqui — eles
+   * vivem na URL e no estado da tela, e a troca de modo passa ao largo deles.
+   *
+   * Valor adulterado cai no padrão em vez de quebrar: `comparacao` para o modo,
+   * que é a tela que sempre existiu, e `TODOS` para o recorte da evolução.
+   */
+  const busca = useSearch();
+  const [, navegar] = useLocation();
+  const parametrosDaUrl = useMemo(() => new URLSearchParams(busca), [busca]);
+  const modoPedido = parametrosDaUrl.get("modo");
+  const modo: ModoDeFiname = ehModoDeFiname(modoPedido) ? modoPedido : "comparacao";
+  const recortePedido = parametrosDaUrl.get("recorteEvolucao");
+  const recorteDaEvolucao: RecorteDeTipo = ehRecorteDeTipo(recortePedido)
+    ? recortePedido
+    : "TODOS";
+  const anoDaEvolucao = parametrosDaUrl.get("ano");
+
+  const trocarNaUrl = (mudancas: Record<string, string | null>) =>
+    navegar(enderecoComTroca(busca, mudancas));
+
+  /** O contexto da unidade aberta, que atravessa os dois modos sem ser tocado. */
+  const consultaDoContexto = useMemo(() => {
+    const q = new URLSearchParams();
+    for (const chave of ["scopeHash", "canal", "operacao"]) {
+      const valor = parametrosDaUrl.get(chave);
+      if (valor !== null && valor !== "") q.set(chave, valor);
+    }
+    return q;
+  }, [parametrosDaUrl]);
+
+  /**
    * Os contextos — de onde saem o **nome** de cada unidade e **qual delas está
    * aberta**.
    *
@@ -247,6 +289,19 @@ export default function AuditoriaDeFiname() {
           )
         : [],
     [vigencias.data, escopoAberto, unidadeResolvida],
+  );
+
+  /**
+   * As datas da unidade — o eixo do ano, na Evolução.
+   *
+   * Sai de `daUnidadeTodas` (o acervo da unidade, antes da aba) pelo mesmo
+   * motivo que os rótulos: quais anos existem é pergunta sobre a unidade, e não
+   * sobre o recorte aberto. Recortada pela aba, a lista de anos mudaria ao
+   * trocar de equipamento — e um ano sumiria do seletor por ter só carreta.
+   */
+  const datasDaUnidade = useMemo(
+    () => [...new Set(daUnidadeTodas.map((v) => v.effectiveDate))],
+    [daUnidadeTodas],
   );
 
   /**
@@ -509,18 +564,34 @@ export default function AuditoriaDeFiname() {
 
   return (
     <Layout>
+      {/*
+        O cabeçalho segue o modo aberto.
+
+        A pastilha e a frase descrevem *a pergunta que a tela responde*, e no
+        modo Evolução ela é outra: não é o que mudou entre duas vigências, é
+        como cada veículo se moveu ao longo do ano. Deixá-las fixas punha a
+        matriz do ano sob a promessa de uma comparação entre duas datas — o
+        título de um recorte sobre o número de outro, que é exatamente o que
+        esta tela persegue em toda parte.
+      */}
       <CabecalhoDePagina
         titulo={
           <span className="flex flex-wrap items-center gap-2.5">
             Auditoria de FINAME
             <span className="rounded-full border border-brand/25 bg-brand/10 px-2.5 py-0.5 text-xs font-semibold text-brand">
-              Comparação entre vigências
+              {modo === "evolucao" ? "Evolução anual" : "Comparação entre vigências"}
             </span>
           </span>
         }
         icone={Banknote}
-        descricao="O que mudou no financiamento de cada veículo entre duas vigências: parcela, juros, amortização, taxa, prazo, carência, entrada e base de compra."
-        atualizando={comparacao.isFetching && !comparacao.isLoading}
+        descricao={
+          modo === "evolucao"
+            ? "Como o financiamento de cada veículo se moveu ao longo do ano, uma coluna por vigência — com o impacto dos movimentos e a variação ponta a ponta lidos separadamente."
+            : "O que mudou no financiamento de cada veículo entre duas vigências: parcela, juros, amortização, taxa, prazo, carência, entrada e base de compra."
+        }
+        atualizando={
+          modo === "comparacao" && comparacao.isFetching && !comparacao.isLoading
+        }
       />
 
       <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-4 px-4 pb-10 sm:px-8">
@@ -534,10 +605,39 @@ export default function AuditoriaDeFiname() {
           <>
             <RecorteDeEquipamento
               valor={recorteDeTipo}
-              onValor={(tipo) => setFiltros((f) => ({ ...f, tipo }))}
+              onValor={(tipo) => {
+                /* Escolher um equipamento é sair da Evolução: os três primeiros
+                   botões são da comparação, e clicar num deles é pedir a tela
+                   deles. O recorte da evolução fica guardado para a volta. */
+                setFiltros((f) => ({ ...f, tipo }));
+                if (modo !== "comparacao") trocarNaUrl({ modo: null });
+              }}
               disponiveis={disponiveis}
               idPrefixo="finame"
+              abaExtra={{
+                rotulo: "Evolução",
+                ativa: modo === "evolucao",
+                onAbrir: () => trocarNaUrl({ modo: "evolucao" }),
+                ...(daUnidadeTodas.length === 0
+                  ? {
+                      indisponivel:
+                        "Esta unidade ainda não tem vigência de equipamento importada — não há ano para acompanhar.",
+                    }
+                  : {}),
+              }}
             />
+            {modo === "evolucao" && (
+              <PainelDaEvolucaoDeFiname
+                consulta={consultaDoContexto}
+                datas={datasDaUnidade}
+                recorte={recorteDaEvolucao}
+                onRecorte={(r) => trocarNaUrl({ recorteEvolucao: r === "TODOS" ? null : r })}
+                ano={anoDaEvolucao}
+                onAno={(a) => trocarNaUrl({ ano: a })}
+                disponiveis={disponiveis}
+              />
+            )}
+            {modo === "comparacao" && (
             <SeletorDoPar
               vigencias={daUnidade}
               foco={recorteDeTipo === "TODOS" ? null : recorteDeTipo}
@@ -558,6 +658,7 @@ export default function AuditoriaDeFiname() {
               carregando={comparacao.isFetching}
               idPrefixo="finame"
             />
+            )}
           </>
         )}
 
@@ -569,6 +670,8 @@ export default function AuditoriaDeFiname() {
           dizendo que a comparação falhou, sobre uma comparação que nunca
           existiu.
         */}
+        {modo === "comparacao" && (
+          <>
         {semParPossivel && (
           <EstadoVazio
             icone={Banknote}
@@ -809,6 +912,8 @@ export default function AuditoriaDeFiname() {
               rotuloComparada={rotuloComparada}
               onFechar={() => setAberto(null)}
             />
+          </>
+        )}
           </>
         )}
       </div>
