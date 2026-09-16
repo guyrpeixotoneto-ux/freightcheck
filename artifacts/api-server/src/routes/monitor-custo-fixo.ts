@@ -122,7 +122,7 @@ function texto(valor: unknown): string | null {
  * daria zero linhas, correto e inexplicável, que é o defeito que
  * `lib/recorte.ts` descreve do outro lado.
  */
-interface FiltrosDoMonitor {
+export interface FiltrosDoMonitor {
   modulos: ModuloDoMonitor[];
   equipamento: string | null;
   situacoes: SituacaoDoImpacto[];
@@ -132,7 +132,7 @@ interface FiltrosDoMonitor {
 
 const EQUIPAMENTOS = ["CAVALO", "CARRETA"];
 
-function parseFiltros(query: Record<string, unknown>): {
+export function parseFiltros(query: Record<string, unknown>): {
   filtros: FiltrosDoMonitor;
   ignorados: string[];
 } {
@@ -188,13 +188,13 @@ function parseFiltros(query: Record<string, unknown>): {
  * entidade faria as linhas de QLP sumirem sem uma palavra — o dado existiria, a
  * tela estaria vazia, e ninguém saberia por quê. Quem não é veículo passa.
  */
-function passaNoEquipamento(l: LinhaDoMonitor, equipamento: string | null): boolean {
+export function passaNoEquipamento(l: LinhaDoMonitor, equipamento: string | null): boolean {
   if (equipamento === null) return true;
   if (l.entidade.tipo !== "VEICULO") return true;
   return l.entidade.entityType.trim().toUpperCase() === equipamento;
 }
 
-function passaNaBusca(l: LinhaDoMonitor, busca: string | null): boolean {
+export function passaNaBusca(l: LinhaDoMonitor, busca: string | null): boolean {
   if (busca === null) return true;
   const alvo = busca.toLowerCase();
   return (
@@ -205,7 +205,7 @@ function passaNaBusca(l: LinhaDoMonitor, busca: string | null): boolean {
   );
 }
 
-function passaNaSituacao(l: LinhaDoMonitor, situacoes: SituacaoDoImpacto[]): boolean {
+export function passaNaSituacao(l: LinhaDoMonitor, situacoes: SituacaoDoImpacto[]): boolean {
   return situacoes.length === 0 || situacoes.includes(l.impacto.situacao);
 }
 
@@ -218,7 +218,7 @@ function passaNaSituacao(l: LinhaDoMonitor, situacoes: SituacaoDoImpacto[]): boo
  * inteira. O cartão de "sem valoração" encolhe junto, e é por isso que ele
  * encolhe — não é dado sumindo.
  */
-function passaNaPeriodicidade(l: LinhaDoMonitor, periodicidades: string[]): boolean {
+export function passaNaPeriodicidade(l: LinhaDoMonitor, periodicidades: string[]): boolean {
   if (periodicidades.length === 0) return true;
   return (
     l.impacto.periodicidade !== null &&
