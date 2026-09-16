@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import {
   and,
@@ -404,8 +404,21 @@ function linhasPorStatement(rows: Record<string, unknown>[]): number {
  */
 const LINHAS_PARA_INSERIR_EM_MASSA = 200;
 
-/** Linhas por statement no caminho em massa — o limite aqui é memória, não protocolo. */
-const MAX_LINHAS_EM_MASSA = 20_000;
+/**
+ * Linhas por statement no caminho em massa — o limite aqui é memória, não
+ * protocolo.
+ *
+ * O nome de ambiente é da mesma família dos outros três (`afinacao`, logo
+ * abaixo — a declaração de função sobe, então chamá-la daqui é legítimo):
+ * ninguém precisa defini-lo, e ele existe para o `perfil-de-importacao` medir
+ * lotes maiores e menores sem trocar de commit. É também o tamanho do lote que
+ * a barra de progresso enxerga na promoção: cada statement deste tamanho é uma
+ * publicação e um ponto em que o pedido de cancelamento é lido.
+ */
+const MAX_LINHAS_EM_MASSA = Math.max(
+  1,
+  Math.trunc(afinacao("IMPORT_LINHAS_POR_STATEMENT", 20_000)),
+);
 
 /**
  * O INSERT em massa: uma array por coluna, e `unnest` monta as linhas no banco.
@@ -3726,18 +3739,51 @@ export async function promote(
         }
 
         // --- atributos ----------------------------------------------------
-        for (const code of new Set(facts.map((f) => f.attributeCode))) {
-          if (attributeCache.has(code)) continue;
-          const sample = facts.find((f) => f.attributeCode === code)!;
-          const existing = await tx
-            .select()
-            .from(attributeTable)
-            .where(eq(attributeTable.code, code));
-          if (existing.length > 0) {
-            attributeCache.set(code, existing[0].id);
-            continue;
+        /*
+          O primeiro fato de cada atributo, numa passada só.
+
+          Era um `facts.find` por código dentro do laço — uma varredura do lote
+          inteiro por coluna. Com dezenas de colunas e centenas de milhares de
+          fatos, isso sozinho já é tempo de relógio, e é tempo gasto para achar
+          o que uma única passada entrega de uma vez.
+        */
+        const amostraPorCodigo = new Map<string, (typeof facts)[number]>();
+        for (const f of facts) {
+          if (!amostraPorCodigo.has(f.attributeCode)) {
+            amostraPorCodigo.set(f.attributeCode, f);
           }
-          const sourceName = await sourceNameFor(tx, sample.rawCellId);
+        }
+        /*
+          E a existência de todos eles, numa consulta só.
+
+          Era um SELECT por código — no primeiro arquivo de um layout, uma ida
+          ao banco por coluna antes de qualquer escrita. A lista de códigos é
+          curta (as colunas da aba), então cabe inteira num `IN`.
+        */
+        const codigosPendentes = [...amostraPorCodigo.keys()].filter(
+          (code) => !attributeCache.has(code),
+        );
+        if (codigosPendentes.length > 0) {
+          const existentes = await tx
+            .select({ id: attributeTable.id, code: attributeTable.code })
+            .from(attributeTable)
+            .where(inArray(attributeTable.code, codigosPendentes));
+          for (const a of existentes) attributeCache.set(a.code, a.id);
+        }
+        /*
+          A localização das células-amostra dos códigos que ainda vão nascer —
+          também numa consulta só, em vez de duas por atributo novo.
+        */
+        const localizacoesDeAtributo = await localizacoesDeCelulas(
+          tx,
+          codigosPendentes
+            .filter((code) => !attributeCache.has(code))
+            .map((code) => amostraPorCodigo.get(code)!.rawCellId),
+        );
+        for (const [code, sample] of amostraPorCodigo) {
+          if (attributeCache.has(code)) continue;
+          const sourceName =
+            localizacoesDeAtributo.get(sample.rawCellId)?.columnHeader ?? "(unknown)";
           const [created] = await tx
             .insert(attributeTable)
             .values({
@@ -3768,7 +3814,8 @@ export async function promote(
           attributeCache.set(code, created.id);
           attributesCreated++;
 
-          const sheetName = await sheetNameFor(tx, sample.rawCellId);
+          const sheetName =
+            localizacoesDeAtributo.get(sample.rawCellId)?.sheetName ?? "(unknown)";
           await tx
             .insert(attributeAliasTable)
             .values({
@@ -3841,24 +3888,41 @@ export async function promote(
           // dentro da mesma transação, o que o tipo anterior acabara de gravar.
           const claimedNesteLote = new Map<string, string>();
           const novasIdentifierRows: Record<string, unknown>[] = [];
+          /*
+            As entidades novas nascem num INSERT só, com o id vindo daqui.
+
+            Era um `INSERT … RETURNING` por placa, dentro da transação: a
+            primeira importação de uma frota de 51 mil veículos são 51 mil
+            idas ao banco em série, e em série numa conexão só — três segundos
+            num socket local, vinte minutos num banco a 25 ms de distância, com
+            a barra parada o tempo todo, porque a promoção só a move quando
+            grava fatos.
+
+            O id não precisa vir do banco para ser um id: `entity.id` é um
+            `uuid` com `defaultRandom()`, e um UUID v4 gerado aqui é o mesmo
+            valor que o `gen_random_uuid()` de lá produziria. Gerá-lo antes
+            dispensa o `RETURNING` — e dispensa, junto, depender da ordem em
+            que o banco devolve as linhas de um INSERT em massa para saber
+            qual id é de qual placa.
+          */
+          const novasEntityRows: Record<string, unknown>[] = [];
           for (const [cacheKey, info] of novasEntidades) {
             const jaCriada = claimedNesteLote.get(info.entityKey);
             if (jaCriada !== undefined) {
               entityCache.set(cacheKey, jaCriada);
               continue;
             }
-            const [entity] = await tx
-              .insert(entityTable)
-              .values({
-                entityType: info.entityType,
-                firstSeenImportRunId: importRunId,
-              })
-              .returning();
-            entityCache.set(cacheKey, entity.id);
-            claimedNesteLote.set(info.entityKey, entity.id);
+            const entityId = randomUUID();
+            novasEntityRows.push({
+              id: entityId,
+              entityType: info.entityType,
+              firstSeenImportRunId: importRunId,
+            });
+            entityCache.set(cacheKey, entityId);
+            claimedNesteLote.set(info.entityKey, entityId);
             entitiesCreated++;
             novasIdentifierRows.push({
-              entityId: entity.id,
+              entityId,
               identifierType: "PLACA",
               identifierValue: info.entityKey,
               identifierValueRaw: info.entityKeyRaw,
@@ -3867,6 +3931,10 @@ export async function promote(
               sourceImportRunId: importRunId,
             });
           }
+          // A entidade antes do identificador: `entity_identifier.entity_id`
+          // referencia `entity.id`, e a chave estrangeira é conferida linha a
+          // linha, não no fim da transação.
+          await insertChunked(tx, entityTable, novasEntityRows as never[]);
           await insertChunked(tx, entityIdentifierTable, novasIdentifierRows as never[]);
         }
 
@@ -3945,14 +4013,20 @@ export async function promote(
           if (f.isNull) entry.nullCount++;
           else entry.valueCount++;
         }
+        // Onde cada coluna estava no arquivo — uma consulta para todas, e não
+        // uma por atributo: o laço é o mesmo, o que sai dele é o `await`.
+        const localizacoesDoLayout = await localizacoesDeCelulas(
+          tx,
+          [...perAttribute.values()].map((stats) => stats.rawCellId),
+        );
         const layoutRows = [];
         for (const [code, stats] of perAttribute) {
-          const location = await cellLocation(tx, stats.rawCellId);
+          const location = localizacoesDoLayout.get(stats.rawCellId);
           layoutRows.push({
             snapshotId: snapshot.id,
             attributeId: attributeCache.get(code)!,
-            sourceSheet: location.sheetName,
-            columnIndex: location.columnIndex,
+            sourceSheet: location?.sheetName ?? "(unknown)",
+            columnIndex: location?.columnIndex ?? -1,
             presentInLayout: true,
             valueCount: stats.valueCount,
             nullCount: stats.nullCount,
@@ -4382,41 +4456,116 @@ function resolveDataTypes(
   return resolved;
 }
 
-async function sourceNameFor(tx: Database, rawCellId: number): Promise<string> {
-  const [cell] = await tx
-    .select({ header: rawCellTable.columnHeader })
-    .from(rawCellTable)
-    .where(eq(rawCellTable.id, rawCellId));
-  return cell?.header ?? "(unknown)";
-}
-
-async function sheetNameFor(tx: Database, rawCellId: number): Promise<string> {
-  const [row] = await tx
-    .select({ sheetName: rawSheetTable.sheetName })
-    .from(rawCellTable)
-    .innerJoin(rawRowTable, eq(rawCellTable.rawRowId, rawRowTable.id))
-    .innerJoin(rawSheetTable, eq(rawRowTable.rawSheetId, rawSheetTable.id))
-    .where(eq(rawCellTable.id, rawCellId));
-  return row?.sheetName ?? "(unknown)";
-}
-
-async function cellLocation(
+/**
+ * De onde vieram estas células — a aba, a coluna e o cabeçalho, de uma vez.
+ *
+ * Eram três consultas de uma linha (`sourceNameFor`, `sheetNameFor`,
+ * `cellLocation`), chamadas dentro de laços por atributo: duas por atributo
+ * novo e uma por atributo no layout, por vigência gravada. Num export
+ * consolidado — dezenas de colunas vezes uma vigência por unidade — são
+ * centenas de idas ao banco que perguntam a mesma coisa sobre um punhado de
+ * células, e cada ida custa um RTT inteiro num banco de rede.
+ *
+ * Aqui a pergunta é feita uma vez por laço, para todas as células dele. Ids
+ * repetidos são pedidos uma vez só, e um id que o banco não conhece
+ * simplesmente não volta no mapa — quem lê decide o que fazer com a ausência,
+ * como decidia com o `(unknown)` das versões anteriores.
+ */
+async function localizacoesDeCelulas(
   tx: Database,
-  rawCellId: number,
-): Promise<{ sheetName: string; columnIndex: number }> {
-  const [row] = await tx
+  rawCellIds: number[],
+): Promise<
+  Map<number, { sheetName: string; columnIndex: number; columnHeader: string | null }>
+> {
+  const mapa = new Map<
+    number,
+    { sheetName: string; columnIndex: number; columnHeader: string | null }
+  >();
+  const ids = [...new Set(rawCellIds)];
+  if (ids.length === 0) return mapa;
+
+  const rows = await tx
     .select({
+      id: rawCellTable.id,
       sheetName: rawSheetTable.sheetName,
       columnIndex: rawCellTable.columnIndex,
+      columnHeader: rawCellTable.columnHeader,
     })
     .from(rawCellTable)
     .innerJoin(rawRowTable, eq(rawCellTable.rawRowId, rawRowTable.id))
     .innerJoin(rawSheetTable, eq(rawRowTable.rawSheetId, rawSheetTable.id))
-    .where(eq(rawCellTable.id, rawCellId));
-  return {
-    sheetName: row?.sheetName ?? "(unknown)",
-    columnIndex: row?.columnIndex ?? -1,
-  };
+    .where(inArray(rawCellTable.id, ids));
+
+  for (const row of rows) {
+    mapa.set(row.id, {
+      sheetName: row.sheetName,
+      columnIndex: row.columnIndex,
+      columnHeader: row.columnHeader,
+    });
+  }
+  return mapa;
+}
+
+/**
+ * Os fatos de um lote indexados pelo sufixo do código do atributo.
+ *
+ * ---------------------------------------------------------------------------
+ * O que isto conserta
+ * ---------------------------------------------------------------------------
+ * As duas leituras de escopo abaixo — a que agrupa por unidade e a que resolve
+ * os escopos — varriam o lote inteiro uma vez por coluna de escopo, e a
+ * segunda ainda fazia um `facts.find` **por linha** para achar o nome da
+ * unidade daquela linha. Um `find` é uma varredura: com uma coluna de escopo
+ * por linha e todas as colunas do arquivo no mesmo lote, o custo cresce com o
+ * quadrado do número de fatos. Medido num Postgres local, uma planilha de 12
+ * mil linhas gastava 47 s na promoção e **45 s deles eram JavaScript** — o
+ * banco respondia em 11 s. Aos 51 mil linhas da produção o mesmo trecho passa
+ * de meia hora, com a barra parada onde ela sempre para: a promoção só a move
+ * quando grava fatos, e este trabalho vem antes.
+ *
+ * Uma passada monta o índice, e as duas leituras passam a pedir só as linhas
+ * que lhes interessam. O `split(".")` de cada código também acontece uma vez
+ * por fato, em vez de uma vez por fato **por coluna de escopo**.
+ *
+ * A ordem dos fatos dentro de cada sufixo é a ordem do lote, e isso importa:
+ * quem lê estes índices decide por último-a-escrever (o escopo) e por
+ * primeiro-encontrado (o nome), exatamente como as varreduras decidiam.
+ */
+function fatosPorSufixo<T extends { attributeCode: string }>(
+  facts: T[],
+): Map<string, T[]> {
+  const porSufixo = new Map<string, T[]>();
+  for (const fact of facts) {
+    const suffix = fact.attributeCode.split(".").slice(1).join(".");
+    const bucket = porSufixo.get(suffix);
+    if (bucket) bucket.push(fact);
+    else porSufixo.set(suffix, [fact]);
+  }
+  return porSufixo;
+}
+
+/**
+ * O primeiro fato de cada (entidade, sufixo) — o que `facts.find` devolvia.
+ *
+ * Só os sufixos pedidos entram: quem chama quer o nome da unidade e o do
+ * operador, duas colunas, e indexar as outras dezenas custaria uma entrada por
+ * célula do arquivo em memória para nunca ser consultada.
+ *
+ * A chave junta as três partes com `\u0000`, que não aparece em tipo, chave
+ * nem sufixo: sem esse separador, `CAVALO:AB` + `C` e `CAVALO:A` + `BC` seriam
+ * a mesma entrada.
+ */
+function primeiroFatoPorEntidadeESufixo<
+  T extends { entityType: string; entityKey: string },
+>(porSufixo: Map<string, T[]>, sufixos: string[]): Map<string, T> {
+  const primeiro = new Map<string, T>();
+  for (const suffix of new Set(sufixos)) {
+    for (const fact of porSufixo.get(suffix) ?? []) {
+      const chave = `${fact.entityType}:${fact.entityKey}\u0000${suffix}`;
+      if (!primeiro.has(chave)) primeiro.set(chave, fact);
+    }
+  }
+  return primeiro;
 }
 
 /**
@@ -4437,12 +4586,10 @@ async function cellLocation(
 function groupFactsByEntityScope<T extends { entityType: string; entityKey: string; attributeCode: string; valueText: string | null; valueNumeric: string | null }>(
   facts: T[],
 ): T[][] {
+  const porSlug = fatosPorSufixo(facts);
   const scopeKeyByEntity = new Map<string, string[]>();
   for (const [foldedHeader, config] of Object.entries(SCOPE_COLUMNS)) {
-    const slug = slugifyColumn(foldedHeader);
-    for (const fact of facts) {
-      const suffix = fact.attributeCode.split(".").slice(1).join(".");
-      if (suffix !== slug) continue;
+    for (const fact of porSlug.get(slugifyColumn(foldedHeader)) ?? []) {
       const code = (fact.valueText ?? fact.valueNumeric ?? "").trim();
       if (code === "") continue;
       const entityFullKey = `${fact.entityType}:${fact.entityKey}`;
@@ -4471,22 +4618,26 @@ async function resolveScopes(
 ): Promise<{ ids: string[]; descriptors: string[]; entries: ScopeEntry[] }> {
   const wanted = new Map<string, { scopeType: string; code: string; name: string | null }>();
 
+  const porSlug = fatosPorSufixo(facts);
+  const primeiroPorEntidade = primeiroFatoPorEntidadeESufixo(
+    porSlug,
+    Object.values(SCOPE_COLUMNS)
+      .map((config) => config.nameColumn)
+      .filter((coluna): coluna is string => coluna !== undefined)
+      .map((coluna) => slugifyColumn(coluna)),
+  );
+
   for (const [foldedHeader, config] of Object.entries(SCOPE_COLUMNS)) {
     const slug = slugifyColumn(foldedHeader);
     const nameSlug = config.nameColumn ? slugifyColumn(config.nameColumn) : null;
-    for (const fact of facts) {
-      const suffix = fact.attributeCode.split(".").slice(1).join(".");
-      if (suffix !== slug) continue;
+    for (const fact of porSlug.get(slug) ?? []) {
       const code = (fact.valueText ?? fact.valueNumeric ?? "").trim();
       if (code === "") continue;
       const name =
         nameSlug === null
           ? null
-          : (facts.find(
-              (f) =>
-                f.entityKey === fact.entityKey &&
-                f.entityType === fact.entityType &&
-                f.attributeCode.split(".").slice(1).join(".") === nameSlug,
+          : (primeiroPorEntidade.get(
+              `${fact.entityType}:${fact.entityKey}\u0000${nameSlug}`,
             )?.valueText ?? null);
       wanted.set(`${config.scopeType}:${code}`, {
         scopeType: config.scopeType,
