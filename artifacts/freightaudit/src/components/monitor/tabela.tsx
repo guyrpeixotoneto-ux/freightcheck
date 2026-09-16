@@ -1,7 +1,17 @@
 import { ArrowDown, ArrowDownRight, ArrowUp, ArrowUpRight, Minus } from "lucide-react";
 import type { LinhaDoMonitor } from "@workspace/comparison/monitor-custo-fixo";
 import { ROTULO_DA_SITUACAO } from "@workspace/comparison/monitor-custo-fixo";
-import { SEVERITY_LABELS } from "@workspace/comparison";
+/*
+  O subcaminho, e não o barril.
+
+  `@workspace/comparison` reexporta o pacote inteiro, e há módulos ali que só o
+  servidor pode carregar — `monitoramento-de-chamados.ts` importa `node:crypto`.
+  No cliente, um `import` de valor pelo barril arrasta todos eles: o Vite
+  externaliza o builtin, o módulo estoura ao ser avaliado e **o app inteiro fica
+  em branco**, não só esta tela. Importar do módulo que define o rótulo é o que
+  mantém o cliente lendo só o que é do cliente.
+*/
+import { SEVERITY_LABELS } from "@workspace/comparison/cockpit";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,

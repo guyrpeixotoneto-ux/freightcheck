@@ -67,6 +67,25 @@ async function importarQlp(arquivo: string): Promise<void> {
   await promote(ctx.db, recebido.importRunId);
 }
 
+/**
+ * O mesmo, para o quadro **operacional** — que entra na mesma família.
+ *
+ * Existe para escrever o fato herdado: o operacional da mesma quinzena entra
+ * como revisão que herda os fatos do administrativo, e é essa revisão que
+ * apagava a quarentena da aba de Inconsistências.
+ */
+async function importarQlpOperacional(arquivo: string): Promise<void> {
+  const recebido = await receiveFile(ctx.db, {
+    filePath: arquivo,
+    declaredType: "QLP_OPERACIONAL",
+  });
+  await captureRaw(ctx.db, recebido.importRunId);
+  await stage(ctx.db, recebido.importRunId);
+  const relatorio = await preview(ctx.db, recebido.importRunId);
+  expect(relatorio.blockingErrors).toBe(0);
+  await promote(ctx.db, recebido.importRunId);
+}
+
 /** As colunas de fato além das duas padrão — nomes reais do dicionário. */
 const COLUNAS = [
   "Quantidade Ordenados",
@@ -321,6 +340,47 @@ describe("a superfície do QLP Administrativo, na ordem em que a vida acontece",
     const porUnidade = await get(`/qlp/administrativo?unidade=${UNIDADE_B}`);
     expect(porUnidade.body.unidades).toHaveLength(1);
     expect(porUnidade.body.unidades[0].cnpj).toBe("20618821000799");
+  });
+
+  /*
+    A Auditoria lê a família do quadro — a regressão que este teste guarda.
+
+    A rota lia por `getEntityTable`, que resolve o contexto no padrão do
+    produto: a família de equipamento. Com a vigência de equipamento importada
+    no teste acima — que é a situação de qualquer acervo real —, a data mais
+    recente do contexto era a do cavalo, e esta tela vinha **vazia** com o QLP
+    inteiro no banco; pedindo a quinzena do QLP por `?period=`, a resposta era
+    404 sobre um acervo que tinha o arquivo. As duas metades estão aqui.
+  */
+  it("a auditoria confere as contas da vigência de QLP, e não a do equipamento", async () => {
+    const { status, body } = await get("/qlp/auditoria?quadro=ADMINISTRATIVO");
+    expect(status).toBe(200);
+    expect(body.serieEntregue).toBe(true);
+    /* A planilha sintética traz quatro das colunas do catálogo: as que ela
+       traz têm de estar conhecidas, e as que ela não traz é que ficam sem
+       base — é essa a partição que a tela mostra. */
+    expect(body.colunasDesconhecidas).not.toContain(
+      "qlp_administrativo.quantidade_ordenados",
+    );
+    expect(body.colunasDesconhecidas).toContain("qlp_administrativo.vale_transporte");
+    expect(body.resumo.cargos).toBe(4);
+    expect(body.resumo.conferem).toBe(4);
+    expect(body.resumo.divergem).toBe(0);
+    expect(body.linhas).toHaveLength(4);
+    // O nome legível, e não a chave normalizada, é o que a tela lista.
+    expect(body.linhas.map((l: any) => l.nome)).toContain(
+      "07.526.557/0015-05 · ANALISTA ADM",
+    );
+
+    // A quinzena pedida é do QLP: pedi-la não pode virar "nada importado".
+    const comPeriodo = await get("/qlp/auditoria?quadro=ADMINISTRATIVO&period=2026-08-01");
+    expect(comPeriodo.status).toBe(200);
+    expect(comPeriodo.body.resumo.cargos).toBe(4);
+
+    // O operacional continua sem arquivo, e a resposta continua dizendo isso.
+    const operacional = await get("/qlp/auditoria?quadro=OPERACIONAL");
+    expect(operacional.status).toBe(404);
+    expect(operacional.body.error).toMatch(/QLP Operacional/);
   });
 
   it("a ficha do cargo traz cada fato com a célula de origem, no mesmo pedido", async () => {
@@ -588,6 +648,49 @@ describe("a superfície do QLP Administrativo, na ordem em que a vida acontece",
     // E as vigências sem conflito continuam completas.
     const agosto = await get("/qlp/administrativo?period=2026-08-01");
     expect(agosto.body.registrosFaltando).toBe(0);
+  });
+
+  /*
+    O fato herdado não pode apagar a quarentena.
+
+    O operacional da mesma quinzena entra na mesma família e vira **revisão** da
+    vigência do administrativo, herdando os fatos dele. A leitura das pendências
+    partia do `import_run` da vigência viva — que passa a ser o do operacional,
+    sem conflito nenhum —, e a aba anunciava "nenhum registro ficou de fora"
+    sobre um quadro a que continuava faltando um cargo. O cargo não voltou; só
+    a evidência de que ele falta é que tinha sumido.
+  */
+  it("o operacional entra na mesma vigência e o que ficou de fora continua visível", async () => {
+    await importarQlpOperacional(
+      escreverPlanilha({
+        vigencia: "EMPURRADA_1_10_2026",
+        abas: [
+          {
+            nome: "equipe mot",
+            identificador: "cargoEquipeEmpurrada",
+            colunas: ["pisoSalarial"],
+            linhas: [
+              { placa: "MOTORISTA 28", turno: "EQUIPE ATIVA 8x16", valores: { pisoSalarial: 2942.26 } },
+              { placa: "MOTORISTA 40", turno: "EQUIPE ATIVA 8x16", valores: { pisoSalarial: 3677.94 } },
+            ],
+          },
+        ],
+      }),
+    );
+
+    // O operacional entrou: a auditoria dele lê os dois cargos.
+    const operacional = await get("/qlp/auditoria?quadro=OPERACIONAL&period=2026-10-01");
+    expect(operacional.status).toBe(200);
+    expect(operacional.body.linhas).toHaveLength(2);
+
+    // E a pendência do administrativo continua onde alguém a encontra.
+    const quadro = await get("/qlp/administrativo?period=2026-10-01");
+    expect(quadro.body.registrosFaltando).toBe(1);
+
+    const { body } = await get("/qlp/administrativo/inconsistencias");
+    expect(body.total).toBe(1);
+    expect(body.pendencias[0].vigenciaLabel).toBe("EMPURRADA_1_10_2026");
+    expect(body.pendencias[0].registros[0].chave).toContain("COORDENADOR ADM");
   });
 
   /*

@@ -16,6 +16,7 @@
     "./impostos": "./src/impostos.ts",
     "./km-rodado": "./src/km-rodado.ts",
     "./velocidade-media": "./src/velocidade-media.ts",
+    "./cockpit": "./src/cockpit.ts",
     "./qlp": "./src/qlp.ts",
     "./tma": "./src/tma.ts",
     "./ipva": "./src/ipva.ts",
