@@ -45,6 +45,7 @@ export function PainelDaPlaca({
   evolucao,
   onFechar,
   leitura,
+  className,
 }: {
   ativo: AtivoNaEvolucao;
   evolucao: EvolucaoPorPlaca;
@@ -57,13 +58,22 @@ export function PainelDaPlaca({
    * custo: o acumulado em verde na linha e em vermelho na gaveta.
    */
   leitura?: LeituraDaMatriz;
+  /**
+   * A casca de fora — para quem já tem uma.
+   *
+   * Aberto dentro de uma caixa modal, o painel herdaria borda sobre borda e
+   * respiro sobre respiro: quem o abre assim desfaz a casca por aqui
+   * (`border-0 shadow-none`), e o conteúdo continua o mesmo. Nada além da
+   * moldura passa por esta propriedade.
+   */
+  className?: string;
 }) {
   const [historico, setHistorico] = useState(false);
   const sufixo = periodicitySuffix(evolucao.periodicidade);
   const serie = serieDaPlaca(ativo, evolucao.colunas);
 
   return (
-    <aside className="superficie p-5 lg:sticky lg:top-4">
+    <aside className={cn("superficie p-5 lg:sticky lg:top-4", className)}>
       <div className="flex items-start gap-2">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">

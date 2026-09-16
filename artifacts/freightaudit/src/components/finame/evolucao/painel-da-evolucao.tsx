@@ -5,6 +5,7 @@ import { CODIGOS_DA_TABELA, codigosDoRecorte } from "@workspace/comparison/finam
 import { ApiErrorNotice } from "@/components/api-error";
 import { EstadoVazio } from "@/components/ui/estado-vazio";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Dialog } from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
@@ -38,8 +39,8 @@ import { periodicityAdjective } from "@/lib/format";
  * Não há matriz nova aqui
  * ---------------------------------------------------------------------------
  * Esta tela é `evolucaoPorPlaca` com `parameters = CODIGOS_DA_TABELA`, desenhada
- * por `MatrizDaEvolucao`, com o painel lateral de `PainelDaPlaca`. Uma segunda
- * matriz — mesmo que idêntica no dia em que fosse escrita — seria a quinta
+ * por `MatrizDaEvolucao`, com o detalhe de `PainelDaPlaca` numa caixa modal.
+ * Uma segunda matriz — mesmo que idêntica no dia em que fosse escrita — seria a quinta
  * resposta do produto para "qual foi o impacto?", e `deduplicacao.ts` documenta
  * no cabeçalho quanto custaram as quatro primeiras.
  *
@@ -301,30 +302,49 @@ export function PainelDaEvolucaoDeFiname({
             </p>
           )}
 
-          <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
-            <MatrizDaEvolucao
-              evolucao={dados}
-              filtro={filtro}
-              ordem={ordem}
-              busca={busca}
-              insight={null}
-              selecionada={placa}
-              onFiltro={setFiltro}
-              onOrdem={setOrdem}
-              onBusca={setBusca}
-              onLimparInsight={() => undefined}
-              onEscolherPlaca={(id) => setPlaca((atual) => (atual === id ? null : id))}
-              leitura={LEITURA_DO_FINAME}
-            />
+          {/*
+            A matriz ocupa a largura inteira, e o detalhe abre por cima.
+
+            Ela tem uma coluna por vigência — dez, no ano cheio — e reservar
+            320px de lateral para um painel que só existe depois de um clique
+            apertava as dez colunas o ano todo para acomodar uma gaveta que
+            está fechada. Como caixa modal, a matriz respira sempre, e o
+            detalhe abre no meio da tela, onde o clique acabou de acontecer.
+          */}
+          <MatrizDaEvolucao
+            evolucao={dados}
+            filtro={filtro}
+            ordem={ordem}
+            busca={busca}
+            insight={null}
+            selecionada={placa}
+            onFiltro={setFiltro}
+            onOrdem={setOrdem}
+            onBusca={setBusca}
+            onLimparInsight={() => undefined}
+            onEscolherPlaca={(id) => setPlaca((atual) => (atual === id ? null : id))}
+            leitura={LEITURA_DO_FINAME}
+          />
+
+          <Dialog
+            open={aberta !== null}
+            onOpenChange={(aberto) => {
+              if (!aberto) setPlaca(null);
+            }}
+            className="max-w-3xl p-0"
+          >
             {aberta && (
               <PainelDaPlaca
                 ativo={aberta}
                 evolucao={dados}
                 onFechar={() => setPlaca(null)}
                 leitura={LEITURA_DO_FINAME}
+                /* A caixa já é a casca: sem isto seriam duas bordas e duas
+                   sombras, uma dentro da outra. */
+                className="border-0 bg-transparent shadow-none lg:static"
               />
             )}
-          </div>
+          </Dialog>
         </>
       )}
     </div>
