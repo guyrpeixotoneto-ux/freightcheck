@@ -5,7 +5,6 @@ import {
   conferirAbono,
   conferirBenchmark,
   conferirLinha,
-  getEntityTable,
   resumirQuadro,
   resumoDasContas,
   TIPO_DO_QUADRO,
@@ -14,6 +13,7 @@ import {
   type RequestedContext,
 } from "@workspace/comparison";
 import {
+  lerQuadroParaAuditoria,
   getDetalheDoCargo,
   getEvolucaoDoQuadro,
   getInconsistenciasDoQuadro,
@@ -184,10 +184,12 @@ router.get("/qlp/administrativo/entidades/:entityId", async (req, res): Promise<
  * Nenhuma conta mora aqui. `@workspace/comparison/qlp` confere, e esta rota lê o
  * quadro e devolve — é a mesma divisão das seis auditorias de rubrica.
  *
- * **A leitura é a mesma `getEntityTable` que as outras telas usam**, e é dela que
- * vem o nome legível de cada cargo: a chave que o acervo guarda é
- * `20618821000799AUXILIARADM`, e sem `labelRaw` a tela listaria trinta linhas que
- * ninguém distingue.
+ * **A leitura é a do quadro** (`lerQuadroParaAuditoria`), e não a genérica de
+ * entidade: o QLP forma vigências próprias, na família QUADRO_DE_PESSOAL, e a
+ * leitura genérica resolve o contexto na família de equipamento — ver o
+ * cabeçalho de `lib/qlp/src/auditoria.ts`. É dela que vem também o nome legível
+ * de cada cargo: a chave que o acervo guarda é `20618821000799AUXILIARADM`, e
+ * sem a forma legível a tela listaria trinta linhas que ninguém distingue.
  */
 router.get("/qlp/auditoria", async (req, res): Promise<void> => {
   const query = req.query as Record<string, unknown>;
@@ -198,12 +200,23 @@ router.get("/qlp/auditoria", async (req, res): Promise<void> => {
   }
   const quadro = pedido as QuadroDeQlp;
 
-  const tabela = await getEntityTable(
+  /*
+    A leitura é a do **quadro**, e não a genérica de entidade.
+
+    `getEntityTable` resolve o contexto pelo padrão do produto, que é a família
+    de equipamento: com o QLP importado, a data mais recente do contexto era a
+    do cavalo e esta tela vinha vazia nos dois quadros — e, com `?period=` de
+    uma quinzena de QLP, respondia 404 sobre um acervo que tinha o arquivo. Ver
+    o cabeçalho de `lib/qlp/src/auditoria.ts`.
+  */
+  const tabela = await lerQuadroParaAuditoria(
     db,
     TIPO_DO_QUADRO[quadro],
     codigosDoQuadro(quadro),
-    parseContext(query),
-    parsePeriod(query),
+    {
+      ...(parsePeriod(query) !== undefined ? { period: parsePeriod(query)! } : {}),
+      ...(parseContext(query) !== undefined ? { context: parseContext(query)! } : {}),
+    },
   );
 
   /*
@@ -222,21 +235,21 @@ router.get("/qlp/auditoria", async (req, res): Promise<void> => {
     return;
   }
 
-  const linhas: LinhaDoQuadro[] = tabela.rows.map((linha) => {
+  const linhas: LinhaDoQuadro[] = tabela.linhas.map((linha) => {
     const valores: Record<string, number | null> = {};
     for (const code of codigosDoQuadro(quadro)) {
-      valores[code] = comoNumero(linha.values[code]?.value ?? null);
+      valores[code] = comoNumero(linha.valores[code] ?? null);
     }
-    return { chave: linha.label ?? linha.entityId, nome: linha.labelRaw, valores };
+    return { chave: linha.chave, nome: linha.nome, valores };
   });
 
   res.json({
     quadro,
     /* O diagnóstico da leitura viaja junto: uma tabela vazia com colunas
-       desconhecidas tem duas causas com conserto oposto, e `getEntityTable` já
-       as distingue. */
-    serieEntregue: tabela.seriesDelivered,
-    colunasDesconhecidas: tabela.missingColumns,
+       desconhecidas tem duas causas com conserto oposto, e a leitura do quadro
+       já as distingue. */
+    serieEntregue: tabela.serieEntregue,
+    colunasDesconhecidas: tabela.colunasDesconhecidas,
     resumo: resumirQuadro(linhas, quadro),
     contas: resumoDasContas(linhas, quadro),
     benchmark: quadro === "ADMINISTRATIVO" ? conferirBenchmark(linhas) : null,

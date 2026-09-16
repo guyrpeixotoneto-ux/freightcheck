@@ -67,6 +67,25 @@ async function importarQlp(arquivo: string): Promise<void> {
   await promote(ctx.db, recebido.importRunId);
 }
 
+/**
+ * O mesmo, para o quadro **operacional** — que entra na mesma família.
+ *
+ * Existe para escrever o fato herdado: o operacional da mesma quinzena entra
+ * como revisão que herda os fatos do administrativo, e é essa revisão que
+ * apagava a quarentena da aba de Inconsistências.
+ */
+async function importarQlpOperacional(arquivo: string): Promise<void> {
+  const recebido = await receiveFile(ctx.db, {
+    filePath: arquivo,
+    declaredType: "QLP_OPERACIONAL",
+  });
+  await captureRaw(ctx.db, recebido.importRunId);
+  await stage(ctx.db, recebido.importRunId);
+  const relatorio = await preview(ctx.db, recebido.importRunId);
+  expect(relatorio.blockingErrors).toBe(0);
+  await promote(ctx.db, recebido.importRunId);
+}
+
 /** As colunas de fato além das duas padrão — nomes reais do dicionário. */
 const COLUNAS = [
   "Quantidade Ordenados",
@@ -74,6 +93,71 @@ const COLUNAS = [
   "Despesa Ordenados",
   "QLP Benchmark Quantidade",
 ];
+
+/**
+ * As colunas de benefício do quadro operacional, e o subtotal que elas somam.
+ *
+ * São as que ficavam fora do catálogo: o export as trazia, o acervo as guardava
+ * e nenhuma tela as mostrava. Escritas aqui com os nomes reais do dicionário da
+ * tabela de equipe.
+ */
+const COLUNAS_OPERACIONAL = [
+  "pisoSalarial",
+  "premiacaoProdutividade",
+  "remuneracaoVariavel",
+  "assistenciaMedica",
+  "cafeDaManha",
+  "cestaBasica",
+  "ticketRefeicaoLiquido",
+  "valeTransporteLiquido",
+  "seguroDeVida",
+  "pcmsoPorMes",
+  "diaria",
+  "plr",
+  "totalBeneficioFixo",
+];
+
+/** Os benefícios de um cargo, e o subtotal que a soma deles tem de dar. */
+const BENEFICIOS = {
+  assistenciaMedica: 421.01,
+  cafeDaManha: 0,
+  cestaBasica: 200,
+  ticketRefeicaoLiquido: 216.88,
+  valeTransporteLiquido: 260.33,
+  seguroDeVida: 5.21,
+  pcmsoPorMes: 59.97,
+  diaria: 1954.79,
+  plr: 41.67,
+};
+const TOTAL_DOS_BENEFICIOS = Object.values(BENEFICIOS).reduce((a, b) => a + b, 0);
+
+const cargoOperacional = (nome: string, turno: string) => ({
+  placa: nome,
+  turno,
+  valores: {
+    pisoSalarial: 2942.26,
+    premiacaoProdutividade: 2815.45,
+    remuneracaoVariavel: 4391.62,
+    ...BENEFICIOS,
+    totalBeneficioFixo: Number(TOTAL_DOS_BENEFICIOS.toFixed(2)),
+  },
+});
+
+const planilhaOperacional = () =>
+  escreverPlanilha({
+    vigencia: "EMPURRADA_1_10_2026",
+    abas: [
+      {
+        nome: "equipe mot",
+        identificador: "cargoEquipeEmpurrada",
+        colunas: COLUNAS_OPERACIONAL,
+        linhas: [
+          cargoOperacional("MOTORISTA 28", "EQUIPE ATIVA 8x16"),
+          cargoOperacional("MOTORISTA 40", "EQUIPE ATIVA 12x36"),
+        ],
+      },
+    ],
+  });
 
 const UNIDADE_B = "20.618.821/0007-99";
 /** A terceira unidade existe só para o teste de escopo do fim do arquivo. */
@@ -321,6 +405,47 @@ describe("a superfície do QLP Administrativo, na ordem em que a vida acontece",
     const porUnidade = await get(`/qlp/administrativo?unidade=${UNIDADE_B}`);
     expect(porUnidade.body.unidades).toHaveLength(1);
     expect(porUnidade.body.unidades[0].cnpj).toBe("20618821000799");
+  });
+
+  /*
+    A Auditoria lê a família do quadro — a regressão que este teste guarda.
+
+    A rota lia por `getEntityTable`, que resolve o contexto no padrão do
+    produto: a família de equipamento. Com a vigência de equipamento importada
+    no teste acima — que é a situação de qualquer acervo real —, a data mais
+    recente do contexto era a do cavalo, e esta tela vinha **vazia** com o QLP
+    inteiro no banco; pedindo a quinzena do QLP por `?period=`, a resposta era
+    404 sobre um acervo que tinha o arquivo. As duas metades estão aqui.
+  */
+  it("a auditoria confere as contas da vigência de QLP, e não a do equipamento", async () => {
+    const { status, body } = await get("/qlp/auditoria?quadro=ADMINISTRATIVO");
+    expect(status).toBe(200);
+    expect(body.serieEntregue).toBe(true);
+    /* A planilha sintética traz quatro das colunas do catálogo: as que ela
+       traz têm de estar conhecidas, e as que ela não traz é que ficam sem
+       base — é essa a partição que a tela mostra. */
+    expect(body.colunasDesconhecidas).not.toContain(
+      "qlp_administrativo.quantidade_ordenados",
+    );
+    expect(body.colunasDesconhecidas).toContain("qlp_administrativo.vale_transporte");
+    expect(body.resumo.cargos).toBe(4);
+    expect(body.resumo.conferem).toBe(4);
+    expect(body.resumo.divergem).toBe(0);
+    expect(body.linhas).toHaveLength(4);
+    // O nome legível, e não a chave normalizada, é o que a tela lista.
+    expect(body.linhas.map((l: any) => l.nome)).toContain(
+      "07.526.557/0015-05 · ANALISTA ADM",
+    );
+
+    // A quinzena pedida é do QLP: pedi-la não pode virar "nada importado".
+    const comPeriodo = await get("/qlp/auditoria?quadro=ADMINISTRATIVO&period=2026-08-01");
+    expect(comPeriodo.status).toBe(200);
+    expect(comPeriodo.body.resumo.cargos).toBe(4);
+
+    // O operacional continua sem arquivo, e a resposta continua dizendo isso.
+    const operacional = await get("/qlp/auditoria?quadro=OPERACIONAL");
+    expect(operacional.status).toBe(404);
+    expect(operacional.body.error).toMatch(/QLP Operacional/);
   });
 
   it("a ficha do cargo traz cada fato com a célula de origem, no mesmo pedido", async () => {
@@ -588,6 +713,71 @@ describe("a superfície do QLP Administrativo, na ordem em que a vida acontece",
     // E as vigências sem conflito continuam completas.
     const agosto = await get("/qlp/administrativo?period=2026-08-01");
     expect(agosto.body.registrosFaltando).toBe(0);
+  });
+
+  /*
+    O fato herdado não pode apagar a quarentena.
+
+    O operacional da mesma quinzena entra na mesma família e vira **revisão** da
+    vigência do administrativo, herdando os fatos dele. A leitura das pendências
+    partia do `import_run` da vigência viva — que passa a ser o do operacional,
+    sem conflito nenhum —, e a aba anunciava "nenhum registro ficou de fora"
+    sobre um quadro a que continuava faltando um cargo. O cargo não voltou; só
+    a evidência de que ele falta é que tinha sumido.
+  */
+  it("o operacional entra na mesma vigência e o que ficou de fora continua visível", async () => {
+    await importarQlpOperacional(planilhaOperacional());
+
+    // O operacional entrou: a auditoria dele lê os dois cargos.
+    const operacional = await get("/qlp/auditoria?quadro=OPERACIONAL&period=2026-10-01");
+    expect(operacional.status).toBe(200);
+    expect(operacional.body.linhas).toHaveLength(2);
+
+    /*
+      E as onze colunas chegam à tela, que é a metade que o catálogo sozinho não
+      garante: uma coluna no catálogo e fora de toda conta continua invisível
+      aqui, porque esta tela mostra o que as contas usam.
+    */
+    for (const slug of [
+      "assistencia_medica",
+      "cafe_da_manha",
+      "cesta_basica",
+      "ticket_refeicao_liquido",
+      "vale_transporte_liquido",
+      "seguro_de_vida",
+      "pcmso_por_mes",
+      "diaria",
+      "plr",
+      "premiacao_produtividade",
+      "remuneracao_variavel",
+    ]) {
+      expect(
+        operacional.body.colunasDesconhecidas,
+        `${slug} chegou no arquivo e a tela precisa conhecê-la`,
+      ).not.toContain(`qlp_operacional.${slug}`);
+    }
+
+    // E a conta dos benefícios fecha nos dois cargos, com as nove parcelas.
+    const beneficios = operacional.body.contas.find(
+      (c: any) => c.conta === "total_beneficio_fixo",
+    );
+    expect(beneficios.linhas).toBe(2);
+    expect(beneficios.conferem).toBe(2);
+    expect(beneficios.divergem).toBe(0);
+    const primeira = operacional.body.linhas[0].contas.find(
+      (c: any) => c.conta === "total_beneficio_fixo",
+    );
+    expect(primeira.esperado).toBe(Number(TOTAL_DOS_BENEFICIOS.toFixed(2)));
+    expect(primeira.confere).toBe(true);
+
+    // E a pendência do administrativo continua onde alguém a encontra.
+    const quadro = await get("/qlp/administrativo?period=2026-10-01");
+    expect(quadro.body.registrosFaltando).toBe(1);
+
+    const { body } = await get("/qlp/administrativo/inconsistencias");
+    expect(body.total).toBe(1);
+    expect(body.pendencias[0].vigenciaLabel).toBe("EMPURRADA_1_10_2026");
+    expect(body.pendencias[0].registros[0].chave).toContain("COORDENADOR ADM");
   });
 
   /*

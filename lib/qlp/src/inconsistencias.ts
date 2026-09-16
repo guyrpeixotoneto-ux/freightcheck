@@ -111,11 +111,24 @@ type LinhaDePendencia = {
 /**
  * As chaves que a quarentena reteve, por vigência viva do contexto.
  *
- * O `JOIN` é por `snapshot.import_run_id`: a vigência que está no ar foi
- * produzida por um run, e são os conflitos **daquele** run que explicam o que
- * falta nela. Um run anterior, cuja vigência já foi substituída, não tem nada a
- * dizer sobre o quadro de hoje — e é assim que uma correção limpa a lista sem
- * que ninguém precise marcar nada como resolvido.
+ * O `JOIN` era por `snapshot.import_run_id` da vigência viva: um run só
+ * explicaria o que falta nela. Isso vale enquanto uma vigência tem uma leitura
+ * — e deixa de valer no caso que o quadro de pessoal tem por desenho: o
+ * **fato herdado**. O administrativo e o operacional são a mesma família, e o
+ * segundo arquivo entra como revisão que herda os fatos do primeiro. A revisão
+ * nova passa a ser a viva, o run dela é o do operacional, e a quarentena do
+ * administrativo — que continua faltando no quadro — sumia da aba junto com a
+ * revisão anterior. A tela dizia "nenhum registro ficou de fora" sobre uma
+ * vigência à qual faltava um cargo, que é exatamente o desfecho que esta aba
+ * existe para impedir.
+ *
+ * Então os conflitos considerados são os de **todas as leituras daquela
+ * vigência** — as revisões anteriores incluídas —, e o que decide se a
+ * pendência ainda vale não é qual run a gravou, e sim o `NOT EXISTS` sobre os
+ * fatos vivos: a chave continua pendente enquanto ela não estiver no quadro de
+ * hoje. É a mesma promessa de antes, e agora medida no lugar certo — corrigida
+ * a origem e importada de novo, a chave entra, e a pendência desaparece
+ * sozinha sem ninguém marcar nada como resolvido.
  *
  * A comparação `detail->>'vigencia' = s.source_label` existe porque um arquivo
  * pode trazer mais de uma quinzena: sem ela, o conflito de uma vigência
@@ -140,14 +153,30 @@ async function pendenciasDoContexto(
            vi.message,
            vi.detail
       FROM snapshot s
-      JOIN validation_issue vi ON vi.import_run_id = s.import_run_id
+      JOIN snapshot leitura
+        ON leitura.dataset_family = s.dataset_family
+       AND leitura.scope_hash     = s.scope_hash
+       AND leitura.source_label   = s.source_label
+       AND leitura.effective_date = s.effective_date
+      JOIN validation_issue vi ON vi.import_run_id = leitura.import_run_id
      WHERE s.status <> 'SUPERSEDED'
      AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
+     AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = leitura.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND s.dataset_family = ${DATASET_FAMILY_QUADRO_DE_PESSOAL}
        AND ${filtroDosEscopos("s", escopos)}
        AND vi.code IN ${codigos}
        AND vi.detail->>'entityType' = ${TIPO_QLP_ADMINISTRATIVO}
        AND vi.detail->>'vigencia' = s.source_label
+       AND NOT EXISTS (
+             SELECT 1
+               FROM fato_visivel f
+               JOIN entity_identifier ei
+                 ON ei.entity_id = f.entity_id
+                AND ei.identifier_type = 'PLACA'
+                AND ei.is_current
+              WHERE f.snapshot_id = s.id
+                AND ei.identifier_value = vi.detail->>'entityKey'
+           )
        ${effectiveDate ? sql`AND s.effective_date = ${effectiveDate}::date` : sql``}
      ORDER BY s.effective_date DESC, vi.detail->>'chave'
   `);

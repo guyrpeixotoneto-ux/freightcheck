@@ -33,6 +33,7 @@
  *    `change.entity_label` para todas as séries.
  */
 export * from "./contexto";
+export * from "./auditoria";
 export * from "./quadro";
 export * from "./detalhe";
 export * from "./evolucao";
