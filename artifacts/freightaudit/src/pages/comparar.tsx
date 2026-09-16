@@ -1,18 +1,16 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { ArrowRight, GitCompareArrows } from "lucide-react";
+import { GitCompareArrows } from "lucide-react";
+import {
+  parReconciliado,
+  rotulosDasVigencias,
+} from "@workspace/comparison/recorte-de-rubrica";
 import { Layout } from "@/components/layout/layout";
 import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import { ApiErrorNotice } from "@/components/api-error";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { SeletorDoPar } from "@/components/comparacao/seletor-do-par";
 import { fetchJson, getApiUrl } from "@/lib/api";
 import {
   ChangeTable,
@@ -38,6 +36,14 @@ interface Snapshot {
   sourceLabel: string;
   effectiveDate: string;
   entityTypeSet: string;
+  /*
+    A unidade e a revisão entraram com o seletor padrão, e não são enfeite: uma
+    importação do arquivo da Ambev produz uma vigência por unidade com o mesmo
+    nome e a mesma data, e é o `scopeHash` que impede o par CAMAÇARI ×
+    PERNAMBUCO — o único que o motor recusa por construção.
+  */
+  scopeHash: string;
+  revision?: number | null;
   entityCount: number;
   factCount: number;
 }
@@ -82,26 +88,30 @@ export default function Comparar() {
   });
 
   /**
-   * A vigência mais recente contra a anterior **da mesma série**.
+   * O texto de cada vigência — `junho/2026 · 1ª quinzena`, como no resto da casa.
    *
-   * Pegar simplesmente as duas últimas da lista emparelhava Cavalo com Carreta
-   * assim que as duas séries passaram a existir: elas compartilham as mesmas
-   * datas, então as duas últimas linhas são o mesmo mês em séries diferentes. O
-   * motor recusava o par, corretamente, e a tela abria com um erro que não era
-   * culpa de quem estava olhando.
+   * Aqui se escrevia `CAVALO+CARRETA · EMPURRADA_1_6_2026 · 44 ativos`: o nome
+   * do arquivo e a contagem de linhas, que é o idioma do acervo e não o de quem
+   * audita. `rotulosDasVigencias` desempata olhando a lista inteira, e só
+   * acrescenta a unidade, a cobertura ou o arquivo nas linhas que sem isso
+   * ficariam indistinguíveis.
+   */
+  const rotulos = useMemo(() => rotulosDasVigencias(snapshots), [snapshots]);
+
+  /**
+   * O par de partida, pela mesma função das sete auditorias de rubrica.
+   *
+   * Ela preserva a ponta que já está escolhida e só decide o que ninguém
+   * decidiu — e o par que ela escolhe é da **mesma série**, que era a razão de
+   * este arquivo ter a sua própria versão disto: pegar as duas últimas linhas
+   * da lista emparelhava Cavalo com Carreta, porque as duas séries compartilham
+   * as datas. Uma cópia a menos que pode divergir da regra do motor.
    */
   useEffect(() => {
-    if (snapshots.length >= 2 && !aId && !bId) {
-      const latest = snapshots[snapshots.length - 1];
-      const previous = [...snapshots]
-        .reverse()
-        .find(
-          (s) => s.entityTypeSet === latest.entityTypeSet && s.id !== latest.id,
-        );
-      if (!previous) return;
-      setAId(previous.id);
-      setBId(latest.id);
-    }
+    if (snapshots.length === 0) return;
+    const par = parReconciliado(snapshots, { base: aId, comparada: bId });
+    if (par.base !== aId) setAId(par.base);
+    if (par.comparada !== bId) setBId(par.comparada);
   }, [snapshots, aId, bId]);
 
   const compare = useMutation({
@@ -136,20 +146,10 @@ export default function Comparar() {
     enabled: set !== null,
   });
 
-  /**
-   * Carreta e Cavalo são séries independentes, com frotas e colunas próprias.
-   * Comparar uma com a outra não produz uma alteração — produz a diferença
-   * entre dois cadastros distintos. O motor recusa esse par; a tela avisa
-   * antes, para o operador não descobrir isso por um erro.
-   */
-  const seriesA = snapshots.find((s) => s.id === aId)?.entityTypeSet;
-  const seriesB = snapshots.find((s) => s.id === bId)?.entityTypeSet;
-  const seriesMismatch = Boolean(seriesA && seriesB && seriesA !== seriesB);
-
-  const label = (id: string) => {
-    const s = snapshots.find((x) => x.id === id);
-    return s ? `${s.entityTypeSet} · ${s.sourceLabel}` : "—";
-  };
+  /* O título da tabela escreve a vigência como o seletor a escreve — um rótulo
+     só para a tela inteira, e não `CAVALO+CARRETA · EMPURRADA_1_6_2026` em cima
+     de `junho/2026 · 1ª quinzena`. */
+  const label = (id: string) => rotulos.get(id) ?? "—";
 
   return (
     <Layout>
@@ -163,39 +163,50 @@ export default function Comparar() {
           </>
         }
         rodape={
-          <>
-            <div className="flex flex-wrap items-end gap-3">
-              <SnapshotPicker
-                label="Vigência anterior"
-                value={aId}
-                onChange={setAId}
-                snapshots={snapshots}
-              />
-              <ArrowRight className="w-5 h-5 text-muted-foreground mb-2.5" />
-              <SnapshotPicker
-                label="Vigência nova"
-                value={bId}
-                onChange={setBId}
-                snapshots={snapshots}
-              />
+          <div className="flex flex-col gap-3">
+            {/*
+              O mesmo seletor das sete auditorias — "De" e "Para", o botão de
+              inverter e a lista que já não oferece par que o motor recusaria.
+
+              Esta tela tinha dois campos próprios, com "Vigência anterior" e
+              "Vigência nova" por rótulo e o aviso de séries misturadas depois da
+              escolha. Os dois nomes afirmam um estado que o par não tem — a
+              direção é escolhida, e inverter a deixaria mentindo —, e o aviso
+              chegava tarde: o campo dependente aqui já não lista a vigência
+              incompatível.
+            */}
+            <SeletorDoPar
+              vigencias={snapshots}
+              rotulos={rotulos}
+              base={aId}
+              comparada={bId}
+              onBase={setAId}
+              onComparada={setBId}
+              onInverter={() => {
+                setAId(bId);
+                setBId(aId);
+              }}
+              carregando={compare.isPending}
+              idPrefixo="comparar"
+            />
+
+            {/*
+              O botão continua, e a comparação continua sendo um gesto.
+
+              Nas telas de rubrica o par consultado é o par escolhido; aqui o
+              clique **grava** um `change_set` novo quando ele não existe, e
+              disparar isso a cada mexida no seletor faria a tela calcular
+              comparações que ninguém pediu.
+            */}
+            <div>
               <Button
                 onClick={() => compare.mutate()}
-                disabled={
-                  !aId || !bId || aId === bId || seriesMismatch || compare.isPending
-                }
+                disabled={!aId || !bId || aId === bId || compare.isPending}
               >
                 {compare.isPending ? "Comparando…" : "Comparar"}
               </Button>
             </div>
-
-            {seriesMismatch && (
-              <p className="mt-3 text-sm text-amber-900 bg-amber-50 border border-amber-300 rounded-md px-3 py-2 max-w-3xl">
-                <strong>{seriesA}</strong> e <strong>{seriesB}</strong> são séries
-                independentes — frotas e colunas diferentes. A diferença entre elas
-                não é uma alteração da fonte. Escolha duas vigências da mesma série.
-              </p>
-            )}
-          </>
+          </div>
         }
       />
 
@@ -295,42 +306,6 @@ export default function Comparar() {
         )}
       </div>
     </Layout>
-  );
-}
-
-function SnapshotPicker({
-  label,
-  value,
-  onChange,
-  snapshots,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  snapshots: Snapshot[];
-}) {
-  return (
-    <div className="space-y-1.5">
-      <div className="text-xs uppercase tracking-wide text-muted-foreground">
-        {label}
-      </div>
-      <Select value={value} onValueChange={onChange}>
-        <SelectTrigger className="w-64">
-          <SelectValue placeholder="Selecionar vigência…" />
-        </SelectTrigger>
-        <SelectContent>
-          {snapshots.map((s) => (
-            <SelectItem key={s.id} value={s.id}>
-              {/* A série entra no rótulo porque carreta e cavalo usam o mesmo
-                  nome de vigência: sem isso não há como escolher, e dá para
-                  pedir uma comparação entre séries que o motor vai recusar. */}
-              {s.entityTypeSet.replace("+", "·")} · {s.sourceLabel} ·{" "}
-              {s.entityCount} ativos
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </div>
   );
 }
 

@@ -8,6 +8,7 @@ import {
   locaisDoTma,
   resumoPorVigencia,
   trechosDoTma,
+  variaveisAlteradasDeTma,
   type ValorDeTma,
 } from "../tma";
 
@@ -270,5 +271,60 @@ describe("os CSVs", () => {
     const celulas = celulasDoCsvDeTrecho(t);
     expect(celulas[6]).toBeNull();
     expect(celulas[10]).toBeNull();
+  });
+});
+
+/**
+ * A contagem que a linha do menu do seletor escreve.
+ *
+ * Ela é do grão do change set — a coluna de um trecho —, e por isso mora ao lado
+ * da leitura agregada em vez de sair dela: o menu responde *vale a pena abrir
+ * este par?* antes de qualquer agregação por local existir.
+ */
+describe("o que se moveu nas colunas de porta", () => {
+  const alteracao = (over: Record<string, unknown> = {}) => ({
+    changeType: "VALUE_CHANGED",
+    attributeCode: "trecho.tempo_interno_origem",
+    entityLabel: "CAMAÇARI → FEIRA",
+    entityType: "TRECHO",
+    valueBefore: "90",
+    valueAfter: "120",
+    deltaAbsolute: 30,
+    deltaPercent: null,
+    comparability: "COMPARABLE",
+    ...over,
+  }) as Parameters<typeof variaveisAlteradasDeTma>[0][number];
+
+  it("conta uma por coluna movida", () => {
+    expect(
+      variaveisAlteradasDeTma([
+        alteracao(),
+        alteracao({ attributeCode: "trecho.tempo_interno_destino" }),
+      ]),
+    ).toBe(2);
+  });
+
+  it("ignora coluna que não é de porta", () => {
+    expect(variaveisAlteradasDeTma([alteracao({ attributeCode: "trecho.km" })])).toBe(0);
+  });
+
+  /*
+    Entidade que entrou ou saiu é outra notícia, e incomparável é a ausência da
+    notícia: nem uma nem outra é "coluna que se moveu". A mesma régua das outras
+    rubricas — só `ALTERADO` conta.
+  */
+  it("não conta o trecho que entrou nem o valor incomparável", () => {
+    expect(
+      variaveisAlteradasDeTma([
+        alteracao({ changeType: "ENTITY_ADDED" }),
+        alteracao({ comparability: "INCONCLUSIVE", nature: "APPEARED" }),
+      ]),
+    ).toBe(0);
+  });
+
+  it("os códigos contados são os que a tela lê", () => {
+    for (const code of CODIGOS_LIDOS_DO_TMA) {
+      expect(variaveisAlteradasDeTma([alteracao({ attributeCode: code })])).toBe(1);
+    }
   });
 });

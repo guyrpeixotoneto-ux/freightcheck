@@ -1067,10 +1067,13 @@ describe("GET /qlp/candidatos", () => {
   it("a contagem do menu bate com a comparação, com e sem rubrica", async () => {
     const { agosto, setembro } = await parDaUnidadeMaior();
 
-    /* `ordenados` existe no quadro administrativo (`rubricasDoQuadro`). Uma
-       rubrica inventada aqui faria o caso passar sem nunca exercitar o recorte,
-       que é justamente o que ele existe para exercitar. */
-    for (const recorte of ["", "&rubrica=ordenados"]) {
+    /* A rubrica chama-se `salario`, e não `ordenados`: é o nome que o catálogo
+       dá ao trio de ordenados do administrativo (`rubricasDoQuadro`), e o mesmo
+       que `codigosDaRubrica` resolve. Uma rubrica que o quadro não tem faria a
+       rota responder 404 — a recusa escrita que ela deve mesmo dar —, e o caso
+       morreria antes de exercitar o recorte, que é o que ele existe para
+       exercitar. */
+    for (const recorte of ["", "&rubrica=salario"]) {
       const { status, body } = await get(
         `/qlp/candidatos?quadro=ADMINISTRATIVO&para=${setembro.id}${recorte}`,
       );

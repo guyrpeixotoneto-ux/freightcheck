@@ -67,7 +67,7 @@
  * dado que já chegou.
  */
 
-import type { MedidaDaVariavel } from "./recorte-de-rubrica";
+import { estadoDaAlteracao, type AlteracaoDoMotor, type MedidaDaVariavel } from "./recorte-de-rubrica";
 
 export type { MedidaDaVariavel };
 
@@ -114,6 +114,44 @@ export const CODIGOS_DO_TMA = {
 
 /** Todos eles, para a leitura de `getEntityTable`. */
 export const CODIGOS_LIDOS_DO_TMA: string[] = [...new Set(Object.values(CODIGOS_DO_TMA))].sort();
+
+/**
+ * Por que a linha do menu desta rubrica não tem dinheiro — e não tem `R$ 0,00`.
+ *
+ * O que o acervo declara aqui são **minutos**, e virar minuto em real depende
+ * da jornada e de quantas viagens a operação rodou — a conta que a Auditoria de
+ * Velocidade Média já se recusa a fazer, pela mesma razão, e que este acervo não
+ * sustenta. Um `R$ 0,00` ao lado de cada vigência afirmaria que o dinheiro não
+ * se moveu numa comparação que nunca olhou para ele; a frase diz que ninguém
+ * olhou. É o mesmo campo `semImpacto` do QLP, pela mesma regra.
+ */
+export const SEM_IMPACTO_DE_TMA =
+  "O tempo de porta chega em minutos, e transformá-lo em dinheiro depende da " +
+  "jornada e de quantas viagens a operação rodou — conta que este acervo não " +
+  "sustenta. Esta comparação conta o que se moveu nas colunas de porta de cada " +
+  "trecho, e não soma reais.";
+
+/**
+ * Quantas colunas de porta se moveram entre as duas pontas — a contagem, só.
+ *
+ * É o número que a linha do menu do seletor escreve, e ele é de **coluna de
+ * trecho**: o grão do change set, que é onde o motor pareia. A tela agrega esses
+ * mesmos números por local e por trecho, e por isso não publica esta contagem em
+ * cartão nenhum — o que o menu promete aqui é "há movimento nas colunas que esta
+ * tela lê entre estas duas vigências", que é a pergunta que decide a escolha.
+ *
+ * Só `ALTERADO` conta, como nas outras rubricas: entidade que entrou ou saiu é
+ * outra notícia, e incomparável é a ausência da notícia.
+ */
+export function variaveisAlteradasDeTma(alteracoes: readonly AlteracaoDoMotor[]): number {
+  const codigos = new Set(CODIGOS_LIDOS_DO_TMA);
+  return alteracoes.filter(
+    (a) =>
+      a.attributeCode !== null &&
+      codigos.has(a.attributeCode) &&
+      estadoDaAlteracao(a) === "ALTERADO",
+  ).length;
+}
 
 // ---------------------------------------------------------------------------
 // A leitura de um trecho
