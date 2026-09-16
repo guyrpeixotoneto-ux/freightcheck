@@ -375,9 +375,31 @@ export default function AuditoriaDeIpva() {
   // Filtrar encurta a lista; a página em que se estava pode não existir mais.
   useEffect(() => setPagina(1), [filtros, base, comparada, comSemAlteracao]);
 
-  const rotuloBase = vigencias.data?.find((v) => v.id === base)?.sourceLabel ?? "De";
+  /*
+    As duas pontas escritas como quem fala delas — `julho/2026`.
+
+    Saíam do `sourceLabel`: o gráfico dizia `EMPURRADA_2_7_2026` sob o mesmo par
+    que o seletor, dois centímetros acima, chamava de `julho/2026`. Duas
+    palavras para a mesma vigência na mesma tela, e a do gráfico é a que
+    ninguém usa para falar — ninguém abre a tela querendo saber o que mudou no
+    `EMPURRADA_2_7_2026`.
+
+    `rotulos` é o mesmo mapa do seletor, de modo que as duas partes da tela não
+    podem divergir: a marca da quinzena, o nome da unidade e o desempate saem de
+    uma régua só. O `sourceLabel` fica de reserva para a vigência que não
+    estiver no mapa.
+
+    Com isto o nome do arquivo deixa de aparecer nesta tela por padrão — e é o
+    que se quer: ele não é como a vigência se chama, é o que ela veio. Onde ele
+    ainda importa, `rotulosDasVigencias` o traz de volta sozinho, como último
+    desempate entre duas linhas que seguiriam indistinguíveis.
+  */
+  const rotuloBase =
+    rotulos.get(base) ?? vigencias.data?.find((v) => v.id === base)?.sourceLabel ?? "De";
   const rotuloComparada =
-    vigencias.data?.find((v) => v.id === comparada)?.sourceLabel ?? "Para";
+    rotulos.get(comparada) ??
+    vigencias.data?.find((v) => v.id === comparada)?.sourceLabel ??
+    "Para";
 
   /*
     Justificar sem sair daqui — a mesma caixa de Chamados, o mesmo POST, e a
