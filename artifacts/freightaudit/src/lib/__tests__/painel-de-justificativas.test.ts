@@ -3,6 +3,9 @@ import { describe, expect, it } from "vitest";
 import {
   enderecoDasLinhas,
   iniciaisDoResponsavel,
+  modulosDoPainel,
+  rubricasDoPainel,
+  textoDaCobranca,
   pendenciasPorTipo,
   responsaveisDoPainel,
   resumoDoPainel,
@@ -11,9 +14,11 @@ import {
   direcaoDaLinha,
   type AutorDeJustificativas,
   type CoberturaDeJustificativas,
+  type CoberturaDeRubrica,
   type LinhaDoPainel,
 } from "../painel-de-justificativas";
 import { EQUIPAMENTOS_DO_AMBIENTE } from "../frota";
+import type { ChaveDeModulo } from "@workspace/comparison/modulos-de-justificativa";
 
 /**
  * O Painel de Justificativas afirma três números na cara do gestor — quanto
@@ -321,5 +326,201 @@ describe("enderecoDasLinhas", () => {
       "sh-pernambuco",
     );
     expect(new URLSearchParams(visaoGeral.split("?")[1]).get("scopeHash")).toBeNull();
+  });
+});
+
+/**
+ * A leitura por módulo — a que o Monitor passou a dar depois que justificar
+ * virou trabalho de cada módulo.
+ *
+ * O que se prende aqui é a régua que faz a tela poder ser conferida com ela
+ * mesma: a soma dos módulos é a soma dos cartões, a rubrica volta inteira da
+ * chave que o servidor mandou, e a ordem é a da pendência — porque a tabela
+ * existe para dizer por onde começar.
+ */
+function rubrica(
+  changeSetId: string,
+  entityType: string | null,
+  modulo: ChaveDeModulo,
+  chave: string,
+  alteracoes: number,
+  justificadas: number,
+  ultimaEm: string | null = null,
+  ultimoAutor: string | null = null,
+): CoberturaDeRubrica {
+  return {
+    changeSetId,
+    entityType,
+    modulo,
+    rubrica: chave,
+    alteracoes,
+    justificadas,
+    ultimaEm,
+    ultimoAutor,
+  };
+}
+
+const POR_RUBRICA: CoberturaDeRubrica[] = [
+  rubrica("v1", "CAVALO", "CUSTO_FIXO", "finame", 10, 4, "2026-07-01T10:00:00.000Z", "ana@x.com"),
+  rubrica("v1", "CARRETA", "CUSTO_FIXO", "finame", 6, 6, "2026-08-02T10:00:00.000Z", "joao@x.com"),
+  rubrica("v2", "CAVALO", "CUSTO_VARIAVEL", "manutencao", 4, 0),
+  rubrica("v2", "CAVALO", "SEM_CLASSE", "parametro:FROTA|Frota emprestada", 8, 1),
+];
+
+describe("modulosDoPainel", () => {
+  it("soma por módulo, e a soma é a mesma do cartão do total", () => {
+    const modulos = modulosDoPainel(POR_RUBRICA, null, null);
+    expect(modulos.map((m) => [m.modulo, m.alteracoes, m.justificadas])).toEqual([
+      ["CUSTO_FIXO", 16, 10],
+      ["CUSTO_VARIAVEL", 4, 0],
+      ["SEM_CLASSE", 8, 1],
+    ]);
+    expect(modulos.reduce((s, m) => s + m.alteracoes, 0)).toBe(28);
+  });
+
+  it("não devolve módulo sem alteração no recorte", () => {
+    /* O QLP na aba do Cavalo não tem o que dizer — e uma barra zerada ali seria
+       uma afirmação sobre um trabalho que não existe neste recorte. */
+    const modulos = modulosDoPainel(POR_RUBRICA, "v2", null);
+    expect(modulos.map((m) => m.modulo)).toEqual(["CUSTO_VARIAVEL", "SEM_CLASSE"]);
+  });
+
+  it("conta a mesma rubrica em duas vigências como uma rubrica pendente", () => {
+    /* O gestor abre uma tela, não duas. */
+    const duasVigencias = [
+      rubrica("v1", "CAVALO", "CUSTO_FIXO", "finame", 10, 4),
+      rubrica("v2", "CAVALO", "CUSTO_FIXO", "finame", 10, 4),
+    ];
+    expect(modulosDoPainel(duasVigencias, null, null)[0].rubricasPendentes).toBe(1);
+  });
+
+  it("é nulo enquanto a cobertura não chegou — e não vazio", () => {
+    expect(modulosDoPainel(null, null, null)).toEqual([]);
+  });
+});
+
+describe("rubricasDoPainel", () => {
+  it("ordena da mais pendente para a menos", () => {
+    const linhas = rubricasDoPainel(POR_RUBRICA, null, null);
+    expect(linhas.map((l) => [l.rotulo, l.pendentes])).toEqual([
+      ["Frota emprestada", 7],
+      /* 16 alterações e 10 justificadas, somando as duas vigências. */
+      ["Finame", 6],
+      ["Manutenção", 4],
+    ]);
+  });
+
+  it("soma a mesma rubrica entre vigências e tipos numa linha só", () => {
+    const [finame] = rubricasDoPainel(POR_RUBRICA, null, null).filter(
+      (l) => l.rotulo === "Finame",
+    );
+    expect(finame.alteracoes).toBe(16);
+    expect(finame.justificadas).toBe(10);
+    /* A justificativa mais recente entre as duas, com o autor dela. */
+    expect(finame.ultimoAutor).toBe("joao@x.com");
+  });
+
+  it("devolve a rota de quem tem tela, e nenhuma de quem não tem", () => {
+    const linhas = rubricasDoPainel(POR_RUBRICA, null, null);
+    expect(linhas.find((l) => l.rotulo === "Finame")?.rota).toBe("/custo-fixo-finame");
+    expect(linhas.find((l) => l.rotulo === "Frota emprestada")?.rota).toBeNull();
+  });
+
+  it("escreve o nome da rubrica do QLP com o dicionário da casa", () => {
+    const doQlp = rubricasDoPainel(
+      [rubrica("v1", "QLP_OPERACIONAL", "QLP", "qlp:saude", 3, 0)],
+      null,
+      null,
+    );
+    expect(doQlp[0].rotulo).toBe("Plano de saúde");
+    expect(doQlp[0].rota).toBe("/qlp/saude");
+  });
+
+  it("recorta por módulo sem mexer no resto", () => {
+    const linhas = rubricasDoPainel(POR_RUBRICA, null, null, "CUSTO_FIXO");
+    expect(linhas.map((l) => l.rotulo)).toEqual(["Finame"]);
+  });
+
+  it("recorta por tipo de ativo pela mesma régua das abas", () => {
+    const linhas = rubricasDoPainel(POR_RUBRICA, null, "CARRETA");
+    expect(linhas.map((l) => [l.rotulo, l.alteracoes])).toEqual([["Finame", 6]]);
+  });
+});
+
+/**
+ * A cobrança em texto — o último passo, que acontece fora do produto.
+ *
+ * O que se prende aqui é o que faria quem recebe a mensagem conferir um número
+ * que ninguém consegue reproduzir: um total que não é o da tela, uma rubrica
+ * sem pendência ocupando a lista, ou uma instrução que manda justificar onde
+ * não se justifica.
+ */
+describe("textoDaCobranca", () => {
+  const recorte = {
+    unidade: "CAMAÇARI",
+    vigencia: null,
+    tipo: null,
+    modulo: null,
+  };
+
+  const resumo = resumoDoPainel(ACERVO, null, null)!;
+  const linhas = rubricasDoPainel(POR_RUBRICA, null, null);
+
+  it("abre nomeando o recorte e o total que a tela mostra", () => {
+    const texto = textoDaCobranca(recorte, resumo, linhas);
+    expect(texto.split("\n")[0]).toBe("Justificativas pendentes — CAMAÇARI");
+    expect(texto).toContain("Todas as vigências");
+    expect(texto).toContain(
+      `${resumo.pendentes.toLocaleString("pt-BR")} de ${resumo.alteracoes.toLocaleString("pt-BR")} alterações`,
+    );
+  });
+
+  it("escreve o recorte inteiro quando há vigência, tipo e módulo escolhidos", () => {
+    const texto = textoDaCobranca(
+      { ...recorte, vigencia: "julho/2026 · 2ª quinzena", tipo: "Cavalo", modulo: "Custo Fixo" },
+      resumo,
+      linhas,
+    );
+    expect(texto.split("\n")[1]).toBe("julho/2026 · 2ª quinzena · só Cavalo · só Custo Fixo");
+  });
+
+  it("agrupa por módulo, na ordem do catálogo", () => {
+    const texto = textoDaCobranca(recorte, resumo, linhas);
+    const cabecalhos = texto
+      .split("\n")
+      .filter((l) => /^[A-ZÀ-Ú ]+ —/.test(l))
+      .map((l) => l.split(" —")[0]);
+    expect(cabecalhos).toEqual(["CUSTO FIXO", "CUSTO VARIÁVEL", "SEM CLASSE DE CUSTO"]);
+  });
+
+  it("diz onde cada rubrica se justifica — e a fila para quem não tem tela", () => {
+    const texto = textoDaCobranca(recorte, resumo, linhas);
+    expect(texto).toContain("Finame: 6 pendentes de 16");
+    expect(texto).toContain("justificar em Custo Fixo");
+    expect(texto).toContain("Frota emprestada: 7 pendentes de 8");
+    expect(texto).toContain("justificar na fila");
+  });
+
+  it("deixa de fora a rubrica sem pendência — a cobrança é do que falta", () => {
+    const semPendencia = rubricasDoPainel(
+      [
+        rubrica("v1", "CAVALO", "CUSTO_FIXO", "finame", 10, 10),
+        rubrica("v1", "CAVALO", "CUSTO_VARIAVEL", "manutencao", 4, 1),
+      ],
+      null,
+      null,
+    );
+    const texto = textoDaCobranca(recorte, resumo, semPendencia);
+    expect(texto).not.toContain("Finame");
+    expect(texto).toContain("Manutenção");
+  });
+
+  it("leva o link da leitura, para quem recebe abrir o mesmo recorte", () => {
+    const texto = textoDaCobranca(
+      { ...recorte, link: "https://app/painel-de-justificativas?tipo=CAVALO" },
+      resumo,
+      linhas,
+    );
+    expect(texto.trimEnd().endsWith("?tipo=CAVALO")).toBe(true);
   });
 });

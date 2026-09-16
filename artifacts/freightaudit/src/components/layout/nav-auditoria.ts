@@ -403,14 +403,22 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
         },
         { href: "/justificativas", label: "Justificativas", icon: FileCheck2 },
         /*
-          O painel vem **depois** da fila, e não antes: a fila é onde se
-          trabalha, o painel é onde se confere. Quem abre a seção todo dia vem
+          O monitor vem **depois** da fila, e não antes: a fila é onde se
+          trabalha, o monitor é onde se confere. Quem abre a seção todo dia vem
           justificar; quem vem cobrar o que falta é quem desce um item.
+
+          **O rótulo mudou, e o `href` não.** A tela deixou de justificar quando
+          cada módulo passou a justificar as próprias alterações, e "Painel"
+          prometia um lugar de trabalho que ela não é mais. O endereço é a chave
+          de permissão e é o que está colado em conversa de três meses atrás:
+          trocá-lo junto com o nome apagaria a decisão de quem desligou este item
+          e quebraria todo link salvo. Chave é identidade, rótulo é nome — a
+          mesma régua da seção Equipe.
         */
         {
           href: "/painel-de-justificativas",
-          label: "Painel de Justificativas",
-          icon: ClipboardList,
+          label: "Monitor de Justificativas",
+          icon: Radar,
         },
       ],
     },

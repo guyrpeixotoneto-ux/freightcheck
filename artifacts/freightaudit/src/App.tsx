@@ -78,7 +78,7 @@ import AuditoriaDeTma from '@/pages/custo-variavel-tma';
 import Remunerado from '@/pages/remunerado';
 import Justificativas from '@/pages/justificativas';
 import JustificativasPlaca from '@/pages/justificativas-placa';
-import PainelDeJustificativas from '@/pages/painel-de-justificativas';
+import MonitorDeJustificativas from '@/pages/monitor-de-justificativas';
 import MonitoramentoDeChamados from '@/pages/monitoramento-de-chamados';
 import ConciliacaoDeChamados from '@/pages/conciliacao-de-chamados';
 import { EmPreparo } from '@/pages/em-preparo';
@@ -421,7 +421,7 @@ function RotasDaAuditoria() {
       <Route path="/monitoramento-de-chamados" component={MonitoramentoDeChamados} />
       <Route path="/conciliacao-de-chamados" component={ConciliacaoDeChamados} />
       <Route path="/justificativas" component={Justificativas} />
-      <Route path="/painel-de-justificativas" component={PainelDeJustificativas} />
+      <Route path="/painel-de-justificativas" component={MonitorDeJustificativas} />
       <Route path="/justificativas/placa/:placa" component={JustificativasPlaca} />
       <Route path="/book-operador" component={BookOperador} />
       <Route path="/assistente" component={Assistente} />

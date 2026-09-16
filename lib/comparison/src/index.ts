@@ -51,6 +51,7 @@ export * from "./alteracoes-do-ativo";
 export * from "./composicao-da-vigencia";
 export * from "./evolucao-por-placa";
 export * from "./radar-trechos";
+export * from "./modulos-de-justificativa";
 export * from "./painel-de-justificativas";
 export * from "./justificativas-derivadas";
 export * from "./conciliacao-de-chamados";
