@@ -113,7 +113,7 @@ export function TabelaDoMonitorDeEquipe({
         </TableHeader>
         <TableBody>
           {linhas.map((l) => {
-            const { unidade, cargo } = escreverCargo(l.cargo.chave, rotulos);
+            const { unidade, cargo, turno } = escreverCargo(l.cargo.chave, rotulos);
             return (
               <TableRow
                 key={l.id}
@@ -147,12 +147,21 @@ export function TabelaDoMonitorDeEquipe({
                     type="button"
                     onClick={() => onSelecionar(l)}
                     className="rounded text-left font-medium underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    aria-label={`Abrir o detalhe de ${cargo}, ${l.variavel.rotulo}, no módulo ${escreverModulo(l.modulo)}`}
+                    aria-label={`Abrir o detalhe de ${[cargo, turno].filter(Boolean).join(", ")}, ${l.variavel.rotulo}, no módulo ${escreverModulo(l.modulo)}`}
                   >
                     {cargo}
                   </button>
-                  {unidade && (
-                    <span className="ml-1 text-[0.7rem] text-muted-foreground">{unidade}</span>
+                  {/*
+                    Turno e unidade embaixo do cargo, cada um no seu lugar. No
+                    quadro operacional a chave é cargo **e** turno: o mesmo
+                    "Motorista 28" existe no 8x16 e no 12x36, e emendar os dois
+                    numa linha só devolveria a sopa que a chave normalizada já é.
+                  */}
+                  {(turno || unidade) && (
+                    <span className="mt-0.5 flex flex-col text-[0.7rem] text-muted-foreground">
+                      {turno && <span>{turno}</span>}
+                      {unidade && <span>{unidade}</span>}
+                    </span>
                   )}
                 </TableCell>
                 <TableCell className="whitespace-nowrap text-xs">

@@ -41,7 +41,10 @@ export interface ComparacaoDeQlp {
 }
 
 /**
- * O cargo como se lê — unidade de um lado, cargo do outro.
+ * O cargo como se lê — cada pedaço da identidade no seu campo.
+ *
+ * Unidade, cargo e turno (o operacional tem os três; o administrativo, os dois
+ * primeiros) voltam separados para a tabela poder dar uma coluna a cada um.
  *
  * O motor rotula a linha com a chave normalizada
  * (`07526557001505CARGOGERENTE…`); o dicionário de `rotulos` devolve a forma
@@ -51,10 +54,10 @@ export interface ComparacaoDeQlp {
 export function escreverCargo(
   chave: string | null,
   rotulos: Record<string, string>,
-): { unidade: string; cargo: string } {
-  if (!chave) return { unidade: "", cargo: "—" };
+): { unidade: string; cargo: string; turno: string } {
+  if (!chave) return { unidade: "", cargo: "—", turno: "" };
   const legivel = rotulos[chave];
-  if (!legivel) return { unidade: "", cargo: chave };
+  if (!legivel) return { unidade: "", cargo: chave, turno: "" };
   return separarRotulo(legivel);
 }
 
@@ -63,8 +66,8 @@ export function cargoEmUmaLinha(
   chave: string | null,
   rotulos: Record<string, string>,
 ): string {
-  const { unidade, cargo } = escreverCargo(chave, rotulos);
-  return unidade ? `${unidade} · ${cargo}` : cargo;
+  const { unidade, cargo, turno } = escreverCargo(chave, rotulos);
+  return [unidade, cargo, turno].filter(Boolean).join(" · ");
 }
 
 /**

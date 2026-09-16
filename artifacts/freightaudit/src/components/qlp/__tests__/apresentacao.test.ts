@@ -70,11 +70,34 @@ describe("separarRotulo", () => {
     expect(separarRotulo("07.526.557/0015-05 · ANALISTA ADM")).toEqual({
       unidade: "07.526.557/0015-05",
       cargo: "ANALISTA ADM",
+      turno: "",
+    });
+  });
+
+  it("o quadro operacional tem três partes, e o turno é uma delas", () => {
+    expect(
+      separarRotulo("07526557001505_CERV · Cargo: MOTORISTA 28 · Cargo: EQUIPE ATIVA 8x16"),
+    ).toEqual({
+      unidade: "07526557001505_CERV",
+      cargo: "Cargo: MOTORISTA 28",
+      turno: "Cargo: EQUIPE ATIVA 8x16",
+    });
+  });
+
+  it("uma quarta parte fica junto do turno, em vez de sumir", () => {
+    expect(separarRotulo("UN · CARGO · TURNO · EXTRA")).toEqual({
+      unidade: "UN",
+      cargo: "CARGO",
+      turno: "TURNO · EXTRA",
     });
   });
 
   it("sem separador, tudo é cargo — melhor do que inventar uma unidade", () => {
-    expect(separarRotulo("ANALISTA ADM")).toEqual({ unidade: "", cargo: "ANALISTA ADM" });
+    expect(separarRotulo("ANALISTA ADM")).toEqual({
+      unidade: "",
+      cargo: "ANALISTA ADM",
+      turno: "",
+    });
   });
 });
 

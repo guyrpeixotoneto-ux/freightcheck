@@ -47,13 +47,33 @@ export function formatarValor(
   return formatNumber(valor, Number.isInteger(valor) ? 0 : 2);
 }
 
-/** `"07.526.557/0015-05 · ANALISTA ADM"` → as duas metades. */
-export function separarRotulo(entityLabel: string): { unidade: string; cargo: string } {
-  const posicao = entityLabel.indexOf(" · ");
-  if (posicao < 0) return { unidade: "", cargo: entityLabel };
+/**
+ * `"07.526.557/0015-05 · ANALISTA ADM"` → as partes da identidade, cada uma no
+ * seu campo.
+ *
+ * A chave legível é a emenda das colunas de identidade do tipo, na ordem em que
+ * elas compõem a chave (`lib/ingest/src/tipos.ts`): unidade + cargo no QLP
+ * Administrativo, unidade + cargo + turno no Operacional. Devolver as três
+ * separadas é o que permite a tabela dar uma **coluna** a cada uma; emendá-las
+ * num campo só faria o operacional ler
+ * `"Cargo: MOTORISTA 28 · Cargo: EQUIPE ATIVA 8x16"` sob o cabeçalho "Cargo",
+ * que é a mesma sopa que a chave normalizada, só que com pontos.
+ *
+ * Um quarto pedaço (um tipo novo, ou uma versão da chave com mais colunas) fica
+ * junto do turno em vez de sumir: a tela não sabe como ele se chama, mas
+ * esconder um pedaço da identidade é pior do que escrevê-lo sem nome próprio.
+ */
+export function separarRotulo(entityLabel: string): {
+  unidade: string;
+  cargo: string;
+  turno: string;
+} {
+  const partes = entityLabel.split(" · ");
+  if (partes.length === 1) return { unidade: "", cargo: entityLabel, turno: "" };
   return {
-    unidade: entityLabel.slice(0, posicao),
-    cargo: entityLabel.slice(posicao + " · ".length),
+    unidade: partes[0],
+    cargo: partes[1],
+    turno: partes.slice(2).join(" · "),
   };
 }
 
@@ -108,7 +128,16 @@ export function agruparMovimentos(
   );
 
   const legibilizar = (entityLabel: string): { unidade: string; cargo: string } => {
-    if (entityLabel.includes(" · ")) return separarRotulo(entityLabel);
+    if (entityLabel.includes(" · ")) {
+      /*
+        A lista de entradas e saídas é de cargos, numa linha só: o turno volta
+        para junto do cargo porque um "MOTORISTA 28" que entrou no 8x16 e outro
+        que entrou no 12x36 são duas entradas, e escrever as duas como
+        "MOTORISTA 28" faria a lista repetir o mesmo nome sem dizer por quê.
+      */
+      const { unidade, cargo, turno } = separarRotulo(entityLabel);
+      return { unidade, cargo: turno ? `${cargo} · ${turno}` : cargo };
+    }
     const chave = entityLabel.match(/^(\d{14})([A-Z0-9]*)$/);
     if (!chave) return { unidade: "", cargo: entityLabel };
     const conhecido = conhecidos.get(entityLabel);

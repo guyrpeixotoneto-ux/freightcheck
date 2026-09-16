@@ -56,7 +56,7 @@ export function DetalheDoCargo({
   const doCargo = linhas.filter((l) => l.entityLabel === cargo);
   const somaveis = doCargo.filter((l) => l.foraDaSoma === null);
   const foraDaSoma = doCargo.filter((l) => l.foraDaSoma !== null);
-  const { unidade, cargo: nome } = escreverCargo(cargo, rotulos);
+  const { unidade, cargo: nome, turno } = escreverCargo(cargo, rotulos);
 
   /* Por rubrica, na ordem em que as rubricas apareceram — que é a ordem do
      catálogo, porque é dela que a tabela veio. */
@@ -79,6 +79,8 @@ export function DetalheDoCargo({
           <SheetDescription>
             {unidade && <span className="font-mono">{unidade}</span>}
             {unidade && " · "}
+            {/* O turno é identidade no quadro operacional, não decoração. */}
+            {turno && `${turno} · `}
             {rotuloBase} → {rotuloComparada}
           </SheetDescription>
         </SheetHeader>
