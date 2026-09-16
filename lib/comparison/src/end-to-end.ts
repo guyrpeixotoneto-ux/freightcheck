@@ -189,7 +189,30 @@ export async function getEndToEndAnalysis(
   requestedContext?: RequestedContext,
   /** Recorte do cartão: só estes parâmetros. Vazio = tudo. */
   parameterKeys?: string[],
+  /**
+   * Recorte por **código de atributo** — mais fino que `parameterKeys`, e a
+   * única forma de recortar por equipamento.
+   *
+   * `parameterKey` é `FAMÍLIA|parâmetro`, e no FINAME as 24 colunas caem em
+   * seis parâmetros — quatro deles compartilhados entre cavalo e carreta
+   * (`AQUISICAO_FINANCIAMENTO|Financiamento` tem os dois lados dentro).
+   * Recortar por ele na aba Cavalo devolveria a carreta junto: o número de um
+   * recorte sob o título de outro, que é o defeito que o recorte por
+   * equipamento existe para ter corrigido.
+   *
+   * O código é por lado (`cavalo.finame_cavalo` e `carreta.finame_implemento`
+   * são atributos distintos), então filtrar por ele recorta rubrica **e**
+   * equipamento de uma vez — e é o mesmo conjunto de linhas que
+   * `evolucaoPorPlaca` lê com `parameters`, que é o que faz os dois cartões da
+   * Evolução anual falarem do mesmo recorte.
+   *
+   * Combina com `parameterKeys` por interseção: quem manda os dois pede o que
+   * satisfaz os dois. Vazio ou ausente não recorta nada.
+   */
+  attributeCodes?: string[],
 ): Promise<EndToEndAnalysis | null> {
+  const doUniverso =
+    attributeCodes && attributeCodes.length > 0 ? new Set(attributeCodes) : null;
   const contexts = await listContexts(db, { operacao: requestedContext?.operacao });
   const context = await resolveContext(db, requestedContext, contexts);
   if (!context) return null;
@@ -365,10 +388,14 @@ export async function getEndToEndAnalysis(
       };
     });
 
-  const doCartao =
-    parameterKeys && parameterKeys.length > 0
-      ? linhas.filter((l) => parameterKeys.includes(placementOf(l.attribute_code).parameterKey))
-      : linhas;
+  const doCartao = linhas.filter(
+    (l) =>
+      (!parameterKeys ||
+        parameterKeys.length === 0 ||
+        parameterKeys.includes(placementOf(l.attribute_code).parameterKey)) &&
+      (doUniverso === null ||
+        (l.attribute_code !== null && doUniverso.has(l.attribute_code))),
+  );
 
   /*
     O índice de composição é montado sobre **todas** as linhas, e não sobre o
@@ -476,6 +503,10 @@ export async function getEndToEndAnalysis(
   for (const linha of mexeram) {
     const chave = placementOf(linha.attribute_code).parameterKey;
     if (parameterKeys && parameterKeys.length > 0 && !parameterKeys.includes(chave)) continue;
+    /* O mesmo recorte do `doCartao` acima: o que sai da soma sai também da
+       lista do que voltou ao ponto de partida, ou a tela contaria reversões de
+       rubricas que ela não mostra. */
+    if (doUniverso !== null && !doUniverso.has(linha.attribute_code)) continue;
     if (diferentesAgora.has(`${linha.entity_id}|${linha.attribute_code}`)) continue;
     const atual = revertidoPorAtributo.get(linha.attribute_code) ?? { entities: 0, periods: 0 };
     atual.entities += 1;

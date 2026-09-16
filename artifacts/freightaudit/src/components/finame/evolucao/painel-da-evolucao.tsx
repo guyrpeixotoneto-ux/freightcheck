@@ -127,7 +127,11 @@ export function PainelDaEvolucaoDeFiname({
       q.set("from", pontas.de);
       q.set("to", pontas.ate);
     }
-    q.set("parameters", codigosDoRecorte(recorte).join(","));
+    /* `attributeCodes`, e não `parameters`: a ponta a ponta recorta por coluna
+       quando recebe este, e por FAMÍLIA|parâmetro quando recebe aquele — e o
+       segundo não separa cavalo de carreta. Ver `attributeCodes`, em
+       `getEndToEndAnalysis`. */
+    q.set("attributeCodes", codigosDoRecorte(recorte).join(","));
     return q;
   }, [consulta, pontas, recorte]);
 

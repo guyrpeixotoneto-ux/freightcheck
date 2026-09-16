@@ -554,18 +554,34 @@ export default function AuditoriaDeFiname() {
 
   return (
     <Layout>
+      {/*
+        O cabeçalho segue o modo aberto.
+
+        A pastilha e a frase descrevem *a pergunta que a tela responde*, e no
+        modo Evolução ela é outra: não é o que mudou entre duas vigências, é
+        como cada veículo se moveu ao longo do ano. Deixá-las fixas punha a
+        matriz do ano sob a promessa de uma comparação entre duas datas — o
+        título de um recorte sobre o número de outro, que é exatamente o que
+        esta tela persegue em toda parte.
+      */}
       <CabecalhoDePagina
         titulo={
           <span className="flex flex-wrap items-center gap-2.5">
             Auditoria de FINAME
             <span className="rounded-full border border-brand/25 bg-brand/10 px-2.5 py-0.5 text-xs font-semibold text-brand">
-              Comparação entre vigências
+              {modo === "evolucao" ? "Evolução anual" : "Comparação entre vigências"}
             </span>
           </span>
         }
         icone={Banknote}
-        descricao="O que mudou no financiamento de cada veículo entre duas vigências: parcela, juros, amortização, taxa, prazo, carência, entrada e base de compra."
-        atualizando={comparacao.isFetching && !comparacao.isLoading}
+        descricao={
+          modo === "evolucao"
+            ? "Como o financiamento de cada veículo se moveu ao longo do ano, uma coluna por vigência — com o impacto dos movimentos e a variação ponta a ponta lidos separadamente."
+            : "O que mudou no financiamento de cada veículo entre duas vigências: parcela, juros, amortização, taxa, prazo, carência, entrada e base de compra."
+        }
+        atualizando={
+          modo === "comparacao" && comparacao.isFetching && !comparacao.isLoading
+        }
       />
 
       <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-4 px-4 pb-10 sm:px-8">

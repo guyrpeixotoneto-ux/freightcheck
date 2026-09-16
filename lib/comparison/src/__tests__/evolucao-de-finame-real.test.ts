@@ -6,6 +6,7 @@ import { placementOf } from "../families";
 import { listContexts } from "../series";
 import { listChanges, getChangeSetForPair, listComparableSnapshots } from "../query";
 import { evolucaoPorPlaca } from "../evolucao-por-placa";
+import { getEndToEndAnalysis } from "../end-to-end";
 import {
   CODIGOS_DA_TABELA,
   CODIGOS_DO_DETALHE,
@@ -243,6 +244,77 @@ describe("o recorte de FINAME dentro da evolução", () => {
         );
         expect(porCodigo, `${equipamento} ${base} → ${comparada}`).toBe(porTipo);
       }
+    }
+  }, 900_000);
+});
+
+describe("a variação ponta a ponta, recortada como a matriz", () => {
+  /*
+    Esta lacuna foi achada **rodando a tela**, não pelos testes: o cartão da
+    ponta a ponta abria em "sem valor nesta grandeza" sobre uma base com 124
+    veículos comparados. A causa é que `parameterKeys` é `FAMÍLIA|parâmetro`, e
+    os códigos do FINAME não são parâmetros — o filtro não casava nada.
+  */
+  it("recorta por código, e não devolve vazio para o universo do FINAME", async () => {
+    const { db } = ctx;
+    const contexto = (await listContexts(db))[0];
+    const pedido = {
+      scopeHash: contexto.scopeHash,
+      channel: contexto.channel,
+    };
+
+    const porCodigo = await getEndToEndAnalysis(
+      db,
+      datas[0],
+      datas[datas.length - 1],
+      pedido,
+      [],
+      [...CODIGOS_DA_TABELA],
+    );
+    expect(porCodigo).not.toBeNull();
+    expect(porCodigo!.entitiesCompared).toBeGreaterThan(0);
+    /* O que não pode acontecer é o recorte zerar a leitura inteira em silêncio:
+       um cartão vazio sobre uma base que tem movimento é indistinguível de
+       "nada mudou". */
+    expect(Object.keys(porCodigo!.impact.byPeriodicity).length).toBeGreaterThan(0);
+  }, 900_000);
+
+  it("separa Cavalo de Carreta — que `parameterKeys` não consegue fazer", async () => {
+    const { db } = ctx;
+    const contexto = (await listContexts(db))[0];
+    const pedido = { scopeHash: contexto.scopeHash, channel: contexto.channel };
+    const pontas = [datas[0], datas[datas.length - 1]] as const;
+
+    const ler = async (codigos: readonly string[]) =>
+      (
+        await getEndToEndAnalysis(db, pontas[0], pontas[1], pedido, [], [...codigos])
+      )?.impact.byPeriodicity.MENSAL ?? 0;
+
+    const juntos = await ler(CODIGOS_DA_TABELA);
+    const cavalo = await ler(codigosDoRecorte("CAVALO"));
+    const carreta = await ler(codigosDoRecorte("CARRETA"));
+
+    /* As duas metades são disjuntas por construção — cada variável tem um
+       código por lado — e somam o todo. Se o recorte não separasse, cada metade
+       traria o acervo inteiro e a soma daria o dobro. */
+    expect(Number((cavalo + carreta).toFixed(2))).toBe(Number(juntos.toFixed(2)));
+    expect(cavalo).not.toBe(juntos);
+  }, 900_000);
+
+  it("o recorte alcança também o que voltou ao ponto de partida", async () => {
+    const { db } = ctx;
+    const contexto = (await listContexts(db))[0];
+    const analise = await getEndToEndAnalysis(
+      db,
+      datas[0],
+      datas[datas.length - 1],
+      { scopeHash: contexto.scopeHash, channel: contexto.channel },
+      [],
+      [...CODIGOS_DA_TABELA],
+    );
+    const doCatalogo = new Set(CODIGOS_DA_TABELA);
+    for (const r of analise!.reverted) {
+      expect(doCatalogo.has(r.attributeCode), r.attributeCode).toBe(true);
     }
   }, 900_000);
 });
