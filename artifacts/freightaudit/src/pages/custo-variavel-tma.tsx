@@ -32,6 +32,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { SeletorDoPar, type VigenciaEscolhivel } from "@/components/comparacao/seletor-do-par";
+import { useCandidatosDoPar } from "@/hooks/use-candidatos-do-par";
 import { CartoesDeTma } from "@/components/tma/cartoes";
 import {
   EvolucaoDoTempoDePorta,
@@ -181,6 +182,16 @@ export default function AuditoriaDeTma() {
   const semParPossivel = semPar !== null && !(base && comparada);
   const semTrechoNaUnidade = semPar?.motivo === "LISTA_VAZIA";
 
+  /**
+   * Os números de cada candidata a "De", contra o "Para" aberto.
+   *
+   * A pergunta, a chave e a cadência moram em `useCandidatosDoPar`, com as
+   * outras sete telas que têm menu com número. Aqui a linha sai só com a
+   * contagem: minuto não vira real nesta rubrica, e a rota diz por extenso por
+   * que não há dinheiro na linha (`SEM_IMPACTO_DE_TMA`).
+   */
+  const candidatos = useCandidatosDoPar("tma", comparada, escopoAberto);
+
   const comparacao = useQuery({
     queryKey: ["tma", "comparacao", base, comparada],
     enabled: Boolean(base && comparada),
@@ -281,6 +292,11 @@ export default function AuditoriaDeTma() {
             rotulos={rotulos}
             carregando={comparacao.isFetching}
             idPrefixo="tma"
+            candidatos={candidatos.data}
+            carregandoCandidatos={candidatos.isFetching}
+            erroDosCandidatos={
+              candidatos.error instanceof Error ? candidatos.error.message : null
+            }
           />
         )}
 
