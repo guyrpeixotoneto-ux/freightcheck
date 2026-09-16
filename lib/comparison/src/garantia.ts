@@ -109,12 +109,26 @@ export interface VigenciaDaSerie {
 /**
  * A série, em SQL, para decidir **o que pular** — e só isso.
  *
- * O `LAG` reproduz a régua de `findPreviousSnapshot`: mesma origem, mesmo
- * escopo, mesma cobertura de equipamento e mesmo canal, a vigência
- * imediatamente anterior por data. Está aqui em SQL porque a alternativa —
+ * O `LATERAL` reproduz a régua de `findPreviousSnapshot`: mesma origem, mesmo
+ * escopo, mesma família, mesmo canal e **algum tipo de equipamento em comum**,
+ * a vigência mais recente antes desta. Está aqui em SQL porque a alternativa —
  * uma ida ao banco por vigência só para descobrir que ela já está comparada —
  * transformaria a garantia numa consulta por vigência em toda pergunta
  * digitada, que é justamente o custo que este módulo existe para não pagar.
+ *
+ * ---------------------------------------------------------------------------
+ * Por que deixou de ser um `LAG` particionado pela cobertura
+ * ---------------------------------------------------------------------------
+ * Porque a partição por `entity_type_set` cortava a série no mês em que um
+ * arquivo parcial entrava. Foi o que se viu em 16/09/2026: a partir de julho as
+ * vigências passaram a cobrir um tipo a mais, a partição as jogou para outra
+ * janela, e a primeira delas ficou com `anterior_id` nulo — "importada sem
+ * comparação calculada" na Evolução, com sete meses de história logo acima.
+ * Nenhuma comparação era recusada; ela simplesmente nunca era pedida.
+ *
+ * A cobertura vira **interseção**, como no motor (`engine.ts`), e a família
+ * entra escrita: era a igualdade da cobertura que mantinha o quadro de pessoal
+ * fora da série do equipamento, e ela saiu daqui.
  *
  * **Quem decide o par que será comparado continua sendo `findPreviousSnapshot`.**
  * Esta janela só escolhe quais vigências nem precisam ser olhadas; a que sobrar
@@ -133,14 +147,23 @@ function serieComAnterior(contexto: SeriesContext) {
   return sql`
     SELECT s.id,
            s.effective_date::text AS effective_date,
-           lag(s.id) OVER (
-             PARTITION BY s.source_system,
-                          s.scope_hash,
-                          s.entity_type_set,
-                          ${channelSql("s.source_label")}
-             ORDER BY s.effective_date
-           ) AS anterior_id
+           ant.id AS anterior_id
       FROM snapshot s
+      LEFT JOIN LATERAL (
+        SELECT p.id
+          FROM snapshot p
+         WHERE p.status <> 'SUPERSEDED'
+           AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = p.import_run_id AND import_run.hidden_at IS NOT NULL)
+           AND p.source_system = s.source_system
+           AND p.scope_hash = s.scope_hash
+           AND p.dataset_family = s.dataset_family
+           AND ${channelSql("p.source_label")} IS NOT DISTINCT FROM ${channelSql("s.source_label")}
+           AND string_to_array(p.entity_type_set, '+')
+               && string_to_array(s.entity_type_set, '+')
+           AND p.effective_date < s.effective_date
+         ORDER BY p.effective_date DESC
+         LIMIT 1
+      ) ant ON TRUE
      WHERE s.status <> 'SUPERSEDED'
      AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND s.scope_hash = ${contexto.scopeHash}

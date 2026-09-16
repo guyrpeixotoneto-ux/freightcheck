@@ -5,11 +5,18 @@
 // O relato, de 15/09/2026, com o acervo de PERNAMBUCO logo depois de uma
 // importação de carreta: *"algo aconteceu que agora não consigo mais comparar
 // como antes e ainda não tem mais as alterações e impacto positivo/negativo do
-// filtro"*. As duas metades da frase são o mesmo defeito. A importação deixou
-// parte das vigências cobrindo `CARRETA+CAVALO` e parte só `CAVALO`; o motor
-// não compara coberturas diferentes (`engine.ts`), a rota de candidatas nem as
-// considera (`candidatas-do-par.ts`) — e o seletor continuava oferecendo as
-// duas séries na mesma lista, as incompatíveis sem número nenhum ao lado.
+// filtro"*. As duas metades da frase são o mesmo defeito, e a correção daquele
+// dia foi o seletor parar de oferecer linhas que o servidor não considerava
+// candidatas.
+//
+// Em 16/09/2026 o mesmo acervo mostrou que o recorte estava do tamanho errado.
+// A Auditoria de FINAME perdeu sete meses de história porque `CAVALO` e
+// `CARRETA+CAVALO` eram séries que não se falavam — e o cavalo das duas é o
+// mesmo cavalo. A cobertura deixou de ser condição de par e virou recorte da
+// comparação (`engine.ts` compara a interseção), então as duas séries do relato
+// **são** uma só. O grupo "Trocar para outra série" continua existindo, para o
+// que de fato não tem nada em comum: uma vigência de trecho ao lado de uma de
+// equipamento.
 //
 // Estes casos abrem os menus de verdade e leem o que está escrito neles.
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
@@ -63,13 +70,14 @@ const ACERVO: VigenciaEscolhivel[] = [
   v("ago1-ambos", "2026-08-01", "CARRETA+CAVALO"),
   v("ago2-cavalo", "2026-08-16", "CAVALO"),
   v("set-cavalo", "2026-09-01", "CAVALO"),
+  v("set-trecho", "2026-09-16", "TRECHO"),
   v("ca-jul-ambos", "2026-07-16", "CARRETA+CAVALO", CAMACARI),
 ];
 
 const ROTULOS = new Map(
   ACERVO.map((x) => [
     x.id,
-    { "jun-ambos": "junho/2026", "jul-ambos": "julho/2026", "ago1-ambos": "agosto/2026 · 1ª quinzena", "ago2-cavalo": "agosto/2026 · 2ª quinzena", "set-cavalo": "setembro/2026", "ca-jul-ambos": "julho/2026 · CAMAÇARI" }[x.id]!,
+    { "jun-ambos": "junho/2026", "jul-ambos": "julho/2026", "ago1-ambos": "agosto/2026 · 1ª quinzena", "ago2-cavalo": "agosto/2026 · 2ª quinzena", "set-cavalo": "setembro/2026", "set-trecho": "setembro/2026 · trechos", "ca-jul-ambos": "julho/2026 · CAMAÇARI" }[x.id]!,
   ]),
 );
 
@@ -111,21 +119,31 @@ const opcoes = () =>
 afterEach(cleanup);
 
 describe("o campo Para, com um De escolhido", () => {
-  /* O critério de aceite, dito como teste. */
-  it("não oferece agosto só com cavalo quando o De cobre cavalo + carreta", () => {
+  /* O critério de aceite, dito como teste — e invertido em 16/09/2026.
+
+     Era "não oferece agosto só com cavalo". Oferecer virou o certo no dia em
+     que a comparação passou a ler a interseção: julho traz cavalo e carreta,
+     agosto traz cavalo, e o cavalo é o que as duas têm. O que continua fora é o
+     trecho, que não tem tipo nenhum em comum com nenhuma delas. */
+  it("oferece agosto só com cavalo quando o De cobre cavalo + carreta", () => {
     montar("jul-ambos", "ago1-ambos");
     abrir("Para (vigência de destino)");
 
     const oferecidas = opcoes();
-    expect(oferecidas.some((t) => t.includes("agosto/2026 · 2ª quinzena"))).toBe(false);
-    expect(oferecidas.some((t) => t.includes("setembro/2026"))).toBe(false);
+    expect(oferecidas.some((t) => t.includes("agosto/2026 · 2ª quinzena"))).toBe(true);
+    expect(oferecidas.some((t) => t.includes("trechos"))).toBe(false);
   });
 
   it("oferece as compatíveis, e continua oferecendo todas elas", () => {
     montar("jul-ambos", "ago1-ambos");
     abrir("Para (vigência de destino)");
 
-    expect(opcoes()).toEqual(["junho/2026", "agosto/2026 · 1ª quinzena"]);
+    expect(opcoes()).toEqual([
+      "junho/2026",
+      "agosto/2026 · 1ª quinzena",
+      "agosto/2026 · 2ª quinzena",
+      "setembro/2026",
+    ]);
   });
 
   /* A recusa por escopo, que o motor trata igual à de cobertura. */
@@ -145,8 +163,8 @@ describe("o campo De, que é o que dá acesso à outra série", () => {
     montar("jul-ambos", "ago1-ambos", ACERVO, "CAVALO");
     abrir("De (vigência de origem)");
 
-    const outra = screen.getByRole("option", { name: /agosto\/2026 · 2ª quinzena/ });
-    expect(within(outra).getByText("Somente cavalo")).toBeTruthy();
+    const outra = screen.getByRole("option", { name: /setembro\/2026 · trechos/ });
+    expect(within(outra).getByText("Somente trecho")).toBeTruthy();
     expect(screen.getByText("Trocar para outra série")).toBeTruthy();
   });
 
@@ -183,20 +201,21 @@ describe("o campo De, que é o que dá acesso à outra série", () => {
     montar("jul-ambos", "ago1-ambos", ACERVO, "CAVALO");
     abrir("De (vigência de origem)");
 
-    for (const nome of [/agosto\/2026 · 2ª quinzena/, /setembro\/2026/]) {
-      const linha = screen.getByRole("option", { name: nome });
-      expect(within(linha).getByText("Somente cavalo")).toBeTruthy();
-    }
+    const linha = screen.getByRole("option", { name: /setembro\/2026 · trechos/ });
+    expect(within(linha).getByText("Somente trecho")).toBeTruthy();
   });
 
-  it("arrasta o Para para a compatível mais próxima ao trocar de cobertura", () => {
-    const { onBase, onComparada } = montar("jul-ambos", "ago1-ambos");
+  it("arrasta o Para para a compatível mais próxima ao trocar de série", () => {
+    const { onBase, onComparada } = montar("jul-ambos", "ago1-ambos", [
+      ...ACERVO,
+      v("out-trecho", "2026-10-01", "TRECHO"),
+    ]);
     abrir("De (vigência de origem)");
-    fireEvent.click(screen.getByRole("option", { name: /setembro\/2026/ }));
+    fireEvent.click(screen.getByRole("option", { name: /setembro\/2026 · trechos/ }));
 
-    expect(onBase).toHaveBeenCalledWith("set-cavalo");
-    /* A vizinha de setembro dentro de CAVALO é agosto · 2ª quinzena. */
-    expect(onComparada).toHaveBeenCalledWith("ago2-cavalo");
+    expect(onBase).toHaveBeenCalledWith("set-trecho");
+    /* A única vigência de trecho com que setembro se compara é outubro. */
+    expect(onComparada).toHaveBeenCalledWith("out-trecho");
   });
 
   /* Trocar dentro da mesma cobertura não mexe na outra ponta: o par já vale. */
@@ -210,18 +229,21 @@ describe("o campo De, que é o que dá acesso à outra série", () => {
 });
 
 describe("quando não há vigência compatível nenhuma", () => {
+  /* A vigência de trecho sozinha no acervo: nenhuma das outras tem trecho, e
+     nenhuma comparação dela é possível. É o que sobrou de "cobertura que existe
+     numa vigência só" depois que cavalo e cavalo+carreta passaram a se falar. */
   const SOZINHA = [
-    v("jul-ambos", "2026-07-16", "CARRETA+CAVALO"),
+    v("jul-trecho", "2026-07-16", "TRECHO"),
     v("ago-cavalo", "2026-08-16", "CAVALO"),
     v("set-cavalo", "2026-09-01", "CAVALO"),
   ];
 
   it("explica a ausência e diz o que importar, em vez de deixar a caixa muda", () => {
-    montar("jul-ambos", "", SOZINHA);
+    montar("jul-trecho", "", SOZINHA);
 
     expect(
       screen.getByText(
-        "Não há outra vigência com cobertura de Cavalo + Carreta disponível para comparação. Importe os dados correspondentes na vigência desejada.",
+        "Não há outra vigência com cobertura de Trecho disponível para comparação. Importe os dados correspondentes na vigência desejada.",
       ),
     ).toBeTruthy();
   });

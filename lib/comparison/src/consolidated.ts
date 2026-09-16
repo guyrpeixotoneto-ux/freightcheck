@@ -14,6 +14,7 @@ import {
   type RequestedContext,
   type SeriesContext,
 } from "./series";
+import { coberturaComum } from "./recorte-de-rubrica";
 
 /**
  * The consolidated view — a projection, not an entity.
@@ -273,6 +274,7 @@ export async function computeMissingChangeSets(
       scopeHash: snapshotTable.scopeHash,
       sourceLabel: snapshotTable.sourceLabel,
       entityTypeSet: snapshotTable.entityTypeSet,
+      datasetFamily: snapshotTable.datasetFamily,
       effectiveDate: snapshotTable.effectiveDate,
     })
     .from(snapshotTable)
@@ -285,13 +287,18 @@ export async function computeMissingChangeSets(
   // A chave inclui o canal: sem ele, a vigência de agosto do canal ROTA seria
   // comparada contra a de julho do canal EMPURRADA — mesma unidade, mesma
   // cobertura, remunerações diferentes.
+  //
+  // E inclui a **família**, que antes vinha de carona na cobertura: esta
+  // consulta lê todas as famílias, e era o `entity_type_set` na chave da série
+  // que mantinha a quinzena de cargos longe da quinzena de placas. Com a
+  // cobertura fora da chave (ver `seriesKey`), a família precisa estar escrita
+  // aqui — ou o quadro de pessoal viraria o par anterior do equipamento.
   const series = new Map<string, typeof all>();
   for (const snapshot of all) {
-    const key = seriesKey(
+    const key = `${snapshot.datasetFamily}|${seriesKey(
       snapshot.scopeHash,
       snapshot.sourceLabel,
-      snapshot.entityTypeSet,
-    );
+    )}`;
     if (!series.has(key)) series.set(key, []);
     series.get(key)!.push(snapshot);
   }
@@ -300,8 +307,30 @@ export async function computeMissingChangeSets(
   let existing = 0;
   for (const group of series.values()) {
     for (let i = 1; i < group.length; i++) {
-      const a = group[i - 1];
       const b = group[i];
+      /*
+        A anterior de `b` é a mais recente antes dela que tem **algum tipo em
+        comum** — não a linha de cima da lista.
+
+        Dentro de uma série há mais de uma cobertura desde que a cobertura saiu
+        da chave (ver `seriesKey`), e é isso que reconecta a história quando um
+        arquivo parcial entra no meio do ano. Mas há acervos em que o cavalo e a
+        carreta chegam em vigências separadas, alternadas na mesma data: ali a
+        linha de cima é a carreta e a de baixo é o cavalo, e pedi-las ao motor
+        seria a recusa dele — uma exceção que derrubaria o pós-importação
+        inteiro por um par que ninguém queria comparar.
+
+        Andar para trás até achar com quem comparar é o que `findPreviousSnapshot`
+        já faz para uma vigência só; aqui é a mesma regra, na varredura.
+      */
+      let a: (typeof group)[number] | undefined;
+      for (let j = i - 1; j >= 0; j--) {
+        if (coberturaComum(group[j].entityTypeSet, b.entityTypeSet).length > 0) {
+          a = group[j];
+          break;
+        }
+      }
+      if (!a) continue;
       if (await getChangeSetForPair(db, a.id, b.id)) {
         existing++;
         continue;

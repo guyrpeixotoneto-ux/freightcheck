@@ -640,11 +640,31 @@ export function datasetFamilyFilter(snapshotAlias: string, datasetFamily?: strin
              ${datasetFamily ?? DATASET_FAMILY_REMUNERACAO_EQUIPAMENTO}`;
 }
 
-/** A chave da série: contexto + cobertura de equipamento. */
+/**
+ * A chave da série: a unidade e o canal. **Não** a cobertura.
+ *
+ * A cobertura estava aqui, e era ela que quebrava a corrente. Quem compara
+ * pares consecutivos (`cli/compare-all.ts`, `consolidated.ts`) percorre cada
+ * série de ponta a ponta; com a cobertura na chave, um arquivo parcial —
+ * carreta em julho, trecho em agosto — abria uma série nova naquele mês. De
+ * julho para trás a corrente seguia sozinha, de julho para frente também, e o
+ * par que atravessa a fronteira nunca era calculado: a Evolução mostrava o mês
+ * "importado sem comparação calculada" e o seletor parava de oferecer a
+ * história anterior.
+ *
+ * O que a cobertura protegia continua protegido, um degrau adiante: o motor
+ * compara a **interseção** dos dois conjuntos (`engine.ts`) e recusa o par que
+ * não tem tipo nenhum em comum. Cavalo não vira carreta por esta linha ter
+ * saído daqui; ele deixa de perder a própria série porque a carreta chegou.
+ *
+ * `entityTypeSet` continua no parâmetro, ignorado, para não obrigar os
+ * chamadores a mudar de forma — e para que a próxima pessoa que vier aqui leia
+ * *por que* ele não entra, em vez de achar que foi esquecido.
+ */
 export function seriesKey(
   scopeHash: string,
   sourceLabel: string,
-  entityTypeSet: string,
+  _entityTypeSet?: string,
 ): string {
-  return `${scopeHash}|${channelOf(sourceLabel) ?? ""}|${entityTypeSet}`;
+  return `${scopeHash}|${channelOf(sourceLabel) ?? ""}`;
 }

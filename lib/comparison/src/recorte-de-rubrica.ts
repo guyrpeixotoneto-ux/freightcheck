@@ -343,12 +343,7 @@ export function parDePartida<T extends VigenciaEmparelhavel>(
     b.effectiveDate.localeCompare(a.effectiveDate),
   );
   for (const comparada of ordenadas) {
-    const base = ordenadas.find(
-      (v) =>
-        v.id !== comparada.id &&
-        v.entityTypeSet === comparada.entityTypeSet &&
-        v.scopeHash === comparada.scopeHash,
-    );
+    const base = ordenadas.find((v) => formamParDeVigencias(v, comparada));
     if (base) return { base, comparada };
   }
   return null;
@@ -561,6 +556,44 @@ export function rotulosDasVigencias<T extends VigenciaRotulavel>(
 // escrito em vez de ficar em branco.
 
 /**
+ * A cobertura de uma vigência como lista — `CARRETA+CAVALO` vira os dois tipos.
+ *
+ * Uma função, e não um `split` repetido em cada chamador, porque a forma
+ * gravada tem detalhes que ninguém lembra na hora: separador `+`, ordem
+ * alfabética, caixa alta, e o conjunto vazio quando a coluna chega vazia.
+ */
+export function coberturasDe(entityTypeSet: string | null | undefined): string[] {
+  return [
+    ...new Set(
+      (entityTypeSet ?? "")
+        .split("+")
+        .map((t) => t.trim().toUpperCase())
+        .filter((t) => t !== ""),
+    ),
+  ].sort();
+}
+
+/**
+ * Os tipos que **as duas** vigências cobrem — o recorte que a comparação lê.
+ *
+ * É esta interseção, e não a igualdade dos dois conjuntos, que diz se um par
+ * tem o que comparar. `CAVALO` contra `CARRETA+CAVALO` devolve `["CAVALO"]`:
+ * há um ano de cavalo para ler nas duas pontas, e a carreta que só existe de um
+ * lado fica de fora do recorte — não entra como frota que apareceu, porque não
+ * apareceu: ela passou a ser importada.
+ *
+ * Vazia quer dizer que não há o que comparar — `TRECHO` contra `CAVALO` —, e é
+ * aí, e só aí, que o par é recusado.
+ */
+export function coberturaComum(
+  a: string | null | undefined,
+  b: string | null | undefined,
+): string[] {
+  const doB = new Set(coberturasDe(b));
+  return coberturasDe(a).filter((t) => doB.has(t));
+}
+
+/**
  * As duas pontas formam par que o motor aceita?
  *
  * `DeVigencias` no nome não é enfeite: `composition.ts` já publica um
@@ -572,19 +605,33 @@ export function rotulosDasVigencias<T extends VigenciaRotulavel>(
  *
  * As três condições são as de `engine.ts`, na ordem em que ele as testa —
  * um snapshot não se compara consigo mesmo, escopos diferentes não se comparam,
- * coberturas diferentes não se comparam. O canal, que é a quarta recusa do
- * motor, não entra aqui: ele não está em `VigenciaEmparelhavel` e já é recortado
- * antes, por operação, em `listComparableSnapshots`.
+ * coberturas sem tipo em comum não se comparam. O canal, que é a quarta recusa
+ * do motor, não entra aqui: ele não está em `VigenciaEmparelhavel` e já é
+ * recortado antes, por operação, em `listComparableSnapshots`.
  *
- * A igualdade da cobertura é **exata**, e não "tem algum tipo em comum": é o
- * que `engine.ts` faz (`a.entityTypeSet !== b.entityTypeSet`), e é o que a
- * comparação exige — uma vigência de `CARRETA+CAVALO` contra uma de `CAVALO`
- * faria toda carreta aparecer como removida.
+ * ---------------------------------------------------------------------------
+ * Por que a cobertura deixou de ser testada por igualdade
+ * ---------------------------------------------------------------------------
+ * Era `a.entityTypeSet === b.entityTypeSet`, espelhando o motor, e o argumento
+ * escrito aqui era que `CAVALO` contra `CARRETA+CAVALO` faria toda carreta
+ * aparecer como removida. O argumento estava certo sobre o efeito e errado
+ * sobre a causa: o que produzia a carreta fantasma não era o par — era a
+ * comparação ler tipo que só existe de um lado. Corrigido isso no motor (ele
+ * compara a interseção, ver `engine.ts`), a igualdade passou a custar caro e
+ * não comprar nada.
+ *
+ * O preço medido em tela, em 16/09/2026, na Auditoria de FINAME: um arquivo
+ * parcial — de carreta, de trecho — importado a partir de julho/2026 fez
+ * aquelas vigências passarem a cobrir um tipo a mais. As de dezembro a junho
+ * seguiram como estavam, e o seletor, que testava igualdade, parou de oferecer
+ * sete meses de história de cavalo. O dado de cavalo não mudou uma vírgula; o
+ * que mudou foi um conjunto de tipos que a tela de FINAME nem lê na aba Cavalo.
+ * Uma importação de trecho não pode apagar a série do financiamento.
  */
 export function formamParDeVigencias(a: VigenciaEmparelhavel, b: VigenciaEmparelhavel): boolean {
   if (a.id === b.id) return false;
   if (a.scopeHash !== b.scopeHash) return false;
-  return a.entityTypeSet === b.entityTypeSet;
+  return coberturaComum(a.entityTypeSet, b.entityTypeSet).length > 0;
 }
 
 /**

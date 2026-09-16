@@ -244,17 +244,27 @@ describe("o motivo de não haver par", () => {
     });
   });
 
-  /* O caso relatado: duas na lista, mesma unidade, coberturas que não casam. */
+  /* O caso relatado: duas na lista, mesma unidade, e nenhum tipo em comum. */
   it("nomeia as coberturas quando são elas que impedem o par", () => {
+    const lista = [
+      vigencia("pe-set", "2026-09-01", PERNAMBUCO, "TRECHO"),
+      vigencia("pe-ago", "2026-08-01", PERNAMBUCO, "CAVALO"),
+    ];
+
+    expect(motivoSemPar(lista)).toEqual({
+      motivo: "COBERTURAS_DIFERENTES",
+      coberturas: ["CAVALO", "TRECHO"],
+    });
+  });
+
+  /* E o que deixou de impedir: um tipo em comum basta. */
+  it("não vê motivo quando as coberturas se cruzam em pelo menos um tipo", () => {
     const lista = [
       vigencia("pe-set", "2026-09-01", PERNAMBUCO, "TRECHO"),
       vigencia("pe-ago", "2026-08-01", PERNAMBUCO, "CAVALO+TRECHO"),
     ];
 
-    expect(motivoSemPar(lista)).toEqual({
-      motivo: "COBERTURAS_DIFERENTES",
-      coberturas: ["CAVALO+TRECHO", "TRECHO"],
-    });
+    expect(motivoSemPar(lista)).toBeNull();
   });
 
   /* Sem unidade aberta a lista é o acervo inteiro — e aí o motivo é outro. */
@@ -429,11 +439,18 @@ describe("a compatibilidade de duas pontas", () => {
   const ca_jul = vigencia("ca-jul-ambos", "2026-07-16", CAMACARI, "CARRETA+CAVALO");
   const acervo = [jul, ago1, ago2, set, ca_jul];
 
-  /* O critério de aceite, dito como teste. */
-  it("julho com cavalo+carreta não oferece agosto só com cavalo", () => {
-    expect(formamParDeVigencias(ago2, jul)).toBe(false);
+  /* O critério de aceite, dito como teste.
+
+     Era o oposto até 16/09/2026: `ago2-cavalo` não entrava, porque a cobertura
+     tinha de bater exatamente. O efeito medido em produção foi a Auditoria de
+     FINAME perder sete meses de história de cavalo assim que um arquivo parcial
+     — de carreta, de trecho — acrescentou um tipo às vigências de julho em
+     diante. O cavalo das duas pontas continua lá; é ele que o par compara. */
+  it("julho com cavalo+carreta oferece agosto só com cavalo", () => {
+    expect(formamParDeVigencias(ago2, jul)).toBe(true);
     expect(vigenciasCompativeisCom(acervo, jul).map((v) => v.id)).toEqual([
       "ago1-ambos",
+      "ago2-cavalo",
     ]);
   });
 
@@ -457,10 +474,10 @@ describe("a compatibilidade de duas pontas", () => {
     expect(vigenciasCompativeisCom(acervo, null)).toHaveLength(5);
   });
 
-  /* A cobertura que existe numa vigência só: a lista vazia que vira frase. */
+  /* A cobertura que não cruza com nenhuma outra: a lista vazia que vira frase. */
   it("devolve lista vazia quando a cobertura não tem par no acervo", () => {
-    expect(vigenciasCompativeisCom(acervo, ago2)).toEqual([]);
-    expect(compativelMaisProxima(acervo, ago2)).toBeNull();
+    expect(vigenciasCompativeisCom(acervo, set)).toEqual([]);
+    expect(compativelMaisProxima(acervo, set)).toBeNull();
   });
 });
 
@@ -469,11 +486,12 @@ describe("a compatível mais próxima", () => {
     vigencia("mai", "2026-05-01", PERNAMBUCO, "CAVALO"),
     vigencia("jun", "2026-06-01", PERNAMBUCO, "CAVALO"),
     vigencia("jul", "2026-07-01", PERNAMBUCO, "CAVALO"),
-    vigencia("jul-ambos", "2026-07-01", PERNAMBUCO, "CARRETA+CAVALO"),
+    vigencia("ago-ambos", "2026-08-01", PERNAMBUCO, "CARRETA+CAVALO"),
+    vigencia("set-trecho", "2026-09-01", PERNAMBUCO, "TRECHO"),
     vigencia("ago-ca", "2026-08-01", CAMACARI, "CAVALO"),
   ];
 
-  it("escolhe a vizinha no tempo, dentro da cobertura e da unidade", () => {
+  it("escolhe a vizinha no tempo, dentro da unidade", () => {
     const ref = acervo.find((v) => v.id === "jul")!;
     expect(compativelMaisProxima(acervo, ref)?.id).toBe("jun");
   });
@@ -493,9 +511,18 @@ describe("a compatível mais próxima", () => {
     expect(compativelMaisProxima(quinzenas, quinzenas[1]!)?.id).toBe("antes");
   });
 
-  it("não atravessa a cobertura nem a unidade para achar vizinha", () => {
-    const ref = acervo.find((v) => v.id === "jul-ambos")!;
-    expect(compativelMaisProxima(acervo, ref)).toBeNull();
+  /* Atravessa a cobertura — desde que sobre um tipo em comum para comparar. */
+  it("atravessa a cobertura quando as duas pontas têm tipo em comum", () => {
+    const ref = acervo.find((v) => v.id === "ago-ambos")!;
+    expect(compativelMaisProxima(acervo, ref)?.id).toBe("jul");
+  });
+
+  it("não atravessa a unidade, nem a cobertura sem nada em comum", () => {
+    const daOutraUnidade = acervo.find((v) => v.id === "ago-ca")!;
+    expect(compativelMaisProxima(acervo, daOutraUnidade)).toBeNull();
+
+    const trecho = acervo.find((v) => v.id === "set-trecho")!;
+    expect(compativelMaisProxima(acervo, trecho)).toBeNull();
   });
 });
 
@@ -565,18 +592,22 @@ describe("a lista de vigências de cada aba", () => {
   });
 
   /**
-   * Dentro da aba, o par ainda precisa ser comparável.
+   * Dentro da aba Cavalo, a série pura e a que traz os dois **se comparam**.
    *
-   * A aba Cavalo mostra a série pura e a que traz os dois, e o motor não compara
-   * uma com a outra — a cobertura tem de bater exatamente (`engine.ts`). É por
-   * isso que o recorte da aba **não** substitui o do seletor: eles fazem
-   * perguntas diferentes e os dois continuam necessários.
+   * Era o contrário, e era o defeito: o motor exigia cobertura idêntica, então
+   * a aba Cavalo mostrava duas vigências que não formavam par. Hoje ele compara
+   * a interseção (`engine.ts`), e a interseção das duas é exatamente o cavalo
+   * que a aba está lendo.
+   *
+   * O recorte da aba continua **não** substituindo o do seletor: são perguntas
+   * diferentes — "que vigências esta aba sabe ler" e "quais delas formam par
+   * com a ponta escolhida" —, e o trecho segue fora das duas.
    */
-  it("não dispensa o recorte de compatibilidade dentro da aba", () => {
+  it("compara, dentro da aba Cavalo, a série pura com a que traz os dois", () => {
     const daAba = vigenciasQueCobrem(acervo, ["CAVALO"]);
     const pura = daAba.find((v) => v.id === "cavalo")!;
 
-    expect(vigenciasCompativeisCom(daAba, pura)).toEqual([]);
+    expect(vigenciasCompativeisCom(daAba, pura).map((v) => v.id)).toEqual(["ambos"]);
   });
 });
 
