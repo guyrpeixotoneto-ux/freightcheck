@@ -20,7 +20,7 @@ describe("os números de cada linha do menu", () => {
     porPeriodicidade: Record<string, number>,
   ) => ({
     alteracoes,
-    impacto: { porPeriodicidade, naoCalculavel: 0, cobertasPorParcelas: 0 },
+    impacto: { porPeriodicidade, naoCalculavel: 0, cobertasPorParcelas: 0, foraDaSoma: 0 },
   });
 
   it("não escreve número nenhum para quem ainda não foi calculado", () => {

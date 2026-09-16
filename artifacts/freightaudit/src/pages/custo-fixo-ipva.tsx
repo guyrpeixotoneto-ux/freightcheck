@@ -36,7 +36,7 @@ import {
   vigenciasDaUnidade,
   vigenciasQueCobrem,
 } from "@workspace/comparison/recorte-de-rubrica";
-import { avisoDoParImpossivel } from "@/lib/par-de-vigencias";
+import { avisoDoParImpossivel, parDaUrl } from "@/lib/par-de-vigencias";
 import { CartoesDeIpva } from "@/components/ipva/cartoes";
 import {
   AliquotaImplicita,
@@ -107,8 +107,18 @@ import { cn } from "@/lib/utils";
  * diferente, cobertura diferente, canal diferente — chegam com a frase dele.
  */
 export default function AuditoriaDeIpva() {
-  const [base, setBase] = useState("");
-  const [comparada, setComparada] = useState("");
+  /**
+   * O par que o endereço traz, quando traz — o que faz o **Abrir auditoria** do
+   * Monitor Custo Fixo chegar aqui no mesmo par que ele estava mostrando.
+   *
+   * É só o valor inicial: `parReconciliado`, abaixo, continua mandando, e um
+   * par que não pertença à unidade aberta é descartado como qualquer outro.
+   * Sem os parâmetros no endereço, as duas pontas nascem vazias — o estado que
+   * esta tela sempre teve. Ver `parDaUrl`, em `lib/par-de-vigencias.ts`.
+   */
+  const parInicial = parDaUrl(useSearch());
+  const [base, setBase] = useState(parInicial.base);
+  const [comparada, setComparada] = useState(parInicial.comparada);
   const [filtros, setFiltros] = useState<FiltrosDeIpva>(FILTROS_VAZIOS);
   const [comSemAlteracao, setComSemAlteracao] = useState(false);
   const [pagina, setPagina] = useState(1);

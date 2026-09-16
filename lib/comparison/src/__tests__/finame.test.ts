@@ -253,8 +253,14 @@ describe("o impacto financeiro", () => {
   it("nunca mistura periodicidades num total único", () => {
     const linhas = linhasDeFiname([
       alteracao({ impactAmount: "310", impactPeriodicity: "MENSAL" }),
+      /*
+        Noutro veículo, de propósito: a amortização é parcela da parcela, e no
+        mesmo veículo a regra de composição excluiria a linha de cima — que é
+        outro teste, não este.
+      */
       alteracao({
-        attributeCode: "cavalo.valor_nf_compra",
+        entityLabel: "DEF2G45",
+        attributeCode: "cavalo.amortizacao_cavalo",
         deltaAbsolute: "5000",
         impactAmount: "5000",
         impactPeriodicity: "UNICO",
@@ -290,6 +296,43 @@ describe("o impacto financeiro", () => {
     const impacto = impactoPorPeriodicidade(linhas);
     expect(impacto.porPeriodicidade).toEqual({});
     expect(impacto.naoCalculavel).toBe(0);
+  });
+
+  it("não soma a base nem os tributos da aquisição, que são de outro módulo", () => {
+    const linhas = linhasDeFiname([
+      alteracao({ impactAmount: "310", impactPeriodicity: "MENSAL" }),
+      alteracao({
+        attributeCode: "cavalo.valor_nf_compra",
+        impactAmount: "50000",
+        impactPeriodicity: "PONTUAL",
+      }),
+      alteracao({
+        attributeCode: "cavalo.valor_icms",
+        impactAmount: "1200",
+        impactPeriodicity: "PONTUAL",
+      }),
+      alteracao({
+        attributeCode: "cavalo.valor_pis_cofins",
+        impactAmount: "3000",
+        impactPeriodicity: "PONTUAL",
+      }),
+    ]);
+    const impacto = impactoPorPeriodicidade(linhas);
+    // Só a parcela sobra. As outras três são conferência, não rubrica daqui.
+    expect(impacto.porPeriodicidade).toEqual({ MENSAL: 310 });
+    expect(impacto.foraDaSoma).toBe(3);
+    // E não são "falha de cálculo": o motor as precificou muito bem.
+    expect(impacto.naoCalculavel).toBe(0);
+  });
+
+  it("mantém as três colunas na tabela, com o motivo escrito", () => {
+    const linhas = linhasDeFiname([
+      alteracao({ attributeCode: "cavalo.valor_pis_cofins", impactAmount: "3000" }),
+    ]);
+    // Sair da soma não é sair da tela: a linha continua, marcada.
+    expect(linhas).toHaveLength(1);
+    expect(linhas[0]!.foraDaSoma).toContain("rubrica do módulo Impostos");
+    expect(linhas[0]!.estado).toBe("ALTERADO");
   });
 
   it("conta como não precificada a rubrica monetária que o motor não soube calcular", () => {
@@ -504,6 +547,7 @@ describe("a exportação", () => {
       "Alterado",
       null,
       null,
+      null,
     ]);
   });
 
@@ -544,7 +588,15 @@ describe("a exportação", () => {
       "Conflito",
       "O tipo do valor mudou entre os dois snapshots.",
       null,
+      null,
     ]);
+  });
+
+  it("leva o motivo de a coluna não entrar na soma deste módulo", () => {
+    const linha = linhaDaAlteracao(
+      alteracao({ attributeCode: "cavalo.valor_pis_cofins" }),
+    )!;
+    expect(celulasDoCsv(linha).at(-2)).toContain("rubrica do módulo Impostos");
   });
 });
 

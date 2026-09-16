@@ -1,6 +1,32 @@
 import type { MotivoSemPar } from "@workspace/comparison/recorte-de-rubrica";
 
 /**
+ * O par que o endereço já traz — `?base=<id>&comparada=<id>`.
+ *
+ * Existe para que o **Abrir auditoria** do Monitor Custo Fixo abra a tela do
+ * módulo no mesmo par que o Monitor estava mostrando. Sem isto, o botão levava
+ * à auditoria certa no par errado: a tela caía no par de partida dela, e quem
+ * clicou numa alteração de julho chegava em setembro sem uma palavra dizendo
+ * que o assunto tinha mudado — o mesmo defeito que `lib/recorte.ts` descreve
+ * sobre o `/alteracoes` pelado.
+ *
+ * **É só um valor inicial, e isso é o desenho.** As duas pontas continuam
+ * passando por `parReconciliado`, que mantém o que está na lista da unidade
+ * aberta e descarta o que não está. Um par de outra unidade no endereço não
+ * sequestra a tela: ele é descartado como qualquer outro par que não pertence
+ * à lista, e a tela abre no par de partida dela.
+ *
+ * Quem chega sem os parâmetros — pelo menu, por um link antigo, por um favorito
+ * — recebe `""` nas duas pontas, que é exatamente o estado inicial que as
+ * quatro telas sempre tiveram. A retrocompatibilidade não é um caso especial
+ * tratado aqui: é a ausência de um.
+ */
+export function parDaUrl(search: string): { base: string; comparada: string } {
+  const q = new URLSearchParams(search);
+  return { base: q.get("base") ?? "", comparada: q.get("comparada") ?? "" };
+}
+
+/**
  * A frase da tela vazia quando a lista **tem** vigências e mesmo assim não sai
  * par.
  *

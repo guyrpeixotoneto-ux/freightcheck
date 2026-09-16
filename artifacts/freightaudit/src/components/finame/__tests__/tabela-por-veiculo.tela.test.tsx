@@ -47,6 +47,7 @@ const linha = (over: Partial<LinhaDeFiname> = {}): LinhaDeFiname => ({
   impactoAmount: -6179.29,
   impactoPeriodicidade: "MENSAL",
   impactoCalculado: true,
+  foraDaSoma: null,
   ...over,
 });
 

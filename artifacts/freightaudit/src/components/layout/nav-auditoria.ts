@@ -29,6 +29,7 @@ import {
   House,
   Landmark,
   Layers,
+  LineChart,
   LayoutDashboard,
   Plug,
   Radar,
@@ -405,6 +406,21 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
         (`/qlp-operacional`, `/qlp-administrativo`) continuam valendo, porque
         são o `href`, e o `href` não mudou.
 
+        **O Monitor Custo Fixo abre a seção, e é a única tela dela que não é uma
+        auditoria.** As seis abaixo são especializadas: cada uma desce a fundo
+        numa rubrica, com o catálogo, os gráficos e a conferência dela. O
+        Monitor não substitui nenhuma — ele responde a pergunta que nenhuma
+        responde, que é *o que mudou hoje no custo fixo inteiro*, e devolve para
+        a auditoria de origem assim que a resposta exige profundidade. Quem abre
+        o dia começa nele; quem investiga um número termina numa das seis.
+
+        Ele consolida **quatro** dos seis, e não os seis: QLP Operacional e
+        Administrativo conferem a aritmética dentro de uma vigência, não
+        comparam duas, e o quadro de pessoal chega sem semântica confirmada — no
+        Monitor eles seriam linhas sem valoração, que é ruído e não vigilância.
+        O porquê por extenso está no cabeçalho de
+        `lib/comparison/src/monitor-custo-fixo.ts`.
+
         Os módulos do ativo que ainda não têm tela — IPVA, Lucro Fixo e
         Impostos — entram **só com o nome**, e abrem telas em preparo: cada verbete em `pages/telas-em-preparo.ts` diz o que falta para
         a rubrica virar número e para onde ir enquanto isso; quando a definição
@@ -418,6 +434,7 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
       icon: CircleDollarSign,
       cor: "text-nav-custo-fixo",
       itens: [
+        { href: "/monitor-custo-fixo", label: "Monitor Custo Fixo", icon: LineChart },
         { href: "/custo-fixo-finame", label: "Finame", icon: Banknote },
         { href: "/custo-fixo-ipva", label: "IPVA", icon: Receipt },
         { href: "/custo-fixo-lucro-fixo", label: "Lucro Fixo", icon: TrendingUp },

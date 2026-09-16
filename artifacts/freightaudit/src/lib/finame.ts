@@ -48,6 +48,8 @@ export interface AgregadosDeFiname {
       porPeriodicidade: Record<string, number>;
       naoCalculavel: number;
       cobertasPorParcelas: number;
+      /** Linhas fora do total por serem rubrica de outro módulo — base e tributos. */
+      foraDaSoma: number;
     };
   };
   alteracoesPorVariavel: {
