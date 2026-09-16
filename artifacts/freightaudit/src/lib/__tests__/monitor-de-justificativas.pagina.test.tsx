@@ -363,6 +363,42 @@ describe("a leitura por seção", () => {
     expect(within(tabela).queryByText(/parametro:/)).toBeNull();
   });
 
+  it("agrupa as linhas por seção, e o cabeçalho do grupo soma o recorte", async () => {
+    /*
+      A seção era um selo repetido em cada linha; virou o cabeçalho do grupo,
+      que é o único lugar da tabela onde o total da seção se lê. O número é o do
+      recorte inteiro — o mesmo da barra acima —, e não o das linhas desta
+      página: um grupo partido em duas páginas diria dois números.
+    */
+    servidor();
+    montar();
+
+    const tabela = (await screen.findByText("Onde está a pendência")).closest("section")!;
+    const daSecao = [...tabela.querySelectorAll('th[scope="colgroup"]')].find((th) =>
+      th.textContent!.includes("Custo Variável"),
+    )!;
+    expect(daSecao.textContent).toContain("400 alterações");
+    expect(daSecao.textContent).toContain("300 pendentes");
+
+    /* A ordem é a do catálogo, e não a da pendência: Manutenção tem 300
+       pendentes e vem depois do Finame, que tem 30. */
+    const grupos = [...tabela.querySelectorAll('th[scope="colgroup"]')].map(
+      /* O primeiro span é o invólucro; o segundo é o nome da seção. */
+      (th) => th.querySelectorAll("span")[1]!.textContent!.trim(),
+    );
+    expect(grupos).toEqual(["Custo Fixo", "Custo Variável", "Sem classe de custo"]);
+  });
+
+  it("não repete o nome da seção em cada linha da tabela", async () => {
+    servidor();
+    montar();
+
+    const tabela = (await screen.findByText("Onde está a pendência")).closest("section")!;
+    const doFiname = within(tabela).getByText("Finame").closest("tr")!;
+    /* Só o botão diz para onde se vai; o selo da seção mora no cabeçalho. */
+    expect(within(doFiname).queryAllByText("Custo Fixo")).toHaveLength(0);
+  });
+
   it("manda cada rubrica para a tela em que ela se justifica", async () => {
     servidor();
     montar();

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { useLocation, useSearch } from "wouter";
 import {
   CalendarRange,
@@ -54,6 +54,7 @@ import {
   pendenciasPorTipo,
   responsaveisDoPainel,
   resumoDoPainel,
+  rubricasAgrupadasPorSecao,
   rubricasDoPainel,
   textoDaCobranca,
   tiposDoPainel,
@@ -441,13 +442,26 @@ export default function MonitorDeJustificativas() {
     () => rubricasDoPainel(rubricas, changeSetId, tipo, moduloFiltrado),
     [rubricas, changeSetId, tipo, moduloFiltrado],
   );
+  /* A ordem da tabela, que não é a de `linhasDeRubrica`: lá a lista é a de por
+     onde começar, aqui ela vem agrupada por seção. O texto da cobrança continua
+     lendo a outra — quem cola num chat quer a rubrica mais atrasada na primeira
+     linha, e não um cabeçalho de seção. */
+  const linhasAgrupadas = useMemo(
+    () => rubricasAgrupadasPorSecao(linhasDeRubrica),
+    [linhasDeRubrica],
+  );
   /* A tabela é paginada em tela, e não no servidor: a cobertura por rubrica já
      está inteira em mãos — são dezenas de linhas, não milhares —, e uma ida ao
      banco por página daria a mesma resposta por N vezes o custo. */
   const paginaDeRubricas = useMemo(
-    () => linhasDeRubrica.slice((pagina - 1) * porPagina, pagina * porPagina),
-    [linhasDeRubrica, pagina, porPagina],
+    () => linhasAgrupadas.slice((pagina - 1) * porPagina, pagina * porPagina),
+    [linhasAgrupadas, pagina, porPagina],
   );
+  /* O subtotal que cada cabeçalho de grupo escreve. É o da seção **no recorte
+     inteiro**, e não o das linhas desta página: um grupo que se parte entre
+     duas páginas diria dois números, e nenhum dos dois seria o da barra logo
+     acima — o cabeçalho escreve "no recorte" com todas as letras por isso. */
+  const totalDaSecao = useMemo(() => new Map(modulos.map((m) => [m.modulo, m])), [modulos]);
   /* O quarto cartão: quantas telas alguém precisa abrir para zerar a fila —
      sempre do recorte inteiro, e não da seção filtrada. */
   const rubricasPendentes = useMemo(
@@ -707,15 +721,15 @@ export default function MonitorDeJustificativas() {
       <div className="px-6 py-4 flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-lg font-bold">Onde está a pendência</h2>
         <p className="text-sm text-muted-foreground">
-          Uma linha por rubrica. Nenhuma se justifica aqui — o botão leva à tela que grava.
+          Uma linha por rubrica, agrupada por seção. Nenhuma se justifica aqui — o botão leva
+          à tela que grava.
         </p>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="border-y bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
             <tr>
-              <th className="px-4 py-2.5 text-left font-semibold">Seção</th>
-              <th className="px-3 py-2.5 text-left font-semibold">Rubrica</th>
+              <th className="px-4 py-2.5 text-left font-semibold">Rubrica</th>
               <th className="px-3 py-2.5 text-right font-semibold">Alterações</th>
               <th className="px-3 py-2.5 text-right font-semibold">Justificadas</th>
               <th className="px-3 py-2.5 text-left font-semibold w-64">Cobertura</th>
@@ -727,83 +741,131 @@ export default function MonitorDeJustificativas() {
           <tbody>
             {linhasDeRubrica.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
+                <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">
                   Nenhuma rubrica neste recorte.
                 </td>
               </tr>
             )}
-            {paginaDeRubricas.map((linha) => {
+            {paginaDeRubricas.map((linha, i) => {
               const desenho = DESENHO_DO_MODULO[linha.modulo];
+              const Icone = desenho.icone;
+              /* O selo era uma coluna, e virou este cabeçalho. Repetido em doze
+                 linhas seguidas ele escrevia "Custo Variável" doze vezes para
+                 dizer o que o agrupamento já diz — e gastava, no celular, a
+                 largura que a rubrica precisa. A cor é a mesma da barra de
+                 "Cobertura por seção": é ela que liga as duas leituras. */
+              const abreSecao = i === 0 || paginaDeRubricas[i - 1].modulo !== linha.modulo;
+              const secao = totalDaSecao.get(linha.modulo);
               return (
-                <tr key={linha.chave} className="border-b last:border-0 hover:bg-muted/30">
-                  <td className="px-4 py-3">
-                    <span
-                      className={cn(
-                        "inline-block whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-bold",
-                        desenho.selo,
-                      )}
-                    >
-                      {linha.moduloRotulo}
-                    </span>
-                  </td>
-                  <td className="px-3 py-3 font-medium">{linha.rotulo}</td>
-                  <td className="px-3 py-3 text-right tabular-nums">
-                    {linha.alteracoes.toLocaleString("pt-BR")}
-                  </td>
-                  <td className="px-3 py-3 text-right tabular-nums text-emerald-700">
-                    {linha.justificadas.toLocaleString("pt-BR")}
-                  </td>
-                  <td className="px-3 py-3">
-                    <BarraDaCobertura cobertura={linha.cobertura} />
-                    <span className="mt-1.5 block text-xs text-muted-foreground tabular-nums">
-                      {pct(linha.cobertura)} ·{" "}
-                      <span className="text-amber-700">
-                        {linha.pendentes.toLocaleString("pt-BR")} pendentes
-                      </span>
-                    </span>
-                  </td>
-                  <td className="px-3 py-3">
-                    {linha.ultimoAutor === null ? (
-                      /* Ninguém — e não "sem responsável": a rubrica não tem
-                         dono a quem cobrar, tem trabalho a fazer. */
-                      <span className="text-xs text-muted-foreground">—</span>
-                    ) : (
-                      <span className="flex items-center gap-2 text-xs">
-                        <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-bold">
-                          {iniciaisDoResponsavel(linha.ultimoAutor)}
+                <Fragment key={linha.chave}>
+                  {abreSecao && (
+                    <tr className={cn("border-b", desenho.fundo)}>
+                      <th scope="colgroup" colSpan={7} className="px-4 py-2.5 text-left">
+                        {/* Grudado à esquerda, e da largura da **tela** e não
+                            da tabela: ela rola de lado no celular, e um
+                            cabeçalho que acompanha a rolagem some junto com a
+                            primeira coluna — ou, largo como a tabela, não
+                            quebra linha e some pela direita. No desktop o
+                            `max-w-full` devolve a largura da tabela, que aí é
+                            a menor das duas. */}
+                        <span className="sticky left-4 flex w-[calc(100vw-6rem)] max-w-full flex-wrap items-baseline gap-x-3 gap-y-1">
+                          <span
+                            className={cn(
+                              "flex items-center gap-2 text-sm font-bold",
+                              desenho.tinta,
+                            )}
+                          >
+                            <Icone className="h-4 w-4 shrink-0" />
+                            {linha.moduloRotulo}
+                          </span>
+                          {/* "No recorte" vem **primeiro**, e não no fim: é o
+                              que impede ler o subtotal como o das linhas desta
+                              página, e é a parte que a tela estreita corta se
+                              estiver no fim da frase. */}
+                          {secao && (
+                            <span className="flex flex-wrap items-baseline gap-x-2 text-xs font-medium text-muted-foreground tabular-nums">
+                              {/* Cada número é um item do flex, e não um trecho
+                                  de uma frase só: assim a linha quebra entre
+                                  eles na tela estreita, em vez de sumir pela
+                                  direita com o último deles. */}
+                              <span>No recorte:</span>
+                              <span>
+                                {secao.rubricas.length.toLocaleString("pt-BR")}{" "}
+                                {secao.rubricas.length === 1 ? "rubrica" : "rubricas"} ·
+                              </span>
+                              <span>
+                                {secao.alteracoes.toLocaleString("pt-BR")} alterações ·
+                              </span>
+                              <span className="text-amber-700">
+                                {secao.pendentes.toLocaleString("pt-BR")} pendentes ·
+                              </span>
+                              <span>{pct(secao.cobertura)} explicado</span>
+                            </span>
+                          )}
                         </span>
-                        <span className="truncate max-w-[12rem]">{linha.ultimoAutor}</span>
+                      </th>
+                    </tr>
+                  )}
+                  <tr className="border-b last:border-0 hover:bg-muted/30">
+                    <td className="px-4 py-3 font-medium">{linha.rotulo}</td>
+                    <td className="px-3 py-3 text-right tabular-nums">
+                      {linha.alteracoes.toLocaleString("pt-BR")}
+                    </td>
+                    <td className="px-3 py-3 text-right tabular-nums text-emerald-700">
+                      {linha.justificadas.toLocaleString("pt-BR")}
+                    </td>
+                    <td className="px-3 py-3">
+                      <BarraDaCobertura cobertura={linha.cobertura} />
+                      <span className="mt-1.5 block text-xs text-muted-foreground tabular-nums">
+                        {pct(linha.cobertura)} ·{" "}
+                        <span className="text-amber-700">
+                          {linha.pendentes.toLocaleString("pt-BR")} pendentes
+                        </span>
                       </span>
-                    )}
-                  </td>
-                  <td className="px-3 py-3 text-xs text-muted-foreground">
-                    {linha.ultimaEm === null
-                      ? "Nenhuma ainda"
-                      : tempoRelativo(new Date(linha.ultimaEm))}
-                  </td>
-                  <td className="px-3 py-3 text-right">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-primary font-semibold"
-                      onClick={() =>
-                        navegar(
-                          /*
-                            A tela da rubrica quando ela tem uma; a fila quando
-                            não — e a fila justifica qualquer alteração. Nenhum
-                            dos dois caminhos abre um diálogo daqui: quem grava
-                            é a tela de destino.
-                          */
-                          `${linha.rota ?? "/justificativas"}?${recorteDoEndereco(
-                            changeSetId ? { changeSetId } : {},
-                          )}`,
-                        )
-                      }
-                    >
-                      {linha.rota ? `Abrir em ${linha.moduloRotulo}` : "Abrir na fila"} →
-                    </Button>
-                  </td>
-                </tr>
+                    </td>
+                    <td className="px-3 py-3">
+                      {linha.ultimoAutor === null ? (
+                        /* Ninguém — e não "sem responsável": a rubrica não tem
+                           dono a quem cobrar, tem trabalho a fazer. */
+                        <span className="text-xs text-muted-foreground">—</span>
+                      ) : (
+                        <span className="flex items-center gap-2 text-xs">
+                          <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-bold">
+                            {iniciaisDoResponsavel(linha.ultimoAutor)}
+                          </span>
+                          <span className="truncate max-w-[12rem]">{linha.ultimoAutor}</span>
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-3 py-3 text-xs text-muted-foreground">
+                      {linha.ultimaEm === null
+                        ? "Nenhuma ainda"
+                        : tempoRelativo(new Date(linha.ultimaEm))}
+                    </td>
+                    <td className="px-3 py-3 text-right">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-primary font-semibold"
+                        onClick={() =>
+                          navegar(
+                            /*
+                              A tela da rubrica quando ela tem uma; a fila quando
+                              não — e a fila justifica qualquer alteração. Nenhum
+                              dos dois caminhos abre um diálogo daqui: quem grava
+                              é a tela de destino.
+                            */
+                            `${linha.rota ?? "/justificativas"}?${recorteDoEndereco(
+                              changeSetId ? { changeSetId } : {},
+                            )}`,
+                          )
+                        }
+                      >
+                        {linha.rota ? `Abrir em ${linha.moduloRotulo}` : "Abrir na fila"} →
+                      </Button>
+                    </td>
+                  </tr>
+                </Fragment>
               );
             })}
           </tbody>

@@ -560,6 +560,28 @@ export function rubricasDoPainel(
     );
 }
 
+/**
+ * As mesmas rubricas, na ordem em que a tabela as agrupa.
+ *
+ * `rubricasDoPainel` ordena por pendência e ignora a seção de propósito — é a
+ * lista de por onde começar. A tabela agrupa, e agrupar exige que as linhas de
+ * uma seção venham juntas: sem isso, o cabeçalho de "Custo Fixo" nasceria três
+ * vezes na mesma página, cada um somando o mesmo total, e a soma pareceria
+ * triplicar.
+ *
+ * **A ordem das seções é a do catálogo, e não a da pendência.** É a mesma de
+ * `modulosDoPainel`, e é essa igualdade que permite ler a tabela logo abaixo
+ * das barras sem reordenar nada na cabeça: a terceira barra é o terceiro grupo.
+ * Dentro de cada seção a ordem de `rubricasDoPainel` fica de pé — o `sort` é
+ * estável, e a rubrica mais pendente continua sendo a primeira linha do grupo.
+ */
+export function rubricasAgrupadasPorSecao(
+  linhas: readonly RubricaDoPainel[],
+): RubricaDoPainel[] {
+  const ordem = new Map(MODULOS_DE_JUSTIFICATIVA.map((m, i) => [m.chave, i]));
+  return [...linhas].sort((a, b) => (ordem.get(a.modulo) ?? 0) - (ordem.get(b.modulo) ?? 0));
+}
+
 // ---------------------------------------------------------------------------
 // A cobrança, em texto
 // ---------------------------------------------------------------------------
