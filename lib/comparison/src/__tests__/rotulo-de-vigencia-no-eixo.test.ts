@@ -25,6 +25,11 @@ describe("rotuloCurtoDaVigencia", () => {
     ]);
   });
 
+  /*
+    O dia entra sem a palavra "dia" — medido, e não por gosto: os seis rótulos
+    do eixo do Dashboard com `· dia 02` por extenso encostam um no outro e os
+    dois últimos se sobrepõem. A ordinal fica; o que encurta é o dia.
+  */
   it("nunca escreve o mesmo rótulo duas vezes num contexto — o defeito do eixo", () => {
     const seisVigencias = [
       "2026-06-01",
@@ -45,8 +50,8 @@ describe("rotuloCurtoDaVigencia", () => {
       "junho/2026 · 2ªq",
       "julho/2026 · 1ªq",
       "julho/2026 · 2ªq",
-      "agosto/2026 · 1ªq · dia 01",
-      "agosto/2026 · 1ªq · dia 15",
+      "agosto/2026 · 1ªq · 01",
+      "agosto/2026 · 1ªq · 15",
     ]);
   });
 
@@ -65,8 +70,8 @@ describe("rotuloCurtoDaVigencia", () => {
     const misto = ["2026-07-01", "2026-08-01", "2026-08-15"];
     expect(misto.map((d) => rotuloCurtoDaVigencia(d, misto))).toEqual([
       "julho/2026 · 1ªq",
-      "agosto/2026 · 1ªq · dia 01",
-      "agosto/2026 · 1ªq · dia 15",
+      "agosto/2026 · 1ªq · 01",
+      "agosto/2026 · 1ªq · 15",
     ]);
   });
 

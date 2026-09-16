@@ -297,11 +297,17 @@ function marcaDaVigencia(
 
   /* As entregas do mês não se repartem uma por quinzena: a ordinal sozinha
      escreveria o mesmo texto em duas linhas, e a lista voltaria a oferecer duas
-     opções idênticas — o defeito que esta camada existe para não ter. */
+     opções idênticas — o defeito que esta camada existe para não ter.
+
+     No tick, o dia entra sem a palavra: `setembro/2026 · 1ªq · dia 02` medido
+     em seis rótulos lado a lado encosta no vizinho e os dois últimos se
+     sobrepõem. `· 02` é o mesmo dado com quatro caracteres a menos, e foi o
+     que coube. A ordinal fica nos dois casos — encurtar não é o mesmo que
+     deixar de dizer a quinzena. */
   const quinzenas = new Set([...doMes].map(quinzenaDe));
-  return quinzenas.size === doMes.size
-    ? quinzena
-    : `${quinzena} · dia ${data.slice(8, 10)}`;
+  if (quinzenas.size === doMes.size) return quinzena;
+  const dia = data.slice(8, 10);
+  return compacta ? `${quinzena} · ${dia}` : `${quinzena} · dia ${dia}`;
 }
 
 /**
