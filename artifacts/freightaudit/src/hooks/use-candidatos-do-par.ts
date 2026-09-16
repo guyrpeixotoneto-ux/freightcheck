@@ -72,6 +72,7 @@ export type TelaComCandidatas =
   | "lucro-fixo"
   | "impostos"
   | "monitor-custo-fixo"
+  | "monitor-equipe"
   | "km-rodado"
   | "velocidade-media"
   | "tma"

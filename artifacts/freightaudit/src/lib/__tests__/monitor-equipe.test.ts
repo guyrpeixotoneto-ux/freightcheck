@@ -6,6 +6,7 @@ import {
   enderecoDoMonitorDeEquipe,
   escreverFiltros,
   escreverModulo,
+  escreverRecorteDoMenuDeEquipe,
   lerFiltros,
   ordenar,
   paginar,
@@ -107,6 +108,60 @@ describe("os filtros no endereço", () => {
     };
     expect(lerFiltros(escreverFiltros(filtros)).modulos).toEqual(["salario", "transporte"]);
     expect(lerFiltros(escreverFiltros(filtros)).busca).toBe("gerente");
+  });
+});
+
+describe("o recorte que o menu de vigências pergunta", () => {
+  const filtros = {
+    ...FILTROS_VAZIOS,
+    baseOperacional: "a1",
+    comparadaOperacional: "b2",
+    modulos: ["salario"],
+    situacoes: ["SEM_VALORACAO" as const],
+    busca: "gerente",
+  };
+
+  it("leva o quadro da aba e os três filtros que recortam linhas", () => {
+    const q = new URLSearchParams(escreverRecorteDoMenuDeEquipe(filtros, "OPERACIONAL"));
+    expect(q.get("quadro")).toBe("OPERACIONAL");
+    expect(q.get("modulo")).toBe("salario");
+    expect(q.get("situacao")).toBe("SEM_VALORACAO");
+    expect(q.get("busca")).toBe("gerente");
+  });
+
+  /*
+    O par é o que o menu está ajudando a trocar: mandá-lo junto faria a consulta
+    refazer-se a cada escolha, e quem responde pelo "Para" é o parâmetro `para`
+    da própria rota.
+  */
+  it("não leva o par — nem o do quadro aberto, nem o do outro", () => {
+    const q = new URLSearchParams(escreverRecorteDoMenuDeEquipe(filtros, "OPERACIONAL"));
+    for (const chave of [
+      "baseOperacional",
+      "comparadaOperacional",
+      "baseAdministrativo",
+      "comparadaAdministrativo",
+    ]) {
+      expect(q.get(chave)).toBeNull();
+    }
+  });
+
+  /*
+    A busca chega adiada de quem chama (`useTextoAdiado`): o que vai na pergunta
+    é o texto da pausa, e não o que está na caixa a cada tecla.
+  */
+  it("usa a busca adiada quando ela vem, e não a do filtro", () => {
+    const q = new URLSearchParams(
+      escreverRecorteDoMenuDeEquipe(filtros, "ADMINISTRATIVO", "geren"),
+    );
+    expect(q.get("quadro")).toBe("ADMINISTRATIVO");
+    expect(q.get("busca")).toBe("geren");
+  });
+
+  it("o quadro vai sozinho quando não há filtro nenhum", () => {
+    expect(escreverRecorteDoMenuDeEquipe(FILTROS_VAZIOS, "OPERACIONAL")).toBe(
+      "quadro=OPERACIONAL",
+    );
   });
 });
 

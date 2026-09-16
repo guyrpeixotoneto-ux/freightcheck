@@ -28,12 +28,14 @@ import { AlteracoesPorModuloDeEquipe } from "@/components/monitor-equipe/por-mod
 import { TabelaDoMonitorDeEquipe } from "@/components/monitor-equipe/tabela";
 import { DetalheDaAlteracaoDeEquipe } from "@/components/monitor-equipe/detalhe";
 import { FiltrosDoMonitorDeEquipeGlobais } from "@/components/monitor-equipe/filtros";
+import { useCandidatosDoPar, useTextoAdiado } from "@/hooks/use-candidatos-do-par";
 import { fetchJson } from "@/lib/api";
 import { lerRecorte } from "@/lib/recorte";
 import {
   ORDENACAO_PADRAO,
   enderecoDaOrigem,
   escreverFiltros,
+  escreverRecorteDoMenuDeEquipe,
   lerFiltros,
   ordenar,
   paginar,
@@ -276,6 +278,7 @@ export default function MonitorEquipe() {
             filtros={filtros}
             aplicar={aplicar}
             carregando={vigencias.isLoading}
+            escopo={recorte.scopeHash}
           />
 
           <FiltrosDoMonitorDeEquipeGlobais
@@ -418,11 +421,22 @@ export default function MonitorEquipe() {
 /**
  * O seletor de um quadro — o par daquela série, e só dela.
  *
- * Sem coluna de números ao lado de cada vigência, e a ausência é deliberada:
- * aquela coluna escreve dinheiro, e a resposta dela para um par sem movimento é
- * `R$ 0,00`. Numa tela que recusa somar reais no QLP, um `R$ 0,00` ao lado de
- * cada vigência seria a porta dos fundos por onde o número que a seção não tem
- * entraria — dito, ainda por cima, onde não cabe a ressalva.
+ * ---------------------------------------------------------------------------
+ * A coluna do menu conta alterações, e **não escreve dinheiro**
+ * ---------------------------------------------------------------------------
+ * É o mesmo seletor das outras oito telas, com a mesma coluna à direita de cada
+ * vigência: ela é o que faz escolher, e sem ela esta tela era a única do produto
+ * em que o menu abria mudo — sete linhas de `agosto/2026 · 1ª quinzena` e nada
+ * ao lado, que neste seletor é a forma de dizer *ainda não calculei*.
+ *
+ * O que ela **não** tem é o `R$ 0,00` que a ausência da coluna existia para
+ * evitar: `/monitor-equipe/candidatos` devolve `semImpacto` com a frase do
+ * travamento, e a linha sai com a contagem sozinha. A recusa de somar reais no
+ * QLP continua inteira — o que mudou é que agora ela é dita, em vez de ser
+ * cumprida pelo silêncio de uma coluna que não existia.
+ *
+ * O recorte da tela vai junto na pergunta: o número do menu é o número que o
+ * clique entrega, e não a contagem de um quadro que ninguém está lendo.
  */
 function SeletorDoQuadro({
   quadro,
@@ -430,17 +444,35 @@ function SeletorDoQuadro({
   filtros,
   aplicar,
   carregando,
+  escopo,
 }: {
   quadro: QuadroDeQlp;
   vigencias: VigenciaEscolhivel[];
   filtros: FiltrosDoMonitorDeEquipe;
   aplicar: (proximos: FiltrosDoMonitorDeEquipe) => void;
   carregando: boolean;
+  /** A unidade aberta na lateral — trocar de unidade é pergunta nova. */
+  escopo: string | null;
 }) {
   const chaveBase = quadro === "OPERACIONAL" ? "baseOperacional" : "baseAdministrativo";
   const chaveComparada =
     quadro === "OPERACIONAL" ? "comparadaOperacional" : "comparadaAdministrativo";
   const rotulos = rotulosDasVigencias(vigencias);
+
+  /*
+    A busca chega adiada: ela escreve no endereço a cada tecla, e o recorte vai
+    na chave da consulta. Sem a espera, "gerente" dispararia sete rodadas, e as
+    seis primeiras são perguntas que ninguém queria fazer. Enquanto o texto está
+    em trânsito o menu mostra esqueleto, e não os números do recorte anterior —
+    eles não estariam desatualizados, estariam respondendo outra pergunta.
+  */
+  const busca = useTextoAdiado(filtros.busca);
+  const candidatos = useCandidatosDoPar(
+    "monitor-equipe",
+    filtros[chaveComparada],
+    escopo,
+    escreverRecorteDoMenuDeEquipe(filtros, quadro, busca.valor),
+  );
 
   return (
     <div className="flex flex-col gap-2">
@@ -469,6 +501,11 @@ function SeletorDoQuadro({
           }
           carregando={carregando}
           idPrefixo={`monitor-equipe-${quadro.toLowerCase()}`}
+          candidatos={busca.emTransito ? undefined : candidatos.data}
+          carregandoCandidatos={busca.emTransito || candidatos.isFetching}
+          erroDosCandidatos={
+            candidatos.error instanceof Error ? candidatos.error.message : null
+          }
         />
       )}
     </div>

@@ -3,6 +3,7 @@ import { sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 import {
   MODULO_DO_CARGO,
+  SEM_IMPACTO_FINANCEIRO,
   SITUACOES_DA_EQUIPE,
   TIPO_DO_QUADRO,
   codigoDoEfetivo,
@@ -29,6 +30,8 @@ import {
 } from "@workspace/comparison";
 import { DATASET_FAMILY_QUADRO_DE_PESSOAL } from "@workspace/ingest/tipos";
 import { classificarFalha } from "../lib/classificar-falha";
+import { candidatasDoPar, TETO_DE_CANDIDATAS_MS } from "../lib/candidatas-do-par";
+import { comTetoDeRota } from "../lib/timeout-de-rota";
 import { exigirOperacaoDoRecurso, operacaoDaConsulta } from "../lib/operacao";
 
 /**
@@ -296,6 +299,39 @@ function parPedido(
 }
 
 /**
+ * As linhas de um par que **este recorte** mostra — a única régua dos dois.
+ *
+ * Existe porque agora são duas as rotas que precisam da mesma resposta:
+ * `/consolidado`, que a publica na tabela, e `/candidatos`, que a conta ao lado
+ * de cada vigência do menu. Se cada uma filtrasse por conta própria, o menu
+ * prometeria "22 alterações" ao lado de uma vigência que, escolhida, mostraria
+ * outro número — e nada na tela diria qual das duas está certa. Com uma função
+ * só, o número do menu é, por construção, o número que o clique entrega.
+ *
+ * O recorte acontece **antes** de qualquer resumo, que é o que impede o cartão
+ * de contradizer a tabela.
+ */
+function linhasVisiveisDoQuadro(
+  rows: Parameters<typeof linhasDeQlpComparado>[0],
+  quadro: QuadroDeQlp,
+  par: ParDoMonitorDeEquipe,
+  changeSetId: string,
+  filtros: FiltrosDoMonitorDeEquipe,
+  rotulos: Record<string, string>,
+): LinhaDoMonitorDeEquipe[] {
+  return normalizarLinhasDeEquipe(
+    linhasDeQlpComparado(rows, quadro),
+    par,
+    changeSetId,
+  ).filter(
+    (l) =>
+      passaNoModulo(l, filtros.modulos) &&
+      passaNaSituacaoDeEquipe(l, filtros.situacoes) &&
+      passaNaBuscaDeEquipe(l, filtros.busca, rotulos),
+  );
+}
+
+/**
  * `GET /monitor-equipe/consolidado`
  *
  * O par vai **por quadro**: `baseOperacional`/`comparadaOperacional` e
@@ -386,21 +422,19 @@ router.get("/monitor-equipe/consolidado", async (req, res, next): Promise<void> 
 
       Object.assign(rotulos, await rotulosDosCargos(tipo));
 
-      const normalizadas = normalizarLinhasDeEquipe(
-        linhasDeQlpComparado(rows, quadro),
-        parDoQuadro,
-        changeSet.id,
-      );
       /*
         O recorte acontece **antes** do resumo, e é por isso que o cartão e a
         tabela nunca se contradizem: o número que o cartão publica é a contagem
-        de exatamente estas linhas.
+        de exatamente estas linhas. É a mesma função que `/candidatos` chama —
+        ver `linhasVisiveisDoQuadro`.
       */
-      const visiveis = normalizadas.filter(
-        (l) =>
-          passaNoModulo(l, filtros.modulos) &&
-          passaNaSituacaoDeEquipe(l, filtros.situacoes) &&
-          passaNaBuscaDeEquipe(l, filtros.busca, rotulos),
+      const visiveis = linhasVisiveisDoQuadro(
+        rows,
+        quadro,
+        parDoQuadro,
+        changeSet.id,
+        filtros,
+        rotulos,
       );
 
       /*
@@ -449,6 +483,144 @@ router.get("/monitor-equipe/consolidado", async (req, res, next): Promise<void> 
       return;
     }
     req.log.warn({ err }, "Consolidado do Monitor Equipe recusado");
+    res.status(422).json({ error: desfecho.mensagem });
+  }
+});
+
+/**
+ * O que cada candidata a "De" produz contra o "Para" escolhido, no Monitor
+ * Equipe.
+ *
+ * `GET /monitor-equipe/candidatos?para=<snapshotId>&quadro=<ADMINISTRATIVO|OPERACIONAL>`
+ * — mais os mesmos filtros de `/consolidado` (`modulo`, `situacao`, `busca`),
+ * todos opcionais.
+ *
+ * ---------------------------------------------------------------------------
+ * Por que esta tela também tem a coluna
+ * ---------------------------------------------------------------------------
+ * Porque é a coluna que faz escolher: ao lado de cada vigência, o menu diz o
+ * que aquele par produziria, e quem lê decide sem abrir sete comparações. As
+ * outras oito telas do produto a têm, e esta abria muda — sete linhas de
+ * `agosto/2026 · 1ª quinzena` e nada à direita, que neste seletor é a forma de
+ * dizer *ainda não calculei* a quem não tinha o que calcular.
+ *
+ * ---------------------------------------------------------------------------
+ * A linha não tem dinheiro, e isso é dito
+ * ---------------------------------------------------------------------------
+ * `semImpacto` carrega a frase — a mesma que a tela publica no lugar do impacto
+ * e a mesma de `/qlp/candidatos`. Devolver `baldes: []` calado seria pior do
+ * que não ter a rota: o menu escreveria `R$ 0,00` ao lado de cada vigência,
+ * afirmando que nada mudou de dinheiro numa comparação que nunca mediu
+ * dinheiro. É a recusa que esta seção inteira faz, e ela não pode entrar pela
+ * porta dos fundos do menu.
+ *
+ * ---------------------------------------------------------------------------
+ * O quadro é obrigatório, e os filtros vêm junto
+ * ---------------------------------------------------------------------------
+ * **O quadro**, porque o par é por quadro: a tela abre uma população de cada
+ * vez, e o seletor que pergunta é o daquela aba. Uma vigência do quadro traz o
+ * administrativo e o operacional na mesma revisão, e contar sem separar diria
+ * que o operacional comparou 47 cargos onde ele tem 6.
+ *
+ * **Os filtros**, pela razão que o Monitor Custo Fixo documenta: o menu e a
+ * tela respondem à mesma pergunta, e ela é a pergunta filtrada. Com "salário" e
+ * "Sem valoração" ligados, um menu que contasse o quadro inteiro prometeria
+ * alterações que o clique não mostraria.
+ */
+router.get("/monitor-equipe/candidatos", async (req, res, next): Promise<void> => {
+  const query = req.query as Record<string, unknown>;
+
+  const pedido = typeof query.quadro === "string" ? query.quadro.toUpperCase() : "";
+  if (pedido !== "ADMINISTRATIVO" && pedido !== "OPERACIONAL") {
+    res.status(400).json({ error: "Informe quadro=ADMINISTRATIVO ou quadro=OPERACIONAL." });
+    return;
+  }
+  const quadro = pedido as QuadroDeQlp;
+
+  const para = typeof query.para === "string" ? query.para : "";
+  if (!para) {
+    res.status(400).json({ error: "Informe a vigência de destino." });
+    return;
+  }
+  await exigirOperacaoDoRecurso(req, "vigência", para, () => operacaoDoSnapshot(db, para));
+  const operacao = operacaoDaConsulta(query);
+
+  /* O mesmo `parseFiltrosDeEquipe` da outra rota, e um filtro inválido cai no
+     padrão aqui pela mesma razão que lá: um `modulo=CAFE` de um endereço velho
+     não pode esvaziar o menu. O `quadro` obrigatório é lido por ele também, e
+     vira o recorte de um quadro só — que é exatamente a aba que perguntou. */
+  const { filtros, ignorados } = parseFiltrosDeEquipe(query);
+
+  const tipo = TIPO_DO_QUADRO[quadro];
+  /* Os rótulos legíveis dos cargos, e só quando há busca: sem ela, ninguém os
+     lê, e é uma consulta por pergunta que não se faz. Ver `passaNaBuscaDeEquipe`. */
+  const rotulos = filtros.busca === null ? {} : await rotulosDosCargos(tipo);
+
+  try {
+    /* A resposta sai **fora** do teto, pela razão que `/monitor-custo-fixo/candidatos`
+       documenta: quando ela chega, a conexão já voltou inteira ao pool. */
+    const resposta = await comTetoDeRota(TETO_DE_CANDIDATAS_MS, (dbComTeto) =>
+      candidatasDoPar(
+        dbComTeto,
+        para,
+        {
+          attributeCodes: codigosDoQuadro(quadro),
+          datasetFamily: DATASET_FAMILY_QUADRO_DE_PESSOAL,
+          entityType: tipo,
+          numeros: (rows, calculado) => {
+            /*
+              O par carimbado nas linhas com os identificadores de verdade e sem
+              os rótulos: desta rota não sai linha nenhuma — só a contagem —, e
+              inventar um rótulo aqui seria escrever na resposta um nome de
+              vigência que ninguém leu do acervo.
+            */
+            const par: ParDoMonitorDeEquipe = {
+              quadro,
+              baseId: calculado.baseId,
+              comparadaId: calculado.comparadaId,
+              baseRotulo: null,
+              comparadaRotulo: null,
+              baseData: null,
+              comparadaData: null,
+            };
+            const visiveis = linhasVisiveisDoQuadro(
+              rows,
+              quadro,
+              par,
+              calculado.changeSetId,
+              filtros,
+              rotulos,
+            );
+            return {
+              /* A contagem sai da mesma função que monta o quadro do
+                 consolidado, e não de um `visiveis.length` escrito aqui: duas
+                 réguas para "quantas alterações" divergiriam no primeiro dia em
+                 que uma delas passasse a contar outra coisa. */
+              alteracoes: quadroDoMonitor(quadro, par, visiveis, null, null).alteracoes,
+              impacto: { baldes: [] },
+              semImpacto: SEM_IMPACTO_FINANCEIRO,
+            };
+          },
+        },
+        { operacao, computedBy: "api:monitor-equipe-candidatos" },
+      ),
+    );
+
+    if ("naoEncontrada" in resposta) {
+      res.status(404).json({ error: "Essa vigência não existe." });
+      return;
+    }
+    /* O que o recorte ignorou vai junto, pela razão de `/consolidado`: um
+       filtro inválido que sumisse em silêncio deixaria o menu respondendo por
+       um recorte mais largo do que o pedido, sem dizer. */
+    res.json({ ...resposta, ignorados });
+  } catch (err) {
+    const desfecho = classificarFalha(err);
+    if (desfecho.tipo !== "REGRA") {
+      next(err);
+      return;
+    }
+    req.log.warn({ err }, "Candidatas do Monitor Equipe recusadas");
     res.status(422).json({ error: desfecho.mensagem });
   }
 });
