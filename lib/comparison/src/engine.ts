@@ -21,6 +21,7 @@ import {
   type ResumoDeImpacto,
 } from "./deduplicacao";
 import { carregarVinculosDeConjunto } from "./vinculos";
+import { coberturaComum, coberturasSeFalam } from "./recorte-de-rubrica";
 
 /**
  * The comparison engine.
@@ -109,7 +110,21 @@ export async function findPreviousSnapshot(
       and(
         eq(snapshotTable.sourceSystem, target.sourceSystem),
         eq(snapshotTable.scopeHash, target.scopeHash),
-        eq(snapshotTable.entityTypeSet, target.entityTypeSet),
+        eq(snapshotTable.datasetFamily, target.datasetFamily),
+        /*
+          A anterior é a que tem **algum tipo em comum**, e não a de cobertura
+          idêntica. Era igualdade, e a igualdade quebrava a corrente no dia em
+          que um arquivo parcial — carreta, trecho — entrava a partir de um mês:
+          dali para trás a série virava outra, e a vigência nova ficava sem
+          anterior com um ano de história logo abaixo dela.
+
+          A família entra junto, e não entrava antes: quem separava o quadro de
+          pessoal do equipamento era justamente a igualdade da cobertura que
+          saiu daqui. Sem ela e sem a família, a quinzena de cargos seria a
+          anterior da quinzena de placas.
+        */
+        sql`string_to_array(snapshot.entity_type_set, '+')
+            && string_to_array(${target.entityTypeSet}::text, '+')`,
         sql`${channelSql("snapshot.source_label")} IS NOT DISTINCT FROM ${channelOf(target.sourceLabel)}::text`,
         sql`${snapshotTable.status} <> 'SUPERSEDED'`,
         sql`NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = ${snapshotTable.importRunId} AND import_run.hidden_at IS NOT NULL)`,
@@ -170,11 +185,36 @@ export async function computeChangeSet(
       `Escopos diferentes: "${a.sourceLabel}" e "${b.sourceLabel}" cobrem unidades/operadores distintos e não são comparáveis.`,
     );
   }
-  if (a.entityTypeSet !== b.entityTypeSet) {
+  /*
+    A cobertura é **recorte**, e não condição de par.
+
+    Era condição: coberturas diferentes, recusa. O argumento era bom — comparar
+    `CAVALO` com `CARRETA+CAVALO` faria toda carreta aparecer como frota que
+    entrou — e mirava o alvo errado. O que inventava a carreta não era o par:
+    era esta função ler, dos dois lados, tipo que só existe de um. A correção
+    é ler a interseção; a recusa fica para quando ela é vazia, que é o par sem
+    nada em comum (`TRECHO` contra `CAVALO`).
+
+    O que isso devolve, em tela: um arquivo parcial importado a partir de um mês
+    — carreta, trecho — deixa de apagar a série inteira das telas de grão
+    equipamento. O cavalo de dezembro continua se comparando com o cavalo de
+    setembro, porque é cavalo que as duas pontas têm.
+  */
+  const tiposComuns = coberturaComum(a.entityTypeSet, b.entityTypeSet);
+  if (!coberturasSeFalam(a.entityTypeSet, b.entityTypeSet)) {
     throw new Error(
-      `Coberturas diferentes: "${a.sourceLabel}" cobre ${a.entityTypeSet} e "${b.sourceLabel}" cobre ${b.entityTypeSet}.`,
+      `Coberturas que não formam par: "${a.sourceLabel}" cobre ${a.entityTypeSet} e "${b.sourceLabel}" cobre ${b.entityTypeSet}. ` +
+        `Ou não têm tipo em comum, ou são de grãos diferentes — equipamento não se compara com a casca de trecho.`,
     );
   }
+  /*
+    `null` quando as duas pontas cobrem exatamente o mesmo — que é a esmagadora
+    maioria das comparações. Assim a comparação de sempre roda o SQL de sempre,
+    sem uma cláusula a mais, e o recorte só aparece onde ele é a diferença entre
+    ler a série e não ler.
+  */
+  const recorte =
+    a.entityTypeSet === b.entityTypeSet ? null : tiposComuns;
   // O canal é parte do rótulo da vigência, não do escopo: duas vigências da
   // mesma unidade podem vir de canais diferentes e descrever remunerações que
   // não se sucedem. Comparar as duas produziria uma diferença sem significado.
@@ -240,7 +280,7 @@ export async function computeChangeSet(
       tela de agosto o apanharia pelo `snapshot_b` e somaria oito meses de
       movimento ao total de um mês.
     */
-    const diff = await diffSnapshots(tx, a, b, semanticsA, semanticsB);
+    const diff = await diffSnapshots(tx, a, b, semanticsA, semanticsB, recorte);
     const rows: (typeof changeTable.$inferInsert)[] = diff.changes.map((linha) => ({
       ...linha,
       changeSetId: set.id,
@@ -324,13 +364,26 @@ export async function computeChangeSet(
 
     // ---------------------------------------------------------------------
     // Axis 4 — layout: a column that appeared or vanished
+    //
+    // Recortado pelos mesmos tipos do eixo 1: numa ponta que passou a trazer
+    // carreta, as catorze colunas da carreta não são layout que apareceu — são
+    // a cobertura que cresceu, e anunciá-las como colunas novas seria a mesma
+    // carreta fantasma do eixo 2 com outra roupa.
     // ---------------------------------------------------------------------
+    const recorteDoLayout =
+      recorte === null
+        ? sql``
+        : sql` AND EXISTS (SELECT 1 FROM attribute a_r
+                            WHERE a_r.id = sa.attribute_id
+                              AND a_r.entity_type = ANY(${sql.param([...recorte])}::text[]))`;
     const { rows: layout } = await tx.execute<{
       attribute_id: string;
       direction: string;
     }>(sql`
-      WITH la AS (SELECT attribute_id FROM snapshot_attribute WHERE snapshot_id = ${snapshotAId}),
-           lb AS (SELECT attribute_id FROM snapshot_attribute WHERE snapshot_id = ${snapshotBId})
+      WITH la AS (SELECT attribute_id FROM snapshot_attribute sa
+                   WHERE sa.snapshot_id = ${snapshotAId}${recorteDoLayout}),
+           lb AS (SELECT attribute_id FROM snapshot_attribute sa
+                   WHERE sa.snapshot_id = ${snapshotBId}${recorteDoLayout})
       SELECT COALESCE(la.attribute_id, lb.attribute_id) AS attribute_id,
              CASE WHEN la.attribute_id IS NULL THEN 'ADDED' ELSE 'REMOVED' END AS direction
         FROM la
@@ -515,7 +568,34 @@ export async function diffSnapshots(
   /** A semântica vigente em cada ponta, lida na data de cada uma. */
   semanticsA: Map<string, AttributeClassification>,
   semanticsB: Map<string, AttributeClassification>,
+  /**
+   * Os tipos de entidade que **as duas** vigências cobrem — o recorte da
+   * comparação. `null` quer dizer "as duas cobrem o mesmo", que é o caso
+   * comum e não precisa de recorte nenhum.
+   *
+   * Existe porque a cobertura deixou de ser condição de par: quando um arquivo
+   * parcial faz uma ponta passar a trazer carreta (ou trecho) e a outra não, o
+   * que se compara é o que as duas têm. Sem este recorte, cada carreta da ponta
+   * mais nova entraria no eixo 2 como frota que apareceu — duzentas placas
+   * "novas" num mês em que nenhuma foi comprada. O tipo que só existe de um
+   * lado não é movimento de frota; é cobertura de arquivo, e o produto já a
+   * nomeia onde ela pertence (`rotuloDaCobertura`).
+   */
+  tipos: readonly string[] | null = null,
 ): Promise<SnapshotDiff> {
+  /*
+    O recorte entra como `EXISTS` sobre `entity`, e não como `JOIN`: as duas
+    consultas abaixo já fazem `FULL OUTER JOIN` entre as duas pontas, e um join
+    a mais dentro de cada CTE muda o plano das duas. Ausente o recorte, não há
+    cláusula nenhuma — a comparação de coberturas iguais roda exatamente o SQL
+    de sempre.
+  */
+  const doRecorte = (alias: string) =>
+    tipos === null
+      ? sql``
+      : sql` AND EXISTS (SELECT 1 FROM entity e_r
+                          WHERE e_r.id = ${sql.raw(alias)}.entity_id
+                            AND e_r.entity_type = ANY(${sql.param([...tipos])}::text[]))`;
   const rows: ComputedChange[] = [];
   let unchanged = 0;
   let inconclusive = 0;
@@ -539,7 +619,7 @@ export async function diffSnapshots(
           ON i.entity_id = f.entity_id
          AND i.identifier_type = 'PLACA'
          AND i.is_current
-       WHERE f.snapshot_id = ${a.id}
+       WHERE f.snapshot_id = ${a.id}${doRecorte("f")}
     ),
     fb AS (
       SELECT f.*, i.identifier_value AS entity_label
@@ -548,7 +628,7 @@ export async function diffSnapshots(
           ON i.entity_id = f.entity_id
          AND i.identifier_type = 'PLACA'
          AND i.is_current
-       WHERE f.snapshot_id = ${b.id}
+       WHERE f.snapshot_id = ${b.id}${doRecorte("f")}
     )
     SELECT COALESCE(fa.entity_id, fb.entity_id)       AS entity_id,
            COALESCE(fa.attribute_id, fb.attribute_id) AS attribute_id,
@@ -655,8 +735,10 @@ export async function diffSnapshots(
     entity_type: string;
     direction: string;
   }>(sql`
-    WITH ea AS (SELECT DISTINCT entity_id FROM fato_visivel WHERE snapshot_id = ${a.id}),
-         eb AS (SELECT DISTINCT entity_id FROM fato_visivel WHERE snapshot_id = ${b.id})
+    WITH ea AS (SELECT DISTINCT entity_id FROM fato_visivel f
+                 WHERE f.snapshot_id = ${a.id}${doRecorte("f")}),
+         eb AS (SELECT DISTINCT entity_id FROM fato_visivel f
+                 WHERE f.snapshot_id = ${b.id}${doRecorte("f")})
     SELECT COALESCE(ea.entity_id, eb.entity_id) AS entity_id,
            i.identifier_value AS entity_label,
            e.entity_type,

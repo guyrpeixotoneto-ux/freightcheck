@@ -7,6 +7,7 @@ import { createDb } from "@workspace/db";
 import { computeChangeSet } from "../engine";
 import { getChangeSetBreakdown, listChanges, listComparableSnapshots } from "../query";
 import { seriesKey } from "../series";
+import { coberturasSeFalam } from "../recorte-de-rubrica";
 
 const { db, pool } = createDb(process.env.DATABASE_URL!);
 const n = (v: number) => v.toLocaleString("pt-BR", { maximumFractionDigits: 2 });
@@ -47,8 +48,18 @@ try {
       console.log(`  ── ${key.split("|").slice(1).filter(Boolean).join(" · ")} ──`);
     }
   for (let i = 1; i < group.length; i++) {
-    const a = group[i - 1];
     const b = group[i];
+    // A anterior é a mais recente com algum tipo em comum — a mesma regra de
+    // `computeMissingChangeSets`, pelo mesmo motivo: dentro de uma série pode
+    // haver mais de uma cobertura, e a linha de cima nem sempre compara.
+    let a: (typeof group)[number] | undefined;
+    for (let j = i - 1; j >= 0; j--) {
+      if (coberturasSeFalam(group[j].entityTypeSet, b.entityTypeSet)) {
+        a = group[j];
+        break;
+      }
+    }
+    if (!a) continue;
     const set = await computeChangeSet(db, a.id, b.id, {
       computedBy: "cli:compare-all",
       force: true,

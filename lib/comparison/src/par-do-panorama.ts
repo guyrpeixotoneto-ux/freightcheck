@@ -3,6 +3,7 @@ import type { Database } from "@workspace/db";
 import { computeChangeSet } from "./engine";
 import { getChangeSetForPair } from "./query";
 import { contextFilter, type SeriesContext } from "./series";
+import { coberturaComum, coberturasSeFalam } from "./recorte-de-rubrica";
 
 /**
  * O PAR DO PANORAMA — duas vigências vizinhas, na direção que se pedir.
@@ -161,22 +162,50 @@ export async function prepararParDoPanorama(
     com o de carreta de agosto — o par que o motor recusa por cobertura
     diferente, aqui produzido por nós e apresentado como recusa dele.
   */
-  const porSerie = new Map<string, { a?: PontaDoPar; b?: PontaDoPar }>();
+  /*
+    O casamento é por unidade e **cobertura que se fala** — não por cobertura
+    idêntica.
+
+    Era `scope_hash|entity_type_set`, e a igualdade quebrava esta tela no mês em
+    que um arquivo parcial entrava: de um lado `CAVALO`, do outro
+    `CARRETA+CAVALO`, nenhuma série com as duas pontas, e o Panorama recusava o
+    par com um ano de cavalo nas duas. É o defeito de 16/09/2026 — o mesmo que
+    tirou sete meses do seletor do FINAME —, aqui na forma de uma recusa.
+
+    A régua é a de `coberturasSeFalam`: as coberturas têm de se cruzar e ser do
+    mesmo grão. Entre as candidatas de uma unidade fica a de **maior
+    interseção**, e o empate fica com a de cobertura idêntica — quem procura é
+    quem manda, e não a ordem em que o banco devolveu.
+  */
+  const porUnidade = new Map<string, { a: PontaDoPar[]; b: PontaDoPar[] }>();
   for (const linha of rows) {
-    const chave = `${linha.scope_hash}|${linha.entity_type_set}`;
-    const serie = porSerie.get(chave) ?? {};
-    if (linha.effective_date === de) serie.a = linha;
-    else serie.b = linha;
-    porSerie.set(chave, serie);
+    const lados = porUnidade.get(linha.scope_hash) ?? { a: [], b: [] };
+    if (linha.effective_date === de) lados.a.push(linha);
+    else lados.b.push(linha);
+    porUnidade.set(linha.scope_hash, lados);
   }
 
-  const pares = [...porSerie.values()].filter(
-    (s): s is { a: PontaDoPar; b: PontaDoPar } => Boolean(s.a && s.b),
-  );
+  const pares: { a: PontaDoPar; b: PontaDoPar }[] = [];
+  for (const { a: ladoA, b: ladoB } of porUnidade.values()) {
+    for (const a of ladoA) {
+      const melhor = ladoB
+        .filter((b) => coberturasSeFalam(a.entity_type_set, b.entity_type_set))
+        .sort(
+          (x, y) =>
+            coberturaComum(a.entity_type_set, y.entity_type_set).length -
+              coberturaComum(a.entity_type_set, x.entity_type_set).length ||
+            Number(y.entity_type_set === a.entity_type_set) -
+              Number(x.entity_type_set === a.entity_type_set) ||
+            x.entity_type_set.localeCompare(y.entity_type_set),
+        )[0];
+      if (melhor) pares.push({ a, b: melhor });
+    }
+  }
+
   if (pares.length === 0) {
     throw new ParRecusado(
-      `Nenhuma série tem as duas vigências (${de} e ${para}) com a mesma cobertura nesta unidade. ` +
-        "A volta só existe onde a ida existe: sem o mesmo conjunto de equipamento dos dois lados, não há par a inverter.",
+      `Nenhuma série tem as duas vigências (${de} e ${para}) com equipamento em comum nesta unidade. ` +
+        "A volta só existe onde a ida existe: sem nenhum tipo de equipamento dos dois lados, não há par a inverter.",
     );
   }
 

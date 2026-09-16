@@ -21,6 +21,7 @@ import {
   type ImpactSummary,
 } from "./grouped";
 import { listPeriods } from "./consolidated";
+import { coberturaComum, coberturasSeFalam } from "./recorte-de-rubrica";
 import {
   contextFilter,
   listContexts,
@@ -260,17 +261,48 @@ export async function getEndToEndAnalysis(
   const deB = naPonta(fim);
 
   /*
-    Só se compara série com série do mesmo equipamento. Uma que exista só numa
-    das pontas não vira zero nem entra na conta: é dita, e o motivo é o que
-    manda importar o arquivo que falta.
+    Só se compara série com série que tenha equipamento em comum — e compara-se
+    **o que as duas têm**, não o conjunto inteiro de uma delas.
+
+    Era casamento por igualdade do `entity_type_set`, e era o mesmo defeito que
+    partia a série no motor: no dia em que um arquivo parcial fez a ponta final
+    cobrir `CARRETA+CAVALO` enquanto a inicial seguia em `CAVALO`, a leitura
+    ponta a ponta não achava par nenhum. As duas séries iam para
+    `missingSeries`, e a tela dizia que não havia com que comparar com um ano de
+    cavalo nas duas pontas.
+
+    A escolha da contraparte é a de **maior interseção**, e o empate fica com a
+    de cobertura idêntica: com `CAVALO` e `CARRETA+CAVALO` disponíveis na ponta
+    inicial, quem procura é quem manda, e não a ordem alfabética.
+
+    Uma série sem nada em comum com a outra ponta continua sendo dita, com o
+    motivo que manda importar o arquivo que falta.
   */
-  const paresComparaveis = [...deB.keys()].filter((serie) => deA.has(serie)).sort();
+  const contraparteDe = (serie: string) => {
+    const candidatas = [...deA.keys()]
+      .map((outra) => ({ outra, comuns: coberturaComum(serie, outra) }))
+      .filter((c) => c.comuns.length > 0 && coberturasSeFalam(serie, c.outra))
+      .sort(
+        (x, y) =>
+          y.comuns.length - x.comuns.length ||
+          Number(y.outra === serie) - Number(x.outra === serie) ||
+          x.outra.localeCompare(y.outra),
+      );
+    return candidatas[0] ?? null;
+  };
+  const pares = [...deB.keys()]
+    .sort()
+    .map((serie) => ({ serie, par: contraparteDe(serie) }))
+    .filter((p): p is { serie: string; par: { outra: string; comuns: string[] } } =>
+      p.par !== null,
+    );
+  const comParNaPontaInicial = new Set(pares.map((p) => p.par.outra));
   const missingSeries = [
-    ...[...deB.keys()].filter((s) => !deA.has(s)).map((s) => ({
+    ...[...deB.keys()].filter((s) => contraparteDe(s) === null).map((s) => ({
       entityTypeSet: s,
       reason: `A série existe em ${periodLabel(fim)} e não em ${periodLabel(inicio)}: não há ponta inicial com que comparar.`,
     })),
-    ...[...deA.keys()].filter((s) => !deB.has(s)).map((s) => ({
+    ...[...deA.keys()].filter((s) => !comParNaPontaInicial.has(s)).map((s) => ({
       entityTypeSet: s,
       reason: `A série existe em ${periodLabel(inicio)} e não em ${periodLabel(fim)}: não há ponta final com que comparar.`,
     })),
@@ -316,20 +348,36 @@ export async function getEndToEndAnalysis(
   let entitiesCompared = 0;
   const fleetByChangeSet = new Map<string, number>();
 
-  for (const serie of paresComparaveis) {
-    const a = deA.get(serie)!;
+  for (const { serie, par } of pares) {
+    const a = deA.get(par.outra)!;
     const b = deB.get(serie)!;
+    /* `null` quando as duas pontas cobrem o mesmo — o SQL de sempre. */
+    const recorte = par.outra === serie ? null : par.comuns;
     const diff = await diffSnapshots(
       db,
       { id: a.id, effectiveDate: a.effective_date },
       { id: b.id, effectiveDate: b.effective_date },
       semanticsA,
       semanticsB,
+      recorte,
     );
     for (const linha of diff.changes) todas.push({ serie, linha });
     entitiesAdded += diff.entitiesAdded;
     entitiesRemoved += diff.entitiesRemoved;
-    entitiesCompared += b.entity_count - diff.entitiesAdded;
+    /*
+      Os comparados saem da frota **do recorte**, e não de `entity_count`.
+
+      `entity_count` é a vigência inteira: numa ponta que traz carreta comparada
+      contra uma que só traz cavalo, ele contaria as carretas como comparadas
+      sem que uma linha delas tivesse sido lida. `frotasDaPonta` já vem por
+      equipamento, que é exatamente o grão do recorte.
+    */
+    const frotaDoRecorte = recorte === null
+      ? b.entity_count
+      : frotasDaPonta(b.id)
+          .filter(([tipo]) => recorte.includes(tipo))
+          .reduce((soma, [, frota]) => soma + frota, 0);
+    entitiesCompared += frotaDoRecorte - diff.entitiesAdded;
     /*
       `buildGroup` usa a frota da série para dizer a cobertura do grupo, e a
       chave que ele consulta é (comparação, equipamento). Aqui não existe
@@ -414,7 +462,7 @@ export async function getEndToEndAnalysis(
     linhas.map(daLinhaDoBanco),
     await carregarVinculosDeConjunto(
       db,
-      paresComparaveis.map((serie) => deB.get(serie)!.id),
+      pares.map(({ serie }) => deB.get(serie)!.id),
     ),
   );
 
@@ -588,12 +636,14 @@ export async function getEndToEndAnalysis(
     to: fim,
     toLabel: periodLabel(fim),
     periods: datas.map((d) => ({ date: d, label: periodLabel(d) })),
-    series: paresComparaveis.map((serie) => ({
+    /* A ponta inicial vem de `par.outra`, que nem sempre é a mesma cobertura da
+       final: é a série de lá com que esta se compara. */
+    series: pares.map(({ serie, par }) => ({
       entityTypeSet: serie,
       equipment: deB.get(serie)!.entity_type_set,
-      fromLabel: deA.get(serie)!.source_label,
+      fromLabel: deA.get(par.outra)!.source_label,
       toLabel: deB.get(serie)!.source_label,
-      fleetFrom: deA.get(serie)!.entity_count,
+      fleetFrom: deA.get(par.outra)!.entity_count,
       fleetTo: deB.get(serie)!.entity_count,
     })),
     missingSeries,
