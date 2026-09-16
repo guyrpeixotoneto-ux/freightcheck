@@ -411,7 +411,35 @@ function AlteracoesDoVeiculo({
                   key={`${l.id ?? "igual"}-${l.variavel}-${indice}`}
                   className="border-b last:border-0"
                 >
-                  <td className="whitespace-nowrap px-3 py-1.5">{l.rotuloDaVariavel}</td>
+                  <td className="whitespace-nowrap px-3 py-1.5">
+                    <span className="flex items-center gap-1.5">
+                      {l.rotuloDaVariavel}
+                      {/*
+                        O mesmo marcador que a tabela de IPVA e a de Impostos já
+                        usam, e pela mesma razão: a coluna continua aqui porque
+                        confere a linha ao lado, e quem lê precisa saber, sem
+                        abrir nada, que ela não entrou no total desta tela.
+                      */}
+                      {l.foraDaSoma && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              type="button"
+                              aria-label={`Esta coluna não entra na soma deste módulo: ${l.foraDaSoma}`}
+                              onClick={(e) => e.stopPropagation()}
+                              className="text-muted-foreground hover:text-foreground"
+                            >
+                              <Info className="h-3.5 w-3.5" aria-hidden="true" />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent className="max-w-xs text-xs">
+                            <strong className="font-semibold">Fora do total daqui.</strong>{" "}
+                            {l.foraDaSoma}
+                          </TooltipContent>
+                        </Tooltip>
+                      )}
+                    </span>
+                  </td>
                   <td className="whitespace-nowrap px-3 py-1.5 text-right font-mono tabular-nums">
                     {escreverValor(l.base, l.medida)}
                   </td>

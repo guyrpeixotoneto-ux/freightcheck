@@ -613,6 +613,25 @@ export default function AuditoriaDeFiname() {
               </p>
             )}
 
+            {/*
+              O segundo aviso é de outra natureza, e por isso é outra frase: ali,
+              dinheiro deste módulo já contado noutra linha **deste** módulo;
+              aqui, dinheiro que não é deste módulo. A base de compra e os dois
+              tributos da aquisição ficam na tabela porque conferem o
+              financiamento, e saem do total porque quem os soma é a Auditoria de
+              Impostos — ou ninguém, no caso do valor de nota.
+            */}
+            {(agregados ?? comparacao.data).resumo.impacto.foraDaSoma > 0 && (
+              <p className="text-xs text-muted-foreground">
+                {formatNumber((agregados ?? comparacao.data).resumo.impacto.foraDaSoma, 0)}{" "}
+                {(agregados ?? comparacao.data).resumo.impacto.foraDaSoma === 1
+                  ? "alteração ficou"
+                  : "alterações ficaram"}{" "}
+                fora do total por serem de outra rubrica — valor de NF é o preço do ativo,
+                e ICMS e PIS/COFINS da compra são somados pela Auditoria de Impostos.
+              </p>
+            )}
+
             <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
               <TotalPorVigencia
                 totais={totaisDoRecorte}

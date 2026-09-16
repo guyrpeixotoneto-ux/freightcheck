@@ -99,6 +99,21 @@ export interface VariavelDeFiname {
   totalComposto?: boolean;
   /** As variáveis que compõem esta. Ver {@link impactoPorPeriodicidade}. */
   parcelas?: string[];
+  /**
+   * Uma coluna que **não entra na soma de impacto deste módulo**, e a razão.
+   *
+   * Existe aqui pela mesma razão que existe em `ipva.ts` e `impostos.ts`, e
+   * chegou depois das duas: são as colunas que o FINAME mostra para **conferir**
+   * o financiamento e que pertencem, como rubrica, a outro módulo. Somá-las aqui
+   * contava dinheiro que o módulo dono já conta — ver o cabeçalho de
+   * {@link impactoPorPeriodicidade} e `docs/ACHADO-DUPLA-CONTAGEM-CUSTO-FIXO.md`.
+   *
+   * Diferente de {@link VariavelDeFiname.totalComposto}: aquele some da tabela,
+   * porque mostrá-lo convidaria a somar duas vezes dentro do próprio FINAME.
+   * Esta **fica na tabela**, marcada, porque é o que confere a linha ao lado —
+   * é a mesma escolha que o IPVA faz com a coluna mensal da carreta.
+   */
+  foraDaSoma?: string;
   /** Uma linha de contexto para o ⓘ da tela. */
   ajuda?: string;
 }
@@ -170,12 +185,26 @@ export const VARIAVEIS_DE_FINAME: readonly VariavelDeFiname[] = [
     rotulo: "Valor de NF",
     medida: "DINHEIRO",
     codigo: { CAVALO: "cavalo.valor_nf_compra", CARRETA: "carreta.valor_nf_compra" },
+    foraDaSoma:
+      "É o preço de compra do ativo, não uma rubrica de custo fixo. Ela está aqui " +
+      "porque é a base que confere a parcela, o IPVA e os tributos da aquisição — " +
+      "nunca para somar com eles. É a mesma recusa que `ipva.ts` e `impostos.ts` " +
+      "já faziam sobre esta coluna.",
+    ajuda:
+      "A base de compra do equipamento. Entra na tabela porque é o que confere o " +
+      "financiamento; fica fora do impacto porque preço do ativo não é custo fixo.",
   },
   {
     chave: "icms",
     rotulo: "ICMS",
     medida: "DINHEIRO",
     codigo: { CAVALO: "cavalo.valor_icms", CARRETA: "carreta.valor_icms" },
+    foraDaSoma:
+      "ICMS da aquisição é rubrica do módulo Impostos, que é quem o soma. Hoje a " +
+      "coluna é zero nas 1.215 linhas do acervo, de modo que somá-la aqui não move " +
+      "número nenhum — e é justamente por isso que a recusa precisa ser explícita: " +
+      "no dia em que a fonte a preencher, a soma silenciosa viraria dupla contagem.",
+    ajuda: "Conferência do tributo da compra. Quem o soma é a Auditoria de Impostos.",
   },
   {
     chave: "pis_cofins",
@@ -185,6 +214,11 @@ export const VARIAVEIS_DE_FINAME: readonly VariavelDeFiname[] = [
       CAVALO: "cavalo.valor_pis_cofins",
       CARRETA: "carreta.valor_pis_cofins",
     },
+    foraDaSoma:
+      "PIS/COFINS da aquisição é rubrica do módulo Impostos, que é quem o soma. " +
+      "Esta era a dupla contagem medida: a mesma alteração entrava nos dois totais, " +
+      "porque a semântica dela é confirmada e o motor a precifica (PONTUAL).",
+    ajuda: "Conferência do tributo da compra. Quem o soma é a Auditoria de Impostos.",
   },
   {
     chave: "ano",
@@ -358,6 +392,14 @@ export interface LinhaDeFiname {
   impactoAmount: number | null;
   impactoPeriodicidade: string | null;
   impactoCalculado: boolean;
+  /**
+   * O aviso da coluna que não soma neste módulo, quando esta linha é de uma
+   * delas. Nulo nas demais.
+   *
+   * A linha continua na tabela e continua contada em "variáveis alteradas": o
+   * que ela não faz é entrar no impacto — ver {@link VariavelDeFiname.foraDaSoma}.
+   */
+  foraDaSoma: string | null;
 }
 
 /**
@@ -396,6 +438,7 @@ export function linhaDaAlteracao(a: AlteracaoDoMotor): LinhaDeFiname | null {
       impactoAmount: null,
       impactoPeriodicidade: null,
       impactoCalculado: false,
+      foraDaSoma: null,
     };
   }
   if (variavel.totalComposto) return null;
@@ -420,6 +463,7 @@ export function linhaDaAlteracao(a: AlteracaoDoMotor): LinhaDeFiname | null {
     impactoAmount: numero(a.impactAmount),
     impactoPeriodicidade: a.impactPeriodicity ?? null,
     impactoCalculado: a.impactConfidence === "CALCULATED",
+    foraDaSoma: variavel.foraDaSoma ?? null,
   };
 }
 
@@ -469,6 +513,7 @@ export function linhaSemAlteracao(par: {
     impactoAmount: null,
     impactoPeriodicidade: null,
     impactoCalculado: false,
+    foraDaSoma: variavel.foraDaSoma ?? null,
   };
 }
 
@@ -745,6 +790,16 @@ export interface ImpactoDeFiname {
   naoCalculavel: number;
   /** Linhas retiradas do total por já estarem representadas nas parcelas. */
   cobertasPorParcelas: number;
+  /**
+   * Linhas retiradas do total por **pertencerem a outro módulo** — a base de
+   * compra e os dois tributos da aquisição.
+   *
+   * Balde próprio, e não somado ao de cima, porque as duas exclusões respondem
+   * perguntas diferentes: `cobertasPorParcelas` é dinheiro deste módulo já
+   * contado noutra linha deste módulo; `foraDaSoma` é dinheiro que não é deste
+   * módulo. Juntá-las esconderia justamente a distinção que a correção criou.
+   */
+  foraDaSoma: number;
 }
 
 /**
@@ -755,6 +810,17 @@ export interface ImpactoDeFiname {
  * ---------------------------------------------------------------------------
  * **Não soma periodicidades diferentes.** Cada balde é uma periodicidade, como
  * `resumirImpacto` já faz para o produto inteiro.
+ *
+ * **Não soma o que é rubrica de outro módulo.** O valor de nota é o preço do
+ * ativo, e o ICMS e o PIS/COFINS da aquisição são tributos — os três estão na
+ * tabela para **conferir** o financiamento, e quem os soma é Impostos (os
+ * tributos) ou ninguém (a base). Até esta correção o FINAME os somava, e o
+ * PIS/COFINS entrava ao mesmo tempo neste total e no de Impostos: a mesma
+ * alteração, contada duas vezes, porque a semântica dela é confirmada e o motor
+ * a precifica. O achado, a medição e a decisão estão em
+ * `docs/ACHADO-DUPLA-CONTAGEM-CUSTO-FIXO.md`. É a mesma recusa que `ipva.ts` e
+ * `impostos.ts` já faziam sobre a mesma coluna de base — o FINAME é que estava
+ * fora de linha com os irmãos.
  *
  * **Não soma um total junto com as parcelas dele.** A parcela FINAME é
  * amortização mais juros; se os três mudaram no mesmo veículo, somar os três
@@ -783,9 +849,21 @@ export function impactoPorPeriodicidade(
   const porPeriodicidade: Record<string, number> = {};
   let naoCalculavel = 0;
   let cobertasPorParcelas = 0;
+  let foraDaSoma = 0;
 
   for (const l of linhas) {
     if (l.estado !== "ALTERADO") continue;
+    /*
+      A coluna de outro módulo sai antes da pergunta "o motor precificou?", como
+      em `ipva.ts` e `impostos.ts`: não precificar uma coluna que não é deste
+      módulo não é falha de precificação **deste** módulo, e contá-la em
+      `naoCalculavel` mandaria alguém procurar uma curadoria que já existe do
+      outro lado.
+    */
+    if (l.foraDaSoma) {
+      foraDaSoma++;
+      continue;
+    }
     if (!l.impactoCalculado || l.impactoAmount === null) {
       // Só conta como "não precificado" o que era candidato a dinheiro. Prazo e
       // taxa não são falha de cálculo: não são dinheiro, e dizer que faltou
@@ -812,7 +890,7 @@ export function impactoPorPeriodicidade(
   for (const balde of Object.keys(porPeriodicidade)) {
     porPeriodicidade[balde] = Number(porPeriodicidade[balde].toFixed(6));
   }
-  return { porPeriodicidade, naoCalculavel, cobertasPorParcelas };
+  return { porPeriodicidade, naoCalculavel, cobertasPorParcelas, foraDaSoma };
 }
 
 // ---------------------------------------------------------------------------
@@ -1058,11 +1136,12 @@ export const COLUNAS_DO_CSV = [
   "Variação %",
   "Status",
   "Motivo",
+  "Fora da soma",
   "Justificativa",
 ] as const;
 
 /**
- * Uma linha da tabela como as doze células do CSV.
+ * Uma linha da tabela como as treze células do CSV.
  *
  * Devolve texto cru — sem `R$`, sem separador de milhar e sem decidir o
  * separador do arquivo. Quem escreve o CSV é `lib/csv.ts`, no cliente, que já
@@ -1090,6 +1169,13 @@ export function celulasDoCsv(
     l.variacao,
     ROTULO_DO_ESTADO[l.estado],
     l.motivo,
+    /*
+      A razão de a linha não entrar no impacto viaja com ela, como no CSV de
+      IPVA e no de Impostos: o arquivo sai do produto e vira soma na planilha de
+      outra pessoa, e uma coluna de tributo exportada sem dizer que ela pertence
+      a outro módulo é a dupla contagem saindo de casa pela porta da frente.
+    */
+    l.foraDaSoma,
     justificativa ?? null,
   ];
 }
