@@ -253,6 +253,17 @@ export async function getFamiliesView(
    * — multiplicando por unidade um custo que não muda por unidade.
    */
   preloaded?: { contexts?: ContextInfo[]; inventory?: Map<FamilyCode, Set<string>> },
+  /**
+   * A ponta **De** do par, quando quem pergunta escolheu uma — ver o parâmetro
+   * de mesmo nome em `getGroupedViewComDados`, que é quem a aplica.
+   *
+   * Ela atravessa esta função sem tocar em nada: as famílias, o resumo
+   * executivo e a árvore de parâmetros são projeções sobre as linhas que a
+   * leitura agrupada trouxe. Trocar o par troca as linhas; a aritmética daqui
+   * para baixo é a mesma, e é isso que faz o Panorama publicar, sobre o par
+   * invertido, o mesmo tipo de número que publica sobre o par de sempre.
+   */
+  de?: string,
 ): Promise<FamiliesView | null> {
   /*
     O material vem da leitura agrupada, e não de um segundo carregamento.
@@ -274,6 +285,7 @@ export async function getFamiliesView(
     period,
     requestedContext,
     preloaded?.contexts,
+    de,
   );
   if (!leitura) return null;
   const { view, rows, dedup } = leitura;

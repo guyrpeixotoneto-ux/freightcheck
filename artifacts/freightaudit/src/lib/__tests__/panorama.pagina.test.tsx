@@ -8,7 +8,7 @@
 // que mais importa aqui não é o de que a tela abre — é o que monta o Panorama e
 // o Impacto Apurado sobre a **mesma** resposta e exige o mesmo líquido dos dois.
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -507,5 +507,147 @@ describe("a procedência, quando ela não tem o que publicar", () => {
     expect(screen.getByText("Fontes deste recorte")).toBeTruthy();
     expect(screen.getByText("Células deste recorte")).toBeTruthy();
     expect(screen.getByText("Última importação deste recorte")).toBeTruthy();
+  });
+});
+
+/**
+ * O PAR DO PANORAMA — as duas pontas, e o que Inverter pede ao servidor.
+ *
+ * O caso que mais importa aqui é o da volta, e ele não é sobre desenho: é sobre
+ * de onde vem o número. Inverter **não** pode negar o sinal do que já está em
+ * tela — 100→110 é +10,0% e 110→100 é −9,09% —, então o que este bloco prende é
+ * que o clique produz uma pergunta nova ao motor, na rota do par, com as duas
+ * pontas trocadas. Um teste que só olhasse a tela passaria verde sobre uma
+ * implementação que multiplicasse tudo por −1.
+ */
+describe("o par do Panorama", () => {
+  /** Os endereços que a tela pediu, na ordem. */
+  let pedidos: string[] = [];
+
+  /** O servidor do par: a leitura de sempre, e a do par quando ele é pedido. */
+  const servidorDoPar = (doPar: () => Response = () => resposta(INVERTIDA)) =>
+    vi.fn(async (entrada: RequestInfo | URL) => {
+      const url = String(entrada);
+      pedidos.push(url);
+      if (url.includes("/changes/families/par")) return doPar();
+      if (url.includes("/changes/families")) return resposta(VIGENCIA);
+      if (url.includes("/changes/grouped")) return resposta(VIGENCIA);
+      if (url.includes("/balance/recorte")) return resposta(PROCEDENCIA);
+      return resposta({ from: "2026-07-01", to: "2026-08-01", periods: [], entries: [] });
+    });
+
+  /* A volta, como o servidor a devolveria: o mesmo corpo, com a chegada em
+     julho. Os números não são o assunto deste bloco — de onde eles vêm, é. */
+  const INVERTIDA = {
+    ...VIGENCIA,
+    period: "2026-07-01",
+    periodLabel: "julho de 2026",
+    par: { de: "2026-08-01", para: "2026-07-01", invertido: true, calculadas: 1 },
+  };
+
+  const abrirEm = (busca: string) =>
+    window.history.pushState({}, "", busca ? `/?${busca}` : "/");
+
+  afterEach(() => {
+    pedidos = [];
+    window.history.pushState({}, "", "/");
+  });
+
+  it("mostra as duas pontas do par, e o cabeçalho deixa de ter o seletor de vigência", async () => {
+    abrirEm("period=2026-08-01");
+    vi.stubGlobal("fetch", servidorDoPar());
+    montar();
+
+    await waitFor(() => expect(screen.getByText("+R$ 21.931")).toBeTruthy());
+
+    /* As duas caixas, com o par natural dentro: de julho para agosto. */
+    expect(screen.getByLabelText("De (vigência de origem)").textContent).toContain(
+      "julho de 2026",
+    );
+    expect(screen.getByLabelText("Para (vigência de destino)").textContent).toContain(
+      "agosto de 2026",
+    );
+
+    /*
+      E o menu do cabeçalho saiu: dois controles escolhendo a mesma vigência, na
+      mesma tela, seriam duas perguntas disputando o mesmo gesto.
+    */
+    expect(screen.queryByText("Trocar vigência")).toBeNull();
+  });
+
+  /*
+    O par natural não escreve `?de=` no endereço, e por isso continua lendo
+    `/changes/families` — a mesma chave de cache do Impacto Apurado e do
+    Dashboard. É o que faz ir e voltar entre os módulos não custar requisição.
+  */
+  it("o par natural continua na leitura de sempre, sem rota nova", async () => {
+    abrirEm("period=2026-08-01");
+    vi.stubGlobal("fetch", servidorDoPar());
+    montar();
+
+    await waitFor(() => expect(screen.getByText("+R$ 21.931")).toBeTruthy());
+    expect(pedidos.some((url) => url.includes("/changes/families?"))).toBe(true);
+    expect(pedidos.some((url) => url.includes("/changes/families/par"))).toBe(false);
+  });
+
+  it("inverter pede o par invertido ao motor — não troca o sinal na tela", async () => {
+    abrirEm("period=2026-08-01");
+    vi.stubGlobal("fetch", servidorDoPar());
+    montar();
+
+    await waitFor(() => expect(screen.getByText("+R$ 21.931")).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: /Inverter/ }));
+
+    /* O endereço passa a descrever o par inteiro — e é colável. */
+    await waitFor(() => expect(window.location.search).toContain("period=2026-07-01"));
+    expect(window.location.search).toContain("base=2026-08-01");
+
+    /* E a pergunta sai pela rota do par, com as pontas trocadas. */
+    await waitFor(() =>
+      expect(
+        pedidos.some(
+          (url) =>
+            url.includes("/changes/families/par") &&
+            url.includes("base=2026-08-01") &&
+            url.includes("comparada=2026-07-01"),
+        ),
+      ).toBe(true),
+    );
+
+    /* As caixas seguem o endereço: agora se lê de agosto para julho. */
+    await waitFor(() =>
+      expect(screen.getByLabelText("De (vigência de origem)").textContent).toContain(
+        "agosto de 2026",
+      ),
+    );
+    expect(screen.getByLabelText("Para (vigência de destino)").textContent).toContain(
+      "julho de 2026",
+    );
+  });
+
+  /*
+    A recusa do motor é uma frase escrita para quem clicou, e ela não pode levar
+    o controle embora junto: sem as caixas em tela, desfazer a escolha exigiria o
+    botão do navegador.
+  */
+  it("a recusa do motor fica escrita, e o seletor continua em tela", async () => {
+    abrirEm("period=2026-07-01&base=2026-08-01");
+    vi.stubGlobal(
+      "fetch",
+      servidorDoPar(() =>
+        resposta(
+          {
+            error:
+              'Coberturas diferentes: "EMPURRADA_1_8" cobre CAVALO e "EMPURRADA_1_7" cobre CARRETA+CAVALO.',
+          },
+          422,
+        ),
+      ),
+    );
+    montar();
+
+    await waitFor(() => expect(screen.getByText(/Coberturas diferentes/)).toBeTruthy());
+    expect(screen.getByLabelText("De (vigência de origem)")).toBeTruthy();
+    expect(screen.getByLabelText("Para (vigência de destino)")).toBeTruthy();
   });
 });
