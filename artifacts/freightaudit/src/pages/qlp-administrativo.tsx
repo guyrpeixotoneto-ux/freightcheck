@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
 import {
   AlertTriangle,
@@ -36,21 +36,9 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
-import { fetchJson, fetchJsonOrNull, getApiUrl } from "@/lib/api";
-import { primeiraPagina, type Janela } from "@/lib/paginacao";
-import {
-  ChangeTable,
-  FilterBar,
-  emptyFilters,
-  toQuery,
-  type Breakdown,
-  type ChangeRow,
-  type Filters,
-} from "@/components/changes/change-table";
-import { ImpactoPorPeriodicidade } from "@/components/changes/cartoes";
+import { fetchJson, fetchJsonOrNull } from "@/lib/api";
 import {
   COLUNAS_DESTACADAS,
-  agruparMovimentos,
   formatarValor,
   rotuloDaVigencia,
 } from "@/components/qlp/apresentacao";
@@ -76,6 +64,7 @@ import {
   SeloDeSeveridade,
 } from "@/components/apontamentos/apresentacao";
 import { AuditoriaDoQuadro } from "@/components/qlp-auditoria/auditoria";
+import { ComparacaoDoQuadro } from "@/components/qlp-comparacao/comparacao";
 
 /**
  * QLP Administrativo — o quadro de pessoal da estrutura administrativa que o
@@ -107,14 +96,24 @@ import { AuditoriaDoQuadro } from "@/components/qlp-auditoria/auditoria";
  * no lugar de um número que não existe.
  */
 
-type Aba = "quadro" | "evolucao" | "alteracoes" | "auditoria" | "inconsistencias";
+type Aba = "quadro" | "evolucao" | "comparacao" | "auditoria" | "inconsistencias";
 const ABAS: { id: Aba; rotulo: string }[] = [
   { id: "quadro", rotulo: "Quadro" },
   { id: "evolucao", rotulo: "Evolução" },
-  { id: "alteracoes", rotulo: "Alterações" },
+  { id: "comparacao", rotulo: "Comparação" },
   { id: "auditoria", rotulo: "Auditoria" },
   { id: "inconsistencias", rotulo: "Inconsistências" },
 ];
+
+/**
+ * O endereço antigo da aba que esta substituiu.
+ *
+ * `?aba=alteracoes` está em link salvo, em favorito e no **Monitor Custo Fixo**,
+ * que manda para cá com o par já escolhido. Ele continua abrindo a comparação —
+ * a pergunta é a mesma, o grão é que mudou —, e mandar quem clicou para a aba
+ * do Quadro seria responder outra coisa sem dizer que trocou.
+ */
+const ABAS_RENOMEADAS: Record<string, Aba> = { alteracoes: "comparacao" };
 
 const TODAS = "__todas__";
 
@@ -123,7 +122,7 @@ export default function QlpAdministrativo() {
   const [, navigate] = useLocation();
   const params = new URLSearchParams(search);
 
-  const pedida = params.get("aba") ?? "";
+  const pedida = ABAS_RENOMEADAS[params.get("aba") ?? ""] ?? params.get("aba") ?? "";
   const aba: Aba = ABAS.some((a) => a.id === pedida) ? (pedida as Aba) : "quadro";
   const period = params.get("period") ?? "";
   const [busca, setBusca] = useState("");
@@ -137,6 +136,12 @@ export default function QlpAdministrativo() {
     if (scopeHash) q.set("scopeHash", scopeHash);
     const canal = params.get("canal");
     if (canal !== null) q.set("canal", canal);
+    /* O par da aba de Comparação viaja no endereço, como nas seis auditorias de
+       rubrica: é o que faz um link abrir no mesmo par que quem o mandou via. */
+    for (const chave of ["base", "comparada"]) {
+      const valor = params.get(chave);
+      if (valor) q.set(chave, valor);
+    }
     return q;
   }, [period, search]);
 
@@ -158,16 +163,11 @@ export default function QlpAdministrativo() {
     retry: false,
   });
 
-  /*
-    A evolução também alimenta a aba de Alterações: é dela que sai o nome
-    legível de cada cargo da série, porque as linhas de change carregam a chave
-    normalizada — ver `agruparMovimentos`.
-  */
   const evolucao = useQuery({
     queryKey: ["qlp", "evolucao", comum.toString()],
     queryFn: () =>
       fetchJsonOrNull<EvolucaoDoQuadro>(`/qlp/administrativo/evolucao?${comum.toString()}`),
-    enabled: aba === "evolucao" || aba === "alteracoes",
+    enabled: aba === "evolucao",
     retry: false,
   });
 
@@ -298,10 +298,20 @@ export default function QlpAdministrativo() {
             {aba === "evolucao" && (
               <AbaEvolucao view={evolucao.data ?? null} carregando={evolucao.isLoading} />
             )}
-            {aba === "alteracoes" && <AbaAlteracoes serie={evolucao.data?.quadro ?? []} />}
+            {/*
+              A Comparação é o recorte de rubrica aplicado ao quadro: uma linha
+              por cargo e variável, com o estado, a diferença e a variação de
+              cada uma — a mesma forma de FINAME, IPVA e Lucro Fixo, com placa
+              trocada por cargo. Ela substituiu a aba de Alterações, que
+              mostrava o diff genérico do motor: mesma comparação, mesmo
+              `change_set`, e o grão que faltava.
+            */}
+            {aba === "comparacao" && (
+              <ComparacaoDoQuadro quadro="ADMINISTRATIVO" query={comum} />
+            )}
             {/*
               A aba de Auditoria não escolhe par de vigências, e é a diferença
-              dela para a de Alterações: a conferência é **dentro** de uma
+              dela para a de Comparação: a conferência é **dentro** de uma
               vigência — a conta que o quadro declara sobre si mesmo —, e o
               contexto que ela precisa é o mesmo `comum` das demais abas.
             */}
@@ -834,328 +844,6 @@ interface ChangeSetCriado {
   impactNotCalculable: number;
 }
 
-function AbaAlteracoes({ serie }: { serie: EvolucaoDoQuadro["quadro"] }) {
-  const [aId, setAId] = useState("");
-  const [bId, setBId] = useState("");
-  const [filters, setFilters] = useState<Filters>(emptyFilters);
-  const [set, setSet] = useState<ChangeSetCriado | null>(null);
-  const [erro, setErro] = useState<string | null>(null);
-  const [janela, setJanela] = useState<Janela>(primeiraPagina);
-
-  useEffect(() => {
-    setJanela((atual) => (atual.pagina === 1 ? atual : { ...atual, pagina: 1 }));
-  }, [filters, set?.id]);
-
-  /*
-    A família é pedida ao servidor, e não recortada depois.
-
-    `/snapshots` responde pela família de equipamento quando ninguém pede outra
-    — é a mesma regra de `/contexts`, e ela existe porque o contrário fazia uma
-    quinzena de cargos entrar na leitura de placas. Esta tela é a que fala de
-    gente, então ela nomeia a família dela, do mesmo jeito que
-    `lib/qlp/src/contexto.ts` já nomeava. A constante mora em
-    `@workspace/ingest` (`DATASET_FAMILY_QUADRO_DE_PESSOAL`) e não é importada
-    aqui de propósito: aquele pacote carrega o pipeline de importação inteiro, e
-    ele não tem por que ir para o bundle do navegador.
-  */
-  const { data: snapshots = [], error: snapshotsError } = useQuery({
-    queryKey: ["snapshots", "QUADRO_DE_PESSOAL"],
-    queryFn: () =>
-      fetchJson<SnapshotComparavel[]>("/snapshots?datasetFamily=QUADRO_DE_PESSOAL"),
-  });
-
-  /*
-    Dentro da família, só o administrativo entra nos seletores — o operacional é
-    do mesmo quadro e forma série própria. O motor recusaria um par entre as
-    duas coberturas de todo jeito; aqui o par nem chega a ser oferecido.
-  */
-  const doQuadro = useMemo(
-    () => snapshots.filter((s) => s.entityTypeSet === "QLP_ADMINISTRATIVO"),
-    [snapshots],
-  );
-
-  useEffect(() => {
-    if (doQuadro.length >= 2 && !aId && !bId) {
-      setAId(doQuadro[doQuadro.length - 2].id);
-      setBId(doQuadro[doQuadro.length - 1].id);
-    }
-  }, [doQuadro, aId, bId]);
-
-  const comparar = useMutation({
-    mutationFn: async () => {
-      const response = await fetch(getApiUrl("/change-sets"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ snapshotAId: aId, snapshotBId: bId }),
-      });
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error ?? "Falha ao comparar");
-      return body as ChangeSetCriado;
-    },
-    onSuccess: (resultado) => {
-      setErro(null);
-      setSet(resultado);
-    },
-    onError: (err: Error) => {
-      setSet(null);
-      setErro(err.message);
-    },
-  });
-
-  const { data: changes } = useQuery({
-    queryKey: ["qlp", "change-set", set?.id, filters, janela],
-    queryFn: () =>
-      fetchJson<{ breakdown: Breakdown; total: number; rows: ChangeRow[] }>(
-        `/change-sets/${set!.id}/changes?${toQuery(filters, {}, janela)}`,
-      ),
-    enabled: set !== null,
-  });
-
-  /*
-    Entradas e saídas por unidade: as linhas ENTITY_ADDED/ENTITY_REMOVED que o
-    change-set já calculou, pedidas com o filtro do próprio endpoint e apenas
-    reagrupadas para leitura (`agruparMovimentos`, com o nome legível vindo da
-    série).
-  */
-  const { data: linhasDeMovimento } = useQuery({
-    queryKey: ["qlp", "movimentos", set?.id],
-    queryFn: async () => {
-      const pagina: Janela = { pagina: 1, porPagina: 300 };
-      const [entradas, saidas] = await Promise.all([
-        fetchJson<{ rows: ChangeRow[] }>(
-          `/change-sets/${set!.id}/changes?${toQuery({ ...emptyFilters, changeType: "ENTITY_ADDED" }, {}, pagina)}`,
-        ),
-        fetchJson<{ rows: ChangeRow[] }>(
-          `/change-sets/${set!.id}/changes?${toQuery({ ...emptyFilters, changeType: "ENTITY_REMOVED" }, {}, pagina)}`,
-        ),
-      ]);
-      return [...entradas.rows, ...saidas.rows];
-    },
-    enabled: set !== null,
-  });
-  const movimentos = useMemo(
-    () => agruparMovimentos(linhasDeMovimento ?? [], serie),
-    [linhasDeMovimento, serie],
-  );
-
-  const rotulo = (id: string) => {
-    const s = doQuadro.find((x) => x.id === id);
-    return s ? s.sourceLabel : "—";
-  };
-
-  if (doQuadro.length < 2) {
-    return (
-      <p className="text-sm text-muted-foreground py-8 text-center border rounded-md bg-card">
-        Comparar exige duas vigências do quadro
-        {doQuadro.length === 1 ? ` — existe uma (${doQuadro[0].sourceLabel}).` : "."} A segunda
-        quinzena importada destrava esta aba.
-      </p>
-    );
-  }
-
-  return (
-    <>
-      <div className="flex flex-wrap items-end gap-3">
-        <SeletorDeVigencia
-          rotulo="Vigência anterior"
-          valor={aId}
-          onMudar={setAId}
-          opcoes={doQuadro}
-        />
-        <ArrowRight className="w-5 h-5 text-muted-foreground mb-2.5" />
-        <SeletorDeVigencia
-          rotulo="Vigência nova"
-          valor={bId}
-          onMudar={setBId}
-          opcoes={doQuadro}
-        />
-        <Button
-          onClick={() => comparar.mutate()}
-          disabled={!aId || !bId || aId === bId || comparar.isPending}
-        >
-          {comparar.isPending ? "Comparando…" : "Comparar"}
-        </Button>
-      </div>
-
-      {snapshotsError && (
-        <ApiErrorNotice
-          error={snapshotsError}
-          what="As vigências disponíveis não puderam ser carregadas."
-        />
-      )}
-      {erro && (
-        <div className="rounded-md border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900">
-          {erro}
-        </div>
-      )}
-
-      {set && (
-        <>
-          <div
-            /*
-              Pelo espaço que sobra, não pelo tamanho da janela: seis colunas
-              fixas ignoram os 304px da lateral e entregam ladrilhos de 139px
-              numa tela de 1280 — estreitos demais para um valor em reais, que
-              então era escrito por cima do ladrilho vizinho. Com `auto-fit`, o
-              que cede é o número de colunas.
-            */
-            className="grid gap-4 grid-cols-[repeat(auto-fit,minmax(9rem,1fr))]"
-          >
-            <TileDeAlteracao rotulo="Valores alterados" valor={set.valueChanges} />
-            <TileDeAlteracao rotulo="Sem alteração" valor={set.unchanged} />
-            <TileDeAlteracao rotulo="Cargos entraram" valor={`+${set.entitiesAdded}`} />
-            <TileDeAlteracao rotulo="Cargos saíram" valor={`−${set.entitiesRemoved}`} />
-            <TileDeAlteracao
-              rotulo="Colunas +/−"
-              valor={`+${set.attributesAdded} / −${set.attributesRemoved}`}
-            />
-            {/*
-              O mesmo componente dos cartões das abas, e não uma cópia com as
-              mesmas regras: uma linha por periodicidade — R$/mês e R$/ano não
-              somam —, e o corpo do número escolhido pela largura que este
-              ladrilho tem. Emendadas numa string só, as duas periodicidades
-              saíam do ladrilho pela direita.
-            */}
-            <TileDeAlteracao
-              rotulo="Impacto apurado"
-              valor={
-                <ImpactoPorPeriodicidade
-                  buckets={set.impacto.oficial}
-                  escala="ladrilho"
-                  colorido={false}
-                />
-              }
-              hint={
-                set.impactNotCalculable > 0
-                  ? `${set.impactNotCalculable} alterações sem preço — semântica pendente`
-                  : undefined
-              }
-            />
-          </div>
-
-          {movimentos && movimentos.length > 0 && (
-            <section className="bg-card border rounded-md">
-              <header className="px-4 py-3 border-b bg-muted/40 text-sm font-semibold">
-                Entradas e saídas do quadro, por unidade
-              </header>
-              <div className="divide-y">
-                {movimentos.map((m) => (
-                  <div key={m.unidade} className="px-4 py-3 text-sm flex flex-wrap gap-x-6 gap-y-1">
-                    <span className="font-mono text-xs text-muted-foreground pt-0.5">
-                      {m.unidade}
-                    </span>
-                    {m.entraram.length > 0 && (
-                      <span>
-                        <span className="text-emerald-700 font-medium">entrou:</span>{" "}
-                        {m.entraram.join(", ")}
-                      </span>
-                    )}
-                    {m.sairam.length > 0 && (
-                      <span>
-                        <span className="text-red-700 font-medium">saiu:</span>{" "}
-                        {m.sairam.join(", ")}
-                      </span>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </section>
-          )}
-
-          <FilterBar filters={filters} onChange={setFilters} breakdown={changes?.breakdown} />
-
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">
-                {rotulo(aId)} → {rotulo(bId)}
-                {changes && (
-                  <span className="text-muted-foreground font-normal">
-                    {" "}
-                    · {changes.total} alterações
-                  </span>
-                )}
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="p-0">
-              {changes && (
-                <ChangeTable
-                  rows={changes.rows}
-                  total={changes.total}
-                  janela={janela}
-                  onJanela={setJanela}
-                />
-              )}
-            </CardContent>
-          </Card>
-        </>
-      )}
-
-      {!set && !erro && (
-        <Card>
-          <CardContent className="p-12 text-center text-muted-foreground">
-            Escolha duas vigências do quadro e clique em Comparar. A comparação é a mesma de
-            Comparar Vigências — identidade de cargo e atributo, nunca posição de linha.
-          </CardContent>
-        </Card>
-      )}
-    </>
-  );
-}
-
-function SeletorDeVigencia({
-  rotulo,
-  valor,
-  onMudar,
-  opcoes,
-}: {
-  rotulo: string;
-  valor: string;
-  onMudar: (v: string) => void;
-  opcoes: SnapshotComparavel[];
-}) {
-  return (
-    <div className="space-y-1.5">
-      <div className="text-xs uppercase tracking-wide text-muted-foreground">{rotulo}</div>
-      <Select value={valor} onValueChange={onMudar}>
-        <SelectTrigger className="w-72">
-          <SelectValue placeholder="Selecionar vigência…" />
-        </SelectTrigger>
-        <SelectContent>
-          {opcoes.map((s) => (
-            <SelectItem key={s.id} value={s.id}>
-              {s.sourceLabel} · {s.entityCount} cargos
-            </SelectItem>
-          ))}
-        </SelectContent>
-      </Select>
-    </div>
-  );
-}
-
-function TileDeAlteracao({
-  rotulo,
-  valor,
-  hint,
-}: {
-  rotulo: string;
-  /**
-   * Um número, ou o que não cabe em um: o impacto é uma linha por
-   * periodicidade, e um ladrilho que só aceitasse texto obrigaria a emendar as
-   * duas numa string — que é como elas saíam pela direita do cartão.
-   */
-  valor: React.ReactNode;
-  hint?: string;
-}) {
-  return (
-    // `@container`: a largura do ladrilho é a régua que o valor consulta para
-    // escolher o próprio corpo.
-    <div className="rounded-lg border bg-card px-4 py-3 @container">
-      <div className="text-xs font-medium text-muted-foreground">{rotulo}</div>
-      <div className="text-xl font-bold tabular-nums mt-1">{valor}</div>
-      {hint && <div className="text-xs text-muted-foreground mt-0.5">{hint}</div>}
-    </div>
-  );
-}
 
 // ---------------------------------------------------------------------------
 // O detalhe do cargo — os 35 atributos, cada um com a célula de origem.

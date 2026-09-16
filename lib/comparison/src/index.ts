@@ -16,6 +16,7 @@ export * from "./impostos";
 export * from "./km-rodado";
 export * from "./velocidade-media";
 export * from "./qlp";
+export * from "./qlp-comparacao";
 export * from "./tma";
 export * from "./lucro-fixo";
 export * from "./monitor-custo-fixo";

@@ -1,10 +1,12 @@
 import { useMemo } from "react";
-import { useSearch } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import { HardHat } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
 import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import { AuditoriaDoQuadro } from "@/components/qlp-auditoria/auditoria";
+import { ComparacaoDoQuadro } from "@/components/qlp-comparacao/comparacao";
 import { GRAO_DO_QUADRO } from "@workspace/comparison/qlp";
+import { cn } from "@/lib/utils";
 
 /**
  * QLP OPERACIONAL — o quadro de pessoal da operação, conferido contra si mesmo.
@@ -47,18 +49,38 @@ import { GRAO_DO_QUADRO } from "@workspace/comparison/qlp";
  * como quaisquer outros: Comparar Vigências já as compara. O que não tinha tela
  * é a conferência **dentro** de uma vigência, e é ela que mora aqui.
  *
- * **Nenhuma conta mora neste arquivo.** Tudo vem de `@workspace/comparison/qlp`,
- * que o servidor importa do mesmo jeito — e a tela inteira é o mesmo componente
- * que o QLP Administrativo usa na aba de Auditoria.
+ * ---------------------------------------------------------------------------
+ * As duas abas, e por que a comparação é uma delas
+ * ---------------------------------------------------------------------------
+ * A Auditoria confere **dentro** de uma vigência; a Comparação confere **entre
+ * duas**, cargo a cargo, no mesmo recorte de rubrica que FINAME, IPVA e Lucro
+ * Fixo usam por placa. São perguntas diferentes sobre o mesmo quadro, e as duas
+ * moram aqui porque o quadro é um só: mandar quem compara o operacional para
+ * outra tela faria o mesmo cargo ser lido em dois endereços.
+ *
+ * **Nenhuma conta mora neste arquivo.** Tudo vem de `@workspace/comparison/qlp`
+ * e de `@workspace/comparison/qlp-comparacao`, que o servidor importa do mesmo
+ * jeito — e as duas abas são os mesmos componentes que o QLP Administrativo
+ * usa nas abas dele.
  */
+
+type Aba = "auditoria" | "comparacao";
+const ABAS: { id: Aba; rotulo: string }[] = [
+  { id: "auditoria", rotulo: "Auditoria" },
+  { id: "comparacao", rotulo: "Comparação" },
+];
 export default function QlpOperacional() {
   const search = useSearch();
+  const [, navigate] = useLocation();
+  const params = new URLSearchParams(search);
+  const pedida = params.get("aba") ?? "";
+  const aba: Aba = ABAS.some((a) => a.id === pedida) ? (pedida as Aba) : "auditoria";
 
   /** O contexto da tela: vigência, unidade e canal, como as demais rotas de QLP o leem. */
   const comum = useMemo(() => {
     const atual = new URLSearchParams(search);
     const q = new URLSearchParams();
-    for (const chave of ["period", "scopeHash", "canal"]) {
+    for (const chave of ["period", "scopeHash", "canal", "base", "comparada"]) {
       const valor = atual.get(chave);
       if (valor !== null) q.set(chave, valor);
     }
@@ -81,11 +103,38 @@ export default function QlpOperacional() {
       />
 
       <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-4 px-4 pb-10 sm:px-8">
-        <AuditoriaDoQuadro
-          quadro="OPERACIONAL"
-          query={comum}
-          rotuloDaVigencia={comum.get("period") ?? undefined}
-        />
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-1 border-b" role="tablist">
+          {ABAS.map((item) => {
+            const q = new URLSearchParams(search);
+            q.set("aba", item.id);
+            return (
+              <button
+                key={item.id}
+                type="button"
+                role="tab"
+                aria-selected={item.id === aba}
+                onClick={() => navigate(`/qlp-operacional?${q.toString()}`)}
+                className={cn(
+                  "border-b-2 py-2 text-sm font-semibold",
+                  item.id === aba
+                    ? "border-brand text-brand"
+                    : "border-transparent text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {item.rotulo}
+              </button>
+            );
+          })}
+        </div>
+
+        {aba === "auditoria" && (
+          <AuditoriaDoQuadro
+            quadro="OPERACIONAL"
+            query={comum}
+            rotuloDaVigencia={comum.get("period") ?? undefined}
+          />
+        )}
+        {aba === "comparacao" && <ComparacaoDoQuadro quadro="OPERACIONAL" query={comum} />}
       </div>
     </Layout>
   );
