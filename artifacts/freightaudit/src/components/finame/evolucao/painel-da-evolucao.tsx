@@ -5,6 +5,7 @@ import { CODIGOS_DA_TABELA, codigosDoRecorte } from "@workspace/comparison/finam
 import { ApiErrorNotice } from "@/components/api-error";
 import { EstadoVazio } from "@/components/ui/estado-vazio";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import {
   Select,
   SelectContent,
@@ -38,7 +39,7 @@ import { periodicityAdjective } from "@/lib/format";
  * Não há matriz nova aqui
  * ---------------------------------------------------------------------------
  * Esta tela é `evolucaoPorPlaca` com `parameters = CODIGOS_DA_TABELA`, desenhada
- * por `MatrizDaEvolucao`, com o painel lateral de `PainelDaPlaca`. Uma segunda
+ * por `MatrizDaEvolucao`, com `PainelDaPlaca` numa gaveta. Uma segunda
  * matriz — mesmo que idêntica no dia em que fosse escrita — seria a quinta
  * resposta do produto para "qual foi o impacto?", e `deduplicacao.ts` documenta
  * no cabeçalho quanto custaram as quatro primeiras.
@@ -119,6 +120,10 @@ export function PainelDaEvolucaoDeFiname({
   const [ordem, setOrdem] = useState<OrdemDaEvolucao>("prioridade");
   const [busca, setBusca] = useState("");
   const [placa, setPlaca] = useState<string | null>(null);
+  /* De onde veio o clique: o nome da placa pede o histórico, a linha pede o
+     resumo. Vive separado de `placa` porque a mesma placa pode ser aberta das
+     duas formas, uma depois da outra. */
+  const [comHistorico, setComHistorico] = useState(false);
 
   const anos = useMemo(() => anosDasVigencias(datas), [datas]);
   /* Sem ano escolhido, o mais recente do acervo — nunca o ano do relógio, que
@@ -301,30 +306,69 @@ export function PainelDaEvolucaoDeFiname({
             </p>
           )}
 
-          <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
-            <MatrizDaEvolucao
-              evolucao={dados}
-              filtro={filtro}
-              ordem={ordem}
-              busca={busca}
-              insight={null}
-              selecionada={placa}
-              onFiltro={setFiltro}
-              onOrdem={setOrdem}
-              onBusca={setBusca}
-              onLimparInsight={() => undefined}
-              onEscolherPlaca={(id) => setPlaca((atual) => (atual === id ? null : id))}
-              leitura={LEITURA_DO_FINAME}
-            />
-            {aberta && (
-              <PainelDaPlaca
-                ativo={aberta}
-                evolucao={dados}
-                onFechar={() => setPlaca(null)}
-                leitura={LEITURA_DO_FINAME}
-              />
-            )}
-          </div>
+          {/*
+              A matriz ocupa a largura inteira, e o detalhe desliza por cima.
+
+              Ela tem uma coluna por vigência — dez, no ano cheio —, e a grade
+              de duas colunas reservava 320px de lateral o tempo todo, para um
+              painel que só existe depois de um clique: as vigências eram
+              espremidas por uma gaveta fechada, a ponto de o rótulo de julho
+              sair cortado e o valor encostar no acumulado. Como gaveta, o
+              painel não tira largura de ninguém — e a tabela continua inteira
+              enquanto ele está aberto.
+          */}
+          <MatrizDaEvolucao
+            evolucao={dados}
+            filtro={filtro}
+            ordem={ordem}
+            busca={busca}
+            insight={null}
+            selecionada={placa}
+            onFiltro={setFiltro}
+            onOrdem={setOrdem}
+            onBusca={setBusca}
+            onLimparInsight={() => undefined}
+            onEscolherPlaca={(id, opcoes) => {
+              const historico = opcoes?.historico === true;
+              setComHistorico(historico);
+              /* No nome da placa não há alternância: pedir o histórico de uma
+                 placa já aberta no resumo tem de **abrir o histórico**, e não
+                 fechar a gaveta. */
+              setPlaca((atual) => (!historico && atual === id ? null : id));
+            }}
+            leitura={LEITURA_DO_FINAME}
+          />
+
+          <Sheet
+            open={aberta !== null}
+            onOpenChange={(aberto) => {
+              if (!aberto) setPlaca(null);
+            }}
+          >
+            <SheetContent className="w-full overflow-y-auto p-0 sm:max-w-xl">
+              {aberta && (
+                <>
+                  {/* O título da gaveta é o da placa, que o painel já desenha —
+                      este existe para o leitor de tela, que precisa de um. */}
+                  <SheetTitle className="sr-only">
+                    Detalhe de {aberta.rotulo}
+                  </SheetTitle>
+                  <PainelDaPlaca
+                    /* Remonta a cada abertura: `historicoInicial` é estado
+                       inicial, e sem trocar a chave a segunda abertura herdaria
+                       o histórico que a primeira deixou aberto. */
+                    key={`${aberta.entityId}:${comHistorico}`}
+                    ativo={aberta}
+                    evolucao={dados}
+                    leitura={LEITURA_DO_FINAME}
+                    historicoInicial={comHistorico}
+                    /* A gaveta já é a casca, e já tem o seu × no canto. */
+                    className="rounded-none border-0 bg-transparent p-6 shadow-none lg:static"
+                  />
+                </>
+              )}
+            </SheetContent>
+          </Sheet>
         </>
       )}
     </div>
