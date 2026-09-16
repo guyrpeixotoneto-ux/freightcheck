@@ -304,6 +304,10 @@ export default function AuditoriaDeVelocidadeMedia() {
             carregando={comparacao.isFetching}
             idPrefixo="velocidade-media"
             candidatos={candidatos.data}
+            carregandoCandidatos={candidatos.isFetching}
+            erroDosCandidatos={
+              candidatos.error instanceof Error ? candidatos.error.message : null
+            }
           />
         )}
 

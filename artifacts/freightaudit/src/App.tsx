@@ -65,6 +65,7 @@ import QlpAdministrativo from '@/pages/qlp-administrativo';
 import QlpOperacional from '@/pages/qlp-operacional';
 import QlpModulo from '@/pages/qlp-modulo';
 import MonitorCustoFixo from '@/pages/monitor-custo-fixo';
+import MonitorEquipe from '@/pages/monitor-equipe';
 import AuditoriaDeFiname from '@/pages/custo-fixo-finame';
 import AuditoriaDeIpva from '@/pages/custo-fixo-ipva';
 import AuditoriaDeLucroFixo from '@/pages/custo-fixo-lucro-fixo';
@@ -593,6 +594,17 @@ function RotasDaAuditoria() {
         passou a receber o export próprio dele (tipo QLP_ADMINISTRATIVO) — o
         menu não mudou uma vírgula, como manda o catálogo.
       */}
+      {/*
+        O Monitor Equipe abre a seção Equipe, e é a única tela dela que não é
+        uma comparação especializada: as demais descem a fundo num quadro ou num
+        assunto, e ele responde o que nenhuma responde — *o que mudou hoje no
+        quadro de pessoal inteiro*, nos dois quadros e em todos os módulos.
+        Quem abre o dia começa nele; quem investiga um número termina numa das
+        outras. É o irmão do Monitor Custo Fixo, com a diferença que a seção
+        obriga: aqui não se soma dinheiro, porque as colunas do QLP chegam sem
+        semântica confirmada.
+      */}
+      <Route path="/monitor-equipe" component={MonitorEquipe} />
       <Route path="/qlp-administrativo" component={QlpAdministrativo} />
       {/*
         QLP Operacional sai de `TELAS_EM_PREPARO` — e sai **sem o arquivo**, que

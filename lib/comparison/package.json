@@ -24,6 +24,7 @@
     "./ipva": "./src/ipva.ts",
     "./lucro-fixo": "./src/lucro-fixo.ts",
     "./monitor-custo-fixo": "./src/monitor-custo-fixo.ts",
+    "./monitor-equipe": "./src/monitor-equipe.ts",
     "./recorte-de-rubrica": "./src/recorte-de-rubrica.ts",
     "./agrupamento-por-veiculo": "./src/agrupamento-por-veiculo.ts",
     "./tipos": "./src/tipos.ts",

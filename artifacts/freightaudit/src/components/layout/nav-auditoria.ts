@@ -567,6 +567,21 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
       icon: Users,
       cor: "text-nav-custo-fixo",
       itens: [
+        /*
+          O Monitor Equipe abre a seção, e é a única tela dela que não é uma
+          comparação especializada — o mesmo lugar, e a mesma razão, do Monitor
+          Custo Fixo na seção acima: as demais descem a fundo num quadro ou num
+          assunto, e ele responde o que nenhuma responde, que é *o que mudou
+          hoje no quadro de pessoal inteiro*. Quem abre o dia começa nele; quem
+          investiga um número termina numa das outras.
+
+          Ele consolida os **dois quadros e todos os módulos**, e não uma parte
+          deles: aqui não há a recusa que deixa QLP fora do Monitor Custo Fixo,
+          porque aqui ninguém soma dinheiro — o que se conta é alteração, cargo
+          e efetivo. O porquê por extenso está no cabeçalho de
+          `lib/comparison/src/monitor-equipe.ts`.
+        */
+        { href: "/monitor-equipe", label: "Monitor Equipe", icon: LineChart },
         {
           href: "/qlp-operacional",
           label: "QLP",

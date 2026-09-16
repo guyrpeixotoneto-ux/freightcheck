@@ -220,23 +220,25 @@ describe("a lateral", () => {
     Derivada, ela acende sozinha; este teste é o que impede alguém de voltar a
     escrevê-la.
 
-    O quadro de lotação abre a seção, e é **um** item escrito à mão, porque não
-    sai de catálogo nenhum: ele veio de Custo Fixo quando o critério da seção
-    passou a ser a população, e por isso entra aqui **antes** dos módulos — o
-    quadro inteiro primeiro, o assunto depois.
+    O Monitor Equipe abre a seção, e o quadro de lotação vem logo depois: ele é
+    a leitura de quem chega — os dois quadros e todos os assuntos numa tabela —,
+    e o item abaixo é a descida ao quadro inteiro. Os dois são escritos à mão,
+    porque não saem de catálogo nenhum, e por isso entram aqui **antes** dos
+    módulos: o consolidado primeiro, o quadro depois, o assunto por último.
 
-    Um, e não dois: Operacional e Administrativo são a mesma leitura sobre as
-    duas populações, e a troca virou aba dentro da tela
+    O quadro é **um** item, e não dois: Operacional e Administrativo são a mesma
+    leitura sobre as duas populações, e a troca virou aba dentro da tela
     (`components/qlp/seletor-de-quadro.tsx`). As duas rotas continuam existindo,
     e a de Administrativo acende este item pelo `tambemAceso` — é isso que o caso
     abaixo prende, junto com a lista.
   */
-  it("abre a seção Equipe pelo QLP e lista os módulos do catálogo", () => {
+  it("abre a seção Equipe pelo Monitor e pelo QLP, e lista os módulos do catálogo", () => {
     const secao = navGroupsAuditoria("auditoria").find((g) => g.id === "modulos-do-qlp");
     expect(secao, "a seção Equipe precisa existir na lateral").toBeTruthy();
     expect(secao!.titulo).toBe("Equipe");
 
     expect(secao!.itens.map((i) => i.href)).toEqual([
+      "/monitor-equipe",
       "/qlp-operacional",
       ...modulosDoQlp().map((m) => `/qlp/${m.chave}`),
     ]);
@@ -246,7 +248,7 @@ describe("a lateral", () => {
       que não é o `href` dele. Sem isso, abrir a aba Administrativo apagaria o
       item do menu enquanto o usuário está exatamente dentro dele.
     */
-    const qlp = secao!.itens[0];
+    const qlp = secao!.itens[1];
     expect(qlp.label).toBe("QLP");
     expect(qlp.tambemAceso).toEqual(["/qlp-administrativo"]);
     expect(estaAtivo("/qlp-operacional", qlp.href, qlp.tambemAceso)).toBe(true);

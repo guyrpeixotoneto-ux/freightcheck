@@ -74,6 +74,7 @@ export type TelaComCandidatas =
   | "monitor-custo-fixo"
   | "km-rodado"
   | "velocidade-media"
+  | "tma"
   | "qlp";
 
 /**
