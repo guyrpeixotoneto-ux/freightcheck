@@ -26,6 +26,7 @@ import {
   type ParDoMonitor,
   type ResumoDoMonitor,
   type SituacaoDoImpacto,
+  TIPOS_DE_EQUIPAMENTO,
 } from "@workspace/comparison";
 import { classificarFalha } from "../lib/classificar-falha";
 import {
@@ -448,6 +449,10 @@ router.get("/monitor-custo-fixo/candidatos", async (req, res, next): Promise<voi
         para,
         {
           attributeCodes: CODIGOS_DO_MONITOR,
+/* Custo Fixo audita placa: cavalo e carreta, e mais nada. O trecho pode
+             existir no acervo e até vir dentro da mesma vigência — ele não é
+             assunto desta tela, e não entra nem na lista nem na conta. */
+          entityTypes: TIPOS_DE_EQUIPAMENTO,
           numeros: (rows, calculado) => {
             /*
               O par carimbado nas linhas, com os identificadores de verdade e

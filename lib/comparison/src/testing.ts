@@ -72,6 +72,17 @@ export interface SnapshotSpec {
   effectiveDate: string;
   /** plate -> attribute code -> value */
   data: Record<string, Record<string, CellValue>>;
+  /**
+   * A cobertura **desta** vigência, quando ela difere das outras da mesma
+   * chamada.
+   *
+   * Entrou para o caso do arquivo parcial: um acervo em que julho cobre
+   * `CAVALO` e agosto passa a cobrir `CARRETA+CAVALO` porque a carreta começou
+   * a ser importada naquele mês. Era impossível de montar — a cobertura era uma
+   * só para a chamada inteira —, e é exatamente o acervo que produziu o defeito
+   * de 16/09/2026 na Auditoria de FINAME.
+   */
+  entityTypeSet?: string;
 }
 
 export interface FixtureResult {
@@ -81,6 +92,16 @@ export interface FixtureResult {
 export interface FixtureOptions {
   /** Equipment type, which is also the snapshot's entity_type_set. */
   entityType?: string;
+  /**
+   * O tipo de cada placa, quando a chamada monta mais de um.
+   *
+   * O padrão é {@link FixtureOptions.entityType} para todas, que é o que uma
+   * fixture de um tipo só significa. Existe pelo mesmo motivo de
+   * {@link SnapshotSpec.entityTypeSet}: sem ele não há como uma vigência trazer
+   * cavalo e carreta ao mesmo tempo, e é essa vigência que o teste da cobertura
+   * parcial precisa comparar.
+   */
+  tipoPorPlaca?: Record<string, string>;
   /** Shared so two series land in the same scope and can be consolidated. */
   scopeHash?: string;
   /**
@@ -242,7 +263,10 @@ export async function buildFixture(
     }
     const [entity] = await db
       .insert(entityTable)
-      .values({ entityType, firstSeenImportRunId: run.id })
+      .values({
+        entityType: options.tipoPorPlaca?.[plate] ?? entityType,
+        firstSeenImportRunId: run.id,
+      })
       .returning();
     await db.insert(entityIdentifierTable).values({
       entityId: entity.id,
@@ -281,7 +305,7 @@ export async function buildFixture(
         sourceLabel: spec.label,
         effectiveDate: spec.effectiveDate,
         scopeHash,
-        entityTypeSet: options.entityTypeSet ?? entityType,
+        entityTypeSet: spec.entityTypeSet ?? options.entityTypeSet ?? entityType,
         datasetFamily,
         canal,
         canonicalScope,
@@ -379,17 +403,29 @@ export async function buildFixture(
       });
     }
 
-    /* O mesmo agregado que `promote` grava — ver `snapshot_entity_type`. */
-    await db.insert(snapshotEntityTypeTable).values({
-      snapshotId: snapshot.id,
-      entityType,
-      entityCount: Object.keys(spec.data).length,
-      attributeCount: presentAttributes.size,
-      factCount: fatosDaVigencia,
-      valueCount: [...contagemPorAtributo.values()].reduce((s, c) => s + c.comValor, 0),
-      nullCount: [...contagemPorAtributo.values()].reduce((s, c) => s + c.vazios, 0),
-      inheritedFactCount: 0,
-    });
+    /* O mesmo agregado que `promote` grava — ver `snapshot_entity_type`.
+
+       Uma linha por tipo presente na vigência, e não uma só: quando a chamada
+       monta cavalo e carreta juntos, um agregado único diria que a vigência
+       inteira é de um tipo, e é justamente o conjunto de tipos que o teste da
+       cobertura parcial está medindo. */
+    const placasPorTipo = new Map<string, string[]>();
+    for (const plate of Object.keys(spec.data)) {
+      const tipo = options.tipoPorPlaca?.[plate] ?? entityType;
+      placasPorTipo.set(tipo, [...(placasPorTipo.get(tipo) ?? []), plate]);
+    }
+    for (const [tipo, placas] of placasPorTipo) {
+      await db.insert(snapshotEntityTypeTable).values({
+        snapshotId: snapshot.id,
+        entityType: tipo,
+        entityCount: placas.length,
+        attributeCount: presentAttributes.size,
+        factCount: fatosDaVigencia,
+        valueCount: [...contagemPorAtributo.values()].reduce((s, c) => s + c.comValor, 0),
+        nullCount: [...contagemPorAtributo.values()].reduce((s, c) => s + c.vazios, 0),
+        inheritedFactCount: 0,
+      });
+    }
 
     await db
       .update(snapshotTable)

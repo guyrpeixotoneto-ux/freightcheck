@@ -1037,6 +1037,11 @@ describe("GET /qlp/candidatos", () => {
    * que comparar", que é a resposta errada dita com a cara da certa.
    */
   it("as candidatas são vigências do quadro, da mesma unidade e cobertura", async () => {
+    /* "Mesma cobertura" quer dizer **com tipo em comum**, e não idêntica: no
+       quadro, o arquivo do administrativo e o do operacional entram na mesma
+       vigência (o segundo como revisão que herda o primeiro), então uma
+       quinzena em que só um deles chegou cobre um tipo e a seguinte cobre os
+       dois. São a mesma série de cargos, e o par compara o que as duas têm. */
     const { agosto, setembro } = await parDaUnidadeMaior();
     const { body } = await get(
       `/qlp/candidatos?quadro=ADMINISTRATIVO&para=${setembro.id}`,
@@ -1051,7 +1056,12 @@ describe("GET /qlp/candidatos", () => {
       const v: any = porId.get(c.id);
       expect(v, `candidata ${c.id} não é do quadro`).toBeDefined();
       expect(v.scopeHash).toBe(setembro.scopeHash);
-      expect(v.entityTypeSet).toBe(setembro.entityTypeSet);
+      const daCandidata: string[] = String(v.entityTypeSet).split("+");
+      const doDestino: string[] = String(setembro.entityTypeSet).split("+");
+      expect(
+        daCandidata.some((t) => doDestino.includes(t)),
+        `candidata ${c.id} cobre ${v.entityTypeSet}, sem nada em comum com ${setembro.entityTypeSet}`,
+      ).toBe(true);
       expect(c.id).not.toBe(setembro.id);
     }
   }, 120_000);

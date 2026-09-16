@@ -663,11 +663,83 @@ export function datasetFamilyFilter(snapshotAlias: string, datasetFamily?: strin
              ${datasetFamily ?? DATASET_FAMILY_REMUNERACAO_EQUIPAMENTO}`;
 }
 
-/** A chave da série: contexto + cobertura de equipamento. */
+/**
+ * A chave da série: a unidade e o canal. **Não** a cobertura.
+ *
+ * A cobertura estava aqui, e era ela que quebrava a corrente. Quem compara
+ * pares consecutivos (`cli/compare-all.ts`, `consolidated.ts`) percorre cada
+ * série de ponta a ponta; com a cobertura na chave, um arquivo parcial —
+ * carreta em julho, trecho em agosto — abria uma série nova naquele mês. De
+ * julho para trás a corrente seguia sozinha, de julho para frente também, e o
+ * par que atravessa a fronteira nunca era calculado: a Evolução mostrava o mês
+ * "importado sem comparação calculada" e o seletor parava de oferecer a
+ * história anterior.
+ *
+ * O que a cobertura protegia continua protegido, um degrau adiante: o motor
+ * compara a **interseção** dos dois conjuntos (`engine.ts`) e recusa o par que
+ * não tem tipo nenhum em comum. Cavalo não vira carreta por esta linha ter
+ * saído daqui; ele deixa de perder a própria série porque a carreta chegou.
+ *
+ * `entityTypeSet` continua no parâmetro, ignorado, para não obrigar os
+ * chamadores a mudar de forma — e para que a próxima pessoa que vier aqui leia
+ * *por que* ele não entra, em vez de achar que foi esquecido.
+ */
 export function seriesKey(
   scopeHash: string,
   sourceLabel: string,
-  entityTypeSet: string,
+  _entityTypeSet?: string,
 ): string {
-  return `${scopeHash}|${channelOf(sourceLabel) ?? ""}|${entityTypeSet}`;
+  return `${scopeHash}|${channelOf(sourceLabel) ?? ""}`;
+}
+
+/**
+ * A vigência anterior de um snapshot, como subconsulta escalar.
+ *
+ * ---------------------------------------------------------------------------
+ * Por que ela existe, e por que em SQL
+ * ---------------------------------------------------------------------------
+ * Porque "a anterior" é uma definição só do produto — `findPreviousSnapshot`,
+ * em `engine.ts` — e três consultas precisam dela **dentro** do banco, sobre um
+ * conjunto de snapshots, não sobre um. Escrever a régua à mão em cada uma foi o
+ * que produziu o defeito de 16/09/2026 pela terceira vez: a garantia
+ * particionava por cobertura e cortava a série no mês do arquivo parcial.
+ *
+ * A régua, na ordem em que `findPreviousSnapshot` a testa: mesma origem, mesmo
+ * escopo, mesma família, mesmo canal, **algum tipo em comum e o mesmo grão**
+ * (ver `coberturasSeFalam`), e a data imediatamente anterior. Vigência morta ou de importação oculta não
+ * conta, como em toda leitura deste produto.
+ *
+ * `alias` é o snapshot de quem se pergunta a anterior — quem chama garante que
+ * ele está no `FROM`.
+ */
+export function anteriorDoSnapshot(alias: string) {
+  const s = (coluna: string) => sql.raw(`${alias}.${coluna}`);
+  return sql`(
+    SELECT anterior.id
+      FROM snapshot anterior
+     WHERE anterior.status <> 'SUPERSEDED'
+       AND NOT EXISTS (
+             SELECT 1 FROM import_run
+              WHERE import_run.id = anterior.import_run_id
+                AND import_run.hidden_at IS NOT NULL)
+       AND anterior.source_system = ${s("source_system")}
+       AND anterior.scope_hash = ${s("scope_hash")}
+       AND anterior.dataset_family = ${s("dataset_family")}
+       AND ${channelSql("anterior.source_label")}
+           IS NOT DISTINCT FROM ${channelSql(`${alias}.source_label`)}
+       AND string_to_array(anterior.entity_type_set, '+')
+           && string_to_array(${s("entity_type_set")}, '+')
+       -- E do mesmo GRÃO: quem cobre equipamento só se compara com quem cobre
+       -- equipamento. Sem este degrau, a casca de trecho de uma unidade
+       -- (entity_type_set = TRECHO, entregue como vigência separada) vira
+       -- candidata a anterior de uma vigência CARRETA+CAVALO+TRECHO, porque as
+       -- duas têm trecho em comum — e, sendo mais recente que a vigência de
+       -- equipamento de verdade, ganha. A comparação sairia com interseção só
+       -- de trecho: zero alterações de cavalo num mês em que houve.
+       AND (string_to_array(anterior.entity_type_set, '+') && ARRAY['CAVALO','CARRETA'])
+           = (string_to_array(${s("entity_type_set")}, '+') && ARRAY['CAVALO','CARRETA'])
+       AND anterior.effective_date < ${s("effective_date")}
+     ORDER BY anterior.effective_date DESC
+     LIMIT 1
+  )`;
 }

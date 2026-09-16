@@ -12,6 +12,7 @@ import {
   linhaDeSeguroSemAlteracao,
   linhasDeSeguro,
   listChanges,
+  frotaDoEquipamento,
   frotaPorTipo,
   listComparableSnapshots,
   operacaoDoSnapshot,
@@ -22,6 +23,7 @@ import {
   type LinhaDeSeguro,
   type ValorDeSeguro,
   type RequestedContext,
+  TIPOS_DE_EQUIPAMENTO,
 } from "@workspace/comparison";
 import { classificarFalha } from "../lib/classificar-falha";
 import { exigirOperacaoDoRecurso, operacaoDaConsulta } from "../lib/operacao";
@@ -64,25 +66,6 @@ const PARCELAS_DO_CUSTO_FIXO = {
   finame: "carreta.finame",
   lucroFixoConjunto: "carreta.lucro_fixomodelo_novo_ciclo",
 } as const;
-
-/** Os veículos de cada lado, a partir do que o motor contou. */
-function frotaDoPar(
-  resumo: { entitiesAdded: number; entitiesRemoved: number },
-  entityCountB: number,
-): { comparados: number; novos: number; ausentes: number } {
-  /*
-    Presentes nas duas pontas = os ativos da vigência comparada menos os que
-    entraram nela. Sai da contagem do próprio snapshot, e não do tamanho da
-    lista de alterações: um veículo em que nada mudou não produz alteração
-    nenhuma, e derivar "comparados" da lista daria zero justamente na comparação
-    em que nada se moveu — que nesta rubrica é o caso comum.
-  */
-  return {
-    comparados: Math.max(0, entityCountB - resumo.entitiesAdded),
-    novos: resumo.entitiesAdded,
-    ausentes: resumo.entitiesRemoved,
-  };
-}
 
 /**
  * As linhas "sem alteração" — a leitura completa que o alternador liga.
@@ -182,8 +165,17 @@ router.get("/seguro/comparacao", async (req, res, next): Promise<void> => {
     });
     const snapshotA = vigencias.find((v) => v.id === base);
     const snapshotB = vigencias.find((v) => v.id === comparada);
-    const frota = frotaDoPar(resumo, snapshotB?.entityCount ?? 0);
+    /*
+      A frota dos cartões sai de `frotaPorTipo` **recortada no equipamento**, e
+      não do resumo do `change_set` com o `entity_count` do snapshot.
+
+      Os dois falavam da vigência inteira, e a vigência inteira pode trazer
+      trecho: um arquivo de trecho fazia cada perna de rota entrar em "Novos na
+      vigência" desta tela, ao lado de placas, sem que uma linha de equipamento
+      tivesse mudado. Ver `frotaDoEquipamento`.
+    */
     const frotaPorEquipamento = await frotaPorTipo(db, resumo.id, comparada);
+    const frota = frotaDoEquipamento(frotaPorEquipamento);
 
     let todas = linhas;
     if (comSemAlteracao && snapshotA && snapshotB) {
@@ -387,6 +379,10 @@ router.get("/seguro/candidatos", async (req, res, next): Promise<void> => {
         para,
         {
           attributeCodes: CODIGOS_DO_DETALHE_DE_SEGURO,
+/* Placa é o grão desta tela: cavalo e carreta, e mais nada. O trecho
+             pode existir no acervo e até vir dentro da mesma vigência — ele
+             não é assunto daqui, e não entra nem na lista nem na conta. */
+          entityTypes: TIPOS_DE_EQUIPAMENTO,
           numeros: (rows) => {
             const linhas = linhasDeSeguro(rows);
             /* A frota entra zerada: esta rota não publica "veículos
