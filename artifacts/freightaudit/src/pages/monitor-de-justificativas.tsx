@@ -103,7 +103,7 @@ import { cn } from "@/lib/utils";
  * ---------------------------------------------------------------------------
  * As quatro leituras, e por que elas são abas
  * ---------------------------------------------------------------------------
- * A mesma cobertura, por quatro eixos: **por módulo** (onde está a pendência),
+ * A mesma cobertura, por quatro eixos: **por seção** (onde está a pendência),
  * **por responsável** (quem escreveu o que já está escrito), **por vigência**
  * (se o atraso é de uma quinzena ou do acervo) e **por tipo de ativo** (a quem
  * mandar a fila). São perguntas diferentes sobre a mesma máquina — e nenhuma
@@ -133,7 +133,7 @@ import { cn } from "@/lib/utils";
  * de quem, e a tela não sabe.
  *
  * **Tendência.** O destaque ao lado do gráfico diz qual vigência tem menos
- * explicação e qual módulo puxa a conta dela para baixo — o que está no dado.
+ * explicação e qual seção puxa a conta dela para baixo — o que está no dado.
  * "A pendência é recente" seria uma leitura de duas colunas viradas em
  * afirmação sobre o trabalho.
  *
@@ -158,7 +158,7 @@ const CORES = {
 
 /** As quatro leituras. A primeira é a de partida, e não vai para o endereço. */
 const ABAS = [
-  { chave: "modulo", rotulo: "Por módulo", hint: "onde está a pendência" },
+  { chave: "modulo", rotulo: "Por seção", hint: "onde está a pendência" },
   {
     chave: "responsavel",
     rotulo: "Por responsável",
@@ -177,7 +177,7 @@ type Aba = (typeof ABAS)[number]["chave"];
 /**
  * O selo e o ícone de cada módulo.
  *
- * A cor é a mesma nas duas leituras — a barra de "Cobertura por módulo" e o selo
+ * A cor é a mesma nas duas leituras — a barra de "Cobertura por seção" e o selo
  * da tabela —, e é ela que permite descer de uma para a outra sem reler o nome.
  */
 const DESENHO_DO_MODULO: Record<
@@ -435,7 +435,7 @@ export default function MonitorDeJustificativas() {
     () => modulosDoPainel(rubricas, changeSetId, tipo),
     [rubricas, changeSetId, tipo],
   );
-  /* A tabela obedece ao filtro de módulo; os cartões e as barras, não — eles
+  /* A tabela obedece ao filtro de seção; os cartões e as barras, não — eles
      são o total do recorte, e é contra eles que a tabela se confere. */
   const linhasDeRubrica = useMemo(
     () => rubricasDoPainel(rubricas, changeSetId, tipo, moduloFiltrado),
@@ -449,7 +449,7 @@ export default function MonitorDeJustificativas() {
     [linhasDeRubrica, pagina, porPagina],
   );
   /* O quarto cartão: quantas telas alguém precisa abrir para zerar a fila —
-     sempre do recorte inteiro, e não do módulo filtrado. */
+     sempre do recorte inteiro, e não da seção filtrada. */
   const rubricasPendentes = useMemo(
     () => rubricasDoPainel(rubricas, changeSetId, tipo).filter((r) => r.pendentes > 0).length,
     [rubricas, changeSetId, tipo],
@@ -540,7 +540,7 @@ export default function MonitorDeJustificativas() {
 
     Ele **não** interpreta tendência ("a pendência é recente"): duas colunas
     bastam para uma reta, e não para uma afirmação sobre o trabalho. Ele diz o
-    que está no dado — qual vigência tem menos explicação, e qual módulo puxa a
+    que está no dado — qual vigência tem menos explicação, e qual seção puxa a
     conta dela para baixo —, que é por onde se começa.
   */
   const destaque = useMemo(() => {
@@ -618,7 +618,7 @@ export default function MonitorDeJustificativas() {
    *
    * É o único lugar onde o detalhe por alteração mora desde que a lista saiu da
    * tela, e por isso ele sai **inteiro**: as justificadas e as pendentes, com o
-   * módulo e a rubrica de cada uma ao lado do que mudou.
+   * seção e a rubrica de cada uma ao lado do que mudou.
    */
   const exportar = async () => {
     setExportando(true);
@@ -648,7 +648,7 @@ export default function MonitorDeJustificativas() {
       const csv = [
         [
           "Vigência",
-          "Módulo",
+          "Seção",
           "Rubrica",
           "Placa",
           "Tipo",
@@ -714,7 +714,7 @@ export default function MonitorDeJustificativas() {
         <table className="w-full text-sm">
           <thead className="border-y bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
             <tr>
-              <th className="px-4 py-2.5 text-left font-semibold">Módulo</th>
+              <th className="px-4 py-2.5 text-left font-semibold">Seção</th>
               <th className="px-3 py-2.5 text-left font-semibold">Rubrica</th>
               <th className="px-3 py-2.5 text-right font-semibold">Alterações</th>
               <th className="px-3 py-2.5 text-right font-semibold">Justificadas</th>
@@ -888,7 +888,7 @@ export default function MonitorDeJustificativas() {
             — é a vigência com menos explicação: {pct(100 - destaque.vigencia.cobertura)} do que
             mudou nela ainda não tem justificativa
             {destaque.modulo
-              ? `, e o módulo mais atrasado dentro dela é ${destaque.modulo.rotulo} (${pct(
+              ? `, e a seção mais atrasada dentro dela é ${destaque.modulo.rotulo} (${pct(
                   destaque.modulo.cobertura,
                 )} explicado)`
               : ""}
@@ -908,13 +908,13 @@ export default function MonitorDeJustificativas() {
         descricao={
           <>
             Quanto do que a Ambev mudou já está explicado, e quanto ainda falta —
-            por módulo, por rubrica e por vigência
+            por seção, por rubrica e por vigência
             {unidadeDoRecorte
               ? `, em ${unidadeDoRecorte}`
               : emVisaoGeral
                 ? ", somando todas as unidades"
                 : ""}
-            . Justificar acontece dentro de cada módulo; aqui se acompanha e se
+            . Justificar acontece dentro de cada seção; aqui se acompanha e se
             cobra.
           </>
         }
@@ -941,7 +941,7 @@ export default function MonitorDeJustificativas() {
         acoes={
           /*
             A vigência é o recorte da leitura, e não um filtro dela: ela decide
-            **de que acervo** os cartões, os módulos e a tabela falam, do mesmo
+            **de que acervo** os cartões, as seções e a tabela falam, do mesmo
             jeito que a unidade da lateral. Por isso o botão da casa — "Trocar
             vigência" —, no canto direito do cabeçalho.
           */
@@ -1036,7 +1036,7 @@ export default function MonitorDeJustificativas() {
       <div className="px-8 pb-10 space-y-4 max-w-[1400px] pt-4">
         {tipo !== null && (
           <p className="text-sm text-muted-foreground">
-            Tudo abaixo — os cartões, os módulos e a tabela — fala só{" "}
+            Tudo abaixo — os cartões, as seções e a tabela — fala só{" "}
             {contracaoDoTipo(tipo, "de")} {palavrasDoTipo(tipo).plural}.
           </p>
         )}
@@ -1115,7 +1115,7 @@ export default function MonitorDeJustificativas() {
                 rodape={
                   modulos.length > 0
                     ? `O que mudou entre as vigências, em ${modulos.length} ${
-                        modulos.length === 1 ? "módulo" : "módulos"
+                        modulos.length === 1 ? "seção" : "seções"
                       }`
                     : "O que mudou entre as vigências"
                 }
@@ -1150,20 +1150,20 @@ export default function MonitorDeJustificativas() {
                 <div className="grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
                   {/*
                     A leitura que esta tela existe para dar: onde está a
-                    pendência, por módulo. Clicar na linha recorta a tabela
+                    pendência, por seção. Clicar na linha recorta a tabela
                     abaixo — que é a continuação da mesma pergunta, um nível mais
-                    fundo —, e "Abrir" vai para a tela do módulo inteiro.
+                    fundo —, e "Abrir" vai para a tela da seção inteira.
                   */}
                   <section className="superficie min-w-0 px-6 py-5">
                     <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-                      <h2 className="text-lg font-bold">Cobertura por módulo</h2>
+                      <h2 className="text-lg font-bold">Cobertura por seção</h2>
                       <p className="text-xs text-muted-foreground">
                         A barra diz onde mandar a cobrança. Clique para recortar a tabela.
                       </p>
                     </div>
                     {modulos.length === 0 ? (
                       <p className="text-sm text-muted-foreground mt-3">
-                        A cobertura por módulo não veio nesta resposta.
+                        A cobertura por seção não veio nesta resposta.
                       </p>
                     ) : (
                       <ul className="mt-2 divide-y">
@@ -1307,7 +1307,7 @@ export default function MonitorDeJustificativas() {
                         duas gravam o mesmo estado. */}
                     <label className="space-y-1">
                       <span className="block text-xs uppercase tracking-wide text-muted-foreground">
-                        Módulo
+                        Seção
                       </span>
                       <Select
                         value={moduloFiltrado ?? TODOS_OS_MODULOS}
@@ -1531,7 +1531,7 @@ export default function MonitorDeJustificativas() {
                           dizer isso é o que impede a leitura de ser lida como a
                           cobertura inteira. */}
                       O quadro de pessoal não aparece nesta leitura: ele não é ativo com placa. A
-                      cobertura dele está na aba Por módulo.
+                      cobertura dele está na aba Por seção.
                     </p>
                   </section>
 

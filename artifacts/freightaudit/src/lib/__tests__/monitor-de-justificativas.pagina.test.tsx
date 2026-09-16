@@ -245,12 +245,12 @@ describe("o cabeçalho do Monitor de Justificativas", () => {
     expect(within(cabecalho).getByRole("button", { name: /Trocar vigência/ })).toBeTruthy();
 
     /* A caixa antiga vivia entre "Tipo de ativo" e o filtro seguinte; o recorte
-       por módulo ocupou o lugar do impacto, e é a ausência da vigência entre os
+       por seção ocupou o lugar do impacto, e é a ausência da vigência entre os
        filtros que este teste prende. */
     const filtros = screen.getByText("Tipo de ativo").closest("section");
     expect(filtros).not.toBeNull();
     expect(within(filtros as HTMLElement).queryByText("Vigência")).toBeNull();
-    expect(within(filtros as HTMLElement).getByText("Módulo")).toBeTruthy();
+    expect(within(filtros as HTMLElement).getByText("Seção")).toBeTruthy();
   });
 
   it("lista as vigências com a contagem de cada uma, e todas na primeira linha", async () => {
@@ -329,12 +329,12 @@ describe("o que o Monitor deixou de fazer", () => {
   });
 });
 
-describe("a leitura por módulo", () => {
-  it("soma cada módulo e diz quanto falta em cada um", async () => {
+describe("a leitura por seção", () => {
+  it("soma cada seção e diz quanto falta em cada uma", async () => {
     servidor();
     montar();
 
-    const modulos = (await screen.findByText("Cobertura por módulo")).closest("section")!;
+    const modulos = (await screen.findByText("Cobertura por seção")).closest("section")!;
     /* 400 alterações e 100 justificadas: 300 pendentes no Custo Variável. */
     const variavel = within(modulos).getByText("Custo Variável").closest("button")!;
     expect(variavel.textContent).toContain("300 pendentes");
@@ -383,11 +383,11 @@ describe("a leitura por módulo", () => {
     await waitFor(() => expect(window.location.pathname).toBe("/justificativas"));
   });
 
-  it("recorta a tabela ao clicar num módulo, sem mexer nos cartões", async () => {
+  it("recorta a tabela ao clicar numa seção, sem mexer nos cartões", async () => {
     servidor();
     montar();
 
-    const modulos = (await screen.findByText("Cobertura por módulo")).closest("section")!;
+    const modulos = (await screen.findByText("Cobertura por seção")).closest("section")!;
     fireEvent.click(within(modulos).getByText("Custo Fixo").closest("button")!);
 
     const tabela = screen.getByText("Onde está a pendência").closest("section")!;
@@ -417,11 +417,11 @@ describe("a tabela por rubrica", () => {
 });
 
 describe("as quatro leituras", () => {
-  it("abre pela leitura por módulo, sem escrever a aba no endereço", async () => {
+  it("abre pela leitura por seção, sem escrever a aba no endereço", async () => {
     servidor();
     montar();
 
-    await screen.findByText("Cobertura por módulo");
+    await screen.findByText("Cobertura por seção");
     expect(window.location.search).not.toContain("aba=");
   });
 
@@ -432,7 +432,7 @@ describe("as quatro leituras", () => {
     fireEvent.click(await screen.findByRole("tab", { name: /Por vigência/ }));
     await waitFor(() => expect(window.location.search).toContain("aba=vigencia"));
     expect(screen.getByText("Vigência a vigência")).toBeTruthy();
-    /* Cada aba é uma leitura: a tabela por rubrica é da aba por módulo. */
+    /* Cada aba é uma leitura: a tabela por rubrica é da aba por seção. */
     expect(screen.queryByText("Onde está a pendência")).toBeNull();
   });
 
@@ -460,13 +460,13 @@ describe("as quatro leituras", () => {
   it("aceita o ?tipo= antigo como filtro, e não como aba", async () => {
     /*
       O tipo era a aba; hoje é filtro. Um link colado meses atrás continua
-      abrindo o recorte que prometia — agora na leitura por módulo.
+      abrindo o recorte que prometia — agora na leitura por seção.
     */
     servidor();
     window.history.replaceState({}, "", "/painel-de-justificativas?tipo=CARRETA");
     montar();
 
-    await screen.findByText("Cobertura por módulo");
+    await screen.findByText("Cobertura por seção");
     expect(screen.getByText(/fala só das carretas/)).toBeTruthy();
     /* 60 alterações da carreta de julho, e não as 500 do acervo. */
     expect(within(cartao("Alterações no recorte")).getByText("60")).toBeTruthy();
@@ -476,7 +476,7 @@ describe("as quatro leituras", () => {
 describe("copiar a cobrança", () => {
   /** O botão, já com a cobertura em mãos — antes dela ele está desligado. */
   async function botaoDeCobranca(): Promise<HTMLElement> {
-    await screen.findByText("Cobertura por módulo");
+    await screen.findByText("Cobertura por seção");
     return await waitFor(() => {
       const botao = screen.getByRole("button", { name: /Copiar cobrança/ });
       if (botao.hasAttribute("disabled")) throw new Error("ainda desligado");
@@ -499,7 +499,7 @@ describe("copiar a cobrança", () => {
     return escrito;
   }
 
-  it("põe na área de transferência o que falta, por módulo e rubrica", async () => {
+  it("põe na área de transferência o que falta, por seção e rubrica", async () => {
     servidor();
     const escrito = areaDeTransferencia();
     montar();
@@ -544,7 +544,7 @@ describe("copiar a cobrança", () => {
     servidor(tudoJustificado);
     montar();
 
-    await screen.findByText("Cobertura por módulo");
+    await screen.findByText("Cobertura por seção");
     expect(
       (await screen.findByRole("button", { name: /Copiar cobrança/ })).hasAttribute("disabled"),
     ).toBe(true);
@@ -563,6 +563,6 @@ describe("os estados sem número", () => {
       expect(screen.getByRole("button", { name: nome }).hasAttribute("disabled")).toBe(true);
     }
     /* E nenhuma leitura desenhada sobre o vazio. */
-    expect(screen.queryByText("Cobertura por módulo")).toBeNull();
+    expect(screen.queryByText("Cobertura por seção")).toBeNull();
   });
 });
