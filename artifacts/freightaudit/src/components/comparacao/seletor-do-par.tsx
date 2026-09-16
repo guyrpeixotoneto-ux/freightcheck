@@ -5,7 +5,7 @@ import {
   composicaoDoArquivo,
   formamParDeVigencias,
   rotuloDaCobertura,
-  tituloDaComposicao,
+  TITULO_DA_OUTRA_SERIE,
   vigenciasCompativeisCom,
 } from "@workspace/comparison/recorte-de-rubrica";
 import { rotuloDaVigencia } from "@workspace/comparison/labels";
@@ -420,7 +420,7 @@ export function SeletorDoPar({
                         <SelectSeparator />
                         <SelectGroup>
                           <SelectLabel className="text-[0.65rem] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-                            {tituloDaComposicao(foco)}
+                            {TITULO_DA_OUTRA_SERIE}
                           </SelectLabel>
                           {resto.map((v) => (
                             <SelectItem key={v.id} value={v.id} className={ITEM_LARGO}>
@@ -498,7 +498,7 @@ export function SeletorDoPar({
                         <SelectSeparator />
                         <SelectGroup>
                           <SelectLabel className="text-[0.65rem] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-                            {tituloDaComposicao(foco)}
+                            {TITULO_DA_OUTRA_SERIE}
                           </SelectLabel>
                           {resto.map((v) => (
                             <SelectItem key={v.id} value={v.id} className={ITEM_LARGO}>

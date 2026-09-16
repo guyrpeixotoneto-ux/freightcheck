@@ -8,8 +8,8 @@ import {
   parReconciliado,
   rotuloDaCobertura,
   rotulosDasVigencias,
-  tituloDaComposicao,
   TIPOS_DE_EQUIPAMENTO,
+  TITULO_DA_OUTRA_SERIE,
   vigenciasCompativeisCom,
   vigenciasDaUnidade,
   vigenciasQueCobrem,
@@ -588,6 +588,12 @@ describe("a lista de vigências de cada aba", () => {
  * cujas linhas diziam "Cavalo" — a tela se contradizendo em voz alta. As duas
  * séries têm cavalo; o que as separa é o arquivo de origem ter vindo só com ele
  * ou com a carreta junto, e o motor comparar a vigência inteira.
+ *
+ * A frase ficou onde resolve — **na linha**, ao lado de cada vigência. O
+ * cabeçalho do grupo chegou a repeti-la ("Como o equipamento veio na
+ * vigência") e foi relatado em 16/09/2026 pelo motivo oposto: *"confunde mais
+ * que ajuda"*. Um cabeçalho que repete a linha vira uma segunda lista; hoje ele
+ * diz o que o clique faz, e quem o guarda é o teste logo abaixo.
  */
 describe("como o arquivo veio composto", () => {
   it("diz somente, quando o equipamento da aba veio sozinho", () => {
@@ -618,10 +624,10 @@ describe("como o arquivo veio composto", () => {
     expect(composicaoDoArquivo("")).toBe("");
   });
 
-  it("escreve o título do grupo com o artigo certo", () => {
-    expect(tituloDaComposicao("CAVALO")).toBe("Como o cavalo veio na vigência");
-    expect(tituloDaComposicao("CARRETA")).toBe("Como a carreta veio na vigência");
-    expect(tituloDaComposicao(null)).toBe("Como o equipamento veio na vigência");
+  /* O título do grupo diz o que o clique faz, e não como o arquivo veio: o
+     critério já está escrito em cada linha, pela função acima. */
+  it("o título do grupo oferece a troca de série", () => {
+    expect(TITULO_DA_OUTRA_SERIE).toBe("Trocar para outra série");
   });
 });
 
