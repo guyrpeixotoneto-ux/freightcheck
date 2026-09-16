@@ -185,10 +185,12 @@ describe("o seletor de uma unidade", () => {
   it("desempata pelo histórico do contexto, e não pelo recorte visível", () => {
     /*
       Com uma janela aplicada, `periods` traz só o recorte — aqui, uma das duas
-      entregas de agosto. Se o desempate saísse daí, agosto pareceria um mês de
-      entrega única e a vigência perderia o `dia 02` que ela tem na tela sem
-      janela: a mesma vigência com dois nomes, conforme o recorte. É a mesma
-      escolha que o servidor faz em `grouped.ts`.
+      entregas de agosto. A quinzena não depende disso: ela sai do dia da
+      própria vigência. O `dia 02`, sim — ele só existe porque agosto tem duas
+      entregas na mesma metade, e saber que são duas é uma pergunta sobre a
+      lista inteira. Se o desempate saísse do recorte, a mesma vigência teria
+      dois nomes conforme a janela. É a mesma escolha que o servidor faz em
+      `grouped.ts`.
     */
     const menu = abrirDaUnidade(
       view(
@@ -199,7 +201,7 @@ describe("o seletor de uma unidade", () => {
     const linhas = within(menu).getAllByRole("menuitem");
 
     expect(linhas.map((l) => l.textContent)).toEqual([
-      "setembro/2026",
+      expect.stringContaining("setembro/2026"),
       expect.stringContaining("agosto/2026"),
     ]);
     expect(linhas[1].textContent).toContain("dia 02");

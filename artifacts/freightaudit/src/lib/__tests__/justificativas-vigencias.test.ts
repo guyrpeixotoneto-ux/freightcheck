@@ -55,20 +55,26 @@ describe("opcoesDeVigencia", () => {
     );
 
     /*
-      Agosto tem duas: ganha a marca do dia. Junho tem uma só: fica sem marca.
-      O mês é o mesmo texto nos três — a lista do menu é uma coluna de meses, e
-      escrever `02/08/2026` no meio de `junho/2026` obrigava quem procura
-      agosto a traduzir o único item em dígitos.
+      As três levam a quinzena, que é parte do nome da vigência. As duas de
+      agosto caíram na mesma metade e ganham o dia **junto** com ela — é o que
+      as separa sem desmentir a metade em que caíram. O mês é o mesmo texto nos
+      três: a lista do menu é uma coluna de meses, e escrever `02/08/2026` no
+      meio de `junho/2026` obrigava quem procura agosto a traduzir o único item
+      em dígitos.
     */
     expect(opcoes.map((o) => o.mes)).toEqual(["agosto/2026", "agosto/2026", "junho/2026"]);
-    expect(opcoes.map((o) => o.marca)).toEqual(["dia 02", "dia 01", null]);
+    expect(opcoes.map((o) => o.marca)).toEqual([
+      "1ª quinzena · dia 02",
+      "1ª quinzena · dia 01",
+      "1ª quinzena",
+    ]);
 
     // `competencia` é a forma de uma linha só — o título do diálogo, a coluna
     // do CSV —, e as três continuam distintas.
     expect(opcoes.map((o) => o.competencia)).toEqual([
-      "agosto/2026 · dia 02",
-      "agosto/2026 · dia 01",
-      "junho/2026",
+      "agosto/2026 · 1ª quinzena · dia 02",
+      "agosto/2026 · 1ª quinzena · dia 01",
+      "junho/2026 · 1ª quinzena",
     ]);
   });
 
@@ -87,7 +93,7 @@ describe("opcoesDeVigencia", () => {
       [],
     );
 
-    expect(opcoes[0].competencia).toBe("agosto/2026");
+    expect(opcoes[0].competencia).toBe("agosto/2026 · 1ª quinzena");
   });
 });
 

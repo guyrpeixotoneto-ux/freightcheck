@@ -1,4 +1,5 @@
 import { Link, useLocation, useSearch } from "wouter";
+import { rotuloCurtoDaVigencia } from "@workspace/comparison/labels";
 import {
   ArrowRightLeft,
   BadgeCheck,
@@ -957,16 +958,26 @@ export function detalheDe(contexto: Contexto): string {
   return `${canalDe(contexto)} · ${mesAbreviado(contexto.latestPeriod)}`;
 }
 
-const MESES = [
-  "jan", "fev", "mar", "abr", "mai", "jun",
-  "jul", "ago", "set", "out", "nov", "dez",
-];
-
-/** `2026-08-01` → `ago/2026`. Sem `Date`, para o fuso não recuar o mês. */
+/**
+ * `2026-08-01` → `agosto/2026 · 1ªq`, a vigência como o resto do produto a
+ * escreve.
+ *
+ * Era `ago/2026`, montado aqui com um vetor de meses próprio — um terceiro
+ * idioma, ao lado do `agosto/2026 · 1ª quinzena` dos seletores e do
+ * `01/08/2026` que o eixo do gráfico escrevia. Quem troca de unidade na
+ * lateral e abre a Auditoria lia dois nomes para a mesma vigência e tinha de
+ * emendar os dois de cabeça.
+ *
+ * A forma compacta é a da barra: a caixa da unidade tem a largura da lateral, e
+ * `1ª quinzena` por extenso não cabe ao lado do nome. A régua, essa, é a mesma
+ * — {@link rotuloCurtoDaVigencia} e o seletor repartem `marcaDaVigencia`.
+ *
+ * Sem contexto (`[]`) de propósito: aqui há uma data na mão, não uma lista. A
+ * quinzena sai do dia da própria vigência, que é o que esta linha precisa
+ * dizer.
+ */
 function mesAbreviado(data: string): string {
-  const [ano, mes] = data.split("-");
-  const indice = Number(mes) - 1;
-  return indice >= 0 && indice < 12 ? `${MESES[indice]}/${ano}` : data;
+  return rotuloCurtoDaVigencia(data, []);
 }
 
 /**

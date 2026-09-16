@@ -8,6 +8,7 @@ import {
   tituloDaComposicao,
   vigenciasCompativeisCom,
 } from "@workspace/comparison/recorte-de-rubrica";
+import { rotuloDaVigencia } from "@workspace/comparison/labels";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { numerosDaLinha, type CandidatosDoPar } from "@/lib/candidatos";
@@ -163,9 +164,20 @@ export function SeletorDoPar({
    */
   idPrefixo: string;
 }) {
+  /*
+    O rótulo desempatado, e — só se ele faltar — a vigência escrita aqui.
+
+    O reserva era `EMPURRADA_1_6_2026 · 01/06/2026`: o nome do arquivo e a data
+    em dígitos, que é o idioma que esta tela deixou de falar. Ele agora usa a
+    mesma função do resto da casa (`rotuloDaVigencia`), com as datas da própria
+    lista por contexto, e sai `junho/2026 · 1ª quinzena` como todas as outras
+    linhas. É um caminho que não deveria ser tomado — `rotulos` cobre a lista
+    inteira —, e mesmo assim ele não pode ser o único lugar da tela escrevendo
+    a vigência de outro jeito.
+  */
+  const datasDaLista = useMemo(() => vigencias.map((v) => v.effectiveDate), [vigencias]);
   const rotulo = (v: VigenciaEscolhivel) =>
-    rotulos.get(v.id) ??
-    `${v.sourceLabel} · ${v.effectiveDate.split("-").reverse().join("/")}`;
+    rotulos.get(v.id) ?? rotuloDaVigencia(v.effectiveDate, datasDaLista);
 
   const porId = useMemo(
     () => new Map(vigencias.map((v) => [v.id, v] as const)),
@@ -301,8 +313,8 @@ export function SeletorDoPar({
 
           Estas linhas nunca terão número: o servidor não as considera
           candidatas, porque o motor não compara vigências de composição
-          diferente. Deixá-las em branco ao lado das que dizem "nenhuma
-          alteração" é convidar a ler ausência de conta como ausência de
+          diferente. Deixá-las em branco ao lado das que dizem "R$ 0,00 · 0
+          alterações" é convidar a ler ausência de conta como ausência de
           mudança. "Somente cavalo" responde a pergunta certa — é o que separa
           esta linha das de cima, e não o equipamento, que é o mesmo.
         */}
@@ -317,7 +329,14 @@ export function SeletorDoPar({
                 key={valor.texto}
                 className={cn(
                   "font-semibold tabular-nums",
-                  valor.bruto > 0 ? "text-emerald-700" : "text-destructive",
+                  /* Zero não é ganho nem perda: a linha zerada fica na cor do
+                     texto secundário, e o verde/vermelho continua reservado a
+                     quem tem direção. */
+                  valor.bruto === 0
+                    ? "text-muted-foreground"
+                    : valor.bruto > 0
+                      ? "text-emerald-700"
+                      : "text-destructive",
                 )}
               >
                 {valor.texto}
