@@ -663,7 +663,10 @@ export function rotuloDaCobertura(entityTypeSet: string): string {
  * ---------------------------------------------------------------------------
  * Por que ela substituiu "Outra cobertura"
  * ---------------------------------------------------------------------------
- * Porque aquele nome passou a contradizer a tela. O seletor do par separa as
+ * Porque aquele nome passou a contradizer a tela. Ele era o **título** do grupo
+ * — que hoje diz outra coisa (`TITULO_DA_OUTRA_SERIE`) —, e a frase daqui é o
+ * que ficou no lugar dele: escrita linha a linha, ao lado de cada vigência, que
+ * é onde ela distingue uma da outra. O seletor do par separa as
  * vigências que formam par com a ponta aberta das que não formam, e enquanto
  * ele era o único eixo da tela "cobertura" era a palavra certa — era ela que
  * distinguia as linhas. Depois que a aba de equipamento subiu para cima do par,
@@ -721,16 +724,26 @@ export function composicaoDoArquivo(
 /**
  * O título do grupo que reúne as vigências de outra composição.
  *
- * O artigo vem de tabela e não de regra: "o cavalo", "a carreta". Uma regra de
- * gênero para três palavras é mais código do que as três palavras.
+ * ---------------------------------------------------------------------------
+ * Por que ele deixou de descrever a composição
+ * ---------------------------------------------------------------------------
+ * Porque descrever era o que confundia. "Como o equipamento veio na vigência"
+ * é uma frase verdadeira e nenhuma ajuda: ela nomeia o **critério** que separou
+ * as linhas de baixo das de cima, e quem abre o menu não está perguntando por
+ * um critério — está procurando uma vigência. Pior, a frase repete o que cada
+ * linha do grupo já diz à direita ("Cavalo com carreta"), e um cabeçalho que
+ * repete a linha é lido como uma segunda lista, não como a continuação da
+ * primeira.
+ *
+ * O que falta dizer ali não é o que aquelas vigências **são** — é o que
+ * acontece ao clicar numa delas: o par sai da série em tela e vai para a outra,
+ * arrastando a ponta oposta para a compatível mais próxima
+ * (`compativelMaisProxima`). "Trocar para outra série" é essa frase, e é a
+ * única coisa que o grupo existe para oferecer.
+ *
+ * Constante e não função: a frase não depende mais do equipamento da aba. A
+ * composição de cada vigência continua escrita linha a linha, por
+ * `composicaoDoArquivo`, que é onde ela responde a uma pergunta de verdade —
+ * qual das séries é esta.
  */
-export function tituloDaComposicao(foco?: string | null): string {
-  const artigos: Record<string, string> = {
-    CAVALO: "o cavalo",
-    CARRETA: "a carreta",
-    TRECHO: "o trecho",
-  };
-  const alvo = foco?.trim().toUpperCase();
-  const sujeito = (alvo && artigos[alvo]) || "o equipamento";
-  return `Como ${sujeito} veio na vigência`;
-}
+export const TITULO_DA_OUTRA_SERIE = "Trocar para outra série";
