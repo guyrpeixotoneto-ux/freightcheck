@@ -93,45 +93,55 @@ async function linhasIguais(
   jaListadas: Set<string>,
   contexto: RequestedContext | undefined,
 ): Promise<LinhaDeFiname[]> {
-  const linhas: LinhaDeFiname[] = [];
-  for (const entityType of ["CAVALO", "CARRETA"] as const) {
-    const codigos = CODIGOS_DA_TABELA.filter(
-      (c) => variavelDoCodigo(c)?.codigo[entityType] === c,
-    );
-    if (codigos.length === 0) continue;
+  /* As quatro leituras — dois equipamentos × duas pontas — saem de uma vez. Já
+     era assim entre as pontas; o equipamento era a fila que sobrava. */
+  const porEquipamento = await Promise.all(
+    (["CAVALO", "CARRETA"] as const).map(async (entityType) => {
+      const linhas: LinhaDeFiname[] = [];
+      const codigos = CODIGOS_DA_TABELA.filter(
+        (c) => variavelDoCodigo(c)?.codigo[entityType] === c,
+      );
+      if (codigos.length === 0) return linhas;
 
-    const [a, b] = await Promise.all([
-      getEntityTable(db, entityType, codigos, contexto, snapshotA.effectiveDate),
-      getEntityTable(db, entityType, codigos, contexto, snapshotB.effectiveDate),
-    ]);
-    if (!a || !b) continue;
+      const [a, b] = await Promise.all([
+        getEntityTable(db, entityType, codigos, contexto, snapshotA.effectiveDate),
+        getEntityTable(db, entityType, codigos, contexto, snapshotB.effectiveDate),
+      ]);
+      if (!a || !b) return linhas;
 
-    const naBase = new Map<string, (typeof a.rows)[number]["values"]>();
-    for (const linha of a.rows) naBase.set(linha.entityId, linha.values);
+      const naBase = new Map<string, (typeof a.rows)[number]["values"]>();
+      for (const linha of a.rows) naBase.set(linha.entityId, linha.values);
 
-    for (const linha of b.rows) {
-      const anterior = naBase.get(linha.entityId);
-      if (!anterior) continue;
-      for (const code of codigos) {
-        const antes = anterior[code]?.value ?? null;
-        const depois = linha.values[code]?.value ?? null;
-        if (antes !== depois) continue;
-        // Os dois lados ausentes não são "sem alteração": são ausência nas
-        // duas pontas, e o motor já não escreveu linha para eles.
-        if (antes === null) continue;
-        const chave = `${linha.label}\u001f${entityType}\u001f${code}`;
-        if (jaListadas.has(chave)) continue;
-        const semAlteracao = linhaSemAlteracao({
-          entityLabel: linha.label,
-          entityType,
-          attributeCode: code,
-          valor: antes,
-        });
-        if (semAlteracao) linhas.push(semAlteracao);
+      for (const linha of b.rows) {
+        const anterior = naBase.get(linha.entityId);
+        if (!anterior) continue;
+        for (const code of codigos) {
+          const antes = anterior[code]?.value ?? null;
+          const depois = linha.values[code]?.value ?? null;
+          if (antes !== depois) continue;
+          // Os dois lados ausentes não são "sem alteração": são ausência nas
+          // duas pontas, e o motor já não escreveu linha para eles.
+          if (antes === null) continue;
+          const chave = `${linha.label}\u001f${entityType}\u001f${code}`;
+          if (jaListadas.has(chave)) continue;
+          const semAlteracao = linhaSemAlteracao({
+            entityLabel: linha.label,
+            entityType,
+            attributeCode: code,
+            valor: antes,
+          });
+          if (semAlteracao) linhas.push(semAlteracao);
+        }
       }
-    }
-  }
-  return linhas;
+      return linhas;
+    }),
+  );
+  /*
+    A ordem continua a de antes — cavalo inteiro, depois carreta —, porque
+    `Promise.all` preserva a ordem da lista, e não a de quem respondeu primeiro.
+    Calcular em paralelo não pode reordenar a tabela de quem lê.
+  */
+  return porEquipamento.flat();
 }
 
 /**
@@ -149,34 +159,36 @@ async function contextoDaVigencia(
   recorte: RequestedContext | undefined,
 ): Promise<ContextoDoVeiculo[]> {
   if (!snapshot || CODIGOS_DO_CONTEXTO.length === 0) return [];
-  const contexto: ContextoDoVeiculo[] = [];
-  for (const entityType of ["CAVALO", "CARRETA"] as const) {
-    const codigos = CODIGOS_DO_CONTEXTO.filter(
-      (c) => variavelDoCodigo(c)?.codigo[entityType] === c,
-    );
-    if (codigos.length === 0) continue;
-    const codigoPeriodo = codigoDoPeriodo(entityType);
-    const codigoData = codigoDaDataDeCadastro(entityType);
-    const codigoFim = codigoDoFimDoContrato(entityType);
-    const tabela = await getEntityTable(
-      db,
-      entityType,
-      codigos,
-      recorte,
-      snapshot.effectiveDate,
-    );
-    if (!tabela) continue;
-    for (const linha of tabela.rows) {
-      contexto.push({
+  /* Cavalo e carreta são duas leituras que não se conhecem — a segunda não usa
+     nada da primeira. Em fila, uma vigência custava duas esperas onde cabe
+     uma; e são duas vigências por tela. */
+  const porEquipamento = await Promise.all(
+    (["CAVALO", "CARRETA"] as const).map(async (entityType) => {
+      const codigos = CODIGOS_DO_CONTEXTO.filter(
+        (c) => variavelDoCodigo(c)?.codigo[entityType] === c,
+      );
+      if (codigos.length === 0) return [];
+      const codigoPeriodo = codigoDoPeriodo(entityType);
+      const codigoData = codigoDaDataDeCadastro(entityType);
+      const codigoFim = codigoDoFimDoContrato(entityType);
+      const tabela = await getEntityTable(
+        db,
+        entityType,
+        codigos,
+        recorte,
+        snapshot.effectiveDate,
+      );
+      if (!tabela) return [];
+      return tabela.rows.map((linha) => ({
         entityLabel: linha.label,
         entityType,
         periodo: codigoPeriodo ? (linha.values[codigoPeriodo]?.value ?? null) : null,
         dataDeCadastro: codigoData ? (linha.values[codigoData]?.value ?? null) : null,
         fimDoContrato: codigoFim ? (linha.values[codigoFim]?.value ?? null) : null,
-      });
-    }
-  }
-  return contexto;
+      }));
+    }),
+  );
+  return porEquipamento.flat();
 }
 
 /**
@@ -354,33 +366,38 @@ router.get("/finame/totais", async (req, res): Promise<void> => {
   }[] = [];
 
   try {
-    for (const { ponta, snapshot } of pontas) {
-      if (!snapshot) continue;
-      for (const entityType of ["CAVALO", "CARRETA"] as const) {
-        /* O código da parcela sai do catálogo, e não de uma segunda lista aqui:
-           a decisão de qual coluna é "a parcela" da carreta é uma só, e mora lá. */
-        const code = PARCELA?.codigo[entityType];
-        if (!code) continue;
-        const tabela = await getEntityTable(
-          db,
-          entityType,
-          [code],
-          contextoDoPar(snapshot, req),
-          snapshot.effectiveDate,
-        );
-        if (!tabela) continue;
-        for (const linha of tabela.rows) {
-          const bruto = linha.values[code]?.value ?? null;
-          const numero = bruto === null ? null : Number(bruto);
-          valores.push({
-            ponta,
+    /* As quatro leituras — duas pontas × dois equipamentos — não se conhecem, e
+       em fila custavam quatro esperas seguidas para somar uma coluna. A ordem
+       do resultado é a das listas, e não a de quem respondeu primeiro. */
+    const lidas = await Promise.all(
+      pontas.flatMap(({ ponta, snapshot }) =>
+        (["CAVALO", "CARRETA"] as const).map(async (entityType) => {
+          /* O código da parcela sai do catálogo, e não de uma segunda lista aqui:
+             a decisão de qual coluna é "a parcela" da carreta é uma só, e mora lá. */
+          const code = PARCELA?.codigo[entityType];
+          if (!snapshot || !code) return [];
+          const tabela = await getEntityTable(
+            db,
             entityType,
-            attributeCode: code,
-            valor: numero !== null && Number.isFinite(numero) ? numero : null,
+            [code],
+            contextoDoPar(snapshot, req),
+            snapshot.effectiveDate,
+          );
+          if (!tabela) return [];
+          return tabela.rows.map((linha) => {
+            const bruto = linha.values[code]?.value ?? null;
+            const numero = bruto === null ? null : Number(bruto);
+            return {
+              ponta,
+              entityType: entityType as string,
+              attributeCode: code,
+              valor: numero !== null && Number.isFinite(numero) ? numero : null,
+            };
           });
-        }
-      }
-    }
+        }),
+      ),
+    );
+    valores.push(...lidas.flat());
   } catch (err) {
     /* Pedir o escopo do par é pedir um recorte que pode não ter contexto — e a
        recusa de recorte é frase para quem opera, não 500. A mesma tradução de

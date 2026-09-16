@@ -369,43 +369,55 @@ export async function listContexts(
   const operacao = normalizarOperacao(opts?.operacao ?? null);
   const daOperacao = sql` AND ${operacaoFilter("s", operacao)}`;
 
-  const { rows } = await db.execute<{
-    scope_hash: string;
-    channel: string | null;
-    latest_period: string;
-    periods: number;
-    all_periods: string[];
-  }>(sql`
-    SELECT s.scope_hash,
-           ${channelSql("s.source_label")} AS channel,
-           max(s.effective_date)::text     AS latest_period,
-           count(DISTINCT s.effective_date)::int AS periods,
-           array_agg(DISTINCT s.effective_date::text ORDER BY s.effective_date::text)
-             AS all_periods
-      FROM snapshot s
-     WHERE s.status <> 'SUPERSEDED'
-       AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)${familia}${semCasca}${daOperacao}
-     GROUP BY 1, 2
-     ORDER BY max(s.effective_date) DESC, s.scope_hash, 2 NULLS LAST
-  `);
+  /*
+    As duas leituras saem **juntas**, e não uma depois da outra.
 
-  const { rows: scopeRows } = await db.execute<{
-    scope_hash: string;
-    channel: string | null;
-    scope_type: string;
-    code: string;
-    name: string | null;
-  }>(sql`
-    SELECT DISTINCT s.scope_hash,
-           ${channelSql("s.source_label")} AS channel,
-           sc.scope_type, sc.code, sc.name
-      FROM snapshot s
-      JOIN snapshot_scope ss ON ss.snapshot_id = s.id
-      JOIN scope sc          ON sc.id = ss.scope_id
-     WHERE s.status <> 'SUPERSEDED'
-       AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)${familia}${daOperacao}
-     ORDER BY s.scope_hash, 2 NULLS LAST, sc.scope_type, sc.code
-  `);
+    Elas não se conhecem: a primeira conta as vigências de cada contexto, a
+    segunda traz os escopos que dão nome a ele, e nenhuma usa o resultado da
+    outra. Em sequência, o custo desta função é duas viagens ao banco — e ela é
+    chamada uma vez por `getEntityTable`, que a Auditoria de FINAME chama quatro
+    vezes por tela. Num banco na mesma máquina a diferença é ruído; num banco do
+    outro lado da rede, cada viagem é a latência inteira, e são elas — não o
+    trabalho do Postgres, que soma milissegundos — que fazem a tela esperar.
+  */
+  const [{ rows }, { rows: scopeRows }] = await Promise.all([
+    db.execute<{
+      scope_hash: string;
+      channel: string | null;
+      latest_period: string;
+      periods: number;
+      all_periods: string[];
+    }>(sql`
+      SELECT s.scope_hash,
+             ${channelSql("s.source_label")} AS channel,
+             max(s.effective_date)::text     AS latest_period,
+             count(DISTINCT s.effective_date)::int AS periods,
+             array_agg(DISTINCT s.effective_date::text ORDER BY s.effective_date::text)
+               AS all_periods
+        FROM snapshot s
+       WHERE s.status <> 'SUPERSEDED'
+         AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)${familia}${semCasca}${daOperacao}
+       GROUP BY 1, 2
+       ORDER BY max(s.effective_date) DESC, s.scope_hash, 2 NULLS LAST
+    `),
+    db.execute<{
+      scope_hash: string;
+      channel: string | null;
+      scope_type: string;
+      code: string;
+      name: string | null;
+    }>(sql`
+      SELECT DISTINCT s.scope_hash,
+             ${channelSql("s.source_label")} AS channel,
+             sc.scope_type, sc.code, sc.name
+        FROM snapshot s
+        JOIN snapshot_scope ss ON ss.snapshot_id = s.id
+        JOIN scope sc          ON sc.id = ss.scope_id
+       WHERE s.status <> 'SUPERSEDED'
+         AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)${familia}${daOperacao}
+       ORDER BY s.scope_hash, 2 NULLS LAST, sc.scope_type, sc.code
+    `),
+  ]);
 
   const key = (scopeHash: string, channel: string | null) => `${scopeHash}|${channel ?? ""}`;
   const scopesByKey = new Map<string, ContextInfo["scopes"]>();

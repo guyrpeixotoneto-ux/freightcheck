@@ -2199,62 +2199,81 @@ export async function getEntityTable(
     sql`, `,
   );
 
-  const { rows: meta } = await db.execute<{
-    code: string;
-    source_name: string;
-    display_name: string | null;
-  }>(sql`
-    SELECT code, source_name, display_name FROM attribute WHERE code IN (${lista})
-  `);
+  /*
+    AS TRÊS LEITURAS QUE NÃO SE CONHECEM SAEM JUNTAS.
+
+    O dicionário das colunas, os fatos e as placas são independentes: nenhuma
+    delas usa o resultado da outra, e só o pivô lá embaixo cruza as três. Em
+    fila, esta função custava seis viagens ao banco — e a Auditoria de FINAME a
+    chama quatro vezes para desenhar uma tela, o Monitor mais ainda. Medido no
+    banco local, o trabalho do Postgres na rota inteira soma 23ms; o resto da
+    espera é ida e volta. Num banco do outro lado da rede, cada ida custa a
+    latência cheia, e é ela — multiplicada por trinta e nove — que a tela mostra
+    como esqueleto cinza.
+
+    Concorrência limitada de propósito: são três consultas curtas, nunca um
+    leque proporcional ao acervo, e o pool tem dez conexões.
+  */
+  const [{ rows: meta }, { rows: fatos }, { rows: placas }, { rows: conhecidasDoTipo }] =
+    await Promise.all([
+      db.execute<{
+        code: string;
+        source_name: string;
+        display_name: string | null;
+      }>(sql`
+      SELECT code, source_name, display_name FROM attribute WHERE code IN (${lista})
+    `),
+      db.execute<{
+        entity_id: string;
+        code: string;
+        valor: string | null;
+        is_null: boolean;
+        null_reason: string | null;
+        source_label: string;
+      }>(sql`
+      SELECT f.entity_id::text AS entity_id,
+             a.code,
+             CASE WHEN f.is_null THEN NULL
+                  ELSE coalesce(
+                    f.value_text,
+                    f.value_numeric::text,
+                    f.value_boolean::text,
+                    f.value_date::text
+                  )
+             END AS valor,
+             f.is_null,
+             f.null_reason,
+             s.source_label
+        FROM fato_visivel f
+        JOIN attribute a ON a.id = f.attribute_id
+        JOIN snapshot s  ON s.id = f.snapshot_id
+        JOIN entity e    ON e.id = f.entity_id
+       WHERE a.code IN (${lista})
+         AND e.entity_type = ${entityType}
+         AND s.effective_date = ${effectiveDate}::date
+         AND s.status <> 'SUPERSEDED'
+         AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
+         AND ${contextFilter("s", context)}
+    `),
+      db.execute<{
+        entity_id: string;
+        valor: string;
+        legivel: string | null;
+      }>(sql`
+      SELECT ei.entity_id::text AS entity_id,
+             ei.identifier_value AS valor,
+             ei.identifier_value_raw AS legivel
+        FROM entity_identifier ei
+        JOIN entity e ON e.id = ei.entity_id
+       WHERE ei.identifier_type = 'PLACA'
+         AND ei.is_current
+         AND e.entity_type = ${entityType}
+    `),
+      db.execute<{ n: number }>(sql`
+      SELECT count(*)::int AS n FROM attribute WHERE entity_type = ${entityType}
+    `),
+    ]);
   const conhecidos = new Map(meta.map((m) => [m.code, m]));
-
-  const { rows: fatos } = await db.execute<{
-    entity_id: string;
-    code: string;
-    valor: string | null;
-    is_null: boolean;
-    null_reason: string | null;
-    source_label: string;
-  }>(sql`
-    SELECT f.entity_id::text AS entity_id,
-           a.code,
-           CASE WHEN f.is_null THEN NULL
-                ELSE coalesce(
-                  f.value_text,
-                  f.value_numeric::text,
-                  f.value_boolean::text,
-                  f.value_date::text
-                )
-           END AS valor,
-           f.is_null,
-           f.null_reason,
-           s.source_label
-      FROM fato_visivel f
-      JOIN attribute a ON a.id = f.attribute_id
-      JOIN snapshot s  ON s.id = f.snapshot_id
-      JOIN entity e    ON e.id = f.entity_id
-     WHERE a.code IN (${lista})
-       AND e.entity_type = ${entityType}
-       AND s.effective_date = ${effectiveDate}::date
-       AND s.status <> 'SUPERSEDED'
-       AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
-       AND ${contextFilter("s", context)}
-  `);
-
-  const { rows: placas } = await db.execute<{
-    entity_id: string;
-    valor: string;
-    legivel: string | null;
-  }>(sql`
-    SELECT ei.entity_id::text AS entity_id,
-           ei.identifier_value AS valor,
-           ei.identifier_value_raw AS legivel
-      FROM entity_identifier ei
-      JOIN entity e ON e.id = ei.entity_id
-     WHERE ei.identifier_type = 'PLACA'
-       AND ei.is_current
-       AND e.entity_type = ${entityType}
-  `);
   const placaDe = new Map(placas.map((p) => [p.entity_id, p.valor]));
   /*
     A forma legível só entra quando é **diferente** da normalizada: repetir a
@@ -2266,26 +2285,6 @@ export async function getEntityTable(
       .filter((p) => p.legivel !== null && p.legivel !== p.valor)
       .map((p) => [p.entity_id, p.legivel as string]),
   );
-
-  /*
-    O diagnóstico, e não só o resultado.
-
-    Uma tabela vazia com todas as colunas desconhecidas tem duas causas
-    diferentes, e a tela não consegue distingui-las olhando só para o que
-    voltou. Estas duas perguntas separam: **esta vigência entregou o arquivo
-    deste equipamento?** e **o dicionário conhece alguma coluna dele?**
-  */
-  const { rows: entregues } = await db.execute<{ entity_type_set: string }>(sql`
-    SELECT s.entity_type_set
-      FROM snapshot s
-     WHERE s.effective_date = ${effectiveDate}::date
-       AND s.status <> 'SUPERSEDED'
-       AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
-       AND ${contextFilter("s", context)}
-  `);
-  const { rows: conhecidasDoTipo } = await db.execute<{ n: number }>(sql`
-    SELECT count(*)::int AS n FROM attribute WHERE entity_type = ${entityType}
-  `);
 
   const porEntidade = new Map<string, EntityTable["rows"][number]>();
   const rotulos = new Set<string>();
@@ -2311,30 +2310,74 @@ export async function getEntityTable(
     (a.label ?? "").localeCompare(b.label ?? "", "pt-BR", { numeric: true }),
   );
 
+  /*
+    O DIAGNÓSTICO — pago só quando há o que diagnosticar.
+
+    Uma tabela vazia com todas as colunas desconhecidas tem duas causas
+    diferentes, e a tela não consegue distingui-las olhando só para o que
+    voltou. Estas duas perguntas separam: **esta vigência entregou o arquivo
+    deste equipamento?** e **o dicionário conhece alguma coluna dele?** — e é
+    por isso que `inventario.tsx` só as lê dentro dos dois ramos de
+    `rows.length === 0`.
+
+    A primeira, no caso feliz, era uma viagem ao banco para perguntar o que as
+    próprias linhas já provam: vieram fatos deste equipamento nesta vigência,
+    logo a vigência entregou a série. A contagem do dicionário continua saindo
+    do banco nos dois desfechos — ela conta as colunas **do equipamento**, e não
+    as que este cartão pediu, e derivá-la das pedidas seria publicar outro
+    número sob o mesmo nome —, mas sai no lote de cima, sem viagem própria. É a
+    mesma economia que `elsewhere` faz desde sempre — "caro demais para o caso
+    feliz" —, agora também na pergunta da entrega.
+  */
+  if (rows.length > 0) {
+    return {
+      seriesDelivered: true,
+      attributesKnown: conhecidasDoTipo[0]?.n ?? 0,
+      elsewhere: SEM_DIAGNOSTICO,
+      ...restoDaTabela(),
+    };
+  }
+
+  const [{ rows: entregues }, elsewhere] = await Promise.all([
+    db.execute<{ entity_type_set: string }>(sql`
+    SELECT s.entity_type_set
+      FROM snapshot s
+     WHERE s.effective_date = ${effectiveDate}::date
+       AND s.status <> 'SUPERSEDED'
+       AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
+       AND ${contextFilter("s", context)}
+  `),
+    findElsewhere(db, entityType, context, effectiveDate),
+  ]);
+
   return {
     seriesDelivered: entregues.some((s) =>
       s.entity_type_set.split("+").includes(entityType),
     ),
     attributesKnown: conhecidasDoTipo[0]?.n ?? 0,
-    elsewhere:
-      rows.length === 0
-        ? await findElsewhere(db, entityType, context, effectiveDate)
-        : SEM_DIAGNOSTICO,
-    entityType,
-    effectiveDate,
-    periodLabel: periodLabel(effectiveDate),
-    sourceLabels: [...rotulos].sort(),
-    columns: attributeCodes
-      .filter((code) => conhecidos.has(code))
-      .map((code) => ({
-        code,
-        title: attributeLabel(
-          code,
-          conhecidos.get(code)?.source_name ?? code,
-          conhecidos.get(code)?.display_name,
-        ),
-      })),
-    missingColumns: attributeCodes.filter((code) => !conhecidos.has(code)),
-    rows,
+    elsewhere,
+    ...restoDaTabela(),
   };
+
+  /** O que não depende do diagnóstico — igual nos dois desfechos. */
+  function restoDaTabela() {
+    return {
+      entityType,
+      effectiveDate,
+      periodLabel: periodLabel(effectiveDate),
+      sourceLabels: [...rotulos].sort(),
+      columns: attributeCodes
+        .filter((code) => conhecidos.has(code))
+        .map((code) => ({
+          code,
+          title: attributeLabel(
+            code,
+            conhecidos.get(code)?.source_name ?? code,
+            conhecidos.get(code)?.display_name,
+          ),
+        })),
+      missingColumns: attributeCodes.filter((code) => !conhecidos.has(code)),
+      rows,
+    };
+  }
 }
