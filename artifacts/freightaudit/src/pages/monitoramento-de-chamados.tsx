@@ -4,10 +4,15 @@ import {
   CalendarSearch,
   CheckCircle2,
   Clock,
+  Download,
+  FileSpreadsheet,
   Headset,
+  Info,
   Layers,
   MapPin,
   RefreshCw,
+  Search,
+  TrendingUp,
   XCircle,
 } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
@@ -15,6 +20,7 @@ import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import { ApiErrorNotice } from "@/components/api-error";
 import { MetricCard } from "@/components/changes/cartoes";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -27,7 +33,10 @@ import {
   ResumoDoDiaPainel,
   temComplementos,
 } from "@/components/monitoramento/resumo-do-dia";
-import { ListaDeChamados } from "@/components/monitoramento/lista-de-chamados";
+import {
+  baixarCsvDaRelacao,
+  ListaDeChamados,
+} from "@/components/monitoramento/lista-de-chamados";
 import { STATUS_LABELS } from "@/components/changes/ticket-table";
 import { cn } from "@/lib/utils";
 import {
@@ -36,12 +45,14 @@ import {
   useContextosDaCasca,
 } from "@/lib/contextos";
 import { visaoGeralAtiva } from "@/lib/navegacao-do-escopo";
+import { useTextoAdiado } from "@/hooks/use-candidatos-do-par";
 import {
   recorteDeChamados,
   serieDaUnidade,
   type RecorteDeChamados,
 } from "@/lib/serie-da-unidade";
 import {
+  buscarRelacaoInteira,
   diaDeAbertura,
   diaLegivel,
   diaPorExtenso,
@@ -53,12 +64,14 @@ import {
   linhasDaPagina,
   procedenciaDaFila,
   SEM_SERIE,
+  taxaDeAprovacao,
   useFilaDoDia,
   useResumoDoDia,
   useReguaDeDias,
   useSeries,
   type EnvioForaDaJanela,
   type FiltrosDaTela,
+  type SituacoesNoEnvio,
 } from "@/lib/monitoramento-de-chamados";
 
 /**
@@ -233,6 +246,20 @@ export default function MonitoramentoDeChamados() {
   */
   const [porPaginaDaFila, setPorPaginaDaFila] = useState(POR_PAGINA);
   const [filtros, setFiltros] = useState<FiltrosDaTela>({});
+  /*
+    A BUSCA ESPERA A PAUSA — `useTextoAdiado`, o mesmo do Monitor.
+
+    Sem a espera, cada tecla de "31182143" seria uma consulta à relação inteira:
+    oito viagens para uma pergunta só, e as sete primeiras sobre um número que
+    ninguém procurou. O que fica em tela é sempre o que se digitou; o que espera
+    é a consulta.
+
+    `emTransito` é a janela em que a lista à vista responde ao texto **anterior**
+    — e nela a relação se desenha como espera, em vez de mostrar as linhas de
+    uma busca que já não é a que está escrita na caixa.
+  */
+  const [textoDaBusca, setTextoDaBusca] = useState("");
+  const buscaAdiada = useTextoAdiado(textoDaBusca.trim());
 
   const trocar = (mudancas: Record<string, string | null>) => {
     const proximos = new URLSearchParams(parametros);
@@ -296,10 +323,24 @@ export default function MonitoramentoDeChamados() {
     quando alguém abria a segunda visão. As três consultas da abertura
     continuam três: régua, resumo e primeira página.
   */
+  /*
+    Os filtros que vão à rota — os dos seletores, mais a busca já adiada.
+
+    A busca não mora em `filtros` porque ela não é escolha de menu: ela muda a
+    cada tecla, e guardá-la junto faria cada tecla recriar o objeto que é chave
+    da consulta. Juntá-las aqui, num lugar só, é o que garante que a lista, a
+    contagem de resultados e o CSV do botão Exportar recortem pelo mesmo
+    conjunto.
+  */
+  const filtrosDaConsulta: FiltrosDaTela = useMemo(
+    () => ({ ...filtros, busca: buscaAdiada.valor || undefined }),
+    [filtros, buscaAdiada.valor],
+  );
+
   const fila = useFilaDoDia({
     dia,
     serie,
-    filtros,
+    filtros: filtrosDaConsulta,
     pagina,
     porPagina: porPaginaDaFila,
     habilitado: recorte.pronto && diaEscolhido,
@@ -367,7 +408,7 @@ export default function MonitoramentoDeChamados() {
     propósito, e `carregando` delas é `false` — dizer "nenhuma movimentação"
     nesse instante seria afirmar uma resposta que ninguém pediu ainda.
   */
-  const decidindo = !recorte.pronto || !diaEscolhido;
+  const decidindo = !recorte.pronto || !diaEscolhido || buscaAdiada.emTransito;
 
   /*
     A janela da régua é de nove dias e termina em hoje. Quando ela sai inteira
@@ -424,6 +465,13 @@ export default function MonitoramentoDeChamados() {
                 }}
               >
                 <SelectTrigger className="w-[220px]">
+                  {/*
+                    O mesmo alfinete da etiqueta de recorte, e pela mesma razão:
+                    o seletor e a etiqueta respondem "de quem são estes números",
+                    e um ícone só do lado da resposta faria pensar em duas
+                    perguntas.
+                  */}
+                  <MapPin className="h-4 w-4 shrink-0 text-muted-foreground" />
                   <SelectValue placeholder="Unidade" />
                 </SelectTrigger>
                 <SelectContent>
@@ -452,19 +500,27 @@ export default function MonitoramentoDeChamados() {
                 </SelectContent>
               </Select>
             )}
+            {/*
+              Atualizar é a ação desta tela, e por isso ela tem nome e peso.
+
+              Era um quadrado com uma seta girando, do tamanho de um ícone: a
+              tela abre no dia da última importação e quem a mantém aberta a
+              manhã inteira precisa justamente deste botão — o importador roda
+              de novo e a tela continua mostrando a leitura anterior até alguém
+              pedir a nova.
+            */}
             <Button
-              variant="outline"
-              size="icon"
               onClick={() => {
                 resumoConsulta.tentarDeNovo();
                 regua.tentarDeNovo();
                 fila.tentarDeNovo();
               }}
-              title="Atualizar"
+              title="Recarregar a régua, o resumo e a relação deste dia"
             >
               <RefreshCw
                 className={cn("h-4 w-4", fila.atualizando && "animate-spin")}
               />
+              Atualizar dados
             </Button>
           </>
         }
@@ -524,18 +580,26 @@ export default function MonitoramentoDeChamados() {
         />
 
         {/*
-          A segunda coluna existe sempre, e o que varia é o que há dentro dela.
+          UMA COLUNA SÓ, DE CIMA A BAIXO.
 
-          Ela já foi condicional — sem movimentação o painel não era montado, a
-          grade virava uma coluna só e a página alargava —, e o preço era a tela
-          mudar de forma entre um dia sem importação e o primeiro dia com
-          arquivo em que se clica. Uma tela que se remonta ao trocar de dia
-          custa mais atenção do que os 320px que ela poupa. O
-          `col-span-2` da faixa e o da lista deixam de ser condicionais junto
-          com ela.
+          A tela teve por muito tempo uma coluna de 320px à direita com o
+          "Resumo do dia" — o total de movimentações e o tamanho do envio —, e
+          ela repetia, um palmo ao lado, dois números que agora estão no topo:
+          as movimentações viraram o quarto cartão, e o tamanho do envio é o que
+          a taxa de aprovação cita. Dois lugares dizendo o mesmo número é um
+          lugar a mais para eles divergirem.
+
+          O que a coluna tinha de próprio — os pontos de atenção, a
+          concentração por unidade e os avisos da importação — não se perdeu:
+          desceu para a faixa larga logo acima da lista, que é de onde se olha
+          para ela, e onde ela cabe em duas ou três colunas em vez de descer
+          espremida em 320px.
+
+          Sem a coluna, tudo nesta tela tem a mesma largura — cartões, taxa,
+          avisos, faixa e relação —, e a página deixa de ter um lado onde a
+          leitura acaba na metade da altura.
         */}
-        <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px] lg:items-start">
-          <div className="space-y-5 min-w-0">
+        <div className="space-y-5">
             {/*
               Os três cartões contam a **fila do dia**, e não o delta.
 
@@ -550,12 +614,12 @@ export default function MonitoramentoDeChamados() {
               encerrados e saídos da fila. O painel da direita repete o total das
               movimentações ao lado do tamanho do envio.
             */}
-            <div className="grid gap-4 sm:grid-cols-3">
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
               <MetricCard
                 icon={<CheckCircle2 className="h-6 w-6" />}
                 tone="green"
                 label="Aprovados"
-                value={situacoes?.aprovados ?? "—"}
+                value={numero(situacoes?.aprovados)}
                 valueTone="good"
                 hint="o que o arquivo deu por aprovado"
               />
@@ -563,7 +627,7 @@ export default function MonitoramentoDeChamados() {
                 icon={<Clock className="h-6 w-6" />}
                 tone="orange"
                 label="Em análise"
-                value={situacoes?.emAnalise ?? "—"}
+                value={numero(situacoes?.emAnalise)}
                 valueTone={situacoes && situacoes.emAnalise > 0 ? "warn" : "muted"}
                 hint="ainda em curso na Ambev"
               />
@@ -571,47 +635,44 @@ export default function MonitoramentoDeChamados() {
                 icon={<XCircle className="h-6 w-6" />}
                 tone="red"
                 label="Reprovados"
-                value={situacoes?.reprovados ?? "—"}
+                value={numero(situacoes?.reprovados)}
                 valueTone={situacoes && situacoes.reprovados > 0 ? "bad" : "muted"}
                 hint="recusados pela Ambev"
+              />
+              {/*
+                O quarto cartão é o delta, e ele subiu para cá do painel da
+                direita.
+
+                Os três primeiros contam **o que o arquivo declara** sobre a
+                fila; este conta **o que se mexeu desde o arquivo anterior** —
+                grãos diferentes, e por isso a ressalva diz de qual dos dois
+                este número é. Num dia sem movimentação ele é um zero, e um zero
+                verdadeiro: o arquivo chegou, foi comparado, e nada mudou. É o
+                que a frase logo abaixo termina de explicar.
+              */}
+              <MetricCard
+                icon={<TrendingUp className="h-6 w-6" />}
+                tone="blue"
+                label="Movimentações"
+                value={numero(resumo?.movimentacoes)}
+                valueTone="muted"
+                hint="chamados que se mexeram neste dia"
               />
             </div>
 
             {/*
-              A tira que fecha a conta dos cartões.
+              A TAXA DE APROVAÇÃO — e a tira de fechamento dentro dela.
 
-              Os três somam o envio inteiro **menos** o que não cai em nenhuma
-              das três caixas — um chamado cancelado, um sem status. Sem esta
-              linha, três números certos dariam um total errado, que é
-              exatamente o defeito que este produto existe para pegar. Ela cita
-              o total contado nos chamados, e é por ele que os quatro fecham.
+              A linha que fechava a conta dos cartões era texto miúdo solto
+              entre eles e a lista ("= 3.400 chamados no envio deste dia"), e
+              ela respondia uma pergunta que ninguém faz sozinha: o que se
+              pergunta olhando para aprovados, em análise e reprovados é **que
+              parte do envio já saiu aprovada**. A barra responde isso e carrega
+              o fechamento junto — o total continua escrito, e as "outras
+              situações" continuam citadas, porque são elas que fazem os quatro
+              números fecharem com o arquivo.
             */}
-            {situacoes !== null && situacoes.total > 0 && (
-              <div className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm px-1">
-                {situacoes.outras > 0 && (
-                  <span className="flex items-center gap-1.5">
-                    <span className="h-2 w-2 rounded-full bg-slate-400" />
-                    <span className="font-semibold tabular-nums">
-                      {situacoes.outras.toLocaleString("pt-BR")}
-                    </span>
-                    <span className="text-muted-foreground">
-                      em outras situações
-                      {situacoes.detalheDeOutras.length > 0 &&
-                        ` (${situacoes.detalheDeOutras
-                          .map(
-                            (o) =>
-                              `${STATUS_LABELS[o.statusBucket] ?? o.statusBucket}: ${o.total.toLocaleString("pt-BR")}`,
-                          )
-                          .join(", ")})`}
-                    </span>
-                  </span>
-                )}
-                <span className="text-xs text-muted-foreground">
-                  = {situacoes.total.toLocaleString("pt-BR")} chamados no envio
-                  deste dia
-                </span>
-              </div>
-            )}
+            <TaxaDeAprovacaoDoEnvio situacoes={situacoes} />
 
             {/*
               O detalhamento por classe. As quatro somam exatamente o total —
@@ -649,20 +710,35 @@ export default function MonitoramentoDeChamados() {
             {frase && (
               <div
                 className={cn(
-                  "rounded-xl border px-5 py-4",
+                  "flex items-start gap-3 rounded-xl border px-5 py-4",
                   frase.tom === "informativo" && "border-blue-200 bg-blue-50",
                   frase.tom === "neutro" && "bg-card",
                 )}
               >
-                <div className="font-bold">{frase.titulo}</div>
-                <div className="text-sm text-muted-foreground">{frase.detalhe}</div>
+                {/*
+                  O ⓘ não é enfeite: a frase do dia é a única caixa desta tela
+                  que **explica** em vez de contar, e sem o sinal ela se lê como
+                  mais um número em texto — justamente no dia em que ela existe
+                  para dizer por que os números são os que são.
+                */}
+                <span
+                  className={cn(
+                    "h-8 w-8 shrink-0 rounded-full grid place-content-center",
+                    frase.tom === "informativo"
+                      ? "bg-blue-100 text-blue-600"
+                      : "bg-muted text-muted-foreground",
+                  )}
+                >
+                  <Info className="h-4 w-4" />
+                </span>
+                <div className="min-w-0">
+                  <div className="font-bold">{frase.titulo}</div>
+                  <div className="text-sm text-muted-foreground">
+                    {frase.detalhe}
+                  </div>
+                </div>
               </div>
             )}
-          </div>
-
-          <aside className="min-w-0">
-            <ResumoDoDiaPainel resumo={resumo} parte="principal" />
-          </aside>
 
           {/*
             A cauda do painel desce para uma faixa larga, e só existe quando há
@@ -680,29 +756,28 @@ export default function MonitoramentoDeChamados() {
             tamanho certo para um aviso.
           */}
           {temComplementos(resumo) && (
-            <div className="min-w-0 lg:col-span-2">
-              <ResumoDoDiaPainel resumo={resumo} parte="complementos" />
+            <div className="min-w-0">
+              <ResumoDoDiaPainel resumo={resumo} />
             </div>
           )}
 
           {/*
-            A lista ocupa a largura inteira, e não a coluna da esquerda.
+            A relação, com a mesma largura de tudo o que está acima dela.
 
-            Os cartões e o painel do dia são a leitura de cabeçalho e cabem
-            lado a lado. A lista não é cabeçalho: é uma tabela de dez colunas
-            espremida em duas terças partes da tela enquanto os 320px à
-            direita do painel ficavam vazios até o fim da página — o painel
-            tem o tamanho do dia e acaba em um cartão, a lista tem o tamanho
-            do arquivo e desce por mil linhas.
+            Ela já dividiu a linha com a coluna de 320px do resumo e saía
+            espremida em duas terças partes da tela: uma tabela de dez colunas
+            parava no operador, e aberto em, alterado na fonte e situação só
+            existiam para quem descobrisse a rolagem lateral de um
+            `overflow-x-auto` sem barra à vista. O assunto continua truncado —
+            ele é `max-w-0` de propósito, para ceder espaço às colunas de
+            largura fixa.
 
-            O que a largura devolve são **colunas inteiras**, e não folga nas
-            que já apareciam: em 1440px a tabela parava no operador, e aberto
-            em, alterado na fonte e situação só existiam para quem descobrisse
-            a rolagem lateral de um `overflow-x-auto` sem barra à vista. O
-            assunto continua truncado nos dois casos — ele é `max-w-0` de
-            propósito, para ceder espaço às colunas de largura fixa.
+            O cabeçalho da seção vem antes da barra de filtros, e não depois:
+            primeiro o que é esta lista e de que tamanho ela é, depois como
+            recortá-la. Invertido, a tela pedia para filtrar algo que ainda não
+            tinha sido nomeado.
           */}
-          <div className="min-w-0 lg:col-span-2">
+          <div className="min-w-0">
             {/*
               A procedência antes da lista, como na aba Chamados: esta é a
               relação do arquivo de outra pessoa, e mostrá-la sem dizer de
@@ -714,50 +789,8 @@ export default function MonitoramentoDeChamados() {
               </div>
             )}
 
-            {dadosDaFila !== null && dadosDaFila.total > 0 && (
-              <div className="flex flex-wrap gap-2 py-3">
-                <FiltroSelect
-                  rotulo="Unidade"
-                  valor={filtros.unidade}
-                  opcoes={dadosDaFila.filtros.unidades}
-                  onChange={(v) => {
-                    setPagina(1);
-                    setFiltros((f) => ({ ...f, unidade: v }));
-                  }}
-                />
-                <FiltroSelect
-                  rotulo="Área"
-                  valor={filtros.area}
-                  opcoes={dadosDaFila.filtros.areas}
-                  onChange={(v) => {
-                    setPagina(1);
-                    setFiltros((f) => ({ ...f, area: v }));
-                  }}
-                />
-                <FiltroSelect
-                  rotulo="Responsável"
-                  valor={filtros.responsavel}
-                  opcoes={dadosDaFila.filtros.responsaveis}
-                  onChange={(v) => {
-                    setPagina(1);
-                    setFiltros((f) => ({ ...f, responsavel: v }));
-                  }}
-                />
-                <FiltroSelect
-                  rotulo="Situação"
-                  valor={filtros.statusBucket}
-                  opcoes={dadosDaFila.filtros.status}
-                  rotuloDaOpcao={(s) => STATUS_LABELS[s] ?? s}
-                  onChange={(v) => {
-                    setPagina(1);
-                    setFiltros((f) => ({ ...f, statusBucket: v }));
-                  }}
-                />
-              </div>
-            )}
-
-            <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 pt-3 pb-2">
-              <h2 className="text-sm font-bold uppercase tracking-wide text-muted-foreground">
+            <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 pt-3 pb-3">
+              <h2 className="text-lg font-bold tracking-tight">
                 Chamados do envio
               </h2>
               {/*
@@ -777,6 +810,89 @@ export default function MonitoramentoDeChamados() {
                 </span>
               )}
             </div>
+
+            {dadosDaFila !== null && dadosDaFila.total > 0 && (
+              <div className="flex flex-wrap items-center gap-2 pb-3">
+                {/*
+                  A busca é por número de chamado e por assunto, e é o servidor
+                  que a faz: filtrar na tela acharia apenas dentro das 25 linhas
+                  em tela, e quem procura "31182143" está justamente procurando
+                  a linha que **não** está à vista. Ver `filaDoDia`, em `lib/comparison`.
+                */}
+                <div className="relative min-w-[16rem] flex-1 max-w-md">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    value={textoDaBusca}
+                    onChange={(e) => setTextoDaBusca(e.target.value)}
+                    placeholder="Buscar por chamado ou assunto..."
+                    aria-label="Buscar por chamado ou assunto"
+                    className="h-9 pl-9"
+                  />
+                </div>
+                <FiltroSelect
+                  rotulo="Unidade"
+                  rotuloDeTodos="Todas as unidades"
+                  valor={filtros.unidade}
+                  opcoes={dadosDaFila.filtros.unidades}
+                  onChange={(v) => {
+                    setPagina(1);
+                    setFiltros((f) => ({ ...f, unidade: v }));
+                  }}
+                />
+                <FiltroSelect
+                  rotulo="Área"
+                  rotuloDeTodos="Todas as áreas"
+                  valor={filtros.area}
+                  opcoes={dadosDaFila.filtros.areas}
+                  onChange={(v) => {
+                    setPagina(1);
+                    setFiltros((f) => ({ ...f, area: v }));
+                  }}
+                />
+                <FiltroSelect
+                  rotulo="Responsável"
+                  rotuloDeTodos="Todos os responsáveis"
+                  valor={filtros.responsavel}
+                  opcoes={dadosDaFila.filtros.responsaveis}
+                  onChange={(v) => {
+                    setPagina(1);
+                    setFiltros((f) => ({ ...f, responsavel: v }));
+                  }}
+                />
+                <FiltroSelect
+                  rotulo="Situação"
+                  rotuloDeTodos="Todos os status"
+                  valor={filtros.statusBucket}
+                  opcoes={dadosDaFila.filtros.status}
+                  rotuloDaOpcao={(s) => STATUS_LABELS[s] ?? s}
+                  onChange={(v) => {
+                    setPagina(1);
+                    setFiltros((f) => ({ ...f, statusBucket: v }));
+                  }}
+                />
+
+                {/*
+                  Quantas linhas o recorte tem, colado nos controles que o
+                  fizeram: sem isso, trocar um filtro mudava a lista e o único
+                  lugar que dizia o tamanho novo era o rodapé, a mil pixels
+                  abaixo.
+                */}
+                <span className="text-xs text-muted-foreground tabular-nums">
+                  {dadosDaFila.totalFiltrado.toLocaleString("pt-BR")}{" "}
+                  {dadosDaFila.totalFiltrado === 1 ? "resultado" : "resultados"}
+                </span>
+
+                <ExportarRelacao
+                  dia={dia}
+                  serie={serie}
+                  filtros={filtrosDaConsulta}
+                  total={dadosDaFila.totalFiltrado}
+                  procedencia={
+                    dadosDaFila.envios[0]?.filename ?? "chamados-do-envio"
+                  }
+                />
+              </div>
+            )}
 
             {chamados.length === 0 && !fila.carregando && !decidindo ? (
               <div className="superficie px-5 py-10 text-center text-sm text-muted-foreground">
@@ -1078,12 +1194,21 @@ const TODOS = "__todos__";
 /** Um filtro que só existe quando há mais de uma opção para escolher. */
 function FiltroSelect({
   rotulo,
+  rotuloDeTodos,
   valor,
   opcoes,
   onChange,
   rotuloDaOpcao = (o) => o,
 }: {
   rotulo: string;
+  /**
+   * O que o seletor diz quando não recorta nada.
+   *
+   * Por extenso — "Todos os status", e não "Situação: todos": este é o estado
+   * em que o seletor passa a maior parte do tempo, e é ele que o operador lê
+   * de relance para saber se está vendo a fila inteira ou um pedaço dela.
+   */
+  rotuloDeTodos: string;
   valor: string | undefined;
   opcoes: string[];
   onChange: (valor: string | undefined) => void;
@@ -1096,11 +1221,11 @@ function FiltroSelect({
       value={valor ?? TODOS}
       onValueChange={(v) => onChange(v === TODOS ? undefined : v)}
     >
-      <SelectTrigger className="w-auto min-w-[150px] h-9">
+      <SelectTrigger className="w-auto min-w-[150px] h-9" title={rotulo}>
         <SelectValue placeholder={rotulo} />
       </SelectTrigger>
       <SelectContent>
-        <SelectItem value={TODOS}>{rotulo}: todos</SelectItem>
+        <SelectItem value={TODOS}>{rotuloDeTodos}</SelectItem>
         {opcoes.map((o) => (
           <SelectItem key={o} value={o}>
             {rotuloDaOpcao(o)}
@@ -1108,5 +1233,178 @@ function FiltroSelect({
         ))}
       </SelectContent>
     </Select>
+  );
+}
+
+
+// ---------------------------------------------------------------------------
+// Os números do topo
+// ---------------------------------------------------------------------------
+
+/**
+ * Um número de cartão — ou o traço, enquanto não há número.
+ *
+ * O traço é a regra desta tela e não é enfeite: um `0` durante a espera diria
+ * "o arquivo não trouxe nenhum aprovado" sobre um dia que ainda não foi lido.
+ * Ver `situacoes` e `dadosDaFila`, onde o `null` nasce.
+ */
+function numero(valor: number | undefined): string {
+  return valor === undefined ? "—" : valor.toLocaleString("pt-BR");
+}
+
+/**
+ * A TAXA DE APROVAÇÃO — quanto do envio do dia já saiu aprovado.
+ *
+ * Os três cartões dizem quantos são; esta barra diz **que parte do arquivo
+ * eles são**, que é a leitura que um número absoluto não dá: 3.400 aprovados é
+ * tudo num dia de 3.400 chamados e é dois terços num dia de 5.100.
+ *
+ * Ela carrega o fechamento da conta junto — o total do envio à direita, e as
+ * "outras situações" quando existem. Sem isso, os três cartões somariam menos
+ * que o arquivo e nada na tela explicaria a diferença, que é exatamente o tipo
+ * de buraco que este produto existe para pegar.
+ *
+ * Some quando não há envio: uma barra vazia sobre um dia sem arquivo diria
+ * "nada foi aprovado" onde o certo é "não há o que aprovar" — e isso quem diz é
+ * a frase do dia, logo abaixo.
+ */
+function TaxaDeAprovacaoDoEnvio({
+  situacoes,
+}: {
+  situacoes: SituacoesNoEnvio | null;
+}) {
+  const taxa = taxaDeAprovacao(situacoes);
+  if (situacoes === null || taxa === null) return null;
+
+  return (
+    <div className="superficie flex flex-wrap items-center gap-x-6 gap-y-3 px-5 py-4">
+      <div className="shrink-0">
+        <div className="text-sm font-medium text-muted-foreground">
+          Taxa de aprovação
+        </div>
+        <div className="text-3xl font-bold tabular-nums tracking-tight text-emerald-700">
+          {taxa}%
+        </div>
+      </div>
+
+      <div className="min-w-[12rem] flex-1">
+        <div
+          className="h-2.5 overflow-hidden rounded-full bg-muted"
+          role="img"
+          aria-label={`${taxa}% dos chamados deste envio estão aprovados`}
+          title={`${situacoes.aprovados.toLocaleString("pt-BR")} de ${situacoes.total.toLocaleString("pt-BR")} chamados aprovados`}
+        >
+          <div
+            className="h-full rounded-full bg-emerald-500 transition-[width]"
+            style={{ width: `${taxa}%` }}
+          />
+        </div>
+
+        {/*
+          O que não cai em nenhum dos três desfechos — um chamado cancelado, um
+          sem status. Só aparece quando existe: uma linha dizendo "0 em outras
+          situações" seria a ressalva de um problema que o dia não teve.
+        */}
+        {situacoes.outras > 0 && (
+          <div className="mt-2 flex items-center gap-1.5 text-xs">
+            <span className="h-2 w-2 rounded-full bg-slate-400" />
+            <span className="font-semibold tabular-nums">
+              {situacoes.outras.toLocaleString("pt-BR")}
+            </span>
+            <span className="text-muted-foreground">
+              em outras situações
+              {situacoes.detalheDeOutras.length > 0 &&
+                ` (${situacoes.detalheDeOutras
+                  .map(
+                    (o) =>
+                      `${STATUS_LABELS[o.statusBucket] ?? o.statusBucket}: ${o.total.toLocaleString("pt-BR")}`,
+                  )
+                  .join(", ")})`}
+            </span>
+          </div>
+        )}
+      </div>
+
+      <div className="flex shrink-0 items-center gap-2 text-sm text-muted-foreground">
+        <FileSpreadsheet className="h-4 w-4 shrink-0" />
+        <span>
+          <span className="font-semibold tabular-nums text-foreground">
+            {situacoes.total.toLocaleString("pt-BR")}
+          </span>{" "}
+          {situacoes.total === 1 ? "chamado" : "chamados"} no envio deste dia
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * O CSV da relação como ela está filtrada — e não da página à vista.
+ *
+ * A lista pagina de 25 em 25 porque é o que se lê; o arquivo é conferência
+ * contra a planilha da Ambev, e um CSV com as 25 linhas da página seria um
+ * arquivo que mente por omissão sobre o tamanho do envio. Por isso o botão
+ * percorre a fila inteira antes de baixar (`buscarRelacaoInteira`) — e por isso
+ * ele diz que está fazendo isso enquanto faz: são dezenas de requisições num
+ * dia de milhares de chamados, e um botão mudo por oito segundos é um botão que
+ * se clica três vezes.
+ *
+ * A seleção por caixas continua existindo na tabela, para o recorte que não é
+ * filtro — as cinco linhas que alguém marcou lendo. Este botão é o outro caso, o
+ * mais comum: o arquivo inteiro do jeito que a tela o recortou.
+ */
+function ExportarRelacao({
+  dia,
+  serie,
+  filtros,
+  total,
+  procedencia,
+}: {
+  dia: string;
+  serie: string | null | undefined;
+  filtros: FiltrosDaTela;
+  total: number;
+  procedencia: string;
+}) {
+  const [baixando, setBaixando] = useState(false);
+  const [erro, setErro] = useState(false);
+
+  const exportar = async () => {
+    setBaixando(true);
+    setErro(false);
+    try {
+      const { chamados } = await buscarRelacaoInteira({ dia, serie, filtros });
+      baixarCsvDaRelacao(chamados, dia, procedencia);
+    } catch {
+      /*
+        O erro fica no próprio botão, e não numa faixa no topo: quem clicou está
+        olhando para cá, e a tela atrás dele continua certa — o que falhou foi o
+        arquivo, não a leitura do dia.
+      */
+      setErro(true);
+    } finally {
+      setBaixando(false);
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-2">
+      {erro && (
+        <span className="text-xs text-red-600">
+          Não deu para montar o arquivo. Tente de novo.
+        </span>
+      )}
+      <Button
+        variant="outline"
+        size="sm"
+        className="h-9"
+        disabled={baixando || total === 0}
+        onClick={exportar}
+        title={`Baixar em CSV os ${total.toLocaleString("pt-BR")} chamados deste recorte`}
+      >
+        <Download className={cn("h-4 w-4", baixando && "animate-pulse")} />
+        {baixando ? "Exportando…" : "Exportar"}
+      </Button>
+    </div>
   );
 }
