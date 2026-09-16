@@ -5,7 +5,7 @@ import { CODIGOS_DA_TABELA, codigosDoRecorte } from "@workspace/comparison/finam
 import { ApiErrorNotice } from "@/components/api-error";
 import { EstadoVazio } from "@/components/ui/estado-vazio";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Dialog } from "@/components/ui/dialog";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import {
   Select,
   SelectContent,
@@ -39,8 +39,8 @@ import { periodicityAdjective } from "@/lib/format";
  * Não há matriz nova aqui
  * ---------------------------------------------------------------------------
  * Esta tela é `evolucaoPorPlaca` com `parameters = CODIGOS_DA_TABELA`, desenhada
- * por `MatrizDaEvolucao`, com o detalhe de `PainelDaPlaca` numa caixa modal.
- * Uma segunda matriz — mesmo que idêntica no dia em que fosse escrita — seria a quinta
+ * por `MatrizDaEvolucao`, com `PainelDaPlaca` numa gaveta. Uma segunda
+ * matriz — mesmo que idêntica no dia em que fosse escrita — seria a quinta
  * resposta do produto para "qual foi o impacto?", e `deduplicacao.ts` documenta
  * no cabeçalho quanto custaram as quatro primeiras.
  *
@@ -303,13 +303,15 @@ export function PainelDaEvolucaoDeFiname({
           )}
 
           {/*
-            A matriz ocupa a largura inteira, e o detalhe abre por cima.
+              A matriz ocupa a largura inteira, e o detalhe desliza por cima.
 
-            Ela tem uma coluna por vigência — dez, no ano cheio — e reservar
-            320px de lateral para um painel que só existe depois de um clique
-            apertava as dez colunas o ano todo para acomodar uma gaveta que
-            está fechada. Como caixa modal, a matriz respira sempre, e o
-            detalhe abre no meio da tela, onde o clique acabou de acontecer.
+              Ela tem uma coluna por vigência — dez, no ano cheio —, e a grade
+              de duas colunas reservava 320px de lateral o tempo todo, para um
+              painel que só existe depois de um clique: as vigências eram
+              espremidas por uma gaveta fechada, a ponto de o rótulo de julho
+              sair cortado e o valor encostar no acumulado. Como gaveta, o
+              painel não tira largura de ninguém — e a tabela continua inteira
+              enquanto ele está aberto.
           */}
           <MatrizDaEvolucao
             evolucao={dados}
@@ -326,25 +328,31 @@ export function PainelDaEvolucaoDeFiname({
             leitura={LEITURA_DO_FINAME}
           />
 
-          <Dialog
+          <Sheet
             open={aberta !== null}
             onOpenChange={(aberto) => {
               if (!aberto) setPlaca(null);
             }}
-            className="max-w-3xl p-0"
           >
-            {aberta && (
-              <PainelDaPlaca
-                ativo={aberta}
-                evolucao={dados}
-                onFechar={() => setPlaca(null)}
-                leitura={LEITURA_DO_FINAME}
-                /* A caixa já é a casca: sem isto seriam duas bordas e duas
-                   sombras, uma dentro da outra. */
-                className="border-0 bg-transparent shadow-none lg:static"
-              />
-            )}
-          </Dialog>
+            <SheetContent className="w-full overflow-y-auto p-0 sm:max-w-xl">
+              {aberta && (
+                <>
+                  {/* O título da gaveta é o da placa, que o painel já desenha —
+                      este existe para o leitor de tela, que precisa de um. */}
+                  <SheetTitle className="sr-only">
+                    Detalhe de {aberta.rotulo}
+                  </SheetTitle>
+                  <PainelDaPlaca
+                    ativo={aberta}
+                    evolucao={dados}
+                    leitura={LEITURA_DO_FINAME}
+                    /* A gaveta já é a casca, e já tem o seu × no canto. */
+                    className="rounded-none border-0 bg-transparent p-6 shadow-none lg:static"
+                  />
+                </>
+              )}
+            </SheetContent>
+          </Sheet>
         </>
       )}
     </div>

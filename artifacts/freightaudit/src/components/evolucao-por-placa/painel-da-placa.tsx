@@ -49,7 +49,15 @@ export function PainelDaPlaca({
 }: {
   ativo: AtivoNaEvolucao;
   evolucao: EvolucaoPorPlaca;
-  onFechar: () => void;
+  /**
+   * Fechar o detalhe — **opcional**, porque nem toda casca precisa que ele
+   * desenhe o próprio botão.
+   *
+   * Dentro de uma gaveta (`SheetContent`), o × já existe no canto da gaveta, e
+   * um segundo × a dois centímetros dele é a mesma ação oferecida duas vezes.
+   * Quem tem o seu não passa esta propriedade.
+   */
+  onFechar?: () => void;
   /**
    * Como a rubrica se chama e para que lado ela é boa — ver `LeituraDaMatriz`.
    *
@@ -61,9 +69,9 @@ export function PainelDaPlaca({
   /**
    * A casca de fora — para quem já tem uma.
    *
-   * Aberto dentro de uma caixa modal, o painel herdaria borda sobre borda e
-   * respiro sobre respiro: quem o abre assim desfaz a casca por aqui
-   * (`border-0 shadow-none`), e o conteúdo continua o mesmo. Nada além da
+   * Aberto dentro de uma gaveta, o painel herdaria borda sobre borda e respiro
+   * sobre respiro: quem o abre assim desfaz a casca por aqui
+   * (`border-0 shadow-none p-0`), e o conteúdo continua o mesmo. Nada além da
    * moldura passa por esta propriedade.
    */
   className?: string;
@@ -93,13 +101,15 @@ export function PainelDaPlaca({
             </p>
           )}
         </div>
-        <button
-          onClick={onFechar}
-          aria-label="Fechar o detalhe da placa"
-          className="ml-auto rounded-md p-1 text-muted-foreground hover:bg-muted"
-        >
-          <X className="w-4 h-4" />
-        </button>
+        {onFechar && (
+          <button
+            onClick={onFechar}
+            aria-label="Fechar o detalhe da placa"
+            className="ml-auto rounded-md p-1 text-muted-foreground hover:bg-muted"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        )}
       </div>
 
       <div className="mt-4">
