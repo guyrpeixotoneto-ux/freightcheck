@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   enderecoDasLinhas,
   iniciaisDoResponsavel,
+  modulosDoPainel,
+  rubricasDoPainel,
   pendenciasPorTipo,
   responsaveisDoPainel,
   resumoDoPainel,
@@ -11,9 +13,11 @@ import {
   direcaoDaLinha,
   type AutorDeJustificativas,
   type CoberturaDeJustificativas,
+  type CoberturaDeRubrica,
   type LinhaDoPainel,
 } from "../painel-de-justificativas";
 import { EQUIPAMENTOS_DO_AMBIENTE } from "../frota";
+import type { ChaveDeModulo } from "@workspace/comparison/modulos-de-justificativa";
 
 /**
  * O Painel de Justificativas afirma três números na cara do gestor — quanto
@@ -321,5 +325,123 @@ describe("enderecoDasLinhas", () => {
       "sh-pernambuco",
     );
     expect(new URLSearchParams(visaoGeral.split("?")[1]).get("scopeHash")).toBeNull();
+  });
+});
+
+/**
+ * A leitura por módulo — a que o Monitor passou a dar depois que justificar
+ * virou trabalho de cada módulo.
+ *
+ * O que se prende aqui é a régua que faz a tela poder ser conferida com ela
+ * mesma: a soma dos módulos é a soma dos cartões, a rubrica volta inteira da
+ * chave que o servidor mandou, e a ordem é a da pendência — porque a tabela
+ * existe para dizer por onde começar.
+ */
+function rubrica(
+  changeSetId: string,
+  entityType: string | null,
+  modulo: ChaveDeModulo,
+  chave: string,
+  alteracoes: number,
+  justificadas: number,
+  ultimaEm: string | null = null,
+  ultimoAutor: string | null = null,
+): CoberturaDeRubrica {
+  return {
+    changeSetId,
+    entityType,
+    modulo,
+    rubrica: chave,
+    alteracoes,
+    justificadas,
+    ultimaEm,
+    ultimoAutor,
+  };
+}
+
+const POR_RUBRICA: CoberturaDeRubrica[] = [
+  rubrica("v1", "CAVALO", "CUSTO_FIXO", "finame", 10, 4, "2026-07-01T10:00:00.000Z", "ana@x.com"),
+  rubrica("v1", "CARRETA", "CUSTO_FIXO", "finame", 6, 6, "2026-08-02T10:00:00.000Z", "joao@x.com"),
+  rubrica("v2", "CAVALO", "CUSTO_VARIAVEL", "manutencao", 4, 0),
+  rubrica("v2", "CAVALO", "SEM_CLASSE", "parametro:FROTA|Frota emprestada", 8, 1),
+];
+
+describe("modulosDoPainel", () => {
+  it("soma por módulo, e a soma é a mesma do cartão do total", () => {
+    const modulos = modulosDoPainel(POR_RUBRICA, null, null);
+    expect(modulos.map((m) => [m.modulo, m.alteracoes, m.justificadas])).toEqual([
+      ["CUSTO_FIXO", 16, 10],
+      ["CUSTO_VARIAVEL", 4, 0],
+      ["SEM_CLASSE", 8, 1],
+    ]);
+    expect(modulos.reduce((s, m) => s + m.alteracoes, 0)).toBe(28);
+  });
+
+  it("não devolve módulo sem alteração no recorte", () => {
+    /* O QLP na aba do Cavalo não tem o que dizer — e uma barra zerada ali seria
+       uma afirmação sobre um trabalho que não existe neste recorte. */
+    const modulos = modulosDoPainel(POR_RUBRICA, "v2", null);
+    expect(modulos.map((m) => m.modulo)).toEqual(["CUSTO_VARIAVEL", "SEM_CLASSE"]);
+  });
+
+  it("conta a mesma rubrica em duas vigências como uma rubrica pendente", () => {
+    /* O gestor abre uma tela, não duas. */
+    const duasVigencias = [
+      rubrica("v1", "CAVALO", "CUSTO_FIXO", "finame", 10, 4),
+      rubrica("v2", "CAVALO", "CUSTO_FIXO", "finame", 10, 4),
+    ];
+    expect(modulosDoPainel(duasVigencias, null, null)[0].rubricasPendentes).toBe(1);
+  });
+
+  it("é nulo enquanto a cobertura não chegou — e não vazio", () => {
+    expect(modulosDoPainel(null, null, null)).toEqual([]);
+  });
+});
+
+describe("rubricasDoPainel", () => {
+  it("ordena da mais pendente para a menos", () => {
+    const linhas = rubricasDoPainel(POR_RUBRICA, null, null);
+    expect(linhas.map((l) => [l.rotulo, l.pendentes])).toEqual([
+      ["Frota emprestada", 7],
+      /* 16 alterações e 10 justificadas, somando as duas vigências. */
+      ["Finame", 6],
+      ["Manutenção", 4],
+    ]);
+  });
+
+  it("soma a mesma rubrica entre vigências e tipos numa linha só", () => {
+    const [finame] = rubricasDoPainel(POR_RUBRICA, null, null).filter(
+      (l) => l.rotulo === "Finame",
+    );
+    expect(finame.alteracoes).toBe(16);
+    expect(finame.justificadas).toBe(10);
+    /* A justificativa mais recente entre as duas, com o autor dela. */
+    expect(finame.ultimoAutor).toBe("joao@x.com");
+  });
+
+  it("devolve a rota de quem tem tela, e nenhuma de quem não tem", () => {
+    const linhas = rubricasDoPainel(POR_RUBRICA, null, null);
+    expect(linhas.find((l) => l.rotulo === "Finame")?.rota).toBe("/custo-fixo-finame");
+    expect(linhas.find((l) => l.rotulo === "Frota emprestada")?.rota).toBeNull();
+  });
+
+  it("escreve o nome da rubrica do QLP com o dicionário da casa", () => {
+    const doQlp = rubricasDoPainel(
+      [rubrica("v1", "QLP_OPERACIONAL", "QLP", "qlp:saude", 3, 0)],
+      null,
+      null,
+    );
+    expect(doQlp[0].rotulo).toBe("Plano de saúde");
+    expect(doQlp[0].rota).toBe("/qlp/saude");
+  });
+
+  it("recorta por módulo sem mexer no resto", () => {
+    const linhas = rubricasDoPainel(POR_RUBRICA, null, null, "CUSTO_FIXO");
+    expect(linhas.map((l) => l.rotulo)).toEqual(["Finame"]);
+  });
+
+  it("recorta por tipo de ativo pela mesma régua das abas", () => {
+    const linhas = rubricasDoPainel(POR_RUBRICA, null, "CARRETA");
+    expect(linhas.map((l) => [l.rotulo, l.alteracoes])).toEqual([["Finame", 6]]);
   });
 });

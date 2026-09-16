@@ -6,6 +6,7 @@ import { computeChangeSet } from "../engine";
 import {
   autoresDeJustificativas,
   coberturaDeJustificativas,
+  coberturaPorRubrica,
   linhasDoPainel,
 } from "../painel-de-justificativas";
 import { buildFixture, type AttributeSpec } from "../testing";
@@ -303,4 +304,48 @@ it("não vai ao banco quando não há comparação nenhuma para somar", async ()
     total: 0,
     linhas: [],
   });
+});
+
+/*
+  A cobertura por rubrica — a leitura que o Monitor cobra.
+
+  Ela desce um grão abaixo das outras duas (atributo, dobrado em rubrica), e com
+  isso ganha duas formas novas de mentir: contar a justificativa reescrita duas
+  vezes, como a cobertura já sabia não fazer; e casar a data mais recente de um
+  atributo com o autor de outro, que é o defeito clássico do agregado que
+  escolhe as duas colunas por caminhos diferentes.
+*/
+it("quebra a cobertura por rubrica, com quem escreveu por último", async () => {
+  const porRubrica = await coberturaPorRubrica(ctx.db, [changeSetId]);
+
+  /* Os dois atributos da ficha são desconhecidos do dicionário de famílias, e
+     por isso cada um é a própria rubrica — visível com o próprio código, e não
+     dissolvido numa gaveta chamada "outras". */
+  expect(porRubrica).toHaveLength(2);
+  expect(porRubrica.reduce((s, l) => s + l.alteracoes, 0)).toBe(3);
+  expect(porRubrica.reduce((s, l) => s + l.justificadas, 0)).toBe(2);
+  expect(porRubrica.every((l) => l.entityType === "CAVALO")).toBe(true);
+  expect(porRubrica.every((l) => l.changeSetId === changeSetId)).toBe(true);
+
+  /* `cavalo.valor_b` mudou numa placa só, e essa foi justificada nos testes
+     acima — é a rubrica em que a data e o autor podem ser conferidos. */
+  const deB = porRubrica.find((l) => l.rubrica.includes("cavalo.valor_b"))!;
+  expect(deB).toMatchObject({ alteracoes: 1, justificadas: 1 });
+  expect(deB.ultimoAutor).toBe("ana@x.com");
+  expect(deB.ultimaEm).toBeInstanceOf(Date);
+
+  /* Reescrever não cria uma segunda alteração justificada, e passa a ser o
+     último autor da rubrica. */
+  await justificar("AAA1A11|cavalo.valor_b", "reescrita", "bruno@x.com");
+  const depois = await coberturaPorRubrica(ctx.db, [changeSetId]);
+  const deBDepois = depois.find((l) => l.rubrica.includes("cavalo.valor_b"))!;
+  expect(deBDepois).toMatchObject({ alteracoes: 1, justificadas: 1 });
+  expect(deBDepois.ultimoAutor).toBe("bruno@x.com");
+});
+
+it("não conta o trecho na cobertura por rubrica", async () => {
+  const porRubrica = await coberturaPorRubrica(ctx.db, [changeSetId, changeSetDoTrecho]);
+  expect(porRubrica.every((l) => l.entityType === "CAVALO")).toBe(true);
+  expect(porRubrica.some((l) => l.rubrica.includes("trecho"))).toBe(false);
+  expect(await coberturaPorRubrica(ctx.db, [])).toEqual([]);
 });

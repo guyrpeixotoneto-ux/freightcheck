@@ -1,18 +1,24 @@
 // @vitest-environment jsdom
 //
-// O cabeçalho do Painel de Justificativas — onde se troca de vigência.
+// O Monitor de Justificativas — o cabeçalho, e o que ele deixou de fazer.
 //
-// A vigência era uma caixa no meio dos filtros e virou o botão "Trocar
-// vigência" do canto direito, o mesmo das outras telas. O que se prende aqui é
-// justamente o que uma volta atrás desfaria sem quebrar teste nenhum: que o
-// botão está no cabeçalho, que a tela diz qual vigência está aberta, que ela
-// abre somando **todas**, e que a caixa antiga não voltou para os filtros.
+// Duas coisas se prendem aqui, e as duas se desfariam sem quebrar teste nenhum.
+//
+// A primeira é o cabeçalho: a vigência era uma caixa no meio dos filtros e virou
+// o botão "Trocar vigência" do canto direito, o mesmo das outras telas — e a
+// tela abre somando **todas**, dizendo ao lado do título qual está aberta.
+//
+// A segunda é a mudança que deu o nome novo à tela: **aqui não se justifica**.
+// Cada módulo justifica as próprias alterações, e o que sobrou é a leitura de
+// cobertura, com a tabela por rubrica levando à tela que grava. Um botão
+// `Justificar` de volta nesta tela é a regressão que este arquivo existe para
+// pegar.
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 
-import PainelDeJustificativas from "@/pages/painel-de-justificativas";
+import MonitorDeJustificativas from "@/pages/monitor-de-justificativas";
 import type { Contexto } from "@/lib/contextos";
 
 class ObservadorDeTamanho {
@@ -108,6 +114,42 @@ const COBERTURA = [
   },
 ];
 
+/* As mesmas contagens da cobertura, quebradas por rubrica: o Finame tem tela e
+   leva ao módulo; `carreta.frota_emprestada` não tem, e cai no parâmetro da
+   família — os dois casos que a tabela precisa saber desenhar. */
+const RUBRICAS = [
+  {
+    changeSetId: "cs-julho",
+    entityType: "CAVALO",
+    modulo: "CUSTO_FIXO",
+    rubrica: "finame",
+    alteracoes: 40,
+    justificadas: 10,
+    ultimaEm: "2026-07-20T12:00:00.000Z",
+    ultimoAutor: "marina@ambev.com",
+  },
+  {
+    changeSetId: "cs-julho",
+    entityType: "CARRETA",
+    modulo: "SEM_CLASSE",
+    rubrica: "parametro:FROTA|Frota emprestada",
+    alteracoes: 60,
+    justificadas: 0,
+    ultimaEm: null,
+    ultimoAutor: null,
+  },
+  {
+    changeSetId: "cs-agosto",
+    entityType: "CAVALO",
+    modulo: "CUSTO_VARIAVEL",
+    rubrica: "manutencao",
+    alteracoes: 400,
+    justificadas: 100,
+    ultimaEm: "2026-08-19T09:00:00.000Z",
+    ultimoAutor: "joao@ambev.com",
+  },
+];
+
 const CHANGE_SETS = [
   {
     id: "cs-julho",
@@ -135,7 +177,7 @@ function servidor(cobertura: typeof COBERTURA = COBERTURA) {
       pedidos.push(url);
       if (url.includes("/change-sets")) return resposta(CHANGE_SETS);
       if (url.includes("/justificativas/painel"))
-        return resposta({ cobertura, autores: [] });
+        return resposta({ cobertura, autores: [], rubricas: RUBRICAS });
       if (url.includes("/justificativas/pendencias"))
         return resposta({ total: 0, linhas: [] });
       return resposta({});
@@ -158,13 +200,13 @@ function montar() {
   return render(
     <QueryClientProvider client={cliente}>
       <Router>
-        <PainelDeJustificativas />
+        <MonitorDeJustificativas />
       </Router>
     </QueryClientProvider>,
   );
 }
 
-describe("o cabeçalho do Painel de Justificativas", () => {
+describe("o cabeçalho do Monitor de Justificativas", () => {
   it("abre somando todas as vigências, e diz isso ao lado do título", async () => {
     servidor();
     montar();
@@ -184,12 +226,13 @@ describe("o cabeçalho do Painel de Justificativas", () => {
     const cabecalho = screen.getByRole("banner");
     expect(within(cabecalho).getByRole("button", { name: /Trocar vigência/ })).toBeTruthy();
 
-    /* A caixa antiga vivia entre "Tipo de ativo" e "Impacto"; as duas
-       continuam, e é a ausência da terceira que este teste prende. */
+    /* A caixa antiga vivia entre "Tipo de ativo" e o filtro seguinte; o recorte
+       por módulo ocupou o lugar do impacto, e é a ausência da vigência entre os
+       filtros que este teste prende. */
     const filtros = screen.getByText("Tipo de ativo").closest("section");
     expect(filtros).not.toBeNull();
     expect(within(filtros as HTMLElement).queryByText("Vigência")).toBeNull();
-    expect(within(filtros as HTMLElement).getByText("Impacto")).toBeTruthy();
+    expect(within(filtros as HTMLElement).getByText("Módulo")).toBeTruthy();
   });
 
   it("lista as vigências com a contagem de cada uma, e todas na primeira linha", async () => {
@@ -237,10 +280,120 @@ describe("o cabeçalho do Painel de Justificativas", () => {
     await waitFor(() =>
       expect(within(cartao("Alterações no recorte")).getByText("100")).toBeTruthy(),
     );
-    await waitFor(() =>
-      expect(
-        pedidos.some((p) => p.includes("/justificativas/pendencias") && p.includes("cs-julho")),
-      ).toBe(true),
-    );
+    /* A tela não busca mais a lista por alteração: ela recorta o que já tem em
+       mãos. A única consulta é a da cobertura — ver o cabeçalho da página. */
+    expect(pedidos.some((p) => p.includes("/justificativas/pendencias"))).toBe(false);
+  });
+});
+
+describe("o que o Monitor deixou de fazer", () => {
+  it("não oferece justificar em lugar nenhum da tela", async () => {
+    servidor();
+    montar();
+
+    await screen.findByText("Onde está a pendência");
+    /*
+      Nem botão de linha, nem "Justificar selecionadas", nem a aba de situação
+      que separava pendentes de justificadas para a lista que saiu. Quem grava
+      são as telas de rubrica e a fila.
+    */
+    expect(screen.queryByRole("button", { name: /Justificar/ })).toBeNull();
+    expect(screen.queryByText("Pendentes de justificativa")).toBeNull();
+  });
+
+  it("não traz mais a lista por placa", async () => {
+    const pedidos = servidor();
+    montar();
+
+    await screen.findByText("Onde está a pendência");
+    expect(pedidos.some((p) => p.includes("/justificativas/pendencias"))).toBe(false);
+    expect(screen.queryByText("Placas com pendência")).toBeNull();
+  });
+});
+
+describe("a leitura por módulo", () => {
+  it("soma cada módulo e diz quanto falta em cada um", async () => {
+    servidor();
+    montar();
+
+    const modulos = (await screen.findByText("Cobertura por módulo")).closest("section")!;
+    /* 400 alterações e 100 justificadas: 300 pendentes no Custo Variável. */
+    const variavel = within(modulos).getByText("Custo Variável").closest("button")!;
+    expect(variavel.textContent).toContain("300 pendentes");
+    expect(variavel.textContent).toContain("100 justificadas");
+    /* O que a curadoria não classificou aparece com esse nome, e não somado ao
+       módulo maior. */
+    expect(within(modulos).getByText("Sem classe de custo")).toBeTruthy();
+  });
+
+  it("conta as rubricas com pendência, que é quantas telas alguém vai abrir", async () => {
+    servidor();
+    montar();
+
+    await screen.findByText("Onde está a pendência");
+    /* As três rubricas do acervo têm pendência: 30, 60 e 300. */
+    expect(within(cartao("Rubricas com pendência")).getByText("3")).toBeTruthy();
+  });
+
+  it("nomeia a rubrica sem tela pelo parâmetro da família", async () => {
+    servidor();
+    montar();
+
+    const tabela = (await screen.findByText("Onde está a pendência")).closest("section")!;
+    expect(within(tabela).getByText("Frota emprestada")).toBeTruthy();
+    /* A chave crua nunca chega à tela. */
+    expect(within(tabela).queryByText(/parametro:/)).toBeNull();
+  });
+
+  it("manda cada rubrica para a tela em que ela se justifica", async () => {
+    servidor();
+    montar();
+
+    const tabela = (await screen.findByText("Onde está a pendência")).closest("section")!;
+    const doFiname = within(tabela).getByText("Finame").closest("tr")!;
+    fireEvent.click(within(doFiname).getByRole("button", { name: "Abrir módulo" }));
+    await waitFor(() => expect(window.location.pathname).toBe("/custo-fixo-finame"));
+  });
+
+  it("manda para a fila a rubrica que não tem tela própria", async () => {
+    servidor();
+    montar();
+
+    const tabela = (await screen.findByText("Onde está a pendência")).closest("section")!;
+    const semTela = within(tabela).getByText("Frota emprestada").closest("tr")!;
+    fireEvent.click(within(semTela).getByRole("button", { name: "Abrir na fila" }));
+    await waitFor(() => expect(window.location.pathname).toBe("/justificativas"));
+  });
+
+  it("recorta a tabela ao clicar num módulo, sem mexer nos cartões", async () => {
+    servidor();
+    montar();
+
+    const modulos = (await screen.findByText("Cobertura por módulo")).closest("section")!;
+    fireEvent.click(within(modulos).getByText("Custo Fixo").closest("button")!);
+
+    const tabela = screen.getByText("Onde está a pendência").closest("section")!;
+    await waitFor(() => expect(within(tabela).queryByText("Manutenção")).toBeNull());
+    expect(within(tabela).getByText("Finame")).toBeTruthy();
+    /* O cartão continua sendo o do recorte inteiro — é contra ele que a tabela
+       se confere. */
+    expect(within(cartao("Alterações no recorte")).getByText("500")).toBeTruthy();
+  });
+});
+
+describe("a tabela por rubrica", () => {
+  it("pagina em tela, sem voltar ao servidor", async () => {
+    /*
+      A cobertura por rubrica já chega inteira na primeira consulta — trocar de
+      página é recorte do que está em mãos, e uma ida ao banco por página daria
+      a mesma resposta por N vezes o custo.
+    */
+    const pedidos = servidor();
+    montar();
+
+    await screen.findByText("Onde está a pendência");
+    const antes = pedidos.length;
+    expect(screen.getByText(/3 rubricas/)).toBeTruthy();
+    expect(pedidos.length).toBe(antes);
   });
 });

@@ -1,9 +1,14 @@
-import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { normalizarEquipamento } from "@workspace/curation/equipamento";
 import { foraDoPainelDeJustificativas } from "@workspace/comparison/painel-de-justificativas-escopo";
+import {
+  MODULOS_DE_JUSTIFICATIVA,
+  descreverRubrica,
+  moduloDeJustificativa,
+  type ChaveDeModulo,
+} from "@workspace/comparison/modulos-de-justificativa";
 
 import { fetchJson } from "@/lib/api";
+import { escreverRubrica } from "@/lib/qlp-comparacao";
 import { useConsultaResiliente } from "@/lib/consulta-resiliente";
 import type { Ambiente } from "@/lib/ambiente";
 import {
@@ -79,6 +84,8 @@ export interface LinhaDoPainel {
   entityType: string | null;
   attributeCode: string | null;
   attributeName: string | null;
+  /** `FIXO` | `VARIAVEL` | `null` — de que módulo a alteração é. */
+  costClass: string | null;
   valueBefore: string | null;
   valueAfter: string | null;
   deltaAbsolute: number | null;
@@ -98,7 +105,14 @@ export interface LinhaDoPainel {
   criadoEm: string | null;
 }
 
-export type SituacaoDaJustificativa = "PENDENTE" | "JUSTIFICADA";
+/**
+ * O recorte de situação da lista.
+ *
+ * `TODAS` é o da exportação do Monitor: depois que a lista por alteração saiu
+ * da tela, o CSV é o único lugar onde ela mora, e um arquivo com só metade das
+ * linhas seria a exportação mentindo sobre o próprio nome.
+ */
+export type SituacaoDaJustificativa = "TODAS" | "PENDENTE" | "JUSTIFICADA";
 export type DirecaoDoImpacto = "TODAS" | "AUMENTO" | "REDUCAO";
 
 /** O que o painel mostra nos cartões e na rosca. */
@@ -344,6 +358,199 @@ export function direcaoDaLinha(linha: LinhaDoPainel): "AUMENTO" | "REDUCAO" | nu
 }
 
 // ---------------------------------------------------------------------------
+// A leitura por módulo — o que o Monitor cobra
+// ---------------------------------------------------------------------------
+
+/**
+ * A cobertura de uma rubrica numa vigência, como o servidor a devolve.
+ *
+ * `ultimaEm` chega como texto, e não como `Date`: é JSON no fio, e converter
+ * aqui uma vez é o que evita cada leitura da tela decidir sozinha o fuso.
+ */
+export interface CoberturaDeRubrica {
+  changeSetId: string;
+  entityType: string | null;
+  modulo: ChaveDeModulo;
+  /** A chave de `modulos-de-justificativa` — `finame`, `qlp:saude`, `parametro:…`. */
+  rubrica: string;
+  alteracoes: number;
+  justificadas: number;
+  ultimaEm: string | null;
+  ultimoAutor: string | null;
+}
+
+/** Uma barra de "Cobertura por módulo". */
+export interface ModuloDoPainel {
+  modulo: ChaveDeModulo;
+  rotulo: string;
+  descricao: string;
+  alteracoes: number;
+  justificadas: number;
+  pendentes: number;
+  cobertura: number;
+  /** Quantas rubricas deste módulo ainda têm pendência. */
+  rubricasPendentes: number;
+}
+
+function recortar(
+  rubricas: readonly CoberturaDeRubrica[],
+  changeSetId: string | null,
+  tipo: string | null,
+): CoberturaDeRubrica[] {
+  const alvo = tipo === null ? null : normalizarEquipamento(tipo);
+  return rubricas.filter(
+    (l) =>
+      (changeSetId === null || l.changeSetId === changeSetId) &&
+      (alvo === null || normalizarEquipamento(l.entityType) === alvo),
+  );
+}
+
+/**
+ * A cobertura somada por módulo — Custo Fixo, Custo Variável, QLP, e o que a
+ * curadoria ainda não classificou.
+ *
+ * **Só os módulos que têm alteração no recorte.** É o oposto da regra das
+ * barras por tipo de ativo, e de propósito: lá os tipos são a frota da
+ * operação, e uma barra zerada afirma "nenhuma carreta está pendente"; aqui um
+ * módulo sem alteração nenhuma não é uma afirmação sobre o trabalho — é o QLP
+ * na aba do Cavalo, que não tem o que dizer ali. A soma dos módulos é sempre a
+ * mesma soma do cartão do total, que é o que permite conferir a tela com ela
+ * mesma.
+ */
+export function modulosDoPainel(
+  rubricas: readonly CoberturaDeRubrica[] | null,
+  changeSetId: string | null,
+  tipo: string | null,
+): ModuloDoPainel[] {
+  if (!rubricas) return [];
+  const linhas = recortar(rubricas, changeSetId, tipo);
+
+  const totais = new Map<
+    ChaveDeModulo,
+    { alteracoes: number; justificadas: number; pendentes: Set<string> }
+  >();
+  for (const linha of linhas) {
+    const atual =
+      totais.get(linha.modulo) ??
+      { alteracoes: 0, justificadas: 0, pendentes: new Set<string>() };
+    atual.alteracoes += linha.alteracoes;
+    atual.justificadas += linha.justificadas;
+    /* A mesma rubrica em duas vigências é **uma** rubrica pendente: o gestor
+       abre uma tela, não duas. */
+    if (linha.alteracoes > linha.justificadas) atual.pendentes.add(linha.rubrica);
+    totais.set(linha.modulo, atual);
+  }
+
+  return MODULOS_DE_JUSTIFICATIVA.filter((m) => totais.has(m.chave)).map((m) => {
+    const t = totais.get(m.chave)!;
+    return {
+      modulo: m.chave,
+      rotulo: m.rotulo,
+      descricao: m.descricao,
+      alteracoes: t.alteracoes,
+      justificadas: t.justificadas,
+      pendentes: t.alteracoes - t.justificadas,
+      cobertura: t.alteracoes === 0 ? 0 : (t.justificadas / t.alteracoes) * 100,
+      rubricasPendentes: t.pendentes.size,
+    };
+  });
+}
+
+/**
+ * Uma linha de "Onde está a pendência" — a rubrica, e a tela em que ela se
+ * justifica.
+ */
+export interface RubricaDoPainel {
+  /** Única na tabela: a mesma rubrica em dois módulos são duas linhas. */
+  chave: string;
+  rubrica: string;
+  modulo: ChaveDeModulo;
+  moduloRotulo: string;
+  /** Já escrito para a tela — inclusive o das rubricas do QLP. */
+  rotulo: string;
+  /** A tela onde se justifica; `null` quando quem justifica é a fila. */
+  rota: string | null;
+  alteracoes: number;
+  justificadas: number;
+  pendentes: number;
+  cobertura: number;
+  ultimaEm: string | null;
+  ultimoAutor: string | null;
+}
+
+/**
+ * As rubricas do recorte, da mais pendente para a menos.
+ *
+ * Ordenada por pendência, e não por nome: a tabela existe para dizer por onde
+ * começar, e uma ordem alfabética faria o gestor procurar a linha que importa.
+ * É a mesma escolha de `vigenciasDoPainel`.
+ *
+ * O nome da rubrica do QLP é escrito aqui, com o dicionário que a lateral e as
+ * telas do quadro já usam (`escreverRubrica`): o pacote de comparação devolve a
+ * chave crua de propósito — nomear `saude` de "Plano de saúde" é decisão de
+ * apresentação, e é aqui que ela mora.
+ */
+export function rubricasDoPainel(
+  rubricas: readonly CoberturaDeRubrica[] | null,
+  changeSetId: string | null,
+  tipo: string | null,
+  modulo: ChaveDeModulo | null = null,
+): RubricaDoPainel[] {
+  if (!rubricas) return [];
+  const linhas = recortar(rubricas, changeSetId, tipo).filter(
+    (l) => modulo === null || l.modulo === modulo,
+  );
+
+  const porChave = new Map<string, RubricaDoPainel>();
+  for (const linha of linhas) {
+    const descricao = descreverRubrica(linha.rubrica, linha.modulo);
+    const chave = `${linha.modulo}:${linha.rubrica}`;
+    const atual = porChave.get(chave);
+    if (!atual) {
+      porChave.set(chave, {
+        chave,
+        rubrica: linha.rubrica,
+        modulo: linha.modulo,
+        moduloRotulo: moduloDeJustificativa(linha.modulo).rotulo,
+        rotulo: descricao.rubricaDoQlp
+          ? escreverRubrica(descricao.rubricaDoQlp)
+          : descricao.rotulo,
+        rota: descricao.rota,
+        alteracoes: linha.alteracoes,
+        justificadas: linha.justificadas,
+        pendentes: linha.alteracoes - linha.justificadas,
+        cobertura: 0,
+        ultimaEm: linha.ultimaEm,
+        ultimoAutor: linha.ultimoAutor,
+      });
+      continue;
+    }
+    atual.alteracoes += linha.alteracoes;
+    atual.justificadas += linha.justificadas;
+    atual.pendentes = atual.alteracoes - atual.justificadas;
+    /* A justificativa mais recente entre as vigências somadas — e o autor
+       **dela**, e não o de uma vigência antiga que veio antes na lista. */
+    if (linha.ultimaEm !== null && (atual.ultimaEm === null || linha.ultimaEm > atual.ultimaEm)) {
+      atual.ultimaEm = linha.ultimaEm;
+      atual.ultimoAutor = linha.ultimoAutor;
+    }
+  }
+
+  return [...porChave.values()]
+    .map((l) => ({
+      ...l,
+      pendentes: l.alteracoes - l.justificadas,
+      cobertura: l.alteracoes === 0 ? 0 : (l.justificadas / l.alteracoes) * 100,
+    }))
+    .sort(
+      (a, b) =>
+        b.pendentes - a.pendentes ||
+        b.alteracoes - a.alteracoes ||
+        a.rotulo.localeCompare(b.rotulo, "pt-BR"),
+    );
+}
+
+// ---------------------------------------------------------------------------
 // As consultas
 // ---------------------------------------------------------------------------
 
@@ -363,24 +570,28 @@ export function usePainelDeJustificativas(escopo: string | null) {
   const endereco = escopo
     ? `/justificativas/painel?scopeHash=${encodeURIComponent(escopo)}`
     : "/justificativas/painel";
-  const consulta = useConsultaResiliente<{
+  interface RespostaDoPainel {
     cobertura: CoberturaDeJustificativas[];
     autores: AutorDeJustificativas[];
-  }>({
+    rubricas: CoberturaDeRubrica[];
+  }
+  const consulta = useConsultaResiliente<RespostaDoPainel>({
     queryKey: ["justificativas", "painel", escopo ?? "todas"],
     endpoint: "/justificativas/painel",
-    buscar: () =>
-      fetchJson<{
-        cobertura: CoberturaDeJustificativas[];
-        autores: AutorDeJustificativas[];
-      }>(endereco),
+    buscar: () => fetchJson<RespostaDoPainel>(endereco),
   });
 
   /* `null` enquanto não chegou — ver o cabeçalho do arquivo. */
   const cobertura = consulta.dados?.cobertura ?? null;
   const autores = consulta.dados?.autores ?? null;
+  /*
+    A resposta guardada de uma versão anterior do servidor não tem `rubricas`, e
+    `?? null` é o que mantém a tela dizendo "ainda não chegou" em vez de
+    "nenhuma rubrica" — a mesma régua dos outros dois.
+  */
+  const rubricas = consulta.dados?.rubricas ?? null;
 
-  return { cobertura, autores, consulta };
+  return { cobertura, autores, rubricas, consulta };
 }
 
 export interface ConsultaDeLinhas {
@@ -414,14 +625,13 @@ export function enderecoDasLinhas(consulta: ConsultaDeLinhas): string {
   return `/justificativas/pendencias?${q.toString()}`;
 }
 
-export function useLinhasDoPainel(consulta: ConsultaDeLinhas) {
-  const endereco = enderecoDasLinhas(consulta);
-  const resposta = useQuery({
-    queryKey: ["justificativas", "painel", "linhas", endereco],
-    queryFn: () => fetchJson<{ total: number; linhas: LinhaDoPainel[] }>(endereco),
-    placeholderData: (anterior) => anterior,
-  });
-
-  const linhas = useMemo(() => resposta.data?.linhas ?? [], [resposta.data]);
-  return { linhas, total: resposta.data?.total ?? 0, consulta: resposta };
-}
+/**
+ * A lista por alteração não é mais lida por tela nenhuma — ela é a exportação.
+ *
+ * O Monitor tinha uma tabela paginada de alterações com um botão `Justificar`
+ * em cada linha, e um `useLinhasDoPainel` que a buscava. As duas coisas saíram
+ * quando justificar passou a acontecer dentro de cada módulo (ver o cabeçalho
+ * de `pages/monitor-de-justificativas.tsx`). A rota continua existindo e
+ * `enderecoDasLinhas` continua montando o endereço dela: é o CSV que percorre
+ * as páginas, e é nele que o detalhe por alteração mora agora.
+ */

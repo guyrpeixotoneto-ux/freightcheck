@@ -455,7 +455,14 @@ describe("a lateral", () => {
         "Monitoramento",
         "Conciliação",
         "Justificativas",
-        "Painel de Justificativas",
+        /*
+          "Monitor", e não "Painel": a tela deixou de justificar quando cada
+          módulo passou a justificar as próprias alterações, e o rótulo passou a
+          dizer o que ela faz. O `href` **não** mudou junto — ele é a chave de
+          permissão e o link salvo de quem já usava a tela. Ver
+          `pages/monitor-de-justificativas.tsx`.
+        */
+        "Monitor de Justificativas",
       ]);
     }
 
