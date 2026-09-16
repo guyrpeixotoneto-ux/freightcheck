@@ -11,14 +11,13 @@ import {
 import { cn } from "@/lib/utils";
 import {
   ROTULO_DO_ESTADO,
+  ROTULO_DO_TIPO,
   SELO_DO_ESTADO,
   corDaDiferenca,
   escreverDiferenca,
   escreverValor,
   escreverVariacao,
 } from "@/lib/finame";
-
-const ROTULO_DO_TIPO: Record<string, string> = { CAVALO: "Cavalo", CARRETA: "Carreta" };
 
 /**
  * Um valor absoluto, sem o sinal que a frase já diz.

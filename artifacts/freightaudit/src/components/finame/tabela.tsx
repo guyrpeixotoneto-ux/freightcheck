@@ -1,12 +1,11 @@
-import { useState } from "react";
-import { ChevronRight, Info, MessageSquarePlus, PanelRightOpen } from "lucide-react";
 import type { LinhaDeFiname, VeiculoDeFiname } from "@workspace/comparison/finame";
-import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { cn } from "@/lib/utils";
+import {
+  TabelaPorVeiculo,
+  type EscritaDaRubrica,
+} from "@/components/comparacao/tabela-por-veiculo";
 import {
   ROTULO_DO_ESTADO,
-  ROTULO_DO_TIPO,
   SELO_DO_ESTADO,
   corDaDiferenca,
   escreverDataDeCadastro,
@@ -15,66 +14,56 @@ import {
   escreverValor,
   escreverVariacao,
 } from "@/lib/finame";
-import { formatNumber } from "@/lib/format";
-import {
-  CelulaDeJustificativa,
-  alvoDaLinha,
-  type AbrirJustificativa,
-} from "@/components/justificativas/coluna";
+import type { AbrirJustificativa } from "@/components/justificativas/coluna";
 import type { Justificativa } from "@/lib/justificativas";
 
-/** As colunas da placa, na ordem da tela — e de que lado cada número encosta. */
-const COLUNAS: { titulo: string; direita?: boolean }[] = [
-  { titulo: "Veículo" },
-  { titulo: "Tipo" },
-  { titulo: "Período FINAME", direita: true },
-  { titulo: "Data de cadastro", direita: true },
-  { titulo: "Fim do contrato", direita: true },
-  { titulo: "Alterações", direita: true },
-  { titulo: "Parcela de", direita: true },
-  { titulo: "Parcela para", direita: true },
-  { titulo: "Diferença", direita: true },
-  { titulo: "Variação %", direita: true },
-  { titulo: "Status" },
-  { titulo: "Justificativa" },
-];
-
-/** A chave de uma placa na lista de expandidas. */
-const chaveDoVeiculo = (v: { entityLabel: string | null; entityType: string }) =>
-  `${v.entityLabel}${v.entityType}`;
-
 /**
- * A tabela da comparação — **uma linha por placa**, e as variáveis por dentro.
+ * A tabela da comparação de FINAME — **uma linha por placa**.
  *
- * ---------------------------------------------------------------------------
- * Por que por veículo, e não por variável
- * ---------------------------------------------------------------------------
- * A tabela nasceu por variável: uma linha para cada par (veículo × variável).
- * Com catorze variáveis de FINAME, a mesma placa aparecia catorze vezes,
- * espalhada por três páginas — seis linhas de "Amortização" seguidas de seis de
- * "Parcela FINAME", das mesmas seis placas. Perguntar "o que aconteceu com a
- * QYW6D15?" era caçar as linhas dela na lista.
+ * A estrutura toda (o agrupamento, a expansão, a fila de justificar, o estado
+ * mais grave) mora em `comparacao/tabela-por-veiculo.tsx`, com as outras três
+ * rubricas de custo fixo. Este arquivo é o que só o FINAME tem a dizer: as três
+ * colunas de contexto do contrato, e o vocabulário das colunas de dinheiro.
  *
- * Agora a placa é a linha, e ela responde de uma vez: quantas variáveis se
- * moveram, como a parcela foi de uma vigência para a outra, qual o estado mais
- * grave e se já há justificativa. **Clicar abre as alterações daquela placa**,
- * ali mesmo, sem sair da página; o botão dentro da expansão abre a gaveta com o
- * diagnóstico e as variáveis que só existem no detalhe.
+ * **As colunas de contexto são do veículo, e não da comparação.** Prazo, data de
+ * cadastro e fim do contrato não são variáveis que se moveram: são a resposta da
+ * coluna. Uma amortização que cai para R$ 0,00 e um prazo de 60 meses contados
+ * desde 2019 são a mesma frase — o contrato acabou —, e sem elas ao lado quem lê
+ * precisa abrir o detalhe de cada placa para saber se a queda é o fim do
+ * financiamento ou um erro de digitação da planilha.
  *
- * ---------------------------------------------------------------------------
- * As duas coisas que esta tabela se recusa a fazer
- * ---------------------------------------------------------------------------
- * **Não soma variáveis de unidades diferentes.** Nenhuma célula junta reais com
- * meses ou com pontos percentuais. A contagem de alterações é contagem, e o
- * dinheiro da linha é **a parcela FINAME** — uma variável, a mesma que o gráfico
- * de totais soma. Somar parcela, juros e amortização numa célula contaria o
- * mesmo dinheiro duas vezes, porque a parcela é a soma dos outros dois.
- *
- * **Não inventa o que não está no recorte.** A placa cuja linha de parcela não
- * veio — porque ela não se moveu, ou porque um filtro por variável a tirou —
- * mostra `—` nas colunas da parcela, e não R$ 0,00. As contas todas vêm de
- * `agruparPorVeiculo`, no núcleo; aqui só se escolhe a cor e se escreve.
+ * **A coluna de dinheiro é a parcela, e não a soma das monetárias.** Somar
+ * parcela, juros e amortização numa célula contaria o mesmo dinheiro duas vezes,
+ * porque a parcela é a soma dos outros dois. Quem escolhe é
+ * `AGRUPAMENTO_DE_FINAME`, no núcleo.
  */
+const ESCRITA_DO_FINAME: EscritaDaRubrica<LinhaDeFiname, VeiculoDeFiname> = {
+  rubrica: "FINAME",
+  destaque: "Parcela",
+  escreverValor,
+  escreverDiferenca,
+  escreverVariacao,
+  corDaDiferenca,
+  selo: SELO_DO_ESTADO,
+  rotuloDoEstado: ROTULO_DO_ESTADO,
+  colunasDoVeiculo: [
+    {
+      titulo: "Período FINAME",
+      direita: true,
+      celula: (v) => escreverPeriodo(v.periodoFiname),
+    },
+    {
+      titulo: "Data de cadastro",
+      direita: true,
+      celula: (v) => escreverDataDeCadastro(v.dataDeCadastro),
+    },
+    { titulo: "Fim do contrato", direita: true, celula: (v) => <FimDoContrato veiculo={v} /> },
+  ],
+  /* O fim do contrato saiu da expansão para a coluna, e repeti-lo lá seria
+     mostrá-lo duas vezes na mesma linha. */
+  foraDaExpansao: ["data_fim_contrato"],
+};
+
 export function TabelaDeFiname({
   veiculos,
   justificadaPor,
@@ -85,440 +74,50 @@ export function TabelaDeFiname({
   /** A justificativa mais recente de cada alteração, por `change.id`. */
   justificadaPor?: ReadonlyMap<number, Justificativa>;
   onAbrir: (veiculo: { entityLabel: string | null; entityType: string }) => void;
-  /** Abre o diálogo de justificar. Ausente, a coluna fica só de leitura. */
+  /** Ausente, a coluna fica só de leitura. */
   onJustificar?: AbrirJustificativa;
 }) {
-  const [expandidas, setExpandidas] = useState<ReadonlySet<string>>(new Set());
-
-  function alternar(veiculo: VeiculoDeFiname) {
-    const chave = chaveDoVeiculo(veiculo);
-    setExpandidas((atual) => {
-      const proximo = new Set(atual);
-      if (!proximo.delete(chave)) proximo.add(chave);
-      return proximo;
-    });
-  }
-
   return (
-    <div className="superficie overflow-x-auto">
-      <table className="w-full min-w-[84rem] border-collapse text-sm">
-        <caption className="sr-only">
-          Comparação de FINAME entre as duas vigências do par, uma linha por veículo.
-          Cada linha abre as variáveis que se moveram naquele veículo.
-        </caption>
-        <thead>
-          <tr className="border-b bg-muted/60">
-            {COLUNAS.map((coluna) => (
-              <th
-                key={coluna.titulo}
-                scope="col"
-                className={cn(
-                  "whitespace-nowrap px-3 py-2.5 text-[0.65rem] font-bold uppercase tracking-[0.07em] text-muted-foreground",
-                  coluna.direita ? "text-right" : "text-left",
-                )}
-              >
-                {coluna.titulo}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {veiculos.map((v) => (
-            <FragmentoDoVeiculo
-              key={chaveDoVeiculo(v)}
-              veiculo={v}
-              aberta={expandidas.has(chaveDoVeiculo(v))}
-              justificadaPor={justificadaPor}
-              onJustificar={onJustificar}
-              onAlternar={() => alternar(v)}
-              onAbrir={() => onAbrir(v)}
-            />
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-/** A linha da placa e, quando aberta, a das alterações dela. */
-function FragmentoDoVeiculo({
-  veiculo: v,
-  aberta,
-  justificadaPor,
-  onJustificar,
-  onAlternar,
-  onAbrir,
-}: {
-  veiculo: VeiculoDeFiname;
-  aberta: boolean;
-  justificadaPor?: ReadonlyMap<number, Justificativa>;
-  onJustificar?: AbrirJustificativa;
-  onAlternar: () => void;
-  onAbrir: () => void;
-}) {
-  const diferenca = v.parcela?.diferenca ?? null;
-  /*
-    O fim do contrato é do veículo, e não uma variável da comparação: ele é a
-    resposta da coluna, não uma linha no meio das outras treze. Quando ele se
-    moveu — e mover-se é o caso comum, porque o contrato que acabou é o que a
-    tela está lendo —, a outra ponta fica no tooltip da célula, que é o que
-    permite tirar a linha da expansão sem perder o "de".
-  */
-  const linhaDoFim = v.linhas.find((l) => l.variavel === "data_fim_contrato") ?? null;
-  const fim = v.fimDoContrato ?? linhaDoFim?.comparada ?? linhaDoFim?.base ?? null;
-  const fimAnterior =
-    linhaDoFim?.estado === "ALTERADO" && linhaDoFim.base !== linhaDoFim.comparada
-      ? linhaDoFim.base
-      : null;
-  /* As linhas da expansão são as variáveis comparadas; o fim do contrato saiu
-     delas para a coluna, e repeti-lo aqui seria mostrá-lo duas vezes. */
-  const linhasDaExpansao = v.linhas.filter((l) => l.variavel !== "data_fim_contrato");
-  /*
-    O que se justifica nesta tela é **o que se moveu**.
-
-    Duas exclusões, e as duas pela mesma razão: uma justificativa explica uma
-    alteração. A linha "sem alteração" não tem `change.id` — não há alteração
-    sobre a qual gravar. E conflito e dado incompleto não são alterações: são a
-    recusa do motor em afirmar que houve uma, e o que elas pedem é o conserto do
-    dado, não uma frase. Contá-las no denominador poria a placa em "2 de 5" para
-    sempre, com três linhas que ninguém pode fechar — e a coluna deixaria de
-    dizer o que falta fazer.
-  */
-  const justificaveis = v.linhas.filter((l) => l.id !== null && l.estado === "ALTERADO");
-  const justificadas = justificaveis.filter((l) => justificadaPor?.has(l.id!)).length;
-
-  return (
-    <>
-      <tr
-        className={cn(
-          "cursor-pointer border-b border-superficie-borda hover:bg-muted/50",
-          aberta && "bg-muted/40",
-        )}
-        onClick={onAlternar}
-        tabIndex={0}
-        role="button"
-        aria-expanded={aberta}
-        aria-label={`${aberta ? "Fechar" : "Abrir"} as alterações de ${
-          v.entityLabel ?? "veículo sem placa"
-        }`}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            onAlternar();
-          }
-        }}
-      >
-        <td className="whitespace-nowrap px-3 py-2 font-mono font-semibold">
-          <span className="flex items-center gap-1.5">
-            <ChevronRight
-              className={cn(
-                "h-4 w-4 flex-none text-muted-foreground transition-transform",
-                aberta && "rotate-90",
-              )}
-              aria-hidden="true"
-            />
-            {v.entityLabel ?? "—"}
-          </span>
-        </td>
-        <td className="whitespace-nowrap px-3 py-2 text-xs text-muted-foreground">
-          {ROTULO_DO_TIPO[v.entityType] ?? v.entityType}
-        </td>
-        <td className="whitespace-nowrap px-3 py-2 text-right font-mono tabular-nums text-muted-foreground">
-          {escreverPeriodo(v.periodoFiname)}
-        </td>
-        <td className="whitespace-nowrap px-3 py-2 text-right font-mono tabular-nums text-muted-foreground">
-          {escreverDataDeCadastro(v.dataDeCadastro)}
-        </td>
-        <td className="whitespace-nowrap px-3 py-2 text-right font-mono tabular-nums text-muted-foreground">
-          {fimAnterior === null ? (
-            escreverDataDeCadastro(fim)
-          ) : (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className="underline decoration-dotted underline-offset-2">
-                  {escreverDataDeCadastro(fim)}
-                </span>
-              </TooltipTrigger>
-              <TooltipContent className="text-xs">
-                {`Fim do contrato: de ${escreverDataDeCadastro(
-                  fimAnterior,
-                )} para ${escreverDataDeCadastro(fim)}`}
-              </TooltipContent>
-            </Tooltip>
-          )}
-        </td>
-        <td className="whitespace-nowrap px-3 py-2 text-right">
-          <span className="font-mono font-semibold tabular-nums">
-            {formatNumber(v.alteracoes, 0)}
-          </span>
-          {/* Quantas das alterações são dinheiro — o resto é prazo, taxa, ano e
-              data, que não viram reais e não entram em soma nenhuma. */}
-          {v.alteracoes > v.alteracoesEmDinheiro && (
-            <span className="ml-1 text-[0.7rem] text-muted-foreground">
-              ({formatNumber(v.alteracoesEmDinheiro, 0)} em R$)
-            </span>
-          )}
-        </td>
-        <td className="whitespace-nowrap px-3 py-2 text-right font-mono tabular-nums">
-          {escreverValor(v.parcela?.base?.toString() ?? null, "DINHEIRO")}
-        </td>
-        <td className="whitespace-nowrap px-3 py-2 text-right font-mono tabular-nums">
-          {escreverValor(v.parcela?.comparada?.toString() ?? null, "DINHEIRO")}
-        </td>
-        <td
-          className={cn(
-            "whitespace-nowrap px-3 py-2 text-right font-mono tabular-nums",
-            corDaDiferenca(diferenca, "DINHEIRO"),
-          )}
-        >
-          {escreverDiferenca(diferenca, "DINHEIRO")}
-        </td>
-        <td
-          className={cn(
-            "whitespace-nowrap px-3 py-2 text-right font-mono tabular-nums",
-            corDaDiferenca(diferenca, "DINHEIRO"),
-          )}
-        >
-          {escreverVariacao(v.parcela?.variacao ?? null)}
-        </td>
-        <td className="whitespace-nowrap px-3 py-2">
-          <span
-            className={cn(
-              "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold",
-              SELO_DO_ESTADO[v.estado],
-            )}
-          >
-            {ROTULO_DO_ESTADO[v.estado]}
-          </span>
-        </td>
-        <td className="whitespace-nowrap px-3 py-2 text-xs text-muted-foreground">
-          {justificaveis.length === 0 ? (
-            ""
-          ) : (
-            <span className="flex items-center gap-2">
-              <span className={cn(justificadas === 0 && "text-muted-foreground/70")}>
-                {justificadas === 0
-                  ? "Sem justificativa"
-                  : `${formatNumber(justificadas, 0)} de ${formatNumber(justificaveis.length, 0)}`}
-              </span>
-              {/* Justificar a placa inteira: abre a fila com as alterações
-                  dela, uma justificativa por variável — a parcela e os juros
-                  não se calculam da mesma forma, e a caixa pergunta cada uma
-                  na sua etapa (ver `justificar-dialog.tsx`). O clique não pode
-                  subir para a linha, ou abriria a expansão junto. */}
-              {onJustificar && (
-                <button
-                  type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onJustificar(justificaveis.map(alvoDaLinha));
-                  }}
-                  aria-label={
-                    /* Singular e plural, porque a placa de uma alteração só é
-                       comum: "Justificar as 1 alterações" é o tipo de frase que
-                       um leitor de tela lê inteira, em voz alta. */
-                    `${
-                      justificaveis.length === 1
-                        ? "Justificar a 1 alteração"
-                        : `Justificar as ${justificaveis.length} alterações`
-                    } de ${v.entityLabel ?? "veículo sem placa"}`
-                  }
-                  className="inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[0.7rem] font-semibold hover:bg-muted"
-                >
-                  <MessageSquarePlus className="h-3.5 w-3.5" aria-hidden="true" />
-                  Justificar
-                </button>
-              )}
-            </span>
-          )}
-        </td>
-      </tr>
-
-      {aberta && (
-        <tr className="border-b border-superficie-borda bg-muted/20">
-          <td colSpan={COLUNAS.length} className="px-3 py-3">
-            <AlteracoesDoVeiculo
-              linhas={linhasDaExpansao}
-              justificadaPor={justificadaPor}
-              onJustificar={onJustificar}
-              onAbrir={onAbrir}
-            />
-          </td>
-        </tr>
-      )}
-    </>
+    <TabelaPorVeiculo
+      veiculos={veiculos}
+      escrita={ESCRITA_DO_FINAME}
+      justificadaPor={justificadaPor}
+      onAbrir={onAbrir}
+      onJustificar={onJustificar}
+    />
   );
 }
 
 /**
- * As alterações de uma placa — a tabela de antes, agora por dentro da linha.
+ * O fim do contrato da placa — com a ponta anterior no tooltip, quando mudou.
  *
- * As mesmas colunas que a tabela plana tinha (a variável, as duas pontas, a
- * diferença na unidade certa, o status e a justificativa), sem as do veículo:
- * placa, tipo, prazo, data de cadastro e fim do contrato já estão na linha de
- * cima, e repeti-las aqui seria escrevê-las catorze vezes.
- *
- * A ordem das linhas é a do catálogo, e `agruparPorVeiculo` já a aplica: a
- * parcela FINAME primeiro, juros e amortização logo abaixo. A parcela é a soma
- * dos dois, e lê-la no meio deles convidava a somar as três.
+ * Mover-se é o caso comum aqui, porque o contrato que acabou é justamente o que
+ * a tela está lendo. O tooltip é o que permite tirar a linha da expansão sem
+ * perder o "de": a coluna diz onde o contrato termina hoje, e quem precisa do
+ * valor antigo o encontra sem abrir nada.
  */
-function AlteracoesDoVeiculo({
-  linhas,
-  justificadaPor,
-  onJustificar,
-  onAbrir,
-}: {
-  linhas: readonly LinhaDeFiname[];
-  justificadaPor?: ReadonlyMap<number, Justificativa>;
-  onJustificar?: AbrirJustificativa;
-  onAbrir: () => void;
-}) {
-  return (
-    <div className="flex flex-col gap-2">
-      <div className="overflow-x-auto rounded-lg border bg-background">
-        <table className="w-full min-w-[42rem] border-collapse text-sm">
-          <thead>
-            <tr className="border-b bg-muted/60 text-[0.65rem] uppercase tracking-[0.07em] text-muted-foreground">
-              <th scope="col" className="px-3 py-2 text-left font-bold">
-                Variável
-              </th>
-              <th scope="col" className="px-3 py-2 text-right font-bold">
-                De
-              </th>
-              <th scope="col" className="px-3 py-2 text-right font-bold">
-                Para
-              </th>
-              <th scope="col" className="px-3 py-2 text-right font-bold">
-                Diferença
-              </th>
-              <th scope="col" className="px-3 py-2 text-right font-bold">
-                Variação %
-              </th>
-              <th scope="col" className="px-3 py-2 text-left font-bold">
-                Status
-              </th>
-              <th scope="col" className="px-3 py-2 text-left font-bold">
-                Justificativa
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {linhas.map((l, indice) => {
-              const justificativa = l.id === null ? undefined : justificadaPor?.get(l.id);
-              return (
-                <tr
-                  key={`${l.id ?? "igual"}-${l.variavel}-${indice}`}
-                  className="border-b last:border-0"
-                >
-                  <td className="whitespace-nowrap px-3 py-1.5">
-                    <span className="flex items-center gap-1.5">
-                      {l.rotuloDaVariavel}
-                      {/*
-                        O mesmo marcador que a tabela de IPVA e a de Impostos já
-                        usam, e pela mesma razão: a coluna continua aqui porque
-                        confere a linha ao lado, e quem lê precisa saber, sem
-                        abrir nada, que ela não entrou no total desta tela.
-                      */}
-                      {l.foraDaSoma && (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <button
-                              type="button"
-                              aria-label={`Esta coluna não entra na soma deste módulo: ${l.foraDaSoma}`}
-                              onClick={(e) => e.stopPropagation()}
-                              className="text-muted-foreground hover:text-foreground"
-                            >
-                              <Info className="h-3.5 w-3.5" aria-hidden="true" />
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipContent className="max-w-xs text-xs">
-                            <strong className="font-semibold">Fora do total daqui.</strong>{" "}
-                            {l.foraDaSoma}
-                          </TooltipContent>
-                        </Tooltip>
-                      )}
-                    </span>
-                  </td>
-                  <td className="whitespace-nowrap px-3 py-1.5 text-right font-mono tabular-nums">
-                    {escreverValor(l.base, l.medida)}
-                  </td>
-                  <td className="whitespace-nowrap px-3 py-1.5 text-right font-mono tabular-nums">
-                    {escreverValor(l.comparada, l.medida)}
-                  </td>
-                  <td
-                    className={cn(
-                      "whitespace-nowrap px-3 py-1.5 text-right font-mono tabular-nums",
-                      corDaDiferenca(l.diferenca, l.medida),
-                    )}
-                  >
-                    {escreverDiferenca(l.diferenca, l.medida)}
-                  </td>
-                  <td
-                    className={cn(
-                      "whitespace-nowrap px-3 py-1.5 text-right font-mono tabular-nums",
-                      corDaDiferenca(l.diferenca, l.medida),
-                    )}
-                  >
-                    {escreverVariacao(l.variacao)}
-                  </td>
-                  <td className="whitespace-nowrap px-3 py-1.5">
-                    <span className="flex items-center gap-1.5">
-                      <span
-                        className={cn(
-                          "inline-flex items-center rounded-full px-2 py-0.5 text-[0.7rem] font-semibold",
-                          SELO_DO_ESTADO[l.estado],
-                        )}
-                      >
-                        {ROTULO_DO_ESTADO[l.estado]}
-                      </span>
-                      {/* O motivo da recusa fica num ⓘ, e não numa coluna: ele
-                          existe em duas linhas de cada cem. */}
-                      {l.motivo && (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <button
-                              type="button"
-                              aria-label={`Por que esta linha não foi comparada: ${l.motivo}`}
-                              className="text-muted-foreground hover:text-foreground"
-                            >
-                              <Info className="h-3.5 w-3.5" aria-hidden="true" />
-                            </button>
-                          </TooltipTrigger>
-                          <TooltipContent className="max-w-xs text-xs">
-                            {l.motivo}
-                          </TooltipContent>
-                        </Tooltip>
-                      )}
-                    </span>
-                  </td>
-                  <td className="px-3 py-1.5 text-xs text-muted-foreground">
-                    {/* Linha "sem alteração" não tem `change.id`, e portanto não
-                        tem o que justificar: fica em branco, e não com um traço
-                        que sugerisse pendência — nem com um botão que gravaria
-                        sobre coisa nenhuma. */}
-                    <CelulaDeJustificativa
-                      linha={l}
-                      justificativa={justificativa}
-                      onJustificar={onJustificar}
-                    />
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+function FimDoContrato({ veiculo: v }: { veiculo: VeiculoDeFiname }) {
+  const linhaDoFim = v.linhas.find((l) => l.variavel === "data_fim_contrato") ?? null;
+  const fim = v.fimDoContrato ?? linhaDoFim?.comparada ?? linhaDoFim?.base ?? null;
+  const anterior =
+    linhaDoFim?.estado === "ALTERADO" && linhaDoFim.base !== linhaDoFim.comparada
+      ? linhaDoFim.base
+      : null;
 
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        onClick={onAbrir}
-        className="gap-2 self-start"
-      >
-        <PanelRightOpen className="h-4 w-4" aria-hidden="true" />
-        Abrir detalhe completo
-      </Button>
-    </div>
+  if (anterior === null) return <>{escreverDataDeCadastro(fim)}</>;
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="underline decoration-dotted underline-offset-2">
+          {escreverDataDeCadastro(fim)}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent className="text-xs">
+        {`Fim do contrato: de ${escreverDataDeCadastro(anterior)} para ${escreverDataDeCadastro(
+          fim,
+        )}`}
+      </TooltipContent>
+    </Tooltip>
   );
 }

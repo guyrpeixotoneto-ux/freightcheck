@@ -13,11 +13,15 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { CartoesDaEvolucaoDeFiname } from "../evolucao/cartoes";
+import { CartoesDaEvolucao } from "../evolucao/cartoes";
 import type { EvolucaoPorPlaca } from "@/lib/evolucao-por-placa";
 import type { PontaAPonta } from "@/lib/analise";
 
 afterEach(cleanup);
+
+/* A rubrica entra só nas frases das dicas: nenhum número desta prova depende
+   dela, e é justamente isso que se quer — o cartão é o mesmo nas quatro telas. */
+const RUBRICA = { rubrica: "FINAME", semValoracao: "taxa, prazo, carência" };
 
 /** Os números do mockup: movimentos +550, ponta a ponta +1.000. */
 const EVOLUCAO = {
@@ -52,7 +56,7 @@ const PONTA = {
 describe("os dois impactos", () => {
   it("aparecem como dois cartões, com a régua de cada um dita", () => {
     render(
-      <CartoesDaEvolucaoDeFiname evolucao={EVOLUCAO} ponta={PONTA} carregandoPonta={false} />,
+      <CartoesDaEvolucao evolucao={EVOLUCAO} ponta={PONTA} carregandoPonta={false} {...RUBRICA} />,
     );
 
     expect(screen.getByText(/Impacto líquido dos movimentos/)).toBeTruthy();
@@ -64,7 +68,7 @@ describe("os dois impactos", () => {
 
   it("escreve a diferença entre as duas contas em vez de deixá-la ao leitor", () => {
     render(
-      <CartoesDaEvolucaoDeFiname evolucao={EVOLUCAO} ponta={PONTA} carregandoPonta={false} />,
+      <CartoesDaEvolucao evolucao={EVOLUCAO} ponta={PONTA} carregandoPonta={false} {...RUBRICA} />,
     );
 
     /* Duas rubricas voltaram ao ponto de partida e um veículo saiu da frota —
@@ -77,7 +81,7 @@ describe("os dois impactos", () => {
 
   it("os quatro baldes das alterações fecham com o total", () => {
     render(
-      <CartoesDaEvolucaoDeFiname evolucao={EVOLUCAO} ponta={PONTA} carregandoPonta={false} />,
+      <CartoesDaEvolucao evolucao={EVOLUCAO} ponta={PONTA} carregandoPonta={false} {...RUBRICA} />,
     );
 
     /* 21 = 12 valoradas + 8 sem valoração + 1 em outra grandeza. A identidade é
@@ -96,7 +100,7 @@ describe("os dois impactos", () => {
       impact: { byPeriodicity: { ANUAL: 900 }, notCalculable: 0 },
     } as unknown as PontaAPonta;
     render(
-      <CartoesDaEvolucaoDeFiname evolucao={EVOLUCAO} ponta={semMensal} carregandoPonta={false} />,
+      <CartoesDaEvolucao evolucao={EVOLUCAO} ponta={semMensal} carregandoPonta={false} {...RUBRICA} />,
     );
 
     expect(screen.getByText("sem valor nesta grandeza")).toBeTruthy();
@@ -104,7 +108,7 @@ describe("os dois impactos", () => {
 
   it("enquanto a ponta a ponta carrega, o cartão não inventa um número", () => {
     render(
-      <CartoesDaEvolucaoDeFiname evolucao={EVOLUCAO} ponta={null} carregandoPonta={true} />,
+      <CartoesDaEvolucao evolucao={EVOLUCAO} ponta={null} carregandoPonta={true} {...RUBRICA} />,
     );
 
     expect(screen.getByText("Comparando as duas pontas do ano…")).toBeTruthy();

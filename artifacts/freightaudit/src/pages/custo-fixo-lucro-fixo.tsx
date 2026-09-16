@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { useSearch } from "wouter";
+import { useLocation, useSearch } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { Download, Search, SlidersHorizontal, TrendingUp } from "lucide-react";
 import type { LinhaDeLucroFixo } from "@workspace/comparison/lucro-fixo";
 import {
+  agruparPorVeiculoDeLucroFixo,
   viradasDeCiclo,
   VARIAVEIS_DE_DETALHE_DE_LUCRO_FIXO,
   VARIAVEIS_DE_LUCRO_FIXO,
@@ -66,6 +67,14 @@ import {
   type TotaisDeLucroFixo,
 } from "@/lib/lucro-fixo";
 import { lerRecorte } from "@/lib/recorte";
+import { PainelDaEvolucao } from "@/components/comparacao/evolucao/painel";
+import { EVOLUCAO_DO_LUCRO_FIXO } from "@/components/lucro-fixo/evolucao";
+import {
+  ehModoDaAuditoria,
+  ehRecorteDeTipo,
+  trocaNaRota,
+  type ModoDaAuditoria,
+} from "@/lib/modo-da-auditoria";
 import { contextoAberto, unidadeDe, useContextosDaCasca } from "@/lib/contextos";
 import { cn } from "@/lib/utils";
 
@@ -103,6 +112,16 @@ import { cn } from "@/lib/utils";
  * produz uma vigência por unidade, com o mesmo rótulo e a mesma data, e um par
  * escolhido sem olhar o escopo é o único que o motor recusa por construção.
  */
+/**
+ * A rota desta auditoria — uma só, para os dois modos.
+ *
+ * `trocarNoEndereco` preserva tudo que não foi pedido: entrar na Evolução e
+ * voltar devolve a comparação exatamente como estava — mesma unidade, mesmo
+ * canal, mesmo par de vigências, mesmo recorte de equipamento.
+ */
+const ROTA = "/custo-fixo-lucro-fixo";
+const trocarNoEndereco = trocaNaRota(ROTA);
+
 export default function AuditoriaDeLucroFixo() {
   /**
    * O par que o endereço traz, quando traz — o que faz o **Abrir auditoria** do
@@ -132,6 +151,43 @@ export default function AuditoriaDeLucroFixo() {
 
   /** A unidade aberta na lateral — sem ela, trocar de unidade trocaria de tela. */
   const recorte = lerRecorte(useSearch());
+
+  /**
+   * O modo aberto, e o recorte **da evolução** — duas chaves próprias no mesmo
+   * endereço.
+   *
+   * São chaves separadas de `filtros.tipo` de propósito, e é isso que faz a ida
+   * e volta não custar nada: entrar na Evolução não toca no recorte da
+   * comparação, que continua no estado e volta como estava ao sair. Unidade,
+   * canal, `scopeHash` e o par de vigências nem são mencionados aqui — eles
+   * vivem na URL e no estado da tela, e a troca de modo passa ao largo deles.
+   *
+   * Valor adulterado cai no padrão em vez de quebrar: `comparacao` para o modo,
+   * que é a tela que sempre existiu, e `TODOS` para o recorte da evolução.
+   */
+  const busca = useSearch();
+  const [, navegar] = useLocation();
+  const parametrosDaUrl = useMemo(() => new URLSearchParams(busca), [busca]);
+  const modoPedido = parametrosDaUrl.get("modo");
+  const modo: ModoDaAuditoria = ehModoDaAuditoria(modoPedido) ? modoPedido : "comparacao";
+  const recortePedido = parametrosDaUrl.get("recorteEvolucao");
+  const recorteDaEvolucao: RecorteDeTipo = ehRecorteDeTipo(recortePedido)
+    ? recortePedido
+    : "TODOS";
+  const anoDaEvolucao = parametrosDaUrl.get("ano");
+
+  const trocarNaUrl = (mudancas: Record<string, string | null>) =>
+    navegar(trocarNoEndereco(busca, mudancas));
+
+  /** O contexto da unidade aberta, que atravessa os dois modos sem ser tocado. */
+  const consultaDoContexto = useMemo(() => {
+    const q = new URLSearchParams();
+    for (const chave of ["scopeHash", "canal", "operacao"]) {
+      const valor = parametrosDaUrl.get(chave);
+      if (valor !== null && valor !== "") q.set(chave, valor);
+    }
+    return q;
+  }, [parametrosDaUrl]);
 
   const { contextos, carregando: contextosCarregando } = useContextosDaCasca();
   const nomePorEscopo = useMemo(() => {
@@ -189,6 +245,19 @@ export default function AuditoriaDeLucroFixo() {
           )
         : [],
     [vigencias.data, escopoAberto, unidadeResolvida],
+  );
+
+  /**
+   * As datas da unidade — o eixo do ano, na Evolução.
+   *
+   * Sai de `daUnidadeTodas` (o acervo da unidade, antes da aba) pelo mesmo
+   * motivo que os rótulos: quais anos existem é pergunta sobre a unidade, e não
+   * sobre o recorte aberto. Recortada pela aba, a lista de anos mudaria ao
+   * trocar de equipamento — e um ano sumiria do seletor por ter só carreta.
+   */
+  const datasDaUnidade = useMemo(
+    () => [...new Set(daUnidadeTodas.map((v) => v.effectiveDate))],
+    [daUnidadeTodas],
   );
 
   /**
@@ -368,9 +437,23 @@ export default function AuditoriaDeLucroFixo() {
     () => contagemPorAba(linhas, { ...filtros, estado: "TODAS" }, viradas),
     [linhas, filtros, viradas],
   );
+
+  /**
+   * As placas — o que a tabela lista desde que deixou de listar variáveis.
+   *
+   * **Agrupa depois de filtrar, e não antes.** As abas, a busca e os seletores
+   * continuam sendo sobre a alteração — é ali que moram o estado e a variável —,
+   * e a placa entra na lista quando sobra alguma linha dela no recorte. Agrupar
+   * primeiro obrigaria cada filtro a decidir o que significa "uma placa
+   * alterada", e a aba diria 33 sobre uma tabela de 7 linhas.
+   *
+   * Por isso a contagem das abas continua em alterações: é o que elas contam. A
+   * paginação, essa sim, passou a ser de veículos — é o que a tabela mostra.
+   */
+  const veiculos = useMemo(() => agruparPorVeiculoDeLucroFixo(filtradas), [filtradas]);
   const naPagina = useMemo(
-    () => filtradas.slice((pagina - 1) * porPagina, pagina * porPagina),
-    [filtradas, pagina, porPagina],
+    () => veiculos.slice((pagina - 1) * porPagina, pagina * porPagina),
+    [veiculos, pagina, porPagina],
   );
 
   // Filtrar encurta a lista; a página em que se estava pode não existir mais.
@@ -432,13 +515,19 @@ export default function AuditoriaDeLucroFixo() {
           <span className="flex flex-wrap items-center gap-2.5">
             Auditoria de Lucro Fixo
             <span className="rounded-full border border-brand/25 bg-brand/10 px-2.5 py-0.5 text-xs font-semibold text-brand">
-              Comparação entre vigências
+              {modo === "evolucao" ? "Evolução anual" : "Comparação entre vigências"}
             </span>
           </span>
         }
         icone={TrendingUp}
-        descricao="O que mudou na remuneração fixa de cada veículo entre duas vigências — e quem terminou de amortizar o financiamento e passou a recebê-la."
-        atualizando={comparacao.isFetching && !comparacao.isLoading}
+        descricao={
+          modo === "evolucao"
+            ? "Como o lucro fixo de cada veículo se moveu ao longo do ano, uma coluna por vigência — com o impacto dos movimentos e a variação ponta a ponta lidos separadamente."
+            : "O que mudou na remuneração fixa de cada veículo entre duas vigências — e quem terminou de amortizar o financiamento e passou a recebê-la."
+        }
+        atualizando={
+          modo === "comparacao" && comparacao.isFetching && !comparacao.isLoading
+        }
       />
 
       <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-4 px-4 pb-10 sm:px-8">
@@ -452,10 +541,40 @@ export default function AuditoriaDeLucroFixo() {
           <>
             <RecorteDeEquipamento
               valor={recorteDeTipo}
-              onValor={(tipo) => setFiltros((f) => ({ ...f, tipo }))}
+              onValor={(tipo) => {
+                /* Escolher um equipamento é sair da Evolução: os três primeiros
+                   botões são da comparação, e clicar num deles é pedir a tela
+                   deles. O recorte da evolução fica guardado para a volta. */
+                setFiltros((f) => ({ ...f, tipo }));
+                if (modo !== "comparacao") trocarNaUrl({ modo: null });
+              }}
               disponiveis={disponiveis}
               idPrefixo="lucro-fixo"
+              abaExtra={{
+                rotulo: "Evolução",
+                ativa: modo === "evolucao",
+                onAbrir: () => trocarNaUrl({ modo: "evolucao" }),
+                ...(daUnidadeTodas.length === 0
+                  ? {
+                      indisponivel:
+                        "Esta unidade ainda não tem vigência de equipamento importada — não há ano para acompanhar.",
+                    }
+                  : {}),
+              }}
             />
+            {modo === "evolucao" && (
+              <PainelDaEvolucao
+                rubrica={EVOLUCAO_DO_LUCRO_FIXO}
+                consulta={consultaDoContexto}
+                datas={datasDaUnidade}
+                recorte={recorteDaEvolucao}
+                onRecorte={(r) => trocarNaUrl({ recorteEvolucao: r === "TODOS" ? null : r })}
+                ano={anoDaEvolucao}
+                onAno={(a) => trocarNaUrl({ ano: a })}
+                disponiveis={disponiveis}
+              />
+            )}
+            {modo === "comparacao" && (
             <SeletorDoPar
               vigencias={daUnidade}
               foco={recorteDeTipo === "TODOS" ? null : recorteDeTipo}
@@ -476,9 +595,18 @@ export default function AuditoriaDeLucroFixo() {
                 candidatos.error instanceof Error ? candidatos.error.message : null
               }
             />
+            )}
           </>
         )}
 
+        {/*
+          Tudo abaixo é da comparação: a tela vazia, os cartões, os gráficos, a
+          tabela e a gaveta. Na Evolução o painel acima responde sozinho, e
+          deixar esta metade no ar poria a matriz do ano sob os cartões de um par
+          de vigências — o número de um recorte sob o título de outro.
+        */}
+        {modo === "comparacao" && (
+          <>
         {semParPossivel && (
           <EstadoVazio
             icone={TrendingUp}
@@ -707,22 +835,22 @@ export default function AuditoriaDeLucroFixo() {
             ) : (
               <>
                 <TabelaDeLucroFixo
-                  linhas={naPagina}
+                  veiculos={naPagina}
                   justificadaPor={justificar.justificadaPor}
-                  onAbrir={(l) =>
-                    setAberto({ entityLabel: l.entityLabel, entityType: l.entityType })
+                  onAbrir={(v) =>
+                    setAberto({ entityLabel: v.entityLabel, entityType: v.entityType })
                   }
                   onJustificar={justificar.abrir}
                 />
                 <Paginacao
                   pagina={pagina}
                   porPagina={porPagina}
-                  total={filtradas.length}
+                  total={veiculos.length}
                   onPagina={setPagina}
                   onPorPagina={setPorPagina}
                   tamanhos={[50, 100, 300]}
-                  unidade="linhas"
-                  unidadeSingular="linha"
+                  unidade="veículos"
+                  unidadeSingular="veículo"
                 />
               </>
             )}
@@ -736,6 +864,8 @@ export default function AuditoriaDeLucroFixo() {
               rotuloComparada={rotuloComparada}
               onFechar={() => setAberto(null)}
             />
+          </>
+        )}
           </>
         )}
       </div>

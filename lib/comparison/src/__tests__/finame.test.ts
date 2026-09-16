@@ -822,7 +822,7 @@ describe("o agrupamento por veículo", () => {
 
   it("mostra a parcela FINAME da placa — e não a soma das monetárias dela", () => {
     const abc = agruparPorVeiculo(recorte()).find((v) => v.entityLabel === "ABC1D23")!;
-    expect(abc.parcela).toEqual({
+    expect(abc.destaque).toEqual({
       base: 8450,
       comparada: 8760,
       diferenca: 310,
@@ -834,7 +834,7 @@ describe("o agrupamento por veículo", () => {
     // A placa que só moveu a amortização: somar os 370 aqui diria que a parcela
     // caiu 370 — e a parcela dela pode não ter se movido.
     const xyz = agruparPorVeiculo(recorte()).find((v) => v.entityLabel === "XYZ9K88")!;
-    expect(xyz.parcela).toBeNull();
+    expect(xyz.destaque).toBeNull();
     expect(xyz.alteracoes).toBe(1);
   });
 

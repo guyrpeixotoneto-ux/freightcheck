@@ -74,6 +74,11 @@ import {
   type MedidaDaVariavel,
   type AlteracaoDoMotor,
 } from "./recorte-de-rubrica";
+import {
+  agruparVeiculos,
+  type OpcoesDoAgrupamento,
+  type VeiculoDaRubrica,
+} from "./agrupamento-por-veiculo";
 
 export {
   estadoDaAlteracao,
@@ -215,6 +220,33 @@ export function codigosDeLucroFixo(
 
 /** O recorte que a tabela pede ao motor. */
 export const CODIGOS_DA_TABELA_DE_LUCRO_FIXO = codigosDeLucroFixo(VARIAVEIS_DE_LUCRO_FIXO);
+
+/**
+ * Os códigos de um recorte de equipamento — `TODOS`, `CAVALO` ou `CARRETA`.
+ *
+ * Existe porque nem toda leitura aceita recortar por `entity_type`. A Evolução
+ * por Placa aceita (`tipo`), mas a leitura ponta a ponta (`end-to-end.ts`) só
+ * aceita uma lista de atributos — e as duas precisam responder pelo **mesmo**
+ * recorte quando a aba Cavalo está aberta, ou a tela publica a variação ponta a
+ * ponta do acervo inteiro sob o título de um equipamento só.
+ *
+ * A tradução é exata, e não uma aproximação: cada variável tem um código por
+ * equipamento (`cavalo.lucro_fixomodelo_novo_ciclo_cavalo` e `carreta.lucro_fixomodelo_novo_ciclo_carreta` são atributos distintos), então filtrar pelos
+ * códigos de um lado é o mesmo conjunto de linhas que filtrar pelo `entity_type`
+ * daquele lado.
+ */
+export function codigosDoRecorteDeLucroFixo(
+  recorte: "TODOS" | "CAVALO" | "CARRETA",
+  variaveis: readonly VariavelDeLucroFixo[] = VARIAVEIS_DE_LUCRO_FIXO,
+): string[] {
+  if (recorte === "TODOS") return codigosDeLucroFixo(variaveis);
+  const codigos = new Set<string>();
+  for (const v of variaveis) {
+    const codigo = v.codigo[recorte];
+    if (codigo) codigos.add(codigo);
+  }
+  return [...codigos].sort();
+}
 
 /** O recorte do detalhe: tudo, inclusive a coluna do conjunto. */
 export const CODIGOS_DO_DETALHE_DE_LUCRO_FIXO = codigosDeLucroFixo(TODAS);
@@ -858,4 +890,57 @@ export function celulasDoCsvDeLucroFixo(
     l.foraDaSoma,
     justificativa ?? null,
   ];
+}
+
+
+// ---------------------------------------------------------------------------
+// O agrupamento por veículo — uma linha por placa
+// ---------------------------------------------------------------------------
+
+/**
+ * Um veículo da tabela de lucro fixo: a placa, o que ela moveu, e as linhas
+ * por baixo.
+ *
+ * O corpo do agrupamento mora em `agrupamento-por-veiculo.ts`, com as outras
+ * rubricas de custo fixo — inclusive o FINAME, que foi onde ele nasceu. Quatro
+ * cópias da mesma função seriam quatro definições de "o estado de uma placa"
+ * livres para divergir.
+ */
+export type VeiculoDeLucroFixo = VeiculoDaRubrica<LinhaDeLucroFixo>;
+
+/**
+ * A ordem em que a expansão lê as variáveis de uma placa, e quem é o destaque.
+ *
+ * A ordem é a do catálogo, e não a que o motor entrega: o catálogo começa pela
+ * variável que a tela resume e segue pelo que a explica, e é essa a leitura que
+ * a expansão quer. `veiculo` vem antes de tudo, porque entrada e saída de ativo
+ * explicam todas as outras linhas da placa; e por isso mesmo fica **fora da
+ * contagem**, em vez de fazer uma placa que só entrou na frota aparecer com
+ * "1 alteração".
+ *
+ * O destaque é o lucro fixo próprio do equipamento — **uma** variável, e nunca a soma das monetárias.
+ * É a parcela própria de cada equipamento, e nunca a coluna do conjunto: aquela embute a parcela do cavalo vinculado, e usá-la na linha da carreta contaria o mesmo dinheiro nas duas placas. A amortização, que é a outra metade do par, também não entra: ela nunca coexiste com o lucro fixo, e somá-las escreveria como um só dois números que a planilha mantém separados.
+ */
+export const AGRUPAMENTO_DE_LUCRO_FIXO = {
+  ordemDasVariaveis: ["veiculo", ...TODAS.map((v) => v.chave)],
+  destaque: "lucro_fixo",
+  foraDaContagem: ["veiculo"],
+} as const satisfies OpcoesDoAgrupamento;
+
+/**
+ * As linhas viradas uma linha por placa.
+ *
+ * A tabela nasceu por variável — uma linha por (veículo × variável) —, e a mesma
+ * placa aparecia tantas vezes quantas são as variáveis do catálogo, espalhada
+ * por várias páginas: ler "o que aconteceu com a QYW6D15" era procurar as linhas
+ * dela na lista. Agrupar responde essa pergunta de uma vez, e a lista de baixo
+ * continua inteira dentro da placa.
+ *
+ * **Não recalcula nada.** Contagem, estado e destaque saem das linhas que o
+ * motor já produziu; o que a função faz é juntar por `(placa, tipo)` e ordenar.
+ */
+export function agruparPorVeiculoDeLucroFixo(
+  linhas: readonly LinhaDeLucroFixo[],
+): VeiculoDeLucroFixo[] {
+  return agruparVeiculos(linhas, AGRUPAMENTO_DE_LUCRO_FIXO);
 }
