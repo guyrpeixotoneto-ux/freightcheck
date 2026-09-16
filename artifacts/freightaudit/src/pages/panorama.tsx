@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
 import { BarChart3, Clock, FileSearch, History } from "lucide-react";
+import { rotuloDaVigencia } from "@workspace/comparison/labels";
 import { Layout } from "@/components/layout/layout";
 import {
   CabecalhoDePagina,
@@ -16,7 +17,7 @@ import { fetchJson } from "@/lib/api";
 import { GESTAO_A_VISTA, LINHA_DO_TEMPO, PANORAMA } from "@/lib/ambiente";
 import { consultaDoRecorte, opcoesDaVigencia } from "@/lib/leitura-da-vigencia";
 import { LEITURA_DE_APURACAO } from "@/lib/frescor-das-leituras";
-import { useContextosDaCasca } from "@/lib/contextos";
+import { contextoAberto, useContextosDaCasca } from "@/lib/contextos";
 import { useFamiliesOverviewQuery } from "@/lib/families-overview";
 import { useSerieDeImpacto, useSerieDeImpactoGeral } from "@/lib/serie-de-impacto";
 import { lerRecorte, nomeDaUnidade, type Recorte } from "@/lib/recorte";
@@ -51,9 +52,19 @@ import {
 } from "@/components/dashboard/controles-do-recorte";
 import {
   BOTAO_DE_TROCA,
-  SeletorDeVigencia,
   SeletorDeVigenciaGeral,
 } from "@/components/vigencia/seletor-de-vigencia";
+import { SeletorDoParDoPanorama } from "@/components/panorama/seletor-do-par";
+import { useResumoPorVigencia } from "@/hooks/use-resumo-por-vigencia";
+import {
+  aoEscolherDe,
+  aoEscolherPara,
+  aoInverter,
+  baseNoEndereco,
+  consultaDoPar,
+  opcoesDoPar,
+  parEmTela,
+} from "@/lib/par-do-panorama";
 import { FaixaDeCobertura, FaixaSemAlteracao } from "@/components/impacto-apurado/faixa-de-cobertura";
 import { PonteDoImpactoGrafico } from "@/components/impacto-apurado/ponte-do-impacto";
 import { PrincipaisMudancas } from "@/components/impacto-apurado/principais-mudancas";
@@ -129,8 +140,43 @@ export default function Panorama() {
   const consulta = consultaDoRecorte(search);
   const visaoGeral = parametros.get("visaoGeral") === "1";
 
-  const vigencia = useQuery({ ...opcoesDaVigencia(consulta), enabled: !visaoGeral });
-  const view = visaoGeral ? null : (vigencia.data ?? null);
+  /*
+    A volta — e por que ela é a única coisa que troca de rota.
+
+    `?base=` guarda a ponta de partida (ver `lib/par-do-panorama.ts`; o nome não
+    é `de` porque `?de=` já é o recorte de janela do contexto, do lado da API).
+    Enquanto ela for anterior ao `?period=`, o par é o natural e a tela continua
+    lendo `/changes/families`, na mesma chave de cache em que o Impacto Apurado
+    e o Dashboard já o têm — ir e voltar entre os módulos continua não custando
+    requisição nenhuma.
+
+    Quando ela é **posterior**, o par é a volta: um par que a importação não
+    gravou e que nenhuma régua de data alcança. Aí a leitura sai por
+    `/changes/families/par`, que manda o motor calcular B×A e responde o mesmo
+    corpo. A comparação da ida e a da volta são duas chaves diferentes porque
+    são duas respostas diferentes — não simétricas, que é o motivo de o botão
+    existir.
+
+    A conta é textual de propósito (`base > period`, ISO): ela decide **qual
+    consulta sai**, e depender da lista de vigências para isso faria a primeira
+    leitura esperar por outra leitura. As duas chaves só são escritas juntas —
+    quem inverte escreve as duas —, e um `?base=` sem `?period=` é ignorado,
+    como qualquer endereço que descreva meio par.
+  */
+  const dePedido = parametros.get("base");
+  const paraPedido = parametros.get("period");
+  const emPar =
+    !visaoGeral && dePedido !== null && paraPedido !== null && dePedido > paraPedido;
+
+  const vigencia = useQuery({ ...opcoesDaVigencia(consulta), enabled: !visaoGeral && !emPar });
+  const invertida = useQuery({
+    ...opcoesDoPar(
+      consultaDoPar(consulta, { de: dePedido ?? "", para: paraPedido ?? "" }),
+    ),
+    enabled: emPar,
+  });
+  const principal = emPar ? invertida : vigencia;
+  const view = visaoGeral ? null : (principal.data ?? null);
 
   const contextos = useContextosDaCasca();
   const periodosOverview = useMemo(
@@ -147,8 +193,21 @@ export default function Panorama() {
   const overview = visaoGeral ? (overviewQuery.data ?? null) : null;
 
   const recorte = lerRecorte(search);
-  const atualizadoEm = visaoGeral ? overviewQuery.dataUpdatedAt : vigencia.dataUpdatedAt;
-  const atualizando = visaoGeral ? overviewQuery.isPlaceholderData : vigencia.isPlaceholderData;
+  /*
+    As vigências que a casca já conhece — a lista de reserva do seletor do par.
+
+    Ela existe para o estado em que a leitura principal **não** respondeu: uma
+    volta recusada pelo motor deixa a tela sem `view`, e com ela iria embora a
+    lista de vigências, junto com a única forma de desfazer a escolha sem o
+    botão do navegador. `/contexts` já está em memória (é a mesma consulta da
+    lateral), e a unidade aberta é a mesma que ela nomeia.
+  */
+  const periodosDoContexto = useMemo(
+    () => contextoAberto(contextos.contextos, recorte.scopeHash)?.periodosDisponiveis ?? [],
+    [contextos.contextos, recorte.scopeHash],
+  );
+  const atualizadoEm = visaoGeral ? overviewQuery.dataUpdatedAt : principal.dataUpdatedAt;
+  const atualizando = visaoGeral ? overviewQuery.isPlaceholderData : principal.isPlaceholderData;
 
   /*
     A vigência anterior — só para a variação do andar 1, e só quando existe.
@@ -161,13 +220,21 @@ export default function Panorama() {
     Não existe na Visão Geral: o overview responde por uma competência de cada
     vez, e "a anterior de cada unidade" não é uma competência — somá-las daria
     uma base que nenhuma unidade tem.
+
+    **E não existe no par invertido.** A variação do andar 1 é "esta vigência
+    custou mais ou menos que a anterior" — uma comparação entre dois passos
+    consecutivos na direção em que o histórico anda. Lida a volta, o número em
+    tela é o desfazimento de um passo, e a vigência anterior à de chegada não é
+    a base de nada: publicá-la ali daria uma variação entre duas leituras que
+    não se sucedem. O andar mostra o líquido do par, sem a linha de variação,
+    que é o que ele já faz na primeira vigência de um histórico.
   */
   const anterior = useMemo(() => {
-    if (!view) return null;
+    if (!view || emPar) return null;
     const ordenadas = [...view.periods].sort((a, b) => a.date.localeCompare(b.date));
     const indice = ordenadas.findIndex((p) => p.date === view.period);
     return indice > 0 ? ordenadas[indice - 1] : null;
-  }, [view]);
+  }, [view, emPar]);
 
   const comparacao = useQuery({
     queryKey: ["grouped", "panorama-anterior", anterior?.date, consulta.toString()],
@@ -203,7 +270,7 @@ export default function Panorama() {
     `scopeHash` cairia na unidade padrão do servidor — a procedência de **uma**
     debaixo de números que somaram todas. É a mesma recusa de `comDestino`.
   */
-  const principalPronto = visaoGeral ? !overviewQuery.isLoading : !vigencia.isLoading;
+  const principalPronto = visaoGeral ? !overviewQuery.isLoading : !principal.isLoading;
   const periodoDaProcedencia = view?.period ?? null;
   const consultaDaProcedencia = useMemo(() => {
     const query = new URLSearchParams(consulta);
@@ -226,8 +293,18 @@ export default function Panorama() {
     visaoGeral && !overviewQuery.isLoading,
   );
 
+  /*
+    Trocar qualquer coisa que não seja o par **apaga o par**.
+
+    `?base=` só faz sentido ao lado do `?period=` com que foi escrito: levá-lo
+    numa troca de unidade apontaria para uma data que a outra unidade pode não
+    ter, e numa troca de competência montaria um par salteado. Quem escolhe o
+    par escreve as duas chaves na mesma troca — e é só nesse caso que `base`
+    sobrevive, porque veio na própria mudança.
+  */
   const trocarPara = (mudancas: Record<string, string | null>) => {
     const proxima = new URLSearchParams(search);
+    if (!("base" in mudancas)) proxima.delete("base");
     for (const [chave, valor] of Object.entries(mudancas)) {
       if (valor === null) proxima.delete(chave);
       else proxima.set(chave, valor);
@@ -309,14 +386,19 @@ export default function Panorama() {
                 onTrocar={trocarPara}
                 className={BOTAO_DE_TROCA}
               />
-            ) : (
-              <SeletorDeVigencia
-                view={view}
-                consulta={consulta}
-                onTrocar={trocarPara}
-                className={BOTAO_DE_TROCA}
-              />
-            )}
+            ) : null}
+            {/*
+              Na leitura de unidade **não há** seletor de vigência aqui: quem
+              escolhe a vigência é o par, no corpo da tela, e ele escolhe as
+              duas pontas. Dois controles para a mesma escolha, na mesma tela,
+              seriam duas perguntas disputando o mesmo gesto — e a coluna de
+              números que fazia este menu valer a abertura mudou de endereço
+              junto, para dentro das duas caixas.
+
+              A Visão Geral continua com o dela: lá não há par a escolher — o
+              overview responde por uma competência somando todas as unidades,
+              e "a anterior de cada uma" não é uma competência.
+            */}
             <MenuDaGestaoAVista paraGestaoAVista={paraGestaoAVista} />
           </>
         }
@@ -353,20 +435,48 @@ export default function Panorama() {
           </>
         ) : (
           <>
-            {vigencia.isLoading && <Carregando />}
-            {vigencia.error && (
-              <ApiErrorNotice error={vigencia.error} what="Não foi possível montar o Panorama." />
+            {/*
+              O par vem **antes** de tudo, e fica em tela em todos os estados —
+              inclusive no de erro.
+
+              É o único controle desta leitura, e ele é também a saída: uma
+              volta que o motor recuse (coberturas diferentes, canais
+              diferentes) deixa a tela sem corpo, e um seletor que sumisse
+              junto prenderia quem clicou num endereço sem gesto de retorno
+              além do botão do navegador. Enquanto a lista de vigências não
+              chegou, ele desenha o esqueleto das duas caixas; sem leitura
+              nenhuma, ele se vira com as vigências que a casca já conhece.
+            */}
+            <ParDaLeitura
+              view={view}
+              consulta={consulta}
+              periodosDoContexto={periodosDoContexto}
+              dePedido={dePedido}
+              paraPedido={paraPedido}
+              carregando={principal.isLoading || principal.isFetching}
+              onTrocar={trocarPara}
+            />
+            {principal.isLoading && <Carregando />}
+            {principal.error && (
+              <ApiErrorNotice error={principal.error} what="Não foi possível montar o Panorama." />
             )}
-            {!vigencia.isLoading && !vigencia.error && view === null && <SemVigencia />}
+            {!principal.isLoading && !principal.error && view === null && <SemVigencia />}
             {view && (
-              <div className={cn("space-y-5", classeDeAtualizacao(vigencia.isPlaceholderData))}>
+              <div className={cn("space-y-5", classeDeAtualizacao(principal.isPlaceholderData))}>
                 <Corpo
                   leitura={leituraDaUnidade(view)}
                   view={view}
                   overview={null}
                   recorte={recorte}
                   consulta={consulta}
-                  anterior={comparacao.data ?? null}
+                  /*
+                    `emPar` corta aqui também, e não só no `enabled` da
+                    consulta: desligada, ela **guarda** a última resposta, e o
+                    que chegava ao andar 1 na volta era a variação da ida, em
+                    cache, contra um líquido que já tinha trocado de sinal —
+                    "−R$ 11.917/mês" com "+2% vs vigência anterior" embaixo.
+                  */
+                  anterior={emPar ? null : (comparacao.data ?? null)}
                   pontos={serieDaUnidade.pontos}
                   periodicityDaSerie={serieDaUnidade.periodicity}
                   serieCarregando={serieDaUnidade.carregando}
@@ -382,6 +492,103 @@ export default function Panorama() {
         )}
       </CorpoDaPagina>
     </Layout>
+  );
+}
+
+/**
+ * O par em tela — a lista, os números de cada vigência e o que cada gesto muda
+ * no endereço.
+ *
+ * Componente, e não um trecho do corpo da página, por causa do hook: os números
+ * da lista saem de `useResumoPorVigencia`, a mesma leitura de `/changes/range`
+ * que a Linha do Tempo já faz e que o menu do cabeçalho usava — servida do cache
+ * quando qualquer uma delas já a pediu. Chamá-lo lá em cima obrigaria a página a
+ * carregá-lo também na Visão Geral, onde não há par a escolher.
+ *
+ * Ele decide **o que vai para o endereço**, e não o que a tela lê: quem lê é a
+ * página, olhando o endereço. É o que mantém o par colável — o mesmo `?period=`
+ * de sempre, com `?de=` ao lado só quando ele diz algo que o padrão não diria.
+ */
+function ParDaLeitura({
+  view,
+  consulta,
+  periodosDoContexto,
+  dePedido,
+  paraPedido,
+  carregando,
+  onTrocar,
+}: {
+  view: FamiliesView | null;
+  consulta: URLSearchParams;
+  /** As vigências que a casca conhece — a reserva de quando não há leitura. */
+  periodosDoContexto: string[];
+  dePedido: string | null;
+  paraPedido: string | null;
+  carregando: boolean;
+  onTrocar: (mudancas: Record<string, string | null>) => void;
+}) {
+  const resumo = useResumoPorVigencia(view, consulta);
+
+  /*
+    A lista sai da leitura quando há uma, e da casca quando não há.
+
+    Os rótulos da leitura vêm prontos do servidor (`view.periods[].label`), que
+    é a mesma função que nomeia a vigência no resto da casa. Na reserva eles são
+    montados aqui, com a lista inteira do contexto servindo de régua de
+    desempate — a mesma regra, aplicada no navegador, para que a vigência não
+    mude de nome conforme o estado em que a tela está.
+  */
+  const opcoes = useMemo(() => {
+    const numeros = (data: string) =>
+      resumo.porVigencia.get(data) ?? { alteracoes: null, impacto: null };
+    if (view) {
+      return [...view.periods]
+        .sort((a, b) => b.date.localeCompare(a.date))
+        .map((periodo) => ({
+          data: periodo.date,
+          rotulo: periodo.label,
+          ...numeros(periodo.date),
+        }));
+    }
+    return [...periodosDoContexto]
+      .sort((a, b) => b.localeCompare(a))
+      .map((data) => ({
+        data,
+        rotulo: rotuloDaVigencia(data, periodosDoContexto),
+        ...numeros(data),
+      }));
+  }, [view, periodosDoContexto, resumo]);
+
+  const datas = useMemo(() => opcoes.map((o) => o.data), [opcoes]);
+  const par = parEmTela(datas, { para: view?.period ?? paraPedido, de: dePedido });
+
+  /* Uma vigência só no histórico não é falha: é o acervo dizendo que ainda não
+     há o que comparar, e a frase diz o que falta. */
+  const indisponivel =
+    datas.length === 1
+      ? "Esta unidade tem uma vigência só no histórico — não há par a comparar. Importe a vigência seguinte para ler o que mudou entre as duas."
+      : null;
+
+  /* Escrever `?base=` só quando ele muda alguma coisa — ver `baseNoEndereco`. */
+  const irPara = (destino: { period: string; de: string } | null) => {
+    if (!destino) return;
+    onTrocar({
+      period: destino.period,
+      base: baseNoEndereco(datas, { para: destino.period, de: destino.de }),
+    });
+  };
+
+  return (
+    <SeletorDoParDoPanorama
+      opcoes={opcoes}
+      par={par}
+      periodicidade={resumo.periodicidade}
+      carregando={carregando}
+      indisponivel={indisponivel}
+      onEscolherDe={(data) => irPara(aoEscolherDe(datas, data))}
+      onEscolherPara={(data) => irPara(aoEscolherPara(datas, data))}
+      onInverter={() => irPara(aoInverter(par))}
+    />
   );
 }
 

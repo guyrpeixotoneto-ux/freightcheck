@@ -36,6 +36,8 @@ import {
   operacaoDaAlteracao,
   operacaoDoChangeSet,
   operacaoDoSnapshot,
+  prepararParDoPanorama,
+  resolveContext,
   lerEscopo,
   totaisDoEscopo,
   ehTipoDaLinhaDoTempo,
@@ -439,6 +441,92 @@ router.get("/changes/families", async (req, res): Promise<void> => {
     return;
   }
   res.json({ ...view, freightechSemDado: FREIGHTECH_SEM_DADO });
+});
+
+/**
+ * O par do Panorama — as duas pontas escolhidas, na direção pedida.
+ *
+ * `GET /changes/families/par?base=<data da ponta De>&comparada=<data da ponta Para>`
+ *
+ * Responde o mesmo corpo de `/changes/families`, sobre o mesmo motor e com a
+ * mesma aritmética: o que muda é **qual** comparação entra na leitura. A rota de
+ * cima lê as comparações que terminam na vigência pedida — cada série contra a
+ * anterior dela. Esta lê o par que a pessoa montou, e por isso aceita a volta.
+ *
+ * **Inverter passa por aqui, e é o motor quem responde.** `prepararParDoPanorama`
+ * manda calcular B×A quando ele ainda não existe, uma vez por série, e a
+ * resposta seguinte é dele. Negar o sinal no cliente daria a variação errada —
+ * 100→110 é +10,0%, e 110→100 é −9,09%.
+ *
+ * **Só vigências vizinhas.** A recusa mora no módulo, com a razão inteira, e
+ * chega aqui como 422 com a frase dela — nunca como uma leitura montada sobre
+ * outra pergunta.
+ *
+ * As recusas do motor (escopo diferente, cobertura diferente, canal diferente)
+ * também viram 422 com a frase dele, pelo mesmo caminho de
+ * `/finame/comparacao`: `classificarFalha` separa a recusa escrita da falha de
+ * banco, e só a primeira chega a quem clicou.
+ */
+router.get("/changes/families/par", async (req, res): Promise<void> => {
+  const texto = (chave: string) =>
+    typeof req.query[chave] === "string" && req.query[chave] !== ""
+      ? (req.query[chave] as string)
+      : undefined;
+  /*
+    `base` e `comparada`, e **não** `de` e `para`.
+
+    `?de=` e `?ate=` já são o recorte de janela do contexto (`parseContext`), e
+    eles entram em `contextFilter`, por onde passa toda consulta de leitura.
+    Chamar a ponta de partida de `de` fazia o pedido recortar a unidade a partir
+    daquela data — e a outra ponta, que é anterior, sumia da lista de vigências:
+    a rota respondia "esta vigência não pertence a esta unidade" sobre uma
+    vigência que está na tela. Custou um clique no navegador para aparecer, e
+    nenhum teste de unidade para passar despercebido.
+
+    Os dois nomes escolhidos são os mesmos do par das auditorias de rubrica
+    (`/finame/comparacao?base=&comparada=`), que é o vocabulário que esta casa
+    já usa para as duas pontas de uma comparação.
+  */
+  const de = texto("base");
+  const para = texto("comparada");
+  if (!de || !para) {
+    res.status(400).json({ error: "Informe as duas pontas do par: base e comparada." });
+    return;
+  }
+
+  /*
+    O contexto é resolvido **aqui** e passado adiante como pedido, e não como
+    objeto: `getFamiliesView` o resolve de novo, pela mesma função e com a mesma
+    lista. Resolver duas vezes é barato; resolver com duas réguas seria a tela
+    preparando o par de uma unidade e lendo o de outra.
+  */
+  const pedido = parseContext(req.query as Record<string, unknown>);
+  const contexto = await resolveContext(db, pedido);
+  if (!contexto) {
+    res.status(404).json({ error: "Nenhuma vigência importada ainda." });
+    return;
+  }
+
+  try {
+    const par = await prepararParDoPanorama(
+      db,
+      contexto,
+      { de, para },
+      (await listPeriods(db, contexto)).map((p) => p.effective_date),
+    );
+    const view = await getFamiliesView(db, para, pedido, undefined, de);
+    if (!view) {
+      res.status(404).json({ error: "Nenhuma vigência importada ainda." });
+      return;
+    }
+    res.json({ ...view, freightechSemDado: FREIGHTECH_SEM_DADO, par });
+  } catch (err) {
+    const desfecho = classificarFalha(err);
+    if (desfecho.tipo !== "REGRA") throw err;
+    req.log.warn({ err }, "Par do Panorama recusado");
+    res.status(422).json({ error: desfecho.mensagem });
+    return;
+  }
 });
 
 /**

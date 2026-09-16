@@ -35,6 +35,7 @@ export * from "./cockpit";
 export * from "./families";
 export * from "./janela-de-comparacoes";
 export * from "./families-view";
+export * from "./par-do-panorama";
 export * from "./families-view-overview";
 export * from "./visao-geral-de-parametros";
 export * from "./end-to-end";

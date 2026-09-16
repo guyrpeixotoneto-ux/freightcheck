@@ -603,6 +603,29 @@ export function aplicarJanela(
  * mesmas sessenta consultas passam a recortar por `snapshot.canal` sem uma
  * linha nova em nenhuma delas. Ver {@link operacaoFilter}.
  */
+/**
+ * A comparação **anda para a frente** — o lado A é anterior ao lado B.
+ *
+ * Toda comparação que a importação grava nasce assim (`findPreviousSnapshot`),
+ * e por muito tempo isso bastou como garantia. Deixou de bastar quando as telas
+ * ganharam o botão **Inverter**: ele manda o motor calcular B×A de verdade — a
+ * única forma de a variação da volta ser verdadeira, porque o percentual não é
+ * simétrico —, e o que fica gravado é uma comparação cujo lado B é a vigência
+ * **mais antiga**.
+ *
+ * Uma volta é uma leitura legítima e é o que o Panorama publica quando alguém
+ * pede a volta. O que ela não é: mais um passo do histórico. Sem este
+ * predicado, ela casava com todo `WHERE sb.effective_date = …` do produto — e o
+ * total de uma vigência, o acumulado da unidade e a série da Linha do Tempo
+ * passavam a depender de alguém ter clicado em Inverter em outra tela.
+ *
+ * Usa os apelidos `sa` e `sb`, que são os desta casa em toda consulta de
+ * comparação. Quem tiver outros passa os seus.
+ */
+export function direcaoDoHistorico(anterior = "sa", posterior = "sb") {
+  return sql`${sql.raw(`${anterior}.effective_date`)} < ${sql.raw(`${posterior}.effective_date`)}`;
+}
+
 export function contextFilter(snapshotAlias: string, context: SeriesContext) {
   const alias = sql.raw(`${snapshotAlias}.effective_date`);
   const janela = context.janela
