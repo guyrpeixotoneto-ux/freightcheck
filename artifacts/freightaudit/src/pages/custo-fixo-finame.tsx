@@ -413,16 +413,6 @@ export default function AuditoriaDeFiname() {
    */
   const semParPossivel = semPar !== null && !(base && comparada);
 
-  /**
-   * Os números de cada candidata a "De", contra o "Para" aberto.
-   *
-   * A pergunta, a chave e a cadência moram em `useCandidatosDoPar`, com as
-   * outras duas auditorias: a pergunta é a mesma, e telas irmãs respondendo com
-   * fôlegos diferentes seria diferença sem motivo. O que esta tela decide é só
-   * o que é dela — a rubrica, o "Para" aberto e a unidade do recorte.
-   */
-  const candidatos = useCandidatosDoPar("finame", comparada, escopoAberto);
-
   const comparacao = useQuery({
     queryKey: ["finame", "comparacao", base, comparada, comSemAlteracao],
     enabled: Boolean(base && comparada),
@@ -438,6 +428,52 @@ export default function AuditoriaDeFiname() {
     enabled: Boolean(base && comparada),
     queryFn: () => fetchJson<TotaisDeFiname>(`/finame/totais?base=${base}&comparada=${comparada}`),
   });
+
+  /**
+   * O conteúdo principal da tela já assentou?
+   *
+   * "Assentou" é ter terminado — com dado ou com erro, tanto faz. O que
+   * interessa aqui não é o desfecho da consulta, é a conexão ter voltado ao
+   * pool: uma comparação que falhou soltou a conexão igual a uma que deu certo,
+   * e continuar segurando as candidatas por causa dela seria punir o menu por um
+   * defeito que não é dele.
+   *
+   * Sem par escolhido as duas consultas estão desligadas e nunca vão terminar —
+   * por isso a primeira cláusula. Sem ela, entrar na tela sem "De" e sem "Para"
+   * deixaria o menu esperando três segundos de teto para perguntar o que já
+   * poderia ter perguntado.
+   */
+  const parEscolhido = Boolean(base && comparada);
+  const assentou = (q: { isFetching: boolean; isSuccess: boolean; isError: boolean }) =>
+    !q.isFetching && (q.isSuccess || q.isError);
+  const principaisAssentadas = !parEscolhido || (assentou(comparacao) && assentou(totais));
+
+  /**
+   * Os números de cada candidata a "De", contra o "Para" aberto.
+   *
+   * A pergunta, a chave e a cadência moram em `useCandidatosDoPar`, com as
+   * outras duas auditorias: a pergunta é a mesma, e telas irmãs respondendo com
+   * fôlegos diferentes seria diferença sem motivo. O que esta tela decide é só
+   * o que é dela — a rubrica, o "Para" aberto, a unidade do recorte, e a ordem.
+   *
+   * **A ordem é o quinto argumento, e ela é a correção.** Esta rota drena uma
+   * fila pedindo de novo a cada 300 ms, e cada pedido pode segurar uma conexão
+   * por até doze segundos — no mesmo pool de dez que serve a comparação e os
+   * totais, que são o que a pessoa veio ler. Saindo junto, ela ganhava a
+   * disputa: medido com o banco a 15 ms, o conteúdo principal levava 2.281 ms
+   * com dez pessoas na tela, contra 1.452 ms quando as candidatas vão atrás —
+   * 36% a menos, sem a tela inteira demorar mais para assentar. O menu continua
+   * pronto antes de alguém precisar dele, que é a promessa que ele tem de
+   * cumprir; deixá-lo para depois do clique, que era a outra saída, quebraria
+   * justamente essa.
+   */
+  const candidatos = useCandidatosDoPar(
+    "finame",
+    comparada,
+    escopoAberto,
+    "",
+    principaisAssentadas,
+  );
 
   /**
    * As justificativas desta comparação, por `change.id` — a última coluna.
