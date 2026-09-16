@@ -104,8 +104,29 @@ export default function QlpModulo() {
     ? (pedida as QuadroDeQlp)
     : (modulo.quadros[0] as QuadroDeQlp);
 
-  /* As duas abas sempre aparecem — a que o módulo não sustenta diz por quê. */
-  const abas: QuadroDeQlp[] = ["OPERACIONAL", "ADMINISTRATIVO"];
+  /*
+    As duas abas sempre aparecem — a que o módulo não sustenta diz por quê —,
+    mas **a que tem coluna vem primeiro**.
+
+    A barra era fixa em Operacional, Administrativo, e num módulo que só existe
+    no administrativo — frota leve, telefonia, uniformes, benefício — isso abria
+    a tela com "Operacional (sem coluna)" na posição de entrada e a aba viva
+    grifada atrás dela. Quem chegava lia a primeira palavra e via um quadro que
+    não é o do módulo: a tela parecia abrir no operacional e mostrar o
+    administrativo. O mesmo desencontro nos módulos dos dois quadros, onde a
+    aberta (`quadros[0]`, o administrativo) também não era a primeira.
+
+    A ordem passa a sair do próprio módulo: os quadros que ele sustenta, na
+    ordem do catálogo, e depois o que ele não sustenta. Assim a aba que abre é
+    sempre a primeira, e a "(sem coluna)" fica onde ela é — o rodapé da
+    pergunta, e não a porta de entrada.
+  */
+  const abas: QuadroDeQlp[] = [
+    ...(modulo.quadros as QuadroDeQlp[]),
+    ...(["ADMINISTRATIVO", "OPERACIONAL"] as QuadroDeQlp[]).filter(
+      (q) => !modulo.quadros.includes(q),
+    ),
+  ];
 
   return (
     <Layout>
