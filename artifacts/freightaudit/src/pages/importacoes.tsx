@@ -164,6 +164,14 @@ interface ImportRun {
   reprocessReason: string | null;
   /** As releituras deste run, da mais antiga para a mais nova. */
   reprocessadoPor: string[];
+  /**
+   * De que unidade(s) é esta importação — lido das vigências que ela promoveu.
+   *
+   * Lista, e não um campo: o export consolidado da Ambev traz várias unidades
+   * na mesma aba, e a promoção abre uma vigência por unidade a partir dele.
+   * Vazia enquanto nada foi promovido.
+   */
+  unidades: UnidadeDaImportacao[];
   /** Quantas leituras este mesmo arquivo já teve, contando esta. */
   leiturasDoArquivo: number;
   /**
@@ -207,6 +215,23 @@ interface ImportRun {
  * Exportada porque o recorte é um contrato da tela, e o teste dele mora em
  * `__tests__/importacoes-abas.test.ts`.
  */
+/** Uma unidade como a importação a entregou: o CNPJ da planilha, e o nome. */
+export interface UnidadeDaImportacao {
+  code: string;
+  name: string | null;
+}
+
+/**
+ * A palavra que o cartão escreve para uma unidade.
+ *
+ * O nome quando ele veio na planilha, o CNPJ quando não veio — a mesma escolha
+ * que `nomeDaUnidade` (`lib/recorte.ts`) faz para o contexto da lateral, e pela
+ * mesma razão: um CNPJ na tela é verdadeiro e ilegível, e inventar um nome para
+ * ele seria trocar verdade por conforto.
+ */
+export const rotuloDaUnidade = (unidade: UnidadeDaImportacao): string =>
+  unidade.name ?? unidade.code;
+
 export const tiposVindosDoArquivo = (run: TiposDaImportacao): string[] =>
   run.declaredType !== null ? [run.declaredType] : run.tiposDoArquivo;
 
@@ -1232,6 +1257,48 @@ export default function Importacoes() {
  * carretas. A segunda linha só aparece quando diz algo que a primeira não
  * disse; repetir o mesmo tipo nas duas seria ruído vestido de rigor.
  */
+/**
+ * De quem é este arquivo — a procedência que faltava no histórico.
+ *
+ * **Não é uma aba, e a distinção é o desenho desta tela.** As duas fileiras de
+ * cima são declaração: enviar por elas diz o que o arquivo traz, e a importação
+ * confere a declaração contra o conteúdo. A unidade não se declara — ela nasce
+ * do conteúdo (`REQUIRED_SCOPE_TYPES`, no pipeline) e uma importação pode ser
+ * de várias ao mesmo tempo, de modo que uma aba por unidade poria o mesmo
+ * arquivo em cinco abas e faria as contagens ao lado de cada uma deixarem de
+ * somar. Aqui ela é o que de fato é: de onde veio o que entrou.
+ *
+ * Calada enquanto não há vigência promovida, e isso é resposta e não lacuna: o
+ * escopo do arquivo ainda pode ser recusado na aprovação, e escrevê-lo antes
+ * seria afirmar no histórico uma unidade que talvez não entre.
+ */
+function UnidadesDaImportacao({
+  unidades,
+}: {
+  unidades: UnidadeDaImportacao[];
+}) {
+  if (unidades.length === 0) return null;
+  return (
+    <p className="mt-1.5 flex flex-wrap items-center gap-1.5">
+      <span className="text-[0.6875rem] text-muted-foreground">
+        {unidades.length === 1 ? "Unidade" : "Unidades"}
+      </span>
+      {unidades.map((unidade) => (
+        <span
+          key={unidade.code}
+          className="text-[0.6875rem] px-2 py-0.5 rounded-lg border border-blue-200 bg-blue-50 text-blue-800"
+          title={unidade.code}
+        >
+          {rotuloDaUnidade(unidade)}
+        </span>
+      ))}
+      <span className="text-[0.6875rem] text-muted-foreground">
+        lida{unidades.length > 1 ? "s" : ""} das vigências que entraram
+      </span>
+    </p>
+  );
+}
+
 function TipoDaImportacao({ run }: { run: ImportRun }) {
   const doArquivo = tiposVindosDoArquivo(run);
   const herdados = tiposHerdados(run);
@@ -1448,6 +1515,7 @@ function RunCard({
             />
             <PapelNoHistorico run={run} historico={historico} />
             <TipoDaImportacao run={run} />
+            <UnidadesDaImportacao unidades={run.unidades} />
           </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
