@@ -302,10 +302,10 @@ function FragmentoDoVeiculo({
                   ? "Sem justificativa"
                   : `${formatNumber(justificadas, 0)} de ${formatNumber(justificaveis.length, 0)}`}
               </span>
-              {/* Justificar a placa inteira: o mesmo texto para todas as
-                  alterações dela, que é como a auditoria de fato explica uma
-                  queda — o contrato acabou, e isso vale para a parcela, para os
-                  juros e para a amortização da mesma placa. O clique não pode
+              {/* Justificar a placa inteira: abre a fila com as alterações
+                  dela, uma justificativa por variável — a parcela e os juros
+                  não se calculam da mesma forma, e a caixa pergunta cada uma
+                  na sua etapa (ver `justificar-dialog.tsx`). O clique não pode
                   subir para a linha, ou abriria a expansão junto. */}
               {onJustificar && (
                 <button

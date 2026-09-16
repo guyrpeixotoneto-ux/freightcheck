@@ -229,7 +229,8 @@ describe("justificar direto na tabela", () => {
     fireEvent.click(
       screen.getByRole("button", { name: /Justificar as 2 alterações de QYW6D15/ }),
     );
-    // As duas alterações da placa, num alvo só — mesmo texto para todas.
+    // As duas alterações da placa, num alvo só — a fila do diálogo pergunta
+    // uma por uma.
     expect(onJustificar).toHaveBeenCalledTimes(1);
     expect(onJustificar.mock.calls[0]![0]).toHaveLength(2);
     // O clique no botão não pode subir para a linha e abrir a expansão.

@@ -6,7 +6,9 @@ import {
   Lock,
   Maximize2,
   Minimize2,
+  Sigma,
   Sparkles,
+  Truck,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -19,6 +21,11 @@ import {
   type JustificativaEstruturada,
   type RascunhoDaJustificativa,
 } from "@workspace/comparison/justificativa-estruturada";
+import {
+  formulaDoTotalDerivado,
+  separarTotaisDerivados,
+  totalDerivado,
+} from "@workspace/comparison/totais-derivados";
 import type { Justificativa } from "@/lib/justificativas";
 import {
   apagarRascunho,
@@ -170,6 +177,23 @@ export function JustificarDialog({
     justificativa: JustificativaEstruturada,
   ) => Promise<unknown> | void;
 }) {
+  /*
+    O total que é a conta das suas parcelas não entra na fila.
+
+    A Parcela FINAME é juros mais amortização: perguntar a fórmula das três
+    pede a mesma coisa duas vezes, e abre espaço para a resposta do total
+    contradizer a das parcelas. Ela é gravada pelo servidor a partir delas
+    (`gravarJustificativasDerivadas`) assim que as parcelas que se moveram
+    estiverem justificadas — por isso sair da fila aqui não é sair da cobrança.
+
+    Aberta **sozinha**, ela continua sendo perguntada: ali não há de onde
+    deduzir nada. Ver `separarTotaisDerivados`.
+  */
+  const { fila, derivados } = useMemo(
+    () => separarTotaisDerivados(alvo ?? []),
+    [alvo],
+  );
+
   const [indice, setIndice] = useState(0);
   const [respostas, setRespostas] = useState<Map<number, RascunhoDaJustificativa>>(new Map());
   const [salvas, setSalvas] = useState<Set<number>>(new Set());
@@ -201,13 +225,13 @@ export function JustificarDialog({
     if (alvo === null) return;
     const iniciais = new Map<number, RascunhoDaJustificativa>();
     const comRascunho = new Set<number>();
-    for (const a of alvo) {
+    for (const a of fila) {
       const rascunho = lerRascunho(a.id);
       if (rascunho && !rascunhoVazio(rascunho)) comRascunho.add(a.id);
       iniciais.set(a.id, rascunho ?? comoRascunho(justificativas?.get(a.id)));
     }
-    const pendentes = alvo.filter((a) => !justificativas?.has(a.id)).map((a) => a.id);
-    setPorFazer(new Set(pendentes.length > 0 ? pendentes : alvo.map((a) => a.id)));
+    const pendentes = fila.filter((a) => !justificativas?.has(a.id)).map((a) => a.id);
+    setPorFazer(new Set(pendentes.length > 0 ? pendentes : fila.map((a) => a.id)));
     setRespostas(iniciais);
     setRascunhadas(comRascunho);
     setSalvas(new Set());
@@ -215,20 +239,38 @@ export function JustificarDialog({
     setAvisoDeRascunho(false);
     /* Abre na primeira que ainda não tem justificativa: quem abriu "4
        pendentes" não quer começar relendo a que já explicou. */
-    const primeiraPendente = alvo.findIndex((a) => !justificativas?.has(a.id));
+    const primeiraPendente = fila.findIndex((a) => !justificativas?.has(a.id));
     setIndice(primeiraPendente === -1 ? 0 : primeiraPendente);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [alvo]);
 
-  const total = alvo?.length ?? 0;
-  const atual = alvo && indice < total ? alvo[indice] : null;
+  const total = fila.length;
+  const atual = indice < total ? fila[indice] : null;
   const resposta = (atual && respostas.get(atual.id)) ?? VAZIO;
 
   const concluida = useMemo(() => {
     const ids = new Set(salvas);
-    for (const a of alvo ?? []) if (justificativas?.has(a.id)) ids.add(a.id);
+    for (const a of fila) if (justificativas?.has(a.id)) ids.add(a.id);
     return ids;
-  }, [alvo, justificativas, salvas]);
+  }, [fila, justificativas, salvas]);
+
+  /*
+    A placa, uma vez só.
+
+    A fila é **de uma placa**: é assim que ela se abre em toda tela deste
+    produto — a linha da tabela da rubrica, o card de Chamados, a célula da
+    grade. Repetir "QYX1E98" em cada uma das quatro etapas é escrever quatro
+    vezes o que não muda entre elas, e o que não muda entre as etapas pertence
+    ao cabeçalho, ao lado da vigência.
+    
+    A exceção é a seleção do Painel, que atravessa placas de propósito: ali o
+    cabeçalho não pode afirmar uma placa, e cada etapa diz a sua.
+  */
+  const placaUnica = useMemo(() => {
+    const placas = new Set(fila.map((a) => a.entityLabel ?? ""));
+    const [unica] = [...placas];
+    return placas.size === 1 && unica ? unica : null;
+  }, [fila]);
 
   const faltam = faltamNaJustificativa(resposta);
   const excecao = resposta.conforme === false;
@@ -246,10 +288,9 @@ export function JustificarDialog({
 
   /** A próxima que ainda falta, a partir da atual e dando a volta — `null` quando não há. */
   const proximaPendente = (jaSalvas: Set<number>): number | null => {
-    if (!alvo) return null;
     for (let passo = 1; passo <= total; passo++) {
       const i = (indice + passo) % total;
-      const id = alvo[i].id;
+      const id = fila[i].id;
       if (porFazer.has(id) && !jaSalvas.has(id)) return i;
     }
     return null;
@@ -317,10 +358,21 @@ export function JustificarDialog({
                 ? `Justificar ${total} alterações`
                 : `Justificar alteração — ${atual.attributeName ?? atual.attributeCode ?? "atributo"}`}
             </h2>
-            {contexto && (
-              <p className="mt-1.5 flex items-center gap-2 text-sm text-muted-foreground">
-                <CalendarDays className="h-4 w-4 shrink-0" aria-hidden="true" />
-                {contexto}
+            {(placaUnica || contexto) && (
+              <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
+                {placaUnica && (
+                  <span className="inline-flex items-center gap-1.5">
+                    <Truck className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    <span className="font-mono font-semibold text-foreground">{placaUnica}</span>
+                  </span>
+                )}
+                {placaUnica && contexto && <span aria-hidden="true">·</span>}
+                {contexto && (
+                  <span className="inline-flex items-center gap-1.5">
+                    <CalendarDays className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    {contexto}
+                  </span>
+                )}
               </p>
             )}
             <button
@@ -341,7 +393,8 @@ export function JustificarDialog({
           >
             {varias && (
               <ListaDeVariaveis
-                alvo={alvo}
+                alvo={fila}
+                derivados={derivados}
                 indice={indice}
                 concluida={concluida}
                 salvas={salvas}
@@ -363,7 +416,8 @@ export function JustificarDialog({
               <h3 className="mt-1 text-xl font-bold tracking-tight">
                 {atual.attributeName ?? atual.attributeCode ?? "Atributo"}
               </h3>
-              {atual.entityLabel && (
+              {/* Só quando o cabeçalho não pôde afirmar a placa — ver `placaUnica`. */}
+              {!placaUnica && atual.entityLabel && (
                 <p className="text-sm text-muted-foreground">
                   Alteração em <span className="font-mono font-semibold">{atual.entityLabel}</span>
                 </p>
@@ -379,6 +433,8 @@ export function JustificarDialog({
                     : "Informe a fórmula, a regra esperada e se esta alteração seguiu o padrão."}
                 </p>
               </div>
+
+              {!varias && <NotaDosTotais derivados={derivados} />}
 
               <AlteracaoRealizada alvo={atual} />
 
@@ -548,6 +604,7 @@ export function JustificarDialog({
  */
 function ListaDeVariaveis({
   alvo,
+  derivados,
   indice,
   concluida,
   salvas,
@@ -555,6 +612,8 @@ function ListaDeVariaveis({
   onIr,
 }: {
   alvo: readonly AlvoDaJustificativa[];
+  /** Os totais que saíram da fila, e de que parcelas eles saem. */
+  derivados: readonly { total: AlvoDaJustificativa; parcelas: AlvoDaJustificativa[] }[];
   indice: number;
   /** O que tem justificativa gravada — a de antes de abrir, ou a desta sentada. */
   concluida: ReadonlySet<number>;
@@ -594,6 +653,10 @@ function ListaDeVariaveis({
         {alvo.map((a, i) => {
           const feita = concluida.has(a.id);
           const atual = i === indice;
+          /* O sinal segue o texto: a etapa em que se está mostra o número,
+             mesmo quando ela já tinha justificativa — um certo verde ao lado de
+             "Em preenchimento" diz duas coisas ao mesmo tempo. */
+          const marcada = salvas.has(a.id) || (feita && !atual);
           const estado = salvas.has(a.id)
             ? "Concluída"
             : atual
@@ -617,14 +680,14 @@ function ListaDeVariaveis({
                 <span
                   className={cn(
                     "flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold",
-                    feita
+                    marcada
                       ? "bg-emerald-600 text-white"
                       : atual
                         ? "bg-primary text-primary-foreground"
                         : "bg-muted text-muted-foreground",
                   )}
                 >
-                  {feita ? <Check className="h-4 w-4" aria-hidden="true" /> : i + 1}
+                  {marcada ? <Check className="h-4 w-4" aria-hidden="true" /> : i + 1}
                 </span>
                 <span className="min-w-0 flex-1">
                   {/* Duas linhas, e não uma cortada: "Lucro variável previsto
@@ -645,7 +708,50 @@ function ListaDeVariaveis({
           );
         })}
       </ol>
+
+      <NotaDosTotais derivados={derivados} />
     </aside>
+  );
+}
+
+/**
+ * O que saiu da fila, dito por extenso.
+ *
+ * Sem esta nota, quem selecionou quatro alterações abriria uma caixa escrita
+ * "Justificar 3 alterações" e passaria o resto do dia procurando a quarta. Ela
+ * responde as duas perguntas de quem conta: qual sumiu, e por que não é uma
+ * pendência escondida — o total é gravado a partir das parcelas, e a cobertura
+ * fecha com ele.
+ */
+function NotaDosTotais({
+  derivados,
+}: {
+  derivados: readonly { total: AlvoDaJustificativa; parcelas: AlvoDaJustificativa[] }[];
+}) {
+  if (derivados.length === 0) return null;
+  const nome = (a: AlvoDaJustificativa) => a.attributeName ?? a.attributeCode ?? "—";
+  return (
+    <section className="mt-4 rounded-lg border border-dashed px-3 py-2.5">
+      <h4 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+        <Sigma className="h-3.5 w-3.5" aria-hidden="true" />
+        Total calculado
+      </h4>
+      <ul className="mt-1.5 space-y-1.5 text-xs text-muted-foreground">
+        {derivados.map(({ total, parcelas }) => (
+          <li key={total.id}>
+            <span className="font-medium text-foreground">
+              {formulaDoTotalDerivado(
+                nome(total),
+                totalDerivado(total.attributeCode)?.forma ?? "SOMA",
+                parcelas.map(nome),
+              )}
+            </span>
+            . Não é perguntado aqui: será registrado a partir das justificativas das
+            parcelas.
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

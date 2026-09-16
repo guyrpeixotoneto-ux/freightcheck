@@ -37,6 +37,34 @@ const ALVO = [
   },
 ];
 
+/** As quatro do contrato, com os códigos de verdade — é por eles que o total se reconhece. */
+const CONTRATO = [
+  {
+    id: 21,
+    entityLabel: "QYX1E98",
+    attributeCode: "cavalo.finame_cavalo",
+    attributeName: "Parcela FINAME",
+  },
+  {
+    id: 22,
+    entityLabel: "QYX1E98",
+    attributeCode: "cavalo.juros_finame_cavalo",
+    attributeName: "Juros FINAME",
+  },
+  {
+    id: 23,
+    entityLabel: "QYX1E98",
+    attributeCode: "cavalo.amortizacao_cavalo",
+    attributeName: "Amortização",
+  },
+  {
+    id: 24,
+    entityLabel: "QYX1E98",
+    attributeCode: "cavalo.periodo_finame",
+    attributeName: "Prazo",
+  },
+];
+
 const QUATRO = [
   { id: 11, entityLabel: "QYX1E98", attributeCode: "parcela", attributeName: "Parcela FINAME" },
   { id: 12, entityLabel: "QYX1E98", attributeCode: "juros", attributeName: "Juros FINAME" },
@@ -266,6 +294,29 @@ describe("a fila de variáveis", () => {
   });
 
   /*
+    A fila é de uma placa: a placa não muda entre as etapas, então ela é do
+    cabeçalho — escrevê-la de novo em cada etapa é repetir quatro vezes o que
+    não mudou.
+  */
+  it("a placa é dita uma vez, no cabeçalho", () => {
+    renderizarQuatro();
+    expect(screen.getAllByText("QYX1E98")).toHaveLength(1);
+    expect(screen.queryByText(/Alteração em/)).toBeNull();
+  });
+
+  /* A seleção do Painel atravessa placas de propósito: ali o cabeçalho não pode
+     afirmar uma, e cada etapa diz a sua. */
+  it("com placas diferentes na lista, cada etapa diz a sua", () => {
+    renderizarQuatro({
+      alvo: [
+        { ...QUATRO[0], entityLabel: "QYX1E98" },
+        { ...QUATRO[1], entityLabel: "QYW6D15" },
+      ],
+    });
+    expect(screen.getByText(/Alteração em/)).toBeTruthy();
+  });
+
+  /*
     Ir e voltar é o que separa uma fila de um formulário de quatro páginas sem
     volta: quem descobre na terceira variável que errou a primeira precisa
     poder consertar sem redigitar as outras.
@@ -301,5 +352,31 @@ describe("a fila de variáveis", () => {
     expect((screen.getByPlaceholderText(FORMULA) as HTMLTextAreaElement).value).toBe(
       "Parcela = juros + amortização",
     );
+  });
+});
+
+/**
+ * A Parcela FINAME é juros mais amortização. Perguntar a fórmula das três pede
+ * a mesma coisa duas vezes — e deixa a resposta do total livre para contradizer
+ * a das parcelas.
+ */
+describe("o total que é a conta das suas parcelas", () => {
+  it("sai da fila quando as parcelas estão na mesma lista, e diz por quê", () => {
+    renderizar({ alvo: CONTRATO });
+
+    expect(screen.getByText("Justificar 3 alterações")).toBeTruthy();
+    expect(screen.getByText("0 de 3 concluídas")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Parcela FINAME/ })).toBeNull();
+    expect(screen.getByText("Parcela FINAME = Juros FINAME + Amortização")).toBeTruthy();
+    expect(screen.getByText(/será registrado a partir das justificativas/)).toBeTruthy();
+    /* A primeira etapa é a primeira parcela, e não o total. */
+    expect(screen.getByRole("heading", { level: 3, name: "Juros FINAME" })).toBeTruthy();
+  });
+
+  it("aberto sozinho, continua sendo perguntado — não há de onde deduzir", () => {
+    renderizar({ alvo: [CONTRATO[0]] });
+    expect(screen.getByText("Justificar alteração — Parcela FINAME")).toBeTruthy();
+    expect(screen.getByPlaceholderText(FORMULA)).toBeTruthy();
+    expect(screen.queryByText(/será registrado a partir das justificativas/)).toBeNull();
   });
 });

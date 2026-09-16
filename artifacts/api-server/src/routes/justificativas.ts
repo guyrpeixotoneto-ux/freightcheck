@@ -4,6 +4,7 @@ import { db, changeTable, justificativaTable } from "@workspace/db";
 import {
   autoresDeJustificativas,
   coberturaDeJustificativas,
+  gravarJustificativasDerivadas,
   linhasDoPainel,
   listChangeSets,
   operacaoDoChangeSet,
@@ -237,8 +238,15 @@ router.get("/justificativas", async (req, res): Promise<void> => {
 });
 
 /**
- * Justificar uma ou mais alterações de uma vez — a mesma justificativa vale
- * para todas as selecionadas, uma linha por alteração.
+ * Justificar as alterações do corpo — uma linha de `justificativa` por
+ * alteração.
+ *
+ * A caixa da tela manda **uma** alteração por vez desde que virou fila (uma
+ * justificativa por variável, porque a parcela e os juros não têm a mesma
+ * fórmula). A rota continua aceitando `changeIds` com mais de um id: é o que
+ * mantém utilizável o POST de quem tem, de fato, uma decisão só para várias
+ * alterações — e tirar o plural daqui não tornaria a rota mais verdadeira, só
+ * mais estreita.
  *
  * O corpo deixou de ser `{ texto }` e passou a ser a justificativa estruturada
  * — fórmula, regra, conformidade e, na exceção, motivo e responsável. `texto`
@@ -288,10 +296,16 @@ router.post("/justificativas", async (req, res): Promise<void> => {
   // o filtro por `changeSetId` garante que só alterações desta comparação
   // entram, mesmo que o cliente mande um id de outra.
   const faseChanges = iniciarFase(req, "db.select.changes");
-  const changes: { id: number; entityLabel: string | null; entityType: string | null }[] =
+  const changes: {
+    id: number;
+    entityId: string | null;
+    entityLabel: string | null;
+    entityType: string | null;
+  }[] =
     await db
       .select({
         id: changeTable.id,
+        entityId: changeTable.entityId,
         entityLabel: changeTable.entityLabel,
         entityType: changeTable.entityType,
       })
@@ -332,7 +346,37 @@ router.post("/justificativas", async (req, res): Promise<void> => {
     .returning();
   faseInsert.fim({ linhas: inseridas.length });
 
-  res.status(201).json({ justificativas: inseridas });
+  /*
+    O total que é a conta das suas parcelas fecha sozinho — ver
+    `gravarJustificativasDerivadas`. Roda depois do insert, e não antes, porque
+    o que ela procura é justamente o efeito dele: a parcela que faltava para o
+    total poder ser deduzido pode ser a que acabou de ser gravada.
+
+    Recortada pelas entidades deste POST, e não pela comparação inteira: a caixa
+    grava uma variável por vez, e varrer as milhares de alterações da vigência a
+    cada clique cobraria da fila o preço de um relatório.
+
+    Uma falha aqui não derruba a gravação de quem justificou: o que o gestor
+    escreveu já está no banco, e o total apenas continua pendente — a próxima
+    justificativa da mesma placa tenta de novo, porque a varredura não depende
+    de qual parcela chegou por último.
+  */
+  const faseDerivadas = iniciarFase(req, "db.derivadas");
+  let derivadas: typeof inseridas = [];
+  try {
+    derivadas = await gravarJustificativasDerivadas(db, {
+      changeSetId,
+      entityIds: changes
+        .map((c) => c.entityId)
+        .filter((id): id is string => id !== null),
+      criadoPor,
+    });
+  } catch (erro) {
+    req.log?.warn({ erro }, "não foi possível deduzir a justificativa dos totais");
+  }
+  faseDerivadas.fim({ linhas: derivadas.length });
+
+  res.status(201).json({ justificativas: [...inseridas, ...derivadas] });
 });
 
 export default router;
