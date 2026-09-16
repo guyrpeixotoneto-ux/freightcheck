@@ -24,10 +24,17 @@ import {
   type LinhaDoMonitor,
   type ModuloDoMonitor,
   type ParDoMonitor,
+  type ResumoDoMonitor,
   type SituacaoDoImpacto,
 } from "@workspace/comparison";
 import { classificarFalha } from "../lib/classificar-falha";
+import {
+  candidatasDoPar,
+  TETO_DE_CANDIDATAS_MS,
+  type BaldeDoImpacto,
+} from "../lib/candidatas-do-par";
 import { exigirOperacaoDoRecurso, operacaoDaConsulta } from "../lib/operacao";
+import { comTetoDeRota } from "../lib/timeout-de-rota";
 
 /**
  * MONITOR CUSTO FIXO — os quatro recortes de rubrica numa resposta só.
@@ -227,6 +234,81 @@ export function passaNaPeriodicidade(l: LinhaDoMonitor, periodicidades: string[]
 }
 
 /**
+ * O consolidado de um par, sobre linhas que já foram lidas.
+ *
+ * Isto era o corpo do laço de `/consolidado`, e virou função no dia em que a
+ * segunda rota precisou do mesmo número: `/candidatos` responde, por candidata,
+ * **o que a tela mostraria** se aquele par fosse escolhido. Duas cópias do laço
+ * divergiriam no primeiro filtro novo — e a divergência apareceria do pior
+ * jeito possível, com o menu prometendo um número e a tela publicando outro
+ * logo depois do clique.
+ *
+ * Não lê banco e não compara: recebe as linhas do motor e devolve o que a tela
+ * publica. Toda a regra que ela aplica — recorte antes do impacto, impacto
+ * pedido ao módulo — continua exatamente onde estava.
+ */
+export function consolidadoDosModulos(
+  rows: Parameters<typeof linhasDeFiname>[0],
+  filtros: FiltrosDoMonitor,
+  par: ParDoMonitor,
+  changeSetId: string | null,
+): { resumo: ResumoDoMonitor; linhas: LinhaDoMonitor[] } {
+  const resumos = [];
+  const linhas: LinhaDoMonitor[] = [];
+
+  for (const modulo of filtros.modulos) {
+    /* A tradução é a do módulo: ele devolve `null` para o que não é dele. */
+    const daRubrica = LINHAS_DO_MODULO[modulo](rows);
+    const normalizadas = normalizarLinhas(modulo, daRubrica, par, changeSetId);
+
+    /*
+      O recorte acontece **antes** do impacto, e é por isso que o cartão e a
+      tabela nunca se contradizem: o número que o cartão publica é o que o
+      módulo calculou sobre exatamente estas linhas.
+    */
+    const visiveis = normalizadas.filter(
+      (l) =>
+        passaNoEquipamento(l, filtros.equipamento) &&
+        passaNaSituacao(l, filtros.situacoes) &&
+        passaNaPeriodicidade(l, filtros.periodicidades) &&
+        passaNaBusca(l, filtros.busca),
+    );
+    const visiveisPorId = new Set(visiveis.map((l) => l.id));
+    const rubricaVisivel = daRubrica.filter((_, i) => visiveisPorId.has(normalizadas[i]!.id));
+
+    const impacto = impactoDoModulo(modulo, rubricaVisivel);
+    resumos.push(resumirModulo(modulo, visiveis, impacto, par));
+    linhas.push(...visiveis);
+  }
+
+  return { resumo: consolidar(resumos), linhas };
+}
+
+/**
+ * Os baldes do consolidado como o menu do seletor os lê — **com a natureza**.
+ *
+ * É o único recorte do produto que mistura custo e receita, e por isso o único
+ * em que `BaldeDoImpacto.natureza` não é `null`. Somar os dois lados num número
+ * por periodicidade seria publicar o "impacto líquido" que `CartoesDoMonitor`
+ * recusa em letra grande — e publicá-lo justamente no lugar onde não há espaço
+ * para a ressalva.
+ *
+ * `resultado` (receita − custo) também não serve aqui: ele é uma terceira
+ * linha, lida com as duas primeiras à vista, e sozinho no menu trocaria o sinal
+ * do custo sem avisar — um custo que caiu apareceria como número positivo ao
+ * lado de um número de FINAME em que positivo quer dizer custo que subiu.
+ *
+ * Os zerados saem na lista: quem os filtra é `numerosDaLinha`, do lado do
+ * cliente, que é onde a regra de "zero não é ausência" mora inteira.
+ */
+export function baldesDoMonitor(resumo: ResumoDoMonitor): BaldeDoImpacto[] {
+  return resumo.baldes.flatMap((b) => [
+    { periodicidade: b.periodicidade, natureza: "CUSTO" as const, valor: b.custo.liquido },
+    { periodicidade: b.periodicidade, natureza: "RECEITA" as const, valor: b.receita.liquido },
+  ]);
+}
+
+/**
  * `GET /monitor-custo-fixo/consolidado?base=<snapshotId>&comparada=<snapshotId>`
  *
  * Mais os filtros: `modulo`, `equipamento`, `situacao`, `periodicidade`,
@@ -276,41 +358,13 @@ router.get("/monitor-custo-fixo/consolidado", async (req, res, next): Promise<vo
       comparadaData: snapshotB?.effectiveDate ?? null,
     };
 
-    const resumos = [];
-    const linhas: LinhaDoMonitor[] = [];
-
-    for (const modulo of filtros.modulos) {
-      /* A tradução é a do módulo: ele devolve `null` para o que não é dele. */
-      const daRubrica = LINHAS_DO_MODULO[modulo](rows);
-      const normalizadas = normalizarLinhas(modulo, daRubrica, par, resumo.id);
-
-      /*
-        O recorte acontece **antes** do impacto, e é por isso que o cartão e a
-        tabela nunca se contradizem: o número que o cartão publica é o que o
-        módulo calculou sobre exatamente estas linhas.
-      */
-      const visiveis = normalizadas.filter(
-        (l) =>
-          passaNoEquipamento(l, filtros.equipamento) &&
-          passaNaSituacao(l, filtros.situacoes) &&
-          passaNaPeriodicidade(l, filtros.periodicidades) &&
-          passaNaBusca(l, filtros.busca),
-      );
-      const visiveisPorId = new Set(visiveis.map((l) => l.id));
-      const rubricaVisivel = daRubrica.filter((_, i) =>
-        visiveisPorId.has(normalizadas[i]!.id),
-      );
-
-      const impacto = impactoDoModulo(modulo, rubricaVisivel);
-      resumos.push(resumirModulo(modulo, visiveis, impacto, par));
-      linhas.push(...visiveis);
-    }
+    const consolidado = consolidadoDosModulos(rows, filtros, par, resumo.id);
 
     res.json({
       changeSetId: resumo.id,
       par,
-      resumo: consolidar(resumos),
-      linhas,
+      resumo: consolidado.resumo,
+      linhas: consolidado.linhas,
       filtros: {
         modulos: filtros.modulos,
         equipamento: filtros.equipamento,
@@ -333,6 +387,114 @@ router.get("/monitor-custo-fixo/consolidado", async (req, res, next): Promise<vo
       return;
     }
     req.log.warn({ err }, "Consolidado do Monitor Custo Fixo recusado");
+    res.status(422).json({ error: desfecho.mensagem });
+  }
+});
+
+/**
+ * O que cada candidata a "De" produz contra o "Para" escolhido, no Monitor.
+ *
+ * `GET /monitor-custo-fixo/candidatos?para=<snapshotId>` — mais os mesmos
+ * filtros de `/consolidado`, todos opcionais.
+ *
+ * ---------------------------------------------------------------------------
+ * Por que os filtros vêm junto
+ * ---------------------------------------------------------------------------
+ * Porque o menu e a tela respondem à mesma pergunta, e ela é a pergunta
+ * **filtrada**. Quem está com "IPVA" e "Aumentos" ligados e vê a tela vazia
+ * está perguntando *qual outra vigência teria movido o IPVA para cima* — e um
+ * menu que respondesse pelo recorte inteiro devolveria "457 alterações" ao lado
+ * de uma vigência que, escolhida, mostraria zero. O número do menu tem de ser o
+ * número que o clique entrega, e é por isso que os dois passam pela mesma
+ * função (`consolidadoDosModulos`).
+ *
+ * Um filtro inválido cai no padrão aqui pela mesma razão que lá: `parseFiltros`
+ * é um só, e um `modulo=CAFE` num endereço velho não pode esvaziar o menu.
+ *
+ * O orçamento, o reaproveitamento do que já foi comparado e o recorte por
+ * unidade e cobertura são os de `lib/candidatas-do-par.ts` — os mesmos das
+ * quatro auditorias, e não uma segunda régua para a tela que as consolida.
+ */
+router.get("/monitor-custo-fixo/candidatos", async (req, res, next): Promise<void> => {
+  const query = req.query as Record<string, unknown>;
+  const para = typeof query.para === "string" ? query.para : "";
+  if (!para) {
+    res.status(400).json({ error: "Informe a vigência de destino." });
+    return;
+  }
+  await exigirOperacaoDoRecurso(req, "vigência", para, () => operacaoDoSnapshot(db, para));
+  const operacao = operacaoDaConsulta(query);
+  const { filtros, ignorados } = parseFiltros(query);
+
+  try {
+    /*
+      A resposta sai **fora** do teto, e não de dentro dele.
+
+      Dentro, `res.json` era a última linha da função que `comTetoDeRota`
+      embrulha — então o HTTP terminava antes de o `finally` daquela função
+      devolver a conexão ao pool. Quem recebeu a resposta seguia adiante com
+      uma consulta de limpeza (`SET statement_timeout = DEFAULT`) ainda em voo,
+      e um `pool.end()` logo em seguida a pegava no meio da devolução e não
+      resolvia mais. Foi assim que `monitor-custo-fixo-candidatos.test.ts`
+      estourou o `afterAll` em CI: a suíte mais pesada sob este teto é a que
+      abre mais essa janela.
+
+      Calcular dentro e responder fora fecha a janela pela ordem: quando a
+      resposta sai, a conexão já voltou inteira.
+    */
+    const resposta = await comTetoDeRota(TETO_DE_CANDIDATAS_MS, (dbComTeto) =>
+      candidatasDoPar(
+        dbComTeto,
+        para,
+        {
+          attributeCodes: CODIGOS_DO_MONITOR,
+          numeros: (rows, calculado) => {
+            /*
+              O par carimbado nas linhas, com os identificadores de verdade e
+              sem os rótulos: `normalizarLinhas` os carrega até a tela, e desta
+              rota não sai linha nenhuma — só a contagem e o dinheiro. Inventar
+              um rótulo aqui seria escrever na resposta um nome de vigência que
+              ninguém leu do acervo.
+            */
+            const par: ParDoMonitor = {
+              baseId: calculado.baseId,
+              comparadaId: calculado.comparadaId,
+              baseRotulo: null,
+              comparadaRotulo: null,
+              baseData: null,
+              comparadaData: null,
+            };
+            const { resumo } = consolidadoDosModulos(
+              rows,
+              filtros,
+              par,
+              calculado.changeSetId,
+            );
+            return {
+              alteracoes: resumo.alteracoes,
+              impacto: { baldes: baldesDoMonitor(resumo) },
+            };
+          },
+        },
+        { operacao, computedBy: "api:monitor-custo-fixo-candidatos" },
+      ),
+    );
+
+    if ("naoEncontrada" in resposta) {
+      res.status(404).json({ error: "Essa vigência não existe." });
+      return;
+    }
+    /* O que o recorte ignorou vai junto, pela razão de `/consolidado`: um
+       filtro inválido que sumisse em silêncio deixaria o menu respondendo
+       por um recorte mais largo do que o pedido, sem dizer. */
+    res.json({ ...resposta, ignorados });
+  } catch (err) {
+    const desfecho = classificarFalha(err);
+    if (desfecho.tipo !== "REGRA") {
+      next(err);
+      return;
+    }
+    req.log.warn({ err }, "Candidatas do Monitor Custo Fixo recusadas");
     res.status(422).json({ error: desfecho.mensagem });
   }
 });

@@ -14,7 +14,7 @@ import {
   runProposalPass,
   seedTaxonomy,
 } from "@workspace/curation";
-import { createDb, encerrarPoolDoProcesso } from "@workspace/db";
+import { createDb, encerrarPoolDoProcesso, pool } from "@workspace/db";
 import { listComparableSnapshots } from "@workspace/comparison";
 
 /**
@@ -195,8 +195,12 @@ describe("GET /ipva/candidatos", () => {
     );
 
     expect(comNumero.numeros.alteracoes).toBe(comparacao.resumo.variaveisAlteradas);
-    expect(comNumero.numeros.impacto.porPeriodicidade).toEqual(
-      comparacao.resumo.impacto.porPeriodicidade,
+    /* Os mesmos baldes, e com natureza nula: é uma rubrica de uma natureza só,
+       e a linha do menu sai sem prefixo. */
+    expect(comNumero.numeros.impacto.baldes).toEqual(
+      Object.entries(comparacao.resumo.impacto.porPeriodicidade).map(
+        ([periodicidade, valor]) => ({ periodicidade, natureza: null, valor }),
+      ),
     );
   }, 300_000);
 
@@ -213,7 +217,7 @@ describe("GET /ipva/candidatos", () => {
       expect(candidato).toHaveProperty("numeros");
       if (candidato.numeros === null) continue;
       expect(typeof candidato.numeros.alteracoes).toBe("number");
-      expect(candidato.numeros.impacto).toHaveProperty("porPeriodicidade");
+      expect(Array.isArray(candidato.numeros.impacto.baldes)).toBe(true);
     }
 
     /* `pendentes` conta exatamente as que voltaram sem número — o cliente lê
@@ -237,4 +241,33 @@ describe("GET /ipva/candidatos", () => {
     const res = await get(`/ipva/candidatos?para=${lista[0].id}&operacao=ROTA`);
     expect(res.status).toBe(404);
   });
+
+  /**
+   * A resposta não chega antes de a conexão voltar ao pool.
+   *
+   * O teto desta rota é aplicado numa conexão avulsa (`comTetoDeRota`), e
+   * desfazê-lo é uma consulta — `SET statement_timeout = DEFAULT` — que roda
+   * no `finally`, **depois** do corpo. Enquanto `res.json` era a última linha
+   * de dentro daquele corpo, o HTTP terminava primeiro e a limpeza ficava em
+   * voo: quem recebeu a resposta seguia adiante com uma conexão que o pool
+   * ainda não tinha de volta, e um `pool.end()` nesse instante não resolvia
+   * mais. Em CI isso apareceu como o `afterAll` de
+   * `monitor-custo-fixo-candidatos` estourando os 60s com todos os testes
+   * verdes; em produção é o processo que não desliga sozinho.
+   *
+   * A régua aqui é a mais direta que existe para essa ordem: **no instante em
+   * que a resposta chega, nenhuma conexão do pool está em uso**. Ela falha com
+   * a ordem antiga e passa com a nova — conferido invertendo a rota de volta.
+   *
+   * `idleCount === totalCount` é o pool inteiro parado. `totalCount > 0`
+   * impede que a asserção passe por vacuidade num pool que nunca abriu nada.
+   */
+  it("a conexão já voltou ao pool quando a resposta chega", async () => {
+    const lista = await vigencias();
+    const { status } = await get(`/ipva/candidatos?para=${lista[0].id}`);
+
+    expect(status).toBe(200);
+    expect(pool.totalCount).toBeGreaterThan(0);
+    expect(pool.idleCount).toBe(pool.totalCount);
+  }, 300_000);
 });

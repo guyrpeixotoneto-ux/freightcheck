@@ -18,18 +18,25 @@ import { createDb, encerrarPoolDoProcesso, pool } from "@workspace/db";
 import { listComparableSnapshots } from "@workspace/comparison";
 
 /**
- * `GET /finame/candidatos` — o que cada candidata a "De" produz contra o "Para".
+ * `GET /monitor-custo-fixo/candidatos` — o menu da tela que consolida as quatro.
  *
- * Montagem igual à de `impacto.test.ts`: o router sobe num socket de verdade,
- * sobre o export real, e usa o `db` do processo — que é como ele roda.
+ * Montagem igual à de `finame-candidatos.test.ts`, e as mesmas quatro promessas
+ * de qualquer rota de candidatas (número do par, uma unidade só, cobertura
+ * recorta, ausência nunca vira zero) valem aqui sem uma linha nova — elas moram
+ * em `lib/candidatas-do-par.ts`, que é uma implementação só.
  *
- * O que se protege aqui são as quatro promessas que a tela faz ao mostrar
- * número ao lado de vigência:
+ * O que este arquivo guarda é o que **só o Monitor** tem, e as duas coisas são
+ * as que faltavam na tela:
  *
- * 1. **o número é do par**, então trocar o "Para" troca o número;
- * 2. **a lista é de uma unidade só**, decidido no servidor e não na tela;
- * 3. **cobertura também recorta** — cavalo não vira candidato de carreta;
- * 4. **ausência nunca vira zero**: o que não foi calculado volta `null`.
+ * 1. **as duas naturezas, separadas.** É o único recorte do produto em que
+ *    custo e receita chegam juntos, e o menu tem de dizer de qual lado fala.
+ *    Um número só, somando os dois, é o "impacto líquido" que os cartões desta
+ *    tela recusam publicar — e o menu não pode ser a porta dos fundos por onde
+ *    ele entra;
+ * 2. **o filtro vale no menu.** O número ao lado de cada vigência é o que
+ *    aquele par mostraria **com os filtros ligados**. Sem isso, o menu
+ *    prometeria "289 alterações" ao lado de uma vigência que, escolhida,
+ *    mostraria zero — e a tela teria duas réguas para a mesma pergunta.
  */
 
 let ctx: TestDb;
@@ -54,7 +61,7 @@ async function vigencias() {
 }
 
 beforeAll(async () => {
-  ctx = await createTestDatabase("api_finame_candidatos");
+  ctx = await createTestDatabase("api_monitor_candidatos");
   process.env.DATABASE_URL = ctx.url;
   nomeDoBanco = ctx.url.replace(/^.*\//, "").replace(/\?.*$/, "");
 
@@ -67,7 +74,7 @@ beforeAll(async () => {
   await applyConfirmations(ctx.db);
   await backfillSemantics(ctx.db);
 
-  const { default: finameRouter } = await import("../finame");
+  const { default: monitorRouter } = await import("../monitor-custo-fixo");
   const app = express();
   app.use((req, _res, next) => {
     (req as unknown as { log: unknown }).log = {
@@ -77,7 +84,7 @@ beforeAll(async () => {
     };
     next();
   });
-  app.use(finameRouter);
+  app.use(monitorRouter);
   app.use(erroEmJson);
 
   servidor = await new Promise<Server>((resolve) => {
@@ -109,20 +116,23 @@ afterAll(async () => {
   await admin.pool.end();
 }, 60_000);
 
-describe("GET /finame/candidatos", () => {
+/** A primeira candidata que já veio calculada — a que o menu escreveria. */
+function comNumero(body: any) {
+  const achada = body.candidatos.find((c: { numeros: unknown }) => c.numeros !== null);
+  expect(achada).toBeDefined();
+  return achada;
+}
+
+describe("GET /monitor-custo-fixo/candidatos", () => {
   it("exige a vigência de destino", async () => {
-    const res = await get("/finame/candidatos");
+    const res = await get("/monitor-custo-fixo/candidatos");
     expect(res.status).toBe(400);
   });
 
-  /**
-   * O requisito 2 e o 3 na mesma asserção, porque são a mesma régua: a lista de
-   * candidatas é a série do destino — mesma unidade, mesma cobertura.
-   */
   it("só oferece candidatas da mesma unidade e da mesma cobertura", async () => {
     const lista = await vigencias();
     const destino = lista[0];
-    const { status, body } = await get(`/finame/candidatos?para=${destino.id}`);
+    const { status, body } = await get(`/monitor-custo-fixo/candidatos?para=${destino.id}`);
 
     expect(status).toBe(200);
     expect(body.candidatos.length).toBeGreaterThan(0);
@@ -134,90 +144,102 @@ describe("GET /finame/candidatos", () => {
       expect(v?.entityTypeSet).toBe(destino.entityTypeSet);
       expect(candidato.id).not.toBe(destino.id);
     }
-  });
-
-  /** O requisito 1: o número é do par, e não da vigência. */
-  it("responde números diferentes quando o Para muda", async () => {
-    const lista = await vigencias();
-    const destino = lista[0];
-    const outroDestino = lista.find(
-      (v) =>
-        v.id !== destino.id &&
-        v.scopeHash === destino.scopeHash &&
-        v.entityTypeSet === destino.entityTypeSet,
-    );
-    expect(outroDestino).toBeDefined();
-
-    const primeira = await get(`/finame/candidatos?para=${destino.id}`);
-    const segunda = await get(`/finame/candidatos?para=${outroDestino!.id}`);
-
-    /* A candidata comum aos dois pedidos: a que não é nenhum dos dois destinos. */
-    const comum = primeira.body.candidatos
-      .map((c: { id: string }) => c.id)
-      .find(
-        (id: string) =>
-          id !== outroDestino!.id &&
-          segunda.body.candidatos.some((c: { id: string }) => c.id === id),
-      );
-    expect(comum).toBeDefined();
-
-    const numerosA = primeira.body.candidatos.find(
-      (c: { id: string }) => c.id === comum,
-    ).numeros;
-    const numerosB = segunda.body.candidatos.find(
-      (c: { id: string }) => c.id === comum,
-    ).numeros;
-
-    /*
-      Os dois pares existem e são pares diferentes: mesma ponta esquerda,
-      pontas direitas distintas. O que se exige é que a resposta **dependa do
-      par** — se os dois viessem iguais, o número estaria sendo tirado da
-      vigência sozinha, que é exatamente o defeito que esta rota evita.
-    */
-    expect(numerosA).not.toBeNull();
-    expect(numerosB).not.toBeNull();
-    expect(numerosA).not.toEqual(numerosB);
-  }, 120_000);
+  }, 300_000);
 
   /**
-   * E o número é **o mesmo** que a tela publica depois do clique.
-   *
-   * A prova direta de que o menu não inventa uma segunda régua: o que aparece
-   * ao lado da vigência bate, campo a campo, com o que `/finame/comparacao`
-   * responde para aquele par exato. Se as duas divergirem, quem escolhe pelo
-   * menu escolhe por um número que a tela não confirma.
+   * O menu não inventa uma segunda régua — e aqui a prova é campo a campo
+   * contra `/consolidado`, que é a resposta que o clique entrega.
    */
-  it("o número do menu é o mesmo de /finame/comparacao para aquele par", async () => {
+  it("o número do menu é o mesmo de /consolidado para aquele par", async () => {
     const lista = await vigencias();
     const destino = lista[0];
-    const { body } = await get(`/finame/candidatos?para=${destino.id}`);
-    const comNumero = body.candidatos.find(
-      (c: { numeros: unknown }) => c.numeros !== null,
-    );
-    expect(comNumero).toBeDefined();
+    const { body } = await get(`/monitor-custo-fixo/candidatos?para=${destino.id}`);
+    const candidata = comNumero(body);
 
-    const { body: comparacao } = await get(
-      `/finame/comparacao?base=${comNumero.id}&comparada=${destino.id}`,
+    const { body: tela } = await get(
+      `/monitor-custo-fixo/consolidado?base=${candidata.id}&comparada=${destino.id}`,
     );
 
-    expect(comNumero.numeros.alteracoes).toBe(comparacao.resumo.variaveisAlteradas);
-    /* Os mesmos baldes, e com natureza nula: é uma rubrica de uma natureza só,
-       e a linha do menu sai sem prefixo. */
-    expect(comNumero.numeros.impacto.baldes).toEqual(
-      Object.entries(comparacao.resumo.impacto.porPeriodicidade).map(
-        ([periodicidade, valor]) => ({ periodicidade, natureza: null, valor }),
-      ),
+    expect(candidata.numeros.alteracoes).toBe(tela.resumo.alteracoes);
+    expect(candidata.numeros.impacto.baldes).toEqual(
+      tela.resumo.baldes.flatMap((b: any) => [
+        { periodicidade: b.periodicidade, natureza: "CUSTO", valor: b.custo.liquido },
+        { periodicidade: b.periodicidade, natureza: "RECEITA", valor: b.receita.liquido },
+      ]),
     );
   }, 300_000);
 
   /**
-   * O requisito 4, e o que ele **não** permite: a ausência de cálculo volta
-   * `null`, nunca um zero. Um `alteracoes: 0` só pode existir ao lado de uma
-   * comparação que de fato aconteceu.
+   * As duas naturezas viajam separadas, sempre — e é isto que impede a soma.
+   *
+   * Cada periodicidade produz exatamente duas entradas, uma por lado da DRE.
+   * Uma resposta com uma entrada só por periodicidade seria a soma feita no
+   * servidor, e o cliente não teria como desfazê-la.
    */
+  it("abre cada periodicidade em custo e receita, e nunca num número só", async () => {
+    const lista = await vigencias();
+    const { body } = await get(`/monitor-custo-fixo/candidatos?para=${lista[0].id}`);
+
+    for (const candidato of body.candidatos) {
+      if (candidato.numeros === null) continue;
+      const porPeriodicidade = new Map<string, string[]>();
+      for (const balde of candidato.numeros.impacto.baldes) {
+        porPeriodicidade.set(balde.periodicidade, [
+          ...(porPeriodicidade.get(balde.periodicidade) ?? []),
+          balde.natureza,
+        ]);
+      }
+      for (const naturezas of porPeriodicidade.values()) {
+        expect(naturezas.sort()).toEqual(["CUSTO", "RECEITA"]);
+      }
+    }
+  }, 300_000);
+
+  /**
+   * O filtro do endereço recorta o menu — a promessa que distingue esta rota
+   * das outras três.
+   */
+  it("o recorte do endereço vale no menu, e o menu continua batendo com a tela", async () => {
+    const lista = await vigencias();
+    const destino = lista[0];
+
+    const { body: inteiro } = await get(`/monitor-custo-fixo/candidatos?para=${destino.id}`);
+    const { body: soIpva } = await get(
+      `/monitor-custo-fixo/candidatos?para=${destino.id}&modulo=IPVA`,
+    );
+
+    const candidata = comNumero(inteiro);
+    const mesma = soIpva.candidatos.find((c: { id: string }) => c.id === candidata.id);
+    expect(mesma?.numeros).not.toBeNull();
+
+    /* Um módulo de quatro nunca responde por mais do que os quatro. */
+    expect(mesma.numeros.alteracoes).toBeLessThanOrEqual(candidata.numeros.alteracoes);
+
+    /* E o número filtrado é o que a tela filtrada publica para o mesmo par. */
+    const { body: tela } = await get(
+      `/monitor-custo-fixo/consolidado?base=${candidata.id}&comparada=${destino.id}&modulo=IPVA`,
+    );
+    expect(mesma.numeros.alteracoes).toBe(tela.resumo.alteracoes);
+  }, 300_000);
+
+  /* Um filtro inválido cai no padrão e é dito por extenso, como em
+     `/consolidado`: um menu que recortasse por um valor que não existe
+     responderia zero em toda linha, correto e inexplicável. */
+  it("um filtro inválido não esvazia o menu, e é declarado", async () => {
+    const lista = await vigencias();
+    const { status, body } = await get(
+      `/monitor-custo-fixo/candidatos?para=${lista[0].id}&modulo=CAFE`,
+    );
+
+    expect(status).toBe(200);
+    expect(body.ignorados).toEqual(['módulo "CAFE"']);
+    expect(body.candidatos.length).toBeGreaterThan(0);
+  }, 300_000);
+
+  /** Ausência de cálculo é `null`, nunca um zero inventado. */
   it("ausência de cálculo é null, e nunca um zero inventado", async () => {
     const lista = await vigencias();
-    const { body } = await get(`/finame/candidatos?para=${lista[0].id}`);
+    const { body } = await get(`/monitor-custo-fixo/candidatos?para=${lista[0].id}`);
 
     for (const candidato of body.candidatos) {
       expect(candidato).toHaveProperty("numeros");
@@ -226,27 +248,11 @@ describe("GET /finame/candidatos", () => {
       expect(Array.isArray(candidato.numeros.impacto.baldes)).toBe(true);
     }
 
-    /* `pendentes` conta exatamente as que voltaram sem número — o cliente lê
-       esse número para decidir se pergunta de novo. */
     const semNumero = body.candidatos.filter(
       (c: { numeros: unknown }) => c.numeros === null,
     ).length;
     expect(body.pendentes).toBe(semNumero);
-  }, 120_000);
-
-  /**
-   * O isolamento por operação, que vale para toda rota desta superfície.
-   *
-   * 404 e não 403, como em `/change-sets/pair` e em `/composition/equipment`:
-   * é o status que `recusa-de-dominio.ts` dá a `RecursoDeOutraOperacaoError`
-   * no produto inteiro. A Auditoria Rota não fica sabendo que a vigência de
-   * empurrada existe.
-   */
-  it("recusa a vigência de outra operação", async () => {
-    const lista = await vigencias();
-    const res = await get(`/finame/candidatos?para=${lista[0].id}&operacao=ROTA`);
-    expect(res.status).toBe(404);
-  });
+  }, 300_000);
 
   /**
    * A resposta não chega antes de a conexão voltar ao pool.
@@ -270,7 +276,7 @@ describe("GET /finame/candidatos", () => {
    */
   it("a conexão já voltou ao pool quando a resposta chega", async () => {
     const lista = await vigencias();
-    const { status } = await get(`/finame/candidatos?para=${lista[0].id}`);
+    const { status } = await get(`/monitor-custo-fixo/candidatos?para=${lista[0].id}`);
 
     expect(status).toBe(200);
     expect(pool.totalCount).toBeGreaterThan(0);
