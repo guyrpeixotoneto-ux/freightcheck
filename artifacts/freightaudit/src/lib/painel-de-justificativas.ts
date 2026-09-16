@@ -8,6 +8,7 @@ import {
 } from "@workspace/comparison/modulos-de-justificativa";
 
 import { fetchJson } from "@/lib/api";
+import { formatNumber } from "@/lib/format";
 import { escreverRubrica } from "@/lib/qlp-comparacao";
 import { useConsultaResiliente } from "@/lib/consulta-resiliente";
 import type { Ambiente } from "@/lib/ambiente";
@@ -557,6 +558,110 @@ export function rubricasDoPainel(
         b.alteracoes - a.alteracoes ||
         a.rotulo.localeCompare(b.rotulo, "pt-BR"),
     );
+}
+
+// ---------------------------------------------------------------------------
+// A cobrança, em texto
+// ---------------------------------------------------------------------------
+
+/**
+ * O que falta justificar, escrito para ser colado num chat.
+ *
+ * O Monitor responde a pergunta de quem cobra, e cobrar termina fora do
+ * produto: numa mensagem para quem vai justificar. Até aqui esse último passo
+ * era trabalho manual — ler a tabela, somar de cabeça, redigitar os números —,
+ * e redigitar número é onde ele muda. Este texto é a mesma leitura da tela, em
+ * palavras.
+ *
+ * **Ele não atribui nada a ninguém.** Não tem destinatário, não tem prazo e não
+ * tem "responsável": diz o que falta, por módulo e por rubrica, e onde cada uma
+ * se justifica. Quem manda escolhe para quem — que é a decisão que o produto
+ * não tem como tomar, porque não existe dono de alteração aqui.
+ *
+ * **É o recorte que está na tela**, inclusive o filtro de módulo: o cabeçalho
+ * nomeia a unidade, a vigência e o tipo de ativo, e o link no rodapé reabre
+ * exatamente esta leitura. Um texto que somasse mais do que a tela mostra
+ * faria quem recebe conferir um número que ninguém consegue reproduzir.
+ *
+ * Rubricas sem pendência ficam de fora — a cobrança é do que falta, e uma linha
+ * com "0 pendentes" só empurra para baixo as que importam.
+ */
+export interface RecorteDaCobranca {
+  /** A unidade aberta; `null` quando a leitura atravessa todas. */
+  unidade: string | null;
+  /** O nome da vigência escolhida; `null` quando são todas. */
+  vigencia: string | null;
+  /** O rótulo do tipo de ativo filtrado; `null` quando são todos. */
+  tipo: string | null;
+  /** O rótulo do módulo filtrado; `null` quando são todos. */
+  modulo: string | null;
+  /** O endereço desta leitura, para quem recebe abrir o mesmo recorte. */
+  link?: string;
+}
+
+export function textoDaCobranca(
+  recorte: RecorteDaCobranca,
+  resumo: ResumoDoPainel,
+  rubricas: readonly RubricaDoPainel[],
+): string {
+  const numero = (n: number) => n.toLocaleString("pt-BR");
+  const porcento = (v: number) => `${formatNumber(v, v === 0 || v === 100 ? 0 : 2)}%`;
+
+  const linhas: string[] = [];
+
+  linhas.push(
+    recorte.unidade
+      ? `Justificativas pendentes — ${recorte.unidade}`
+      : "Justificativas pendentes",
+  );
+
+  const recortes = [
+    recorte.vigencia ?? "Todas as vigências",
+    recorte.tipo ? `só ${recorte.tipo}` : null,
+    recorte.modulo ? `só ${recorte.modulo}` : null,
+  ].filter((r): r is string => r !== null);
+  linhas.push(recortes.join(" · "));
+
+  linhas.push("");
+  linhas.push(
+    `${numero(resumo.pendentes)} de ${numero(resumo.alteracoes)} alterações ainda sem justificativa — ${porcento(resumo.cobertura)} do que mudou já está explicado.`,
+  );
+
+  /* Por módulo, na ordem do catálogo, e dentro dele por pendência: é a mesma
+     ordem da tela, porque é ela que diz por onde começar. */
+  const comPendencia = rubricas.filter((r) => r.pendentes > 0);
+  for (const modulo of MODULOS_DE_JUSTIFICATIVA) {
+    const doModulo = comPendencia.filter((r) => r.modulo === modulo.chave);
+    if (doModulo.length === 0) continue;
+
+    const alteracoes = doModulo.reduce((s, r) => s + r.alteracoes, 0);
+    const pendentes = doModulo.reduce((s, r) => s + r.pendentes, 0);
+    const justificadas = alteracoes - pendentes;
+
+    linhas.push("");
+    linhas.push(
+      `${modulo.rotulo.toUpperCase()} — ${numero(pendentes)} pendentes de ${numero(alteracoes)} (${porcento(
+        alteracoes === 0 ? 0 : (justificadas / alteracoes) * 100,
+      )} explicado)`,
+    );
+    for (const rubrica of doModulo) {
+      /* Onde se justifica cada uma — é o que transforma a cobrança em
+         instrução. Sem tela de rubrica, quem justifica é a fila. */
+      const onde = rubrica.rota ? `justificar em ${rubrica.moduloRotulo}` : "justificar na fila";
+      linhas.push(
+        `- ${rubrica.rotulo}: ${numero(rubrica.pendentes)} pendentes de ${numero(
+          rubrica.alteracoes,
+        )} (${porcento(rubrica.cobertura)} explicado) — ${onde}`,
+      );
+    }
+  }
+
+  if (recorte.link) {
+    linhas.push("");
+    linhas.push(`Leitura completa: ${recorte.link}`);
+  }
+
+  return linhas.join("\n");
 }
 
 // ---------------------------------------------------------------------------

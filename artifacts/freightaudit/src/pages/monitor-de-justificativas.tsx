@@ -2,7 +2,9 @@ import { useMemo, useState } from "react";
 import { useLocation, useSearch } from "wouter";
 import {
   CalendarRange,
+  Check,
   CheckCircle2,
+  ClipboardCopy,
   CircleHelp,
   Clock,
   Download,
@@ -53,6 +55,7 @@ import {
   responsaveisDoPainel,
   resumoDoPainel,
   rubricasDoPainel,
+  textoDaCobranca,
   tiposDoPainel,
   usePainelDeJustificativas,
   vigenciasDoPainel,
@@ -233,7 +236,7 @@ function Cartao({
   }[tom];
 
   return (
-    <section className="superficie px-5 py-4">
+    <section className="superficie min-w-0 px-5 py-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-sm text-muted-foreground">{titulo}</p>
@@ -370,6 +373,9 @@ export default function MonitorDeJustificativas() {
   const [pagina, setPagina] = useState(1);
   const [porPagina, setPorPagina] = useState(10);
   const [exportando, setExportando] = useState(false);
+  /* `null` é o estado normal; os outros dois duram os dois segundos da
+     confirmação — ver `copiarCobranca`. */
+  const [copia, setCopia] = useState<"copiada" | "falhou" | null>(null);
 
   /*
     A aba é **qual leitura** se está fazendo, e por isso mora no endereço: é o
@@ -575,6 +581,39 @@ export default function MonitorDeJustificativas() {
   const temFiltro = tipo !== null || moduloFiltrado !== null || unidadeEscolhida !== null;
 
   /**
+   * Copiar a cobrança — o que falta, em texto, pronto para colar num chat.
+   *
+   * O texto é montado por `textoDaCobranca`, que é função pura sobre a leitura
+   * que já está em tela: nenhuma consulta nova, e nenhum número que a tela não
+   * mostre. O link vai junto, para quem recebe abrir o mesmo recorte.
+   *
+   * A área de transferência **falha** fora de contexto seguro e quando o
+   * navegador nega a permissão, e nesse caso o botão diz isso em vez de fingir
+   * que copiou — quem cobra sairia daqui com a mensagem vazia na mão.
+   */
+  const copiarCobranca = async () => {
+    if (!resumo) return;
+    const texto = textoDaCobranca(
+      {
+        unidade: unidadeDoRecorte,
+        vigencia: changeSetId ? (nomeDaVigencia.get(changeSetId) ?? null) : null,
+        tipo: tipo ? rotuloDoTipo(tipo) : null,
+        modulo: moduloFiltrado ? moduloDeJustificativa(moduloFiltrado).rotulo : null,
+        link: typeof window === "undefined" ? undefined : window.location.href,
+      },
+      resumo,
+      linhasDeRubrica,
+    );
+    try {
+      await navigator.clipboard.writeText(texto);
+      setCopia("copiada");
+    } catch {
+      setCopia("falhou");
+    }
+    window.setTimeout(() => setCopia(null), 2000);
+  };
+
+  /**
    * Exportar o recorte aberto — alteração a alteração.
    *
    * É o único lugar onde o detalhe por alteração mora desde que a lista saiu da
@@ -664,7 +703,7 @@ export default function MonitorDeJustificativas() {
 
   /** A tabela por rubrica — a mesma nas abas que a mostram. */
   const tabelaDeRubricas = (
-    <section className="superficie overflow-hidden">
+    <section className="superficie min-w-0 overflow-hidden">
       <div className="px-6 py-4 flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-lg font-bold">Onde está a pendência</h2>
         <p className="text-sm text-muted-foreground">
@@ -790,8 +829,8 @@ export default function MonitorDeJustificativas() {
 
   /** O gráfico por vigência — verde é o que já está explicado. */
   const graficoDeVigencias = (
-    <section className="superficie px-6 py-5">
-      <div className="flex items-baseline justify-between gap-3">
+    <section className="superficie min-w-0 px-6 py-5">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
         <h2 className="text-lg font-bold">Cobertura por vigência</h2>
         <p className="text-xs text-muted-foreground">verde = explicado</p>
       </div>
@@ -931,10 +970,42 @@ export default function MonitorDeJustificativas() {
                 }
               />
             )}
+            {/*
+              Cobrar termina fora do produto, numa mensagem — e este botão é o
+              último passo dela. Ele não manda nada a ninguém: escreve o que
+              falta, no recorte que está em tela, e deixa na área de
+              transferência. Escolher o destinatário é de quem cobra, porque o
+              produto não tem dono de alteração para escolher por ele.
+            */}
+            <Button
+              variant="outline"
+              onClick={copiarCobranca}
+              disabled={!resumo || resumo.pendentes === 0}
+              className="h-auto gap-2 rounded-lg px-4 py-2.5 text-sm font-bold"
+              title={
+                resumo && resumo.pendentes === 0
+                  ? "Nada a cobrar neste recorte — tudo o que mudou já está explicado."
+                  : undefined
+              }
+            >
+              {copia === "copiada" ? (
+                <Check className="w-4 h-4 text-emerald-600" />
+              ) : (
+                <ClipboardCopy className="w-4 h-4" />
+              )}
+              {copia === "copiada"
+                ? "Copiada"
+                : copia === "falhou"
+                  ? "Não deu para copiar"
+                  : "Copiar cobrança"}
+            </Button>
             <Button
               variant="outline"
               onClick={exportar}
-              disabled={exportando || !resumo}
+              /* Sem alteração no recorte não há arquivo a gerar: um CSV com o
+                 cabeçalho e nenhuma linha é a exportação mentindo sobre o
+                 próprio nome. É a mesma régua do botão ao lado. */
+              disabled={exportando || !resumo || resumo.alteracoes === 0}
               /* A mesma caixa do botão ao lado — os dois são o cabeçalho, e
                  dois tamanhos diferentes lado a lado leem como dois níveis de
                  controle que não existem. */
@@ -1011,7 +1082,7 @@ export default function MonitorDeJustificativas() {
         )}
 
         {resumo && resumo.alteracoes === 0 && (
-          <section className="superficie px-6 py-10 text-center">
+          <section className="superficie min-w-0 px-6 py-10 text-center">
             <p className="text-lg font-bold">
               {tipo !== null
                 ? `Nada a justificar ${contracaoDoTipo(tipo, "em")} ${palavrasDoTipo(tipo).plural} deste recorte.`
@@ -1083,8 +1154,8 @@ export default function MonitorDeJustificativas() {
                     abaixo — que é a continuação da mesma pergunta, um nível mais
                     fundo —, e "Abrir" vai para a tela do módulo inteiro.
                   */}
-                  <section className="superficie px-6 py-5">
-                    <div className="flex items-baseline justify-between gap-3">
+                  <section className="superficie min-w-0 px-6 py-5">
+                    <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
                       <h2 className="text-lg font-bold">Cobertura por módulo</h2>
                       <p className="text-xs text-muted-foreground">
                         A barra diz onde mandar a cobrança. Clique para recortar a tabela.
@@ -1177,7 +1248,7 @@ export default function MonitorDeJustificativas() {
                   {graficoDeVigencias}
                 </div>
 
-                <section className="superficie px-6 py-4">
+                <section className="superficie min-w-0 px-6 py-4">
                   <div className="flex flex-wrap items-end gap-3">
                     {/* Só na Visão Geral — ver `escopoDaConsulta`. */}
                     {emVisaoGeral && unidades.length > 1 && (
@@ -1277,7 +1348,7 @@ export default function MonitorDeJustificativas() {
             )}
 
             {aba === "responsavel" && (
-              <section className="superficie overflow-hidden">
+              <section className="superficie min-w-0 overflow-hidden">
                 <div className="px-6 py-4">
                   <h2 className="text-lg font-bold">Quem justificou</h2>
                   <p className="text-sm text-muted-foreground">
@@ -1349,7 +1420,7 @@ export default function MonitorDeJustificativas() {
               <>
                 {graficoDeVigencias}
 
-                <section className="superficie overflow-hidden">
+                <section className="superficie min-w-0 overflow-hidden">
                   <div className="px-6 py-4">
                     <h2 className="text-lg font-bold">Vigência a vigência</h2>
                     <p className="text-sm text-muted-foreground">
@@ -1413,8 +1484,8 @@ export default function MonitorDeJustificativas() {
             {aba === "tipo" && (
               <>
                 <div className="grid gap-4 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
-                  <section className="superficie px-6 py-5">
-                    <div className="flex items-baseline justify-between gap-3">
+                  <section className="superficie min-w-0 px-6 py-5">
+                    <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
                       <h2 className="text-lg font-bold">Pendências por tipo de ativo</h2>
                       <p className="text-xs text-muted-foreground">
                         Clique para recortar a leitura inteira.
@@ -1464,7 +1535,7 @@ export default function MonitorDeJustificativas() {
                     </p>
                   </section>
 
-                  <section className="superficie px-6 py-5">
+                  <section className="superficie min-w-0 px-6 py-5">
                     <h2 className="text-lg font-bold">Placas do recorte</h2>
                     <p className="text-sm text-muted-foreground mt-1">
                       Placas não se somam entre vigências: a mesma placa que mudou em duas

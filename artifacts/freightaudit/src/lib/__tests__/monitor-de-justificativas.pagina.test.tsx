@@ -76,6 +76,9 @@ vi.mock("@/lib/contextos", async (original) => ({
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  /* O endereço é estado global do jsdom: um teste que abre `?tipo=CARRETA`
+     deixaria o próximo lendo um recorte que ele não pediu. */
+  window.history.replaceState({}, "", "/painel-de-justificativas");
 });
 
 const resposta = (corpo: unknown) =>
@@ -467,5 +470,99 @@ describe("as quatro leituras", () => {
     expect(screen.getByText(/fala só das carretas/)).toBeTruthy();
     /* 60 alterações da carreta de julho, e não as 500 do acervo. */
     expect(within(cartao("Alterações no recorte")).getByText("60")).toBeTruthy();
+  });
+});
+
+describe("copiar a cobrança", () => {
+  /** O botão, já com a cobertura em mãos — antes dela ele está desligado. */
+  async function botaoDeCobranca(): Promise<HTMLElement> {
+    await screen.findByText("Cobertura por módulo");
+    return await waitFor(() => {
+      const botao = screen.getByRole("button", { name: /Copiar cobrança/ });
+      if (botao.hasAttribute("disabled")) throw new Error("ainda desligado");
+      return botao;
+    });
+  }
+
+  /** A área de transferência do jsdom — o que o navegador não traz. */
+  function areaDeTransferencia(falhar = false) {
+    const escrito: string[] = [];
+    vi.stubGlobal("navigator", {
+      ...globalThis.navigator,
+      clipboard: {
+        writeText: vi.fn(async (texto: string) => {
+          if (falhar) throw new Error("negado");
+          escrito.push(texto);
+        }),
+      },
+    });
+    return escrito;
+  }
+
+  it("põe na área de transferência o que falta, por módulo e rubrica", async () => {
+    servidor();
+    const escrito = areaDeTransferencia();
+    montar();
+
+    /* O botão existe antes da cobertura chegar, e até lá está desligado: não
+       há o que cobrar sem número. */
+    fireEvent.click(await botaoDeCobranca());
+    await waitFor(() => expect(escrito).toHaveLength(1));
+
+    const texto = escrito[0];
+    /* O total é o do cartão — quem recebe consegue reproduzi-lo na tela. */
+    expect(texto).toContain("de 500 alterações");
+    expect(texto).toContain("CUSTO VARIÁVEL");
+    expect(texto).toContain("Manutenção: 300 pendentes de 400");
+    expect(texto).toContain("justificar em Custo Variável");
+    /* E o link da leitura, para quem recebe abrir o mesmo recorte. */
+    expect(texto).toContain(`Leitura completa: ${window.location.href}`);
+  });
+
+  it("confirma na própria caixa do botão", async () => {
+    servidor();
+    areaDeTransferencia();
+    montar();
+
+    fireEvent.click(await botaoDeCobranca());
+    expect(await screen.findByRole("button", { name: /Copiada/ })).toBeTruthy();
+  });
+
+  it("diz quando não deu para copiar, em vez de fingir que copiou", async () => {
+    /* Fora de contexto seguro, ou com a permissão negada, quem cobra sairia
+       daqui com a mensagem vazia na mão. */
+    servidor();
+    areaDeTransferencia(true);
+    montar();
+
+    fireEvent.click(await botaoDeCobranca());
+    expect(await screen.findByRole("button", { name: /Não deu para copiar/ })).toBeTruthy();
+  });
+
+  it("não oferece cobrança quando não há pendência", async () => {
+    const tudoJustificado = COBERTURA.map((l) => ({ ...l, justificadas: l.alteracoes }));
+    servidor(tudoJustificado);
+    montar();
+
+    await screen.findByText("Cobertura por módulo");
+    expect(
+      (await screen.findByRole("button", { name: /Copiar cobrança/ })).hasAttribute("disabled"),
+    ).toBe(true);
+  });
+});
+
+describe("os estados sem número", () => {
+  it("no recorte vazio diz o que houve e não oferece arquivo nem cobrança", async () => {
+    /* Nada a justificar não é defeito: é uma resposta. E sobre ela não há CSV
+       a gerar nem cobrança a mandar. */
+    servidor([]);
+    montar();
+
+    expect(await screen.findByText("Nada a justificar neste recorte.")).toBeTruthy();
+    for (const nome of [/Copiar cobrança/, /Exportar/]) {
+      expect(screen.getByRole("button", { name: nome }).hasAttribute("disabled")).toBe(true);
+    }
+    /* E nenhuma leitura desenhada sobre o vazio. */
+    expect(screen.queryByText("Cobertura por módulo")).toBeNull();
   });
 });

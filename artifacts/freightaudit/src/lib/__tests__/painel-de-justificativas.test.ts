@@ -5,6 +5,7 @@ import {
   iniciaisDoResponsavel,
   modulosDoPainel,
   rubricasDoPainel,
+  textoDaCobranca,
   pendenciasPorTipo,
   responsaveisDoPainel,
   resumoDoPainel,
@@ -443,5 +444,83 @@ describe("rubricasDoPainel", () => {
   it("recorta por tipo de ativo pela mesma régua das abas", () => {
     const linhas = rubricasDoPainel(POR_RUBRICA, null, "CARRETA");
     expect(linhas.map((l) => [l.rotulo, l.alteracoes])).toEqual([["Finame", 6]]);
+  });
+});
+
+/**
+ * A cobrança em texto — o último passo, que acontece fora do produto.
+ *
+ * O que se prende aqui é o que faria quem recebe a mensagem conferir um número
+ * que ninguém consegue reproduzir: um total que não é o da tela, uma rubrica
+ * sem pendência ocupando a lista, ou uma instrução que manda justificar onde
+ * não se justifica.
+ */
+describe("textoDaCobranca", () => {
+  const recorte = {
+    unidade: "CAMAÇARI",
+    vigencia: null,
+    tipo: null,
+    modulo: null,
+  };
+
+  const resumo = resumoDoPainel(ACERVO, null, null)!;
+  const linhas = rubricasDoPainel(POR_RUBRICA, null, null);
+
+  it("abre nomeando o recorte e o total que a tela mostra", () => {
+    const texto = textoDaCobranca(recorte, resumo, linhas);
+    expect(texto.split("\n")[0]).toBe("Justificativas pendentes — CAMAÇARI");
+    expect(texto).toContain("Todas as vigências");
+    expect(texto).toContain(
+      `${resumo.pendentes.toLocaleString("pt-BR")} de ${resumo.alteracoes.toLocaleString("pt-BR")} alterações`,
+    );
+  });
+
+  it("escreve o recorte inteiro quando há vigência, tipo e módulo escolhidos", () => {
+    const texto = textoDaCobranca(
+      { ...recorte, vigencia: "julho/2026 · 2ª quinzena", tipo: "Cavalo", modulo: "Custo Fixo" },
+      resumo,
+      linhas,
+    );
+    expect(texto.split("\n")[1]).toBe("julho/2026 · 2ª quinzena · só Cavalo · só Custo Fixo");
+  });
+
+  it("agrupa por módulo, na ordem do catálogo", () => {
+    const texto = textoDaCobranca(recorte, resumo, linhas);
+    const cabecalhos = texto
+      .split("\n")
+      .filter((l) => /^[A-ZÀ-Ú ]+ —/.test(l))
+      .map((l) => l.split(" —")[0]);
+    expect(cabecalhos).toEqual(["CUSTO FIXO", "CUSTO VARIÁVEL", "SEM CLASSE DE CUSTO"]);
+  });
+
+  it("diz onde cada rubrica se justifica — e a fila para quem não tem tela", () => {
+    const texto = textoDaCobranca(recorte, resumo, linhas);
+    expect(texto).toContain("Finame: 6 pendentes de 16");
+    expect(texto).toContain("justificar em Custo Fixo");
+    expect(texto).toContain("Frota emprestada: 7 pendentes de 8");
+    expect(texto).toContain("justificar na fila");
+  });
+
+  it("deixa de fora a rubrica sem pendência — a cobrança é do que falta", () => {
+    const semPendencia = rubricasDoPainel(
+      [
+        rubrica("v1", "CAVALO", "CUSTO_FIXO", "finame", 10, 10),
+        rubrica("v1", "CAVALO", "CUSTO_VARIAVEL", "manutencao", 4, 1),
+      ],
+      null,
+      null,
+    );
+    const texto = textoDaCobranca(recorte, resumo, semPendencia);
+    expect(texto).not.toContain("Finame");
+    expect(texto).toContain("Manutenção");
+  });
+
+  it("leva o link da leitura, para quem recebe abrir o mesmo recorte", () => {
+    const texto = textoDaCobranca(
+      { ...recorte, link: "https://app/painel-de-justificativas?tipo=CAVALO" },
+      resumo,
+      linhas,
+    );
+    expect(texto.trimEnd().endsWith("?tipo=CAVALO")).toBe(true);
   });
 });
