@@ -354,6 +354,78 @@ export function parDePartida<T extends VigenciaEmparelhavel>(
   return null;
 }
 
+/**
+ * O par escolhido, mantido dentro da lista que o seletor oferece — **sem
+ * desfazer escolha de ninguém**.
+ *
+ * O defeito que esta função corrige, relatado em 15/09/2026 na Auditoria de Km
+ * Rodado: o seletor oferecia `agosto/2026` e `setembro/2026`, e clicar em
+ * qualquer uma das duas não escrevia nada na caixa. O par era reconciliado num
+ * efeito que exigia as **duas** pontas válidas para não mexer em nada; com uma
+ * ponta só escolhida, ele caía em {@link parDePartida}, que naquela unidade não
+ * achava par — e devolvia as duas pontas vazias. Cada clique era desfeito no
+ * quadro seguinte, e a tela ficava com as duas listas cheias e nada selecionado.
+ *
+ * A regra aqui é a que faltava: **o que está na lista fica**. Uma ponta só é
+ * limpa quando some da lista — é o que acontece ao trocar de unidade, e é o que
+ * impede a tela de responder por Pernambuco sob a palavra CAMAÇARI. O par de
+ * partida só entra quando **nenhuma** das duas sobreviveu: aí não há escolha a
+ * respeitar, e abrir com par é melhor do que abrir vazio.
+ *
+ * Meia escolha fica meia escolha de propósito. Completar a outra ponta sozinho
+ * dispararia uma comparação que ninguém pediu, e ainda por cima logo depois de
+ * a pessoa ter mexido justamente naquela caixa.
+ */
+export function parReconciliado<T extends VigenciaEmparelhavel>(
+  vigencias: readonly T[],
+  escolhido: { base: string; comparada: string },
+): { base: string; comparada: string } {
+  const naLista = (id: string) => Boolean(id) && vigencias.some((v) => v.id === id);
+  const base = naLista(escolhido.base) ? escolhido.base : "";
+  const comparada = naLista(escolhido.comparada) ? escolhido.comparada : "";
+  if (base || comparada) return { base, comparada };
+  const par = parDePartida(vigencias);
+  return { base: par?.base.id ?? "", comparada: par?.comparada.id ?? "" };
+}
+
+/**
+ * Por que esta lista não forma par sozinha — a frase da tela vazia, escolhida
+ * pelo dado e não pelo palpite.
+ *
+ * `null` quando há par. Os quatro motivos são exaustivos e cada um pede uma
+ * frase diferente de quem lê:
+ *
+ * - `LISTA_VAZIA` — a unidade não tem nenhuma vigência da cobertura que a tela
+ *   lê. Falta importar o arquivo.
+ * - `UMA_SO` — tem uma, e uma não se compara consigo mesma. Falta a seguinte.
+ * - `UNIDADES_DIFERENTES` — há duas ou mais, mas de unidades diferentes; é o
+ *   caso de quem abriu sem unidade escolhida na lateral.
+ * - `COBERTURAS_DIFERENTES` — mesma unidade, e as vigências chegaram cobrindo
+ *   conjuntos diferentes de tipos. O motor recusa o par (`engine.ts`:
+ *   "Coberturas diferentes"), e dizer "não tem duas vigências" com duas na
+ *   lista manda a pessoa procurar o que está bem na frente dela. As coberturas
+ *   voltam junto para que a frase possa nomeá-las.
+ */
+export type MotivoSemPar =
+  | { motivo: "LISTA_VAZIA" }
+  | { motivo: "UMA_SO" }
+  | { motivo: "UNIDADES_DIFERENTES" }
+  | { motivo: "COBERTURAS_DIFERENTES"; coberturas: string[] };
+
+export function motivoSemPar<T extends VigenciaEmparelhavel>(
+  vigencias: readonly T[],
+): MotivoSemPar | null {
+  if (vigencias.length === 0) return { motivo: "LISTA_VAZIA" };
+  if (vigencias.length === 1) return { motivo: "UMA_SO" };
+  if (parDePartida(vigencias) !== null) return null;
+  const unidades = new Set(vigencias.map((v) => v.scopeHash));
+  if (unidades.size > 1) return { motivo: "UNIDADES_DIFERENTES" };
+  return {
+    motivo: "COBERTURAS_DIFERENTES",
+    coberturas: [...new Set(vigencias.map((v) => v.entityTypeSet))].sort(),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Os rótulos do seletor — o que distingue uma linha da outra
 // ---------------------------------------------------------------------------
