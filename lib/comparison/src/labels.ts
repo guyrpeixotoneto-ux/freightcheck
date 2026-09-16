@@ -257,40 +257,75 @@ export function quinzenaDe(data: string): 1 | 2 {
 /** Uma vigência é sempre `aaaa-mm-dd`; o que não for passa direto. */
 const DATA_ISO = /^\d{4}-\d{2}-\d{2}$/;
 
-/** `2026-08-16` → `16/08/2026`, o mesmo formato do rótulo de competência. */
-function comoDia(data: string): string {
-  const [ano, mes, dia] = data.split("-");
-  return `${dia}/${mes}/${ano}`;
+
+/**
+ * A marca que acompanha o mês — a quinzena, sempre; o dia, quando ela não basta.
+ *
+ * A régua mudou, e a mudança é deliberada: antes a marca só aparecia quando o
+ * mês tinha mais de uma entrega, e um mês com entrega única saía `agosto/2026`
+ * puro. A leitura de quem audita é quinzenal — a competência do fechamento, a
+ * planilha de remuneração e o próprio rótulo da fonte (`EMPURRADA_1_8_2026`)
+ * já falam em quinzena —, e uma coluna que ora diz `agosto/2026 · 1ª quinzena`,
+ * ora `junho/2026`, faz a **ausência** da marca parecer uma informação sobre a
+ * vigência: *este mês não é quinzenal?* É; o que faltava era a outra metade
+ * estar importada, que é um fato sobre o acervo e não sobre o mês.
+ *
+ * A quinzena não é inventada em nenhum caso: ela sai do **dia** da própria
+ * vigência ({@link quinzenaDe}), que é o dia em que ela passou a valer. O que a
+ * régua antiga protegia — não afirmar um grão que o calendário não sustenta —
+ * segue protegido pelo dia: quando duas entregas do mesmo mês caem na **mesma**
+ * metade (`01/08` e `02/08`, ou três no mês), a ordinal deixa de distinguir e o
+ * dia entra **junto** com ela, nunca no lugar dela.
+ *
+ * `compacta` é o dialeto de onde o rótulo por extenso não cabe — o tick do eixo
+ * e a linha da barra lateral: `1ªq` em vez de `1ª quinzena`. É o mesmo cálculo,
+ * e é por isso que ele mora numa função só: duas concordariam no dia em que
+ * fossem escritas e divergiriam no primeiro mês com três entregas.
+ *
+ * `null` só para o que não é vigência ISO — aí não há dia de onde tirar
+ * quinzena, e quem chama devolve o texto como veio.
+ */
+function marcaDaVigencia(
+  data: string,
+  doContexto: readonly string[],
+  compacta = false,
+): string | null {
+  const doMes = vigenciasDoMesmoMes(data, doContexto);
+  if (doMes === null) return null;
+
+  const quinzena = compacta ? `${quinzenaDe(data)}ªq` : `${quinzenaDe(data)}ª quinzena`;
+
+  /* As entregas do mês não se repartem uma por quinzena: a ordinal sozinha
+     escreveria o mesmo texto em duas linhas, e a lista voltaria a oferecer duas
+     opções idênticas — o defeito que esta camada existe para não ter.
+
+     No tick, o dia entra sem a palavra: `setembro/2026 · 1ªq · dia 02` medido
+     em seis rótulos lado a lado encosta no vizinho e os dois últimos se
+     sobrepõem. `· 02` é o mesmo dado com quatro caracteres a menos, e foi o
+     que coube. A ordinal fica nos dois casos — encurtar não é o mesmo que
+     deixar de dizer a quinzena. */
+  const quinzenas = new Set([...doMes].map(quinzenaDe));
+  if (quinzenas.size === doMes.size) return quinzena;
+  const dia = data.slice(8, 10);
+  return compacta ? `${quinzena} · ${dia}` : `${quinzena} · dia ${dia}`;
 }
 
 /**
- * O rótulo de uma vigência, dentro do que o contexto dela entregou.
+ * O rótulo de uma vigência — `agosto/2026 · 1ª quinzena`.
  *
- * `periodLabel` responde `2026-08-01` → `agosto/2026`, e essa é a resposta
- * certa quando a unidade entrega uma vigência por mês. Deixa de ser quando ela
- * entrega duas: `EMPURRADA_1_8_2026` e `EMPURRADA_2_8_2026` viram o mesmo
- * texto, e o seletor passa a oferecer **duas opções idênticas** — foi assim
- * que uma importação de trecho em `2026-08-02` pareceu ter apagado o
- * equipamento de `2026-08-01`: as duas se chamavam "agosto/2026", e a tela
- * abriu na mais recente sem que nada dissesse que eram duas.
- *
- * A régua é a do dado, e não a da aparência:
- *
- * - **mês com uma entrega** continua `agosto/2026` — chamar de "1ª quinzena"
- *   uma unidade que entrega mensalmente inventaria um grão que os arquivos não
- *   têm;
- * - **mês partido em duas metades do calendário** (dia ≤ 15 e dia ≥ 16) ganha a
- *   ordinal: `1ª quinzena de agosto/2026`;
- * - **qualquer outro mês com mais de uma entrega** — três vigências, ou duas
- *   caídas na mesma metade, que é o caso de `01/08` e `02/08` — é escrito pelo
- *   **dia**, `dd/mm/aaaa`. Distingue sempre, porque duas vigências do mesmo
- *   contexto nunca compartilham data, e não afirma uma quinzena que o
- *   calendário não sustenta.
+ * O nome de uma linha só: título de diálogo, coluna de CSV, frase de
+ * justificativa. Era `1ª quinzena de agosto/2026`, e passou a ser escrito na
+ * ordem da lista — mês primeiro, marca depois — pela razão que
+ * {@link rotuloDeListaDaVigencia} documenta: o mês é por onde se procura, e
+ * duas ordens para o mesmo nome obrigam quem lê a traduzir de uma tela para a
+ * outra.
  *
  * `doContexto` são as vigências da mesma unidade e canal
  * (`periodosDisponiveis`). A própria `data` entra na conta mesmo que não esteja
- * na lista: é o que impede o rótulo de afirmar "2ª quinzena" para duas datas ao
- * mesmo tempo quando a chamada vem de fora do conjunto.
+ * na lista: é o que impede o rótulo de afirmar a mesma quinzena para duas datas
+ * ao mesmo tempo quando a chamada vem de fora do conjunto. Chamar sem contexto
+ * (`[]`) é legítimo para quem tem uma data só na mão — a quinzena sai do dia da
+ * própria vigência, que é tudo de que ela precisa.
  *
  * Nasceu em `@workspace/remuneracao`, que precisou dela primeiro porque a
  * planilha de lá é quinzenal por natureza. Mora aqui desde que a Auditoria
@@ -298,42 +333,26 @@ function comoDia(data: string): string {
  * razão de sempre: duas concordariam no dia em que fossem escritas.
  */
 export function rotuloDaVigencia(data: string, doContexto: readonly string[]): string {
-  const doMes = vigenciasDoMesmoMes(data, doContexto);
-  if (doMes === null || doMes.size < 2) return periodLabel(data);
-
-  const quinzenas = new Set([...doMes].map(quinzenaDe));
-  return quinzenas.size === doMes.size
-    ? `${quinzenaDe(data)}ª quinzena de ${periodLabel(data)}`
-    : comoDia(data);
+  const marca = marcaDaVigencia(data, doContexto);
+  return marca === null ? periodLabel(data) : `${periodLabel(data)} · ${marca}`;
 }
 
 /**
- * O mesmo rótulo de {@link rotuloDaVigencia}, na largura de um tick de eixo.
+ * O mesmo rótulo na largura de um tick de eixo — `agosto/2026 · 1ªq`.
  *
- * Existe porque o eixo X do gráfico de impacto não cabe
- * `1ª quinzena de agosto/2026`: ele desenha seis rótulos lado a lado, e a
- * alternativa a encurtar era o que estava no ar — `periodLabel` puro, que
- * escreve `agosto/2026` duas vezes seguidas quando a unidade entrega duas
- * vigências no mesmo mês. Duas colunas com o mesmo nome não são um eixo: são
- * duas barras que o leitor não consegue separar, e foi assim que a tela
- * apresentou seis vigências como se fossem três competências.
+ * Existe porque o eixo X do gráfico de impacto desenha seis rótulos lado a lado
+ * e não comporta `1ª quinzena` por extenso seis vezes. O que ele **não** faz
+ * mais é trocar de idioma: ele escrevia `01/08/2026` — o dia em dígitos — ao
+ * lado de `julho/2026` no mesmo eixo, e quem varria os ticks procurando agosto
+ * lia três nomes de mês e tinha de traduzir o `08` para o quarto. Aqui o mês é
+ * sempre o mês, e o que encurta é só a ordinal.
  *
- * A régua é a mesma de {@link rotuloDaVigencia} — mês com uma entrega continua
- * `agosto/2026`, porque inventar dia onde não há ambiguidade só gasta tinta.
- * O que muda é o desempate: aqui é **sempre** o dia (`01/08/2026`,
- * `15/08/2026`), nunca a ordinal da quinzena. O dia distingue com a mesma
- * garantia (duas vigências do mesmo contexto nunca compartilham data), cabe no
- * tick, e não afirma um grão quinzenal que o gráfico não está lendo.
- *
- * As duas funções repartem {@link vigenciasDoMesmoMes} de propósito: é a
- * decisão "este mês é ambíguo?" que precisa ser uma só. Duas cópias
- * concordariam no dia em que fossem escritas e divergiriam no primeiro mês com
- * três entregas — e o seletor passaria a nomear uma vigência que o eixo do
- * gráfico chama de outra coisa.
+ * As três funções repartem {@link marcaDaVigencia} de propósito: é a decisão
+ * "que marca esta data leva?" que precisa ser uma só.
  */
 export function rotuloCurtoDaVigencia(data: string, doContexto: readonly string[]): string {
-  const doMes = vigenciasDoMesmoMes(data, doContexto);
-  return doMes === null || doMes.size < 2 ? periodLabel(data) : comoDia(data);
+  const marca = marcaDaVigencia(data, doContexto, true);
+  return marca === null ? periodLabel(data) : `${periodLabel(data)} · ${marca}`;
 }
 
 /**
@@ -385,30 +404,18 @@ function vigenciasDoMesmoMes(
  * continuam distinguíveis — que é o que {@link rotuloDaVigencia} existe para
  * garantir.
  *
- * A régua do desempate é a mesma das outras duas, e pela mesma razão de
- * sempre: {@link vigenciasDoMesmoMes} decide "este mês é ambíguo?" uma vez só.
- * O mês partido em quinzenas do calendário ganha a ordinal; qualquer outro mês
- * com mais de uma entrega ganha o dia, que distingue sem afirmar um grão que o
- * calendário não sustenta.
+ * A régua da marca é a mesma das outras duas, e pela mesma razão de sempre:
+ * {@link marcaDaVigencia} decide "que marca esta data leva?" uma vez só. Toda
+ * vigência ISO leva a quinzena; o dia entra junto com ela só quando duas
+ * entregas do mês caem na mesma metade.
  *
- * `marca` é `null` — e não `""` — quando o mês tem uma entrega só: a lista
- * decide o que fazer com a ausência, e nenhuma acaba desenhando um separador
- * pendurado no vazio.
+ * `marca` continua podendo ser `null` — e não `""` — para o que não é vigência
+ * ISO: a lista decide o que fazer com a ausência, e nenhuma acaba desenhando um
+ * separador pendurado no vazio.
  */
 export function rotuloDeListaDaVigencia(
   data: string,
   doContexto: readonly string[],
 ): { mes: string; marca: string | null } {
-  const mes = periodLabel(data);
-  const doMes = vigenciasDoMesmoMes(data, doContexto);
-  if (doMes === null || doMes.size < 2) return { mes, marca: null };
-
-  const quinzenas = new Set([...doMes].map(quinzenaDe));
-  return {
-    mes,
-    marca:
-      quinzenas.size === doMes.size
-        ? `${quinzenaDe(data)}ª quinzena`
-        : `dia ${data.slice(8, 10)}`,
-  };
+  return { mes: periodLabel(data), marca: marcaDaVigencia(data, doContexto) };
 }

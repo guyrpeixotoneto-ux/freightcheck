@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Building2, Radio, CalendarRange } from "lucide-react";
+import { rotuloDaVigencia as rotuloDaVigenciaCompartilhado } from "@workspace/comparison/labels";
 import { fetchJson } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -42,14 +43,16 @@ export interface RecorteEscolhido {
   period?: string;
 }
 
-const MESES = [
-  "janeiro", "fevereiro", "março", "abril", "maio", "junho",
-  "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
-];
-
-export function rotuloDaVigencia(data: string): string {
-  const [ano, mes] = data.split("-");
-  return MESES[Number(mes) - 1] ? `${MESES[Number(mes) - 1]}/${ano}` : data;
+/**
+ * A vigência como o resto do produto a escreve — `agosto/2026 · 1ª quinzena`.
+ *
+ * `doContexto` são as outras vigências da mesma lista: é o que permite pôr o
+ * dia ao lado da quinzena quando duas entregas do mês caem na mesma metade. A
+ * função é a de `@workspace/comparison/labels`; o que existe aqui é só o nome
+ * pelo qual esta tela já a chamava.
+ */
+export function rotuloDaVigencia(data: string, doContexto: readonly string[] = []): string {
+  return rotuloDaVigenciaCompartilhado(data, doContexto);
 }
 
 function nomeDaUnidade(c: ContextoDisponivel): string {
@@ -218,7 +221,7 @@ export function SeletorDeRecorte({
           <option value="">todas as vigências</option>
           {vigencias.map((v) => (
             <option key={v} value={v}>
-              {rotuloDaVigencia(v)}
+              {rotuloDaVigencia(v, vigencias)}
             </option>
           ))}
         </select>

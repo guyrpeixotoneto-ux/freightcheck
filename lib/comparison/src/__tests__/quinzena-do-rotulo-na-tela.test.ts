@@ -62,27 +62,34 @@ describe("o rótulo da fonte chega à tela como quinzena", () => {
   });
 
   it("o nome de uma linha só — título de diálogo, coluna de CSV — diz o mesmo", () => {
-    expect(rotuloDaVigencia(DATAS[0], DATAS)).toBe("2ª quinzena de agosto/2026");
-    expect(rotuloDaVigencia(DATAS[1], DATAS)).toBe("1ª quinzena de agosto/2026");
+    // Na ordem da lista: o mês primeiro, que é por onde se procura.
+    expect(rotuloDaVigencia(DATAS[0], DATAS)).toBe("agosto/2026 · 2ª quinzena");
+    expect(rotuloDaVigencia(DATAS[1], DATAS)).toBe("agosto/2026 · 1ª quinzena");
   });
 
-  it("o tick do eixo continua sendo o dia, e agora é o dia certo", () => {
+  it("o tick do eixo diz a mesma quinzena, encurtada para caber", () => {
     /*
-      `rotuloCurtoDaVigencia` desempata sempre pelo dia — a ordinal não cabe num
-      tick. O que muda é que o dia deixou de mentir: o eixo escrevia `02/08/2026`
-      para a quinzena que começa em `16/08/2026`.
+      O eixo escrevia o dia (`02/08/2026`) porque a ordinal por extenso não cabe
+      num tick — e o dia ainda mentia, apontando para a quinzena que começa em
+      `16/08/2026`. Encurtar a ordinal resolve as duas coisas de uma vez.
     */
-    expect(rotuloCurtoDaVigencia(DATAS[0], DATAS)).toBe("16/08/2026");
-    expect(rotuloCurtoDaVigencia(DATAS[1], DATAS)).toBe("01/08/2026");
+    expect(rotuloCurtoDaVigencia(DATAS[0], DATAS)).toBe("agosto/2026 · 2ªq");
+    expect(rotuloCurtoDaVigencia(DATAS[1], DATAS)).toBe("agosto/2026 · 1ªq");
   });
 
-  it("um mês com uma entrega só continua sendo o mês, sem marca inventada", () => {
-    // A régua não mudou: desempate só onde há empate.
+  it("a quinzena não depende de a outra metade ter sido importada", () => {
+    /*
+      `EMPURRADA_2_5_2026` é a 2ª quinzena de maio, e era a única de maio no
+      acervo — a régua antiga escrevia "maio/2026" seco, porque a marca só
+      aparecia para desempatar. Quem lia a lista via um mês sem quinzena ao lado
+      de seis com quinzena e concluía coisa sobre o mês; o que aquilo dizia era
+      que a 1ª metade não tinha sido importada.
+    */
     const soUma = [parseVigenciaLabel("EMPURRADA_2_5_2026").effectiveDate!];
     expect(rotuloDeListaDaVigencia(soUma[0], soUma)).toEqual({
       mes: "maio/2026",
-      marca: null,
+      marca: "2ª quinzena",
     });
-    expect(rotuloDaVigencia(soUma[0], soUma)).toBe("maio/2026");
+    expect(rotuloDaVigencia(soUma[0], soUma)).toBe("maio/2026 · 2ª quinzena");
   });
 });

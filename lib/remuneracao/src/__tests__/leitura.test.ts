@@ -441,7 +441,7 @@ describe("a lista dos cadastros", () => {
     const camacari = await unidade(ESCOPO);
 
     expect(camacari.map((c) => c.effectiveDate)).toEqual([VIGENCIA, ANTERIOR]);
-    expect(camacari[0]!.periodLabel).toBe("agosto/2026");
+    expect(camacari[0]!.periodLabel).toBe("agosto/2026 · 1ª quinzena");
     expect(camacari[0]!.channel).toBe("EMPURRADA");
   });
 
@@ -583,18 +583,18 @@ describe("as duas quinzenas do mesmo mês", () => {
     const lido = await lerCadastroDaUnidade(ctx.db, PEDIDO);
 
     expect(lido!.effectiveDate).toBe(SEGUNDA);
-    expect(lido!.periodLabel).toBe("2ª quinzena de agosto/2026");
+    expect(lido!.periodLabel).toBe("agosto/2026 · 2ª quinzena");
     expect(lido!.vigencias).toEqual([
-      { effectiveDate: VIGENCIA, periodLabel: "1ª quinzena de agosto/2026" },
-      { effectiveDate: SEGUNDA, periodLabel: "2ª quinzena de agosto/2026" },
+      { effectiveDate: VIGENCIA, periodLabel: "agosto/2026 · 1ª quinzena" },
+      { effectiveDate: SEGUNDA, periodLabel: "agosto/2026 · 2ª quinzena" },
     ]);
   });
 
   it("dá títulos diferentes às duas colunas da comparação", async () => {
     const par = await lerComparacaoDeCadastros(ctx.db, PEDIDO);
 
-    expect(par!.esquerda.periodLabel).toBe("1ª quinzena de agosto/2026");
-    expect(par!.direita.periodLabel).toBe("2ª quinzena de agosto/2026");
+    expect(par!.esquerda.periodLabel).toBe("agosto/2026 · 1ª quinzena");
+    expect(par!.direita.periodLabel).toBe("agosto/2026 · 2ª quinzena");
   });
 
   /*
@@ -609,20 +609,37 @@ describe("as duas quinzenas do mesmo mês", () => {
 
     expect(daUnidade.map((c) => c.effectiveDate)).toEqual([SEGUNDA, VIGENCIA]);
     expect(daUnidade.map((c) => c.periodLabel)).toEqual([
-      "2ª quinzena de agosto/2026",
-      "1ª quinzena de agosto/2026",
+      "agosto/2026 · 2ª quinzena",
+      "agosto/2026 · 1ª quinzena",
     ]);
     expect(daUnidade.map((c) => c.material.cavalos)).toEqual([2, 1]);
   });
 
   /*
-    A outra ponta da régua, no banco: a unidade que entrega uma vez por mês
-    continua com o rótulo do mês. O grão da quinzena é o que os arquivos
-    mostram, não o que este módulo prefere.
+    A outra ponta da régua, no banco — e ela mudou em 16/09/2026.
+    -------------------------------------------------------------------------
+    Este caso afirmava que a unidade que entrega uma vez por mês fica com o
+    rótulo do mês seco: o grão da quinzena seria o que os arquivos mostram, e
+    não o que o módulo prefere.
+
+    A marca passou a sair do **dia** em que a vigência começa, e não da
+    companhia que ela tem no mês, então a entrega de 1º de agosto é nomeada
+    `agosto/2026 · 1ª quinzena` mesmo sendo a única do mês. O que a régua antiga
+    evitava sobrevive na parte que importa: a marca continua não sendo um
+    palpite — ela lê a data que o arquivo trouxe, e uma entrega que começasse no
+    dia 16 continuaria sendo a 2ª.
+
+    O que se perde é a leitura "este mês veio inteiro" pelo rótulo. Ela nunca
+    esteve dita em voz alta — era a **ausência** da marca, e ausência de marca
+    também era o que uma quinzena importada sozinha produzia. Duas coisas
+    diferentes escritas do mesmo jeito é o que a mudança desfaz.
   */
-  it("não chama de quinzena o mês que veio inteiro", async () => {
+  it("nomeia pelo dia de início o mês que veio numa entrega só", async () => {
     const camacari = await lerCadastroDaUnidade(ctx.db, CONTEXTO);
-    expect(camacari!.periodLabel).toBe("agosto/2026");
-    expect(camacari!.vigencias.map((v) => v.periodLabel)).toEqual(["julho/2026", "agosto/2026"]);
+    expect(camacari!.periodLabel).toBe("agosto/2026 · 1ª quinzena");
+    expect(camacari!.vigencias.map((v) => v.periodLabel)).toEqual([
+      "julho/2026 · 1ª quinzena",
+      "agosto/2026 · 1ª quinzena",
+    ]);
   });
 });

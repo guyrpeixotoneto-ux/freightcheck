@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { CadastroCanonicoDeUnidades } from "@/components/unidades/cadastro-canonico";
 import { unidadeDe, useContextos, type Contexto } from "@/lib/contextos";
+import { rotuloDaVigencia } from "@workspace/comparison/labels";
 
 /**
  * Unidades — as seleções que existem, com o que cada uma já entregou.
@@ -28,16 +29,17 @@ import { unidadeDe, useContextos, type Contexto } from "@/lib/contextos";
  * sugeriria um total que o motor recusa a calcular.
  */
 
-const MESES = [
-  "janeiro", "fevereiro", "março", "abril", "maio", "junho",
-  "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
-];
-
-/** `2026-08-01` → `agosto/2026`. Sem `Date`, para o fuso não recuar o mês. */
+/**
+ * `2026-08-16` → `agosto/2026 · 2ª quinzena`, como os seletores a escrevem.
+ *
+ * A tabela montava o mês com um vetor de meses próprio e parava aí: duas
+ * unidades que entregaram metades diferentes de agosto apareciam com a mesma
+ * vigência nesta coluna, e a diferença — que é justamente o que se vem olhar
+ * aqui — só aparecia depois de abrir cada uma. A régua mora em
+ * `@workspace/comparison/labels`, e é a mesma da barra lateral e do par.
+ */
 function periodo(data: string): string {
-  const [ano, mes] = data.split("-");
-  const indice = Number(mes) - 1;
-  return indice >= 0 && indice < 12 ? `${MESES[indice]}/${ano}` : data;
+  return rotuloDaVigencia(data, []);
 }
 
 function enderecoDe(contexto: Contexto): string {

@@ -299,7 +299,7 @@ describe("os rótulos do seletor", () => {
   ]);
   const nomeDoEscopo = (hash: string) => nomes.get(hash) ?? null;
 
-  /* Um mês com uma entrega só não ganha marca: não há o que desempatar. */
+  /* A quinzena vem sempre, mesmo no mês que entregou uma metade só. */
   it("escreve a vigência como se fala dela, e nada mais", () => {
     const rotulos = rotulosDasVigencias(
       [
@@ -309,11 +309,11 @@ describe("os rótulos do seletor", () => {
       nomeDoEscopo,
     );
 
-    expect(rotulos.get("pe-ago")).toBe("agosto/2026");
-    expect(rotulos.get("pe-jul")).toBe("julho/2026");
+    expect(rotulos.get("pe-ago")).toBe("agosto/2026 · 2ª quinzena");
+    expect(rotulos.get("pe-jul")).toBe("julho/2026 · 2ª quinzena");
   });
 
-  /* Duas entregas no mesmo mês: aí a quinzena entra, e só aí. */
+  /* Duas entregas no mesmo mês: cada uma na sua metade, sem precisar do dia. */
   it("marca a quinzena quando o mês tem as duas entregas", () => {
     const rotulos = rotulosDasVigencias(
       [
@@ -337,8 +337,8 @@ describe("os rótulos do seletor", () => {
       nomeDoEscopo,
     );
 
-    expect(rotulos.get("pe")).toBe("junho/2026 · PERNAMBUCO");
-    expect(rotulos.get("ca")).toBe("junho/2026 · CAMAÇARI");
+    expect(rotulos.get("pe")).toBe("junho/2026 · 1ª quinzena · PERNAMBUCO");
+    expect(rotulos.get("ca")).toBe("junho/2026 · 1ª quinzena · CAMAÇARI");
     expect(new Set(rotulos.values()).size).toBe(2);
   });
 
@@ -356,8 +356,8 @@ describe("os rótulos do seletor", () => {
       nomeDoEscopo,
     );
 
-    expect(rotulos.get("cav")).toBe("junho/2026 · CAVALO");
-    expect(rotulos.get("car")).toBe("junho/2026 · CARRETA");
+    expect(rotulos.get("cav")).toBe("junho/2026 · 1ª quinzena · CAVALO");
+    expect(rotulos.get("car")).toBe("junho/2026 · 1ª quinzena · CARRETA");
   });
 
   it("cai na revisão como último desempate", () => {
@@ -386,8 +386,8 @@ describe("os rótulos do seletor", () => {
       arquivo, mesma data, mesma cobertura. Nenhum sufixo separa o que o dado
       não separa, e escrever um daria uma distinção inventada.
     */
-    expect(rotulos.get("pe")).toBe("junho/2026");
-    expect(rotulos.get("ca")).toBe("junho/2026");
+    expect(rotulos.get("pe")).toBe("junho/2026 · 1ª quinzena");
+    expect(rotulos.get("ca")).toBe("junho/2026 · 1ª quinzena");
   });
 
   /* O acervo real, como o arquivo o produziu: trinta linhas, trinta rótulos. */
@@ -636,13 +636,17 @@ describe("como o arquivo veio composto", () => {
  * quinzena" na aba Cavalo + Carreta e virava "agosto/2026" na aba Carreta,
  * porque a outra quinzena do mês não tem carreta e sumia da lista.
  *
- * A função está certa — a marca só existe para desempatar, e sem empate ela não
- * deve aparecer. Errado era o que se entregava a ela. A correção está nas quatro
- * páginas: os rótulos saem de `daUnidadeTodas`, o acervo de equipamento da
- * unidade, e só a lista do seletor é recortada pela aba.
+ * A correção da época está nas quatro páginas: os rótulos saem de
+ * `daUnidadeTodas`, o acervo de equipamento da unidade, e só a lista do seletor
+ * é recortada pela aba. Ela continua valendo e continua provada aqui.
  *
- * Este caso é a régua daquela decisão: ele demonstra a diferença que o recorte
- * produz, para que ninguém volte a alimentar o rótulo com a lista da aba.
+ * O que mudou desde então foi a régua da marca: a quinzena deixou de ser um
+ * desempate e passou a ser parte do nome da vigência, sempre — ela sai do dia
+ * em que a vigência passou a valer, e não da companhia que ela tem na lista.
+ * O sintoma daquele print virou impossível de produzir por este caminho: com ou
+ * sem recorte, `ago1` é a 1ª quinzena de agosto. O dia, que é o único pedaço da
+ * marca que ainda depende das outras datas, segue sensível ao recorte — e é o
+ * que o segundo caso fixa.
  */
 describe("o rótulo e a lista que o produz", () => {
   const acervo = [
@@ -656,9 +660,32 @@ describe("o rótulo e a lista que o produz", () => {
   });
 
   /* A lista da aba Carreta: a outra quinzena de agosto não tem carreta. */
-  it("perde a marca se receber a lista já recortada pela aba", () => {
+  it("a quinzena sobrevive ao recorte da aba — ela é do dia, não da lista", () => {
     const daAba = vigenciasQueCobrem(acervo, ["CARRETA"]);
 
-    expect(rotulosDasVigencias(daAba).get("ago1")).toBe("agosto/2026");
+    expect(rotulosDasVigencias(daAba).get("ago1")).toBe("agosto/2026 · 1ª quinzena");
+  });
+
+  /*
+    O dia continua sendo do contexto — e é por isso que a régua das páginas
+    segue valendo.
+
+    Duas entregas na mesma metade do mês precisam do dia para se distinguir, e
+    saber que são duas é uma pergunta sobre a **lista**. Recortada pela aba, a
+    vizinha some e o dia deixa de ser escrito: as duas linhas voltariam a se
+    chamar igual se o recorte alimentasse o rótulo.
+  */
+  it("o dia, esse, ainda depende da lista inteira", () => {
+    const mesmaMetade = [
+      comRotuloSimples("ago1", "2026-08-01", "CARRETA+CAVALO"),
+      comRotuloSimples("ago2", "2026-08-02", "CAVALO"),
+    ];
+
+    expect(rotulosDasVigencias(mesmaMetade).get("ago1")).toBe(
+      "agosto/2026 · 1ª quinzena · dia 01",
+    );
+
+    const daAba = vigenciasQueCobrem(mesmaMetade, ["CARRETA"]);
+    expect(rotulosDasVigencias(daAba).get("ago1")).toBe("agosto/2026 · 1ª quinzena");
   });
 });
