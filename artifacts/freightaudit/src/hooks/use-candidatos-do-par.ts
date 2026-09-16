@@ -73,7 +73,8 @@ export type TelaComCandidatas =
   | "impostos"
   | "monitor-custo-fixo"
   | "km-rodado"
-  | "velocidade-media";
+  | "velocidade-media"
+  | "qlp";
 
 /**
  * Quanto se espera entre uma rodada e a seguinte enquanto ainda há pendente.
@@ -137,8 +138,11 @@ export function useCandidatosDoPar(
   para: string,
   escopo: string | null,
   /**
-   * O recorte que a tela está mostrando, já em `querystring` — hoje só o
-   * Monitor manda algum.
+   * O recorte que a tela está mostrando, já em `querystring`.
+   *
+   * O Monitor manda os filtros da tela; o QLP manda o quadro (obrigatório, é o
+   * que separa administrativo de operacional) e a rubrica aberta, quando há
+   * uma.
    *
    * Vai na chave da consulta pela razão que a rota documenta: o número do menu
    * tem de ser o número que o clique entrega. Com filtro ligado e sem isto, o

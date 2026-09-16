@@ -457,6 +457,20 @@ export const SEM_IMPACTO_FINANCEIRO =
   "gente e não de dinheiro.";
 
 /**
+ * Quantas variáveis do quadro se moveram — a contagem, sozinha.
+ *
+ * Está fora de `resumirComparacaoDeQlp` porque `/qlp/candidatos` precisa dela e
+ * não pode pagar o resto: o resumo inteiro pede o quadro do par (uma consulta) e
+ * o efetivo das duas pontas (outra leitura), e o menu perguntaria isso uma vez
+ * por candidata. Copiar o `filter` para lá seria a segunda régua — no dia em que
+ * "alterado" ganhasse uma nuance, o menu e a tela contariam diferente sem que
+ * nada dissesse por quê.
+ */
+export function variaveisAlteradasDeQlp(linhas: readonly LinhaDeQlpComparado[]): number {
+  return linhas.filter((l) => l.estado === "ALTERADO").length;
+}
+
+/**
  * Os indicadores do topo, de uma passada só.
  *
  * `cargosComparados` vem da contagem do snapshot, e não do tamanho da lista:
@@ -480,7 +494,7 @@ export function resumirComparacaoDeQlp(
     semAlteracao: Math.max(0, quadroDoPar.comparados - comEstado("ALTERADO")),
     novosNaVigencia: quadroDoPar.novos,
     ausentesNaComparada: quadroDoPar.ausentes,
-    variaveisAlteradas: linhas.filter((l) => l.estado === "ALTERADO").length,
+    variaveisAlteradas: variaveisAlteradasDeQlp(linhas),
     cargosComDadoIncompleto: comEstado("DADO_INCOMPLETO"),
     cargosComConflito: comEstado("CONFLITO"),
     efetivo: movimentoDoEfetivo(linhas, quadro, efetivo),

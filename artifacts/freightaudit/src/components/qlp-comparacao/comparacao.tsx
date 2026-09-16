@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/select";
 import { ApiErrorNotice } from "@/components/api-error";
 import { SeletorDoPar, type VigenciaEscolhivel } from "@/components/comparacao/seletor-do-par";
+import { useCandidatosDoPar } from "@/hooks/use-candidatos-do-par";
 import { avisoDoParImpossivel } from "@/lib/par-de-vigencias";
 import { TabelaDaComparacaoDeQlp } from "@/components/qlp-comparacao/tabela";
 import { DetalheDoCargo } from "@/components/qlp-comparacao/detalhe";
@@ -171,6 +172,33 @@ export function ComparacaoDoQuadro({
     return q.toString();
   }, [query, quadro, par, rubrica, comSemAlteracao]);
 
+  /**
+   * Os números de cada candidata a "De", contra o "Para" aberto.
+   *
+   * O recorte vai junto porque o número do menu tem de ser o número que o
+   * clique entrega: com a tela em "refeição", um menu que contasse o quadro
+   * inteiro prometeria alterações que o clique não mostraria. É a mesma razão
+   * pela qual o Monitor manda os filtros dele.
+   *
+   * Quem recorta a lista de candidatas é o servidor, pela série do destino
+   * (`candidatasDoPar`) — a tela não filtra nada. O `scopeHash` entra só na
+   * chave da consulta, para que trocar de unidade seja pergunta nova em vez de
+   * cache reaproveitado.
+   */
+  const recorteDoMenu = useMemo(() => {
+    const q = new URLSearchParams();
+    q.set("quadro", quadro);
+    if (rubrica !== "TODAS") q.set("rubrica", rubrica);
+    return q.toString();
+  }, [quadro, rubrica]);
+
+  const candidatos = useCandidatosDoPar(
+    "qlp",
+    par.comparada,
+    query.get("scopeHash"),
+    recorteDoMenu,
+  );
+
   const comparacao = useQuery({
     queryKey: ["qlp", "comparacao", parametros],
     queryFn: () => fetchJson<ComparacaoDeQlp>(`/qlp/comparacao?${parametros}`),
@@ -253,6 +281,7 @@ export function ComparacaoDoQuadro({
         onInverter={() => setPar((p) => ({ base: p.comparada, comparada: p.base }))}
         carregando={comparacao.isFetching}
         idPrefixo={`qlp-${quadro.toLowerCase()}`}
+        candidatos={candidatos.data}
       />
 
       {erroDasVigencias && (

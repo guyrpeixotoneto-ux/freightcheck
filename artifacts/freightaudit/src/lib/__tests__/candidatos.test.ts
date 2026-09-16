@@ -30,6 +30,45 @@ describe("os números de cada linha do menu", () => {
     },
   });
 
+  /**
+   * O recorte que **não mede** dinheiro — hoje só o QLP.
+   *
+   * É o avesso exato do caso de cima, e a distância entre os dois é a razão de
+   * `semImpacto` existir. `R$ 0,00` diz "calculei, e deu zero"; escrevê-lo num
+   * recorte que nunca olhou para dinheiro seria a tela afirmando uma conta que
+   * ninguém fez — e a contagem ao lado sobreviveria dizendo que algo mudou, o
+   * que deixaria a linha se contradizendo sozinha.
+   */
+  describe("quando o recorte não mede dinheiro", () => {
+    const semImpacto = (alteracoes: number) => ({
+      alteracoes,
+      impacto: { baldes: [] },
+      semImpacto:
+        "As colunas do QLP chegam sem semântica confirmada, e somar o que a " +
+        "curadoria não confirmou seria adivinhação.",
+    });
+
+    it("cala a coluna do dinheiro, e mantém a contagem", () => {
+      const linha = numerosDaLinha(semImpacto(7));
+
+      expect(linha?.valores).toEqual([]);
+      expect(linha?.alteracoes).toBe("7 alterações");
+    });
+
+    it("não escreve R$ 0,00 nem quando nada mudou", () => {
+      const linha = numerosDaLinha(semImpacto(0));
+
+      expect(linha?.valores).toEqual([]);
+      expect(linha?.alteracoes).toBe("0 alterações");
+    });
+
+    /* E continua sendo outra coisa que "ainda não calculei": a linha existe. */
+    it("é diferente de não ter sido calculado", () => {
+      expect(numerosDaLinha(semImpacto(0))).not.toBeNull();
+      expect(numerosDaLinha(null)).toBeNull();
+    });
+  });
+
   it("não escreve número nenhum para quem ainda não foi calculado", () => {
     expect(numerosDaLinha(null)).toBeNull();
   });

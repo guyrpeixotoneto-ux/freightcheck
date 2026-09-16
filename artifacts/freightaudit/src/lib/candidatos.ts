@@ -55,6 +55,17 @@ export interface CandidatosDoPar {
         acrescenta o que quiser no resto, e nada disso chega ao menu.
       */
       impacto: { baldes: BaldeDoImpacto[] };
+      /**
+       * Por que este recorte **não publica dinheiro** — e não "publicou zero".
+       *
+       * Só o QLP manda: as colunas do quadro chegam sem semântica confirmada, e
+       * somar o que a curadoria não confirmou seria adivinhação. A frase é a
+       * mesma que aquela tela publica no lugar do impacto.
+       *
+       * Ausente, `baldes` vazio quer dizer o que sempre quis: calculei, e deu
+       * zero.
+       */
+      semImpacto?: string;
     } | null;
   }[];
   /** Quantas candidatas não couberam no orçamento desta chamada. */
@@ -81,11 +92,15 @@ export function leituraDoValor(valor: number): LeituraDoValor {
 /** O que uma linha do menu mostra à direita da vigência. */
 export interface NumerosDaLinha {
   /**
-   * Uma linha de dinheiro por periodicidade, já escrita — **nunca vazia**.
+   * Uma linha de dinheiro por periodicidade, já escrita.
    *
-   * Quando o par não move dinheiro nenhum, a lista é `R$ 0,00`: a coluna
-   * zerada é a resposta, e a coluna em branco era a ausência dela. Ver
+   * Quando o par não move dinheiro nenhum, a lista é `R$ 0,00`: a coluna zerada
+   * é a resposta, e a coluna em branco era a ausência dela. Ver
    * {@link numerosDaLinha}.
+   *
+   * Ela é vazia num caso só, e é o oposto daquele: quando o recorte **não mede**
+   * dinheiro (`semImpacto`). Ali a linha mostra a contagem sozinha, porque um
+   * `R$ 0,00` afirmaria uma conta que ninguém fez.
    */
   valores: { texto: string; bruto: number; leitura: LeituraDoValor }[];
   /** "457 alterações", "1 alteração", "0 alterações". */
@@ -103,6 +118,12 @@ export interface NumerosDaLinha {
  * cima de uma conta que não aconteceu **mente com números**, que é a pior
  * forma de mentir numa tela de auditoria; um número escrito sobre uma conta
  * que aconteceu e deu zero é a notícia que quem audita veio buscar.
+ *
+ * Um recorte que **não mede** dinheiro (`semImpacto`, hoje só o QLP) é o avesso
+ * disso, e escreve só a contagem. O `R$ 0,00` daqui de baixo é uma conta que deu
+ * zero; escrevê-lo onde conta nenhuma foi feita seria a tela afirmando que o
+ * dinheiro não se moveu numa comparação que nunca olhou para ele — a mesma
+ * mentira por omissão, com o sinal trocado.
  *
  * Calculado, o par **sempre** escreve as duas coisas: o dinheiro e a contagem.
  * A versão anterior filtrava os baldes zerados e, quando nada mudava, sobrava
@@ -184,7 +205,7 @@ export function numerosDaLinha(
     filtrado: ali o que responde é o movimento, e `R$ 0,00/ano` embaixo de
     `+R$ 7.238,85/mês` só rouba a linha de quem tem notícia.
   */
-  if (valores.length === 0) {
+  if (valores.length === 0 && !numeros.semImpacto) {
     valores.push({ texto: formatBrl(0), bruto: 0, leitura: "NEUTRO" });
   }
 
