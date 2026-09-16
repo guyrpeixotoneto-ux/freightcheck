@@ -63,11 +63,27 @@ export async function comTetoDeRota<T>(
       logo em seguida.
       Desfazer o `SET` explicitamente resolve o mesmo problema pelo caminho
       direto: a sessão volta ao padrão do pool, e a conexão volta inteira. Se o
-      `RESET` falhar — conexão já morta, transação abortada —, aí sim ela é
-      descartada, porque devolver uma sessão em estado desconhecido é pior do
-      que perder uma conexão.
+      `RESET` falhar — conexão já morta —, aí sim ela é descartada, porque
+      devolver uma sessão em estado desconhecido é pior do que perder uma
+      conexão.
+
+      **A transação abortada tinha de sair dessa lista, e é por isso que há um
+      `ROLLBACK` aqui.** Era o caso mais provável de todos, não o excepcional:
+      quando o teto estoura (`57014`) dentro da transação que `computeChangeSet`
+      abre por conta própria, a sessão fica abortada, e *toda* consulta seguinte
+      nela — o `RESET` inclusive — falha com `25P02`. O `catch` então descartava
+      a conexão, e o pool ficava com uma que ele nunca dá por encerrada: de
+      novo o processo que não desliga sozinho, agora pela porta que este bloco
+      existia para fechar. Medido em `timeout-de-rota.test.ts`.
+
+      `ROLLBACK` sobre uma transação abortada sempre funciona — é o único
+      comando que ela aceita —, e sobre uma sessão sem transação aberta é um
+      aviso, não um erro. Depois dele o `RESET` passa e a conexão volta
+      inteira. O descarte continua existindo para o que ele sempre quis cobrir:
+      a conexão que morreu de verdade.
     */
     try {
+      await client.query("ROLLBACK");
       await client.query("SET statement_timeout = DEFAULT");
       client.release();
     } catch {

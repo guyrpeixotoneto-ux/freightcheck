@@ -5,6 +5,7 @@ import {
   getChangeSetForPair,
   listChanges,
   listComparableSnapshots,
+  type NaturezaEconomica,
   type Operacao,
 } from "@workspace/comparison";
 
@@ -49,10 +50,56 @@ export const ORCAMENTO_DE_CANDIDATAS_MS = 8_000;
 /** O teto de conexão da rota — folgado sobre o orçamento, e bem abaixo do pool. */
 export const TETO_DE_CANDIDATAS_MS = 12_000;
 
-/** Os números de um par, no recorte de uma rubrica. */
+/**
+ * Um balde de dinheiro de um par — a periodicidade, a natureza e o líquido.
+ *
+ * `natureza` é `null` no recorte de uma rubrica só, e é isso que mantém a linha
+ * do menu das quatro auditorias exatamente como sempre foi: `+R$ 7.238,85/mês`,
+ * sem prefixo. FINAME, IPVA e Impostos são custo inteiro; Lucro Fixo é receita
+ * inteira. Dizer "Custo" ao lado de um número numa tela cujo nome já é o da
+ * rubrica é repetir o que a tela inteira diz.
+ *
+ * Ela deixa de ser `null` no primeiro recorte que mistura as duas — o Monitor
+ * Custo Fixo, que lê os quatro módulos de uma vez. Ali o prefixo é obrigatório:
+ * um número só, somando o custo que subiu com a receita que subiu, é
+ * exatamente o escalar que `CartoesDoMonitor` recusa publicar ("não há cartão
+ * de Impacto líquido"), e o menu não pode ser a porta dos fundos por onde ele
+ * entra.
+ *
+ * Por que uma lista e não um `Record<string, number>`: porque a chave passou a
+ * ser **dupla** — periodicidade e natureza —, e um objeto de chave composta
+ * (`CUSTO:MENSAL`) seria um formato que só o cliente sabe abrir. Uma lista diz
+ * os dois campos com o nome de cada um.
+ */
+export interface BaldeDoImpacto {
+  periodicidade: string;
+  /** `null` quando o recorte é de uma natureza só — as quatro rubricas. */
+  natureza: NaturezaEconomica | null;
+  valor: number;
+}
+
+/** Os números de um par, no recorte de quem perguntou. */
 export interface NumerosDoPar {
   alteracoes: number;
-  impacto: { porPeriodicidade: Record<string, number> };
+  impacto: { baldes: BaldeDoImpacto[] };
+}
+
+/**
+ * O impacto de uma rubrica — `Record<periodicidade, líquido>` — como baldes.
+ *
+ * As quatro auditorias publicam o impacto nesse formato desde sempre
+ * (`impactoPorPeriodicidade` e irmãs), e nenhuma delas tem duas naturezas para
+ * separar. Esta é a tradução de uma ponta à outra, num lugar só, para que as
+ * quatro não escrevam quatro vezes o mesmo `Object.entries`.
+ */
+export function baldesDeUmaNatureza(
+  porPeriodicidade: Record<string, number>,
+): BaldeDoImpacto[] {
+  return Object.entries(porPeriodicidade).map(([periodicidade, valor]) => ({
+    periodicidade,
+    natureza: null,
+    valor,
+  }));
 }
 
 export interface CandidatasDoPar {
@@ -62,17 +109,36 @@ export interface CandidatasDoPar {
   pendentes: number;
 }
 
+/** De qual par saíram as linhas — o que o recorte precisa saber além delas. */
+export interface ParCalculado {
+  /** A candidata a "De". */
+  baseId: string;
+  /** O "Para" fixado. */
+  comparadaId: string;
+  changeSetId: string;
+}
+
 export interface RecorteDaRubrica {
   /** Os atributos que a rubrica lê — `CODIGOS_DO_DETALHE` da rubrica. */
   attributeCodes: readonly string[];
   /**
-   * As linhas e os números daquela rubrica, a partir do que o motor devolveu.
+   * As linhas e os números daquele recorte, a partir do que o motor devolveu.
    *
    * Recebe as linhas cruas e responde o que a tela publica. Quem implementa
    * chama o próprio `linhasDeX` e o próprio `resumirX` — e é por isso que este
    * módulo não conhece rubrica nenhuma.
+   *
+   * O segundo argumento é o par de onde as linhas vieram. As quatro auditorias
+   * não o usam — o número delas sai das linhas e de mais nada —, e ele está
+   * aqui pelo Monitor: `normalizarLinhas` carimba o par e o `change_set` em
+   * cada linha, e sem os três identificadores ele teria de inventá-los para
+   * chamar a mesma função que a tela chama. Inventar identificador para
+   * satisfazer uma assinatura é como um dado errado entra num agregado.
    */
-  numeros: (rows: Awaited<ReturnType<typeof listChanges>>["rows"]) => NumerosDoPar;
+  numeros: (
+    rows: Awaited<ReturnType<typeof listChanges>>["rows"],
+    par: ParCalculado,
+  ) => NumerosDoPar;
 }
 
 export async function candidatasDoPar(
@@ -119,7 +185,14 @@ export async function candidatasDoPar(
       attributeCodes: [...recorte.attributeCodes],
       limit: 5000,
     });
-    candidatos.push({ id: candidata.id, numeros: recorte.numeros(rows) });
+    candidatos.push({
+      id: candidata.id,
+      numeros: recorte.numeros(rows, {
+        baseId: candidata.id,
+        comparadaId: destino.id,
+        changeSetId: resumo.id,
+      }),
+    });
   }
 
   return { para: destino.id, candidatos, pendentes };

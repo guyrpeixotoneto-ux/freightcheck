@@ -1,4 +1,5 @@
 import { periodicitySuffix } from "@workspace/comparison/labels";
+import type { NaturezaEconomica } from "@workspace/comparison/monitor-custo-fixo";
 import { formatBrl, formatNumber } from "@/lib/format";
 
 /**
@@ -18,6 +19,25 @@ import { formatBrl, formatNumber } from "@/lib/format";
  * mesma forma entra sem tocar em nada.
  */
 
+/**
+ * Um balde de dinheiro de um par — a periodicidade, a natureza e o líquido.
+ *
+ * `natureza` é `null` no recorte de uma rubrica só, e a linha sai como sempre
+ * saiu: `+R$ 7.238,85/mês`, sem prefixo. Numa tela cujo nome já é o da rubrica,
+ * dizer "Custo" ao lado do número é repetir o que a tela inteira diz.
+ *
+ * Ela vem preenchida do único recorte que mistura as duas naturezas — o Monitor
+ * Custo Fixo —, e ali o prefixo é obrigatório: um número só, com o custo que
+ * subiu somado à receita que subiu, é o "impacto líquido" que os cartões
+ * daquela tela recusam publicar em letra grande. O espelho do tipo que a rota
+ * publica (`api-server/src/lib/candidatas-do-par.ts`).
+ */
+export interface BaldeDoImpacto {
+  periodicidade: string;
+  natureza: NaturezaEconomica | null;
+  valor: number;
+}
+
 /** O que uma rota de candidatas devolve. */
 export interface CandidatosDoPar {
   para: string;
@@ -26,7 +46,7 @@ export interface CandidatosDoPar {
     numeros: {
       alteracoes: number;
       /*
-        Só `porPeriodicidade`, e é o que a linha precisa.
+        Só os baldes, e é o que a linha precisa.
 
         A primeira versão deste tipo copiou o impacto do FINAME inteiro, com
         `cobertasPorParcelas` junto — e o IPVA, que chama o mesmo campo de
@@ -34,11 +54,28 @@ export interface CandidatosDoPar {
         que se lê é o que torna esta forma comum de verdade: cada rubrica
         acrescenta o que quiser no resto, e nada disso chega ao menu.
       */
-      impacto: { porPeriodicidade: Record<string, number> };
+      impacto: { baldes: BaldeDoImpacto[] };
     } | null;
   }[];
   /** Quantas candidatas não couberam no orçamento desta chamada. */
   pendentes: number;
+}
+
+/**
+ * Como uma linha de dinheiro se lê — e é isto que a pinta.
+ *
+ * A régua é o **sinal**: positivo é ganho, negativo é perda, zero não é nem um
+ * nem outro. Ela sai daqui em vez de o seletor a redescobrir do número porque
+ * cor e palavra têm de dizer a mesma coisa: "Perda" em verde é pior do que
+ * qualquer uma das duas sozinha, e duas réguas em dois arquivos divergem no
+ * primeiro que alguém mexer.
+ */
+export type LeituraDoValor = "GANHO" | "PERDA" | "NEUTRO";
+
+export function leituraDoValor(valor: number): LeituraDoValor {
+  if (valor > 0) return "GANHO";
+  if (valor < 0) return "PERDA";
+  return "NEUTRO";
 }
 
 /** O que uma linha do menu mostra à direita da vigência. */
@@ -50,7 +87,7 @@ export interface NumerosDaLinha {
    * zerada é a resposta, e a coluna em branco era a ausência dela. Ver
    * {@link numerosDaLinha}.
    */
-  valores: { texto: string; bruto: number }[];
+  valores: { texto: string; bruto: number; leitura: LeituraDoValor }[];
   /** "457 alterações", "1 alteração", "0 alterações". */
   alteracoes: string;
 }
@@ -77,9 +114,11 @@ export interface NumerosDaLinha {
  * dizem a segunda em voz alta, na mesma régua em que as outras linhas dizem a
  * delas.
  *
- * O zero não leva sinal: `+` e `−` são a direção do movimento, e não há
- * direção quando não houve movimento. Quem pinta a linha é o seletor, e ele lê
- * `bruto` — zero não é ganho nem perda, e não recebe a cor de nenhum dos dois.
+ * O zero não leva palavra: "Ganho" e "Perda" são a direção do movimento, e não
+ * há direção quando não houve movimento. Quem pinta a linha é o seletor, e ele
+ * lê `leitura` — a mesma que escolheu a palavra, de modo que a cor nunca pode
+ * discordar dela. Zero não é ganho nem perda, e não recebe a cor de nenhum dos
+ * dois.
  *
  * O dinheiro sai por periodicidade, cada balde na sua linha, com o sufixo do
  * motor (`/mês`, `/ano`, `(valor único)`). Somar os baldes num número só é o
@@ -87,19 +126,48 @@ export interface NumerosDaLinha {
  * de compra é do ato da compra —, e uma tela que somasse aqui publicaria um
  * total que nenhuma outra do produto reconhece.
  */
+/**
+ * O prefixo de cada leitura. O neutro não tem palavra: `R$ 0,00` já é a notícia
+ * inteira, e "Ganho R$ 0,00" afirmaria um movimento que não houve.
+ */
+const PALAVRA_DA_LEITURA: Record<LeituraDoValor, string> = {
+  GANHO: "Ganho ",
+  PERDA: "Perda ",
+  NEUTRO: "",
+};
+
 export function numerosDaLinha(
   numeros: CandidatosDoPar["candidatos"][number]["numeros"],
 ): NumerosDaLinha | null {
   if (!numeros) return null;
 
-  const valores = Object.entries(numeros.impacto.porPeriodicidade)
-    .filter(([, valor]) => valor !== 0)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([periodicidade, valor]) => ({
-      texto: `${valor > 0 ? "+" : "−"}${formatBrl(Math.abs(valor))}${periodicitySuffix(
-        periodicidade,
-      )}`,
-      bruto: valor,
+  const valores = numeros.impacto.baldes
+    .filter((b) => b.valor !== 0)
+    .sort(
+      (a, b) =>
+        a.periodicidade.localeCompare(b.periodicidade) ||
+        /* Custo antes de receita, a ordem dos quadros do Monitor. */
+        (a.natureza ?? "").localeCompare(b.natureza ?? ""),
+    )
+    .map((b) => ({
+      /*
+        A palavra no lugar do sinal — "Ganho" e "Perda", e não `+` e `−`.
+
+        O `+` e o `−` exigiam que quem lê traduzisse o símbolo antes de decidir
+        se valia abrir aquele par, e a coluna existe justamente para decidir num
+        relance. A palavra já é a leitura, e o valor vem em módulo porque
+        "Perda −R$ 1.000,00" diria a mesma coisa duas vezes, uma delas com um
+        sinal que pareceria ser de outra conta.
+
+        A régua é o sinal do líquido, e ela é a mesma em todas as linhas — no
+        Monitor, onde uma periodicidade traz duas (a de custo e a de receita),
+        as duas se leem pela mesma palavra.
+      */
+      texto: `${PALAVRA_DA_LEITURA[leituraDoValor(b.valor)]}${formatBrl(
+        Math.abs(b.valor),
+      )}${periodicitySuffix(b.periodicidade)}`,
+      bruto: b.valor,
+      leitura: leituraDoValor(b.valor),
     }));
 
   /*
@@ -111,7 +179,9 @@ export function numerosDaLinha(
     filtrado: ali o que responde é o movimento, e `R$ 0,00/ano` embaixo de
     `+R$ 7.238,85/mês` só rouba a linha de quem tem notícia.
   */
-  if (valores.length === 0) valores.push({ texto: formatBrl(0), bruto: 0 });
+  if (valores.length === 0) {
+    valores.push({ texto: formatBrl(0), bruto: 0, leitura: "NEUTRO" });
+  }
 
   const alteracoes = `${formatNumber(numeros.alteracoes, 0)} ${
     numeros.alteracoes === 1 ? "alteração" : "alterações"

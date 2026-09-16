@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import type { LinhaDoMonitor } from "@workspace/comparison";
+import type { LinhaDoMonitor, ResumoDoMonitor } from "@workspace/comparison";
 import {
+  baldesDoMonitor,
   parseFiltros,
   passaNaBusca,
   passaNaPeriodicidade,
@@ -182,5 +183,90 @@ describe("a leitura dos parâmetros", () => {
     const { filtros } = parseFiltros({ modulo: " ipva , impostos ", equipamento: "cavalo" });
     expect(filtros.modulos).toEqual(["IPVA", "IMPOSTOS"]);
     expect(filtros.equipamento).toBe("CAVALO");
+  });
+});
+
+/**
+ * Os baldes que o menu do seletor recebe — a única resposta do produto em que
+ * custo e receita viajam juntos.
+ *
+ * A regressão que este bloco guarda é a que a tela inteira do Monitor existe
+ * para não ter: **não há número único**. O consolidado separa as duas naturezas
+ * em cada periodicidade, e a linha do menu tem de continuar separando — somar
+ * os dois lados ali publicaria, num canto sem espaço para ressalva, exatamente
+ * o "impacto líquido" que `CartoesDoMonitor` recusa em letra grande.
+ */
+describe("os baldes do Monitor como o menu os lê", () => {
+  const resumo = (baldes: ResumoDoMonitor["baldes"]): ResumoDoMonitor => ({
+    alteracoes: 0,
+    porSituacao: {
+      VALORADO: 0,
+      SEM_VALORACAO: 0,
+      NAO_MONETARIA: 0,
+      FORA_DO_TOTAL: 0,
+    },
+    aumentos: 0,
+    reducoes: 0,
+    entidadesAfetadas: 0,
+    baldes,
+    porModulo: [],
+  });
+
+  const lado = (liquido: number) => ({ liquido, aumentos: 0, reducoes: 0 });
+
+  it("abre cada periodicidade nas duas naturezas, e nunca as soma", () => {
+    const baldes = baldesDoMonitor(
+      resumo([
+        { periodicidade: "MENSAL", custo: lado(1200), receita: lado(-900), resultado: -2100 },
+      ]),
+    );
+
+    expect(baldes).toEqual([
+      { periodicidade: "MENSAL", natureza: "CUSTO", valor: 1200 },
+      { periodicidade: "MENSAL", natureza: "RECEITA", valor: -900 },
+    ]);
+    /* Nem o líquido somado (300), nem o `resultado` (−2100) aparecem sozinhos:
+       o primeiro é a soma que o produto recusa, e o segundo trocaria o sinal do
+       custo sem avisar, ao lado de menus em que positivo é custo que subiu. */
+    expect(baldes.map((b) => b.valor)).not.toContain(300);
+    expect(baldes.map((b) => b.valor)).not.toContain(-2100);
+  });
+
+  /* Duas periodicidades continuam duas, pela razão de sempre: a parcela é
+     mensal e a base de compra é do ato da compra. */
+  it("uma entrada por natureza em cada periodicidade", () => {
+    const baldes = baldesDoMonitor(
+      resumo([
+        { periodicidade: "MENSAL", custo: lado(10), receita: lado(0), resultado: -10 },
+        { periodicidade: "PONTUAL", custo: lado(50), receita: lado(0), resultado: -50 },
+      ]),
+    );
+
+    expect(baldes).toHaveLength(4);
+    expect(baldes.map((b) => b.periodicidade)).toEqual([
+      "MENSAL",
+      "MENSAL",
+      "PONTUAL",
+      "PONTUAL",
+    ]);
+  });
+
+  /*
+    O zerado sai na lista, e é deliberado: quem decide se ele vira texto é
+    `numerosDaLinha`, do lado do cliente, onde mora inteira a regra de que zero
+    não é ausência. A rota que já o filtrasse tiraria daquela função a
+    informação de que a conta aconteceu.
+  */
+  it("o lado zerado vai na resposta — filtrar é decisão do cliente", () => {
+    const baldes = baldesDoMonitor(
+      resumo([
+        { periodicidade: "MENSAL", custo: lado(0), receita: lado(0), resultado: 0 },
+      ]),
+    );
+
+    expect(baldes).toEqual([
+      { periodicidade: "MENSAL", natureza: "CUSTO", valor: 0 },
+      { periodicidade: "MENSAL", natureza: "RECEITA", valor: 0 },
+    ]);
   });
 });

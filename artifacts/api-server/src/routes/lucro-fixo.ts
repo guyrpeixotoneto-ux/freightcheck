@@ -27,7 +27,11 @@ import { classificarFalha } from "../lib/classificar-falha";
 import { exigirOperacaoDoRecurso, operacaoDaConsulta } from "../lib/operacao";
 import { contextoDoPar } from "../lib/recorte-do-par";
 import { comTetoDeRota } from "../lib/timeout-de-rota";
-import { candidatasDoPar, TETO_DE_CANDIDATAS_MS } from "../lib/candidatas-do-par";
+import {
+  baldesDeUmaNatureza,
+  candidatasDoPar,
+  TETO_DE_CANDIDATAS_MS,
+} from "../lib/candidatas-do-par";
 
 /**
  * AUDITORIA DE LUCRO FIXO — o recorte da remuneração entre duas vigências.
@@ -365,8 +369,25 @@ router.get("/lucro-fixo/candidatos", async (req, res, next): Promise<void> => {
   const operacao = operacaoDaConsulta(req.query as Record<string, unknown>);
 
   try {
-    await comTetoDeRota(TETO_DE_CANDIDATAS_MS, async (dbComTeto) => {
-      const resposta = await candidatasDoPar(
+    /*
+      A resposta sai **fora** do teto, e não de dentro dele.
+
+      Dentro, `res.json` era a última linha da função que `comTetoDeRota`
+      embrulha — então o HTTP terminava antes de o `finally` daquela função
+      devolver a conexão ao pool. Quem recebeu a resposta seguia adiante com
+      uma consulta de limpeza (`SET statement_timeout = DEFAULT`) ainda em voo,
+      e um `pool.end()` logo em seguida a pegava no meio da devolução e não
+      resolvia mais. Foi assim que o `afterAll` de
+      `monitor-custo-fixo-candidatos.test.ts` estourou em CI, e as quatro
+      rotas de candidatas tinham a mesma ordem.
+
+      Calcular dentro e responder fora fecha a janela pela ordem: quando a
+      resposta sai, a conexão já voltou inteira. É o que
+      `<rota>-candidatos.test.ts` afere — "a conexão já voltou ao pool quando
+      a resposta chega".
+    */
+    const resposta = await comTetoDeRota(TETO_DE_CANDIDATAS_MS, (dbComTeto) =>
+      candidatasDoPar(
         dbComTeto,
         para,
         {
@@ -381,18 +402,23 @@ router.get("/lucro-fixo/candidatos", async (req, res, next): Promise<void> => {
               novos: 0,
               ausentes: 0,
             });
-            return { alteracoes: variaveisAlteradas, impacto };
+            /* Uma natureza só — a linha do menu sai sem prefixo, como
+               sempre saiu. Ver `BaldeDoImpacto`. */
+            return {
+              alteracoes: variaveisAlteradas,
+              impacto: { baldes: baldesDeUmaNatureza(impacto.porPeriodicidade) },
+            };
           },
         },
         { operacao, computedBy: "api:lucro-fixo-candidatos" },
-      );
+      ),
+    );
 
-      if ("naoEncontrada" in resposta) {
-        res.status(404).json({ error: "Essa vigência não existe." });
-        return;
-      }
-      res.json(resposta);
-    });
+    if ("naoEncontrada" in resposta) {
+      res.status(404).json({ error: "Essa vigência não existe." });
+      return;
+    }
+    res.json(resposta);
   } catch (err) {
     const desfecho = classificarFalha(err);
     if (desfecho.tipo !== "REGRA") {
