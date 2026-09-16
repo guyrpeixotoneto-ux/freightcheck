@@ -6,6 +6,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { cn } from "@/lib/utils";
 import {
   ROTULO_DO_ESTADO,
+  ROTULO_DO_TIPO,
   SELO_DO_ESTADO,
   corDaDiferenca,
   escreverDataDeCadastro,
@@ -21,8 +22,6 @@ import {
   type AbrirJustificativa,
 } from "@/components/justificativas/coluna";
 import type { Justificativa } from "@/lib/justificativas";
-
-const ROTULO_DO_TIPO: Record<string, string> = { CAVALO: "Cavalo", CARRETA: "Carreta" };
 
 /** As colunas da placa, na ordem da tela — e de que lado cada número encosta. */
 const COLUNAS: { titulo: string; direita?: boolean }[] = [

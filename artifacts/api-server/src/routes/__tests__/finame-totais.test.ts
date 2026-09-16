@@ -179,6 +179,31 @@ describe("GET /finame/totais", () => {
     expect(total(res.body, "COMPARADA")).toBe(1400);
   });
 
+  /*
+    A decomposição sai da mesma leitura que os totais — é a razão de ela vir
+    nesta rota, e não de uma segunda consulta. Aqui se prende o que a tela
+    precisa poder afirmar: as três parcelas e os dois totais são a mesma conta,
+    e a identidade fecha no número que o painel escreve ao lado.
+  */
+  it("abre a diferença nas três parcelas, e elas fecham com os totais", async () => {
+    const res = await get(
+      `/finame/totais?base=${vigencia.camacariBase}&comparada=${vigencia.camacariComparada}`,
+    );
+    expect(res.status).toBe(200);
+    const cavalo = res.body.evolucao.find((e: any) => e.entityType === "CAVALO");
+    expect(cavalo.base).toBe(total(res.body, "BASE"));
+    expect(cavalo.comparada).toBe(total(res.body, "COMPARADA"));
+    /* CAM1A11 caiu 100; CAM2B22 está nas duas pontas e não se moveu. */
+    expect(cavalo.alterados).toBe(-100);
+    expect(cavalo.veiculosAlterados).toBe(1);
+    expect(cavalo.entradas).toBe(0);
+    expect(cavalo.saidas).toBe(0);
+    expect(cavalo.base + cavalo.alterados + cavalo.entradas - cavalo.saidas).toBeCloseTo(
+      cavalo.comparada,
+      2,
+    );
+  });
+
   it("soma a outra unidade quando o par é o dela", async () => {
     const res = await get(
       `/finame/totais?base=${vigencia.pernambucoBase}&comparada=${vigencia.pernambucoComparada}`,

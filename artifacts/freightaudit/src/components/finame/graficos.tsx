@@ -12,9 +12,24 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { Fragment } from "react";
 import { formatBrl, formatBrlShort, formatNumber } from "@/lib/format";
 import type { ComparacaoDeFiname, TotaisDeFiname } from "@/lib/finame";
-import type { EstadoDaLinhaDeFiname } from "@workspace/comparison/finame";
+import {
+  ROTULO_DO_TIPO,
+  corDaDiferenca,
+  escreverDiferenca,
+  escreverVariacao,
+} from "@/lib/finame";
+/* Apelidados: `Tooltip` já é o do recharts, três importações acima, e são duas
+   coisas diferentes — a dica do gráfico e a dica de um botão. */
+import {
+  Tooltip as Dica,
+  TooltipContent as DicaConteudo,
+  TooltipTrigger as DicaGatilho,
+} from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
+import type { EstadoDaLinhaDeFiname, EvolucaoDoTipo } from "@workspace/comparison/finame";
 
 /**
  * Os quatro gráficos, e a regra que vale para os quatro: **nenhum deles soma o
@@ -247,80 +262,222 @@ export function DistribuicaoPorEstado({
 }
 
 /**
- * Gráfico 4 — a evolução entre as duas vigências, por tipo.
+ * Gráfico 4 — a evolução entre as duas vigências, por tipo, **aberta**.
  *
  * Duas pontas ligadas por uma reta: é o formato que responde "para onde foi",
  * que é a pergunta desta tela. Uma série temporal com doze pontos responderia
  * outra — e o par escolhido pode nem ser de meses vizinhos.
+ *
+ * ---------------------------------------------------------------------------
+ * Por que a diferença vem decomposta
+ * ---------------------------------------------------------------------------
+ * O total de cada ponta inclui quem não mudou, quem só a base tem e quem só a
+ * comparada tem. A tabela, abaixo, só mostra diferença para quem está nas duas
+ * — um veículo ausente aparece com `—` na coluna Diferença. Somar aquela coluna
+ * nunca dava o número deste painel, e a pergunta chegou assim: *"esses valores
+ * e o que está na tabela não deveriam bater?"*.
+ *
+ * Batem, desde que a conta esteja escrita: `alterados + entradas − saídas`. As
+ * três parcelas vêm do servidor, da mesma leitura que produziu os totais, e o
+ * painel só as escreve — somar aqui seria a tela dando a segunda resposta para
+ * a diferença que o servidor já deu.
+ *
+ * Cada parcela é um botão: leva a tabela para o recorte que a sustenta, que é o
+ * que transforma o número em algo que se confere.
  */
 export function EvolucaoEntreVigencias({
-  totais,
+  evolucao,
   rotuloBase,
   rotuloComparada,
+  onRecorte,
 }: {
-  totais: TotaisDeFiname["totais"];
+  evolucao: EvolucaoDoTipo[];
   rotuloBase: string;
   rotuloComparada: string;
+  /** Leva a tabela para o recorte de uma parcela. Ausente, os chips não clicam. */
+  onRecorte?: (recorte: RecorteDaParcela) => void;
 }) {
-  const porTipo = new Map<string, { tipo: string; base: number; comparada: number }>();
-  for (const t of totais) {
-    const atual = porTipo.get(t.entityType) ?? {
-      tipo: t.entityType === "CAVALO" ? "Cavalo" : "Carreta",
-      base: 0,
-      comparada: 0,
-    };
-    if (t.ponta === "BASE") atual.base = t.total;
-    else atual.comparada = t.total;
-    porTipo.set(t.entityType, atual);
-  }
-  const linhas = [...porTipo.values()];
-
   return (
     <Painel
       titulo="Evolução entre as duas vigências"
-      fonte="A diferença de cada tipo, do total da base para o total da comparada."
+      fonte={
+        "A diferença de cada tipo, do total da base para o total da comparada. As três parcelas " +
+        "somam a diferença: o que se moveu em quem está nas duas vigências, o que entrou de frota " +
+        "e o que saiu. Só a primeira aparece como diferença na tabela abaixo."
+      }
     >
-      {linhas.length === 0 ? (
+      {evolucao.length === 0 ? (
         <p className="py-6 text-center text-sm text-muted-foreground">
           Sem total para comparar.
         </p>
       ) : (
         <ul className="flex flex-col gap-3">
-          {linhas.map((l) => {
-            const delta = l.comparada - l.base;
-            const variacao = l.base === 0 ? null : (delta / Math.abs(l.base)) * 100;
+          {evolucao.map((e, i) => {
+            const delta = e.comparada - e.base;
+            const variacao = e.base === 0 ? null : (delta / Math.abs(e.base)) * 100;
             return (
-              <li key={l.tipo} className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-                <span className="w-16 text-xs font-semibold text-muted-foreground">{l.tipo}</span>
-                <span className="font-mono text-sm tabular-nums">{formatBrl(l.base)}</span>
-                <span aria-hidden="true" className="text-muted-foreground">
-                  →
-                </span>
-                <span className="font-mono text-sm font-semibold tabular-nums">
-                  {formatBrl(l.comparada)}
-                </span>
-                <span
-                  className={`font-mono text-xs tabular-nums ${
-                    delta > 0 ? "text-success" : delta < 0 ? "text-destructive" : "text-muted-foreground"
-                  }`}
-                >
-                  {delta > 0 ? "+" : delta < 0 ? "−" : ""}
-                  {formatBrl(Math.abs(delta))}
-                  {variacao === null
-                    ? " · base zero"
-                    : ` · ${variacao > 0 ? "+" : variacao < 0 ? "−" : ""}${formatNumber(
-                        Math.abs(variacao),
-                        2,
-                      )}%`}
-                </span>
-                <span className="sr-only">
-                  {rotuloBase} para {rotuloComparada}
-                </span>
+              <li
+                key={e.entityType}
+                className={i > 0 ? "flex flex-col gap-2 border-t pt-3" : "flex flex-col gap-2"}
+              >
+                <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+                  <span className="w-16 text-xs font-semibold text-muted-foreground">
+                    {ROTULO_DO_TIPO[e.entityType] ?? e.entityType}
+                  </span>
+                  <span className="font-mono text-sm tabular-nums">{formatBrl(e.base)}</span>
+                  <span aria-hidden="true" className="text-muted-foreground">
+                    →
+                  </span>
+                  <span className="font-mono text-sm font-semibold tabular-nums">
+                    {formatBrl(e.comparada)}
+                  </span>
+                  {/* As mesmas réguas da tabela — sinal, unidade e cor saem de
+                      `lib/finame`, e não de uma segunda escrita aqui. */}
+                  <span
+                    className={cn(
+                      "font-mono text-xs tabular-nums",
+                      corDaDiferenca(delta, "DINHEIRO"),
+                    )}
+                  >
+                    {escreverDiferenca(delta, "DINHEIRO")}
+                    {variacao === null ? " · base zero" : ` · ${escreverVariacao(variacao)}`}
+                  </span>
+                  <span className="sr-only">
+                    {rotuloBase} para {rotuloComparada}
+                  </span>
+                </div>
+                <ParcelasDaDiferenca evolucao={e} onRecorte={onRecorte} />
               </li>
             );
           })}
         </ul>
       )}
     </Painel>
+  );
+}
+
+/** Para onde um chip leva a tabela — o recorte que sustenta aquela parcela. */
+export interface RecorteDaParcela {
+  tipo: string;
+  estado: "TODAS" | EstadoDaLinhaDeFiname;
+  variavel: string;
+}
+
+/**
+ * As três parcelas, e o que cada chip abre na tabela.
+ *
+ * O primeiro não abre a aba "Alterados": abre **a variável Parcela**, em todos
+ * os estados. É o recorte que contém exatamente os veículos que ele conta —
+ * quem está nas duas vigências e teve a parcela mexida. A aba Alterados conta
+ * alteração de qualquer variável, e mandaria para lá um número que não é o dela.
+ * Por isso o rótulo também é "Parcela alterada", e não "Alterados": um chip
+ * promete o que entrega.
+ *
+ * Os outros dois abrem Novos e Ausentes sem filtrar variável, porque entrada e
+ * saída de ativo não citam atributo — o motor as grava uma vez por veículo, com
+ * a variável em branco, e filtrar por Parcela esvaziaria a tabela.
+ */
+function ParcelasDaDiferenca({
+  evolucao: e,
+  onRecorte,
+}: {
+  evolucao: EvolucaoDoTipo;
+  onRecorte?: (recorte: RecorteDaParcela) => void;
+}) {
+  const parcelas: {
+    rotulo: string;
+    valor: number;
+    veiculos: number;
+    operador: string;
+    /** O sinal com que a parcela entra na soma — a saída é escrita positiva. */
+    negativa?: boolean;
+    explicacao: string;
+    recorte: RecorteDaParcela;
+  }[] = [
+    {
+      rotulo: "Parcela alterada",
+      valor: e.alterados,
+      veiculos: e.veiculosAlterados,
+      operador: "",
+      explicacao:
+        "Veículos presentes nas duas vigências cuja parcela se moveu. É a única " +
+        "das três que a coluna Diferença da tabela mostra.",
+      recorte: { tipo: e.entityType, estado: "TODAS", variavel: "parcela" },
+    },
+    {
+      rotulo: "Entradas",
+      valor: e.entradas,
+      veiculos: e.veiculosEntradas,
+      operador: "+",
+      explicacao:
+        "Parcela de quem só a vigência comparada tem. Conta veículo com parcela, " +
+        "então pode diferir da aba Novos, que conta veículo.",
+      recorte: { tipo: e.entityType, estado: "NOVO_NA_VIGENCIA", variavel: "TODAS" },
+    },
+    {
+      rotulo: "Saídas",
+      valor: e.saidas,
+      veiculos: e.veiculosSaidas,
+      operador: "−",
+      negativa: true,
+      explicacao:
+        "Parcela de quem só a vigência base tem — dinheiro que deixou o total. " +
+        "Conta veículo com parcela, então pode diferir da aba Ausentes, que conta veículo.",
+      recorte: { tipo: e.entityType, estado: "AUSENTE_NA_COMPARADA", variavel: "TODAS" },
+    },
+  ];
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 sm:pl-16">
+      {parcelas.map((p) => (
+        <Fragment key={p.rotulo}>
+          {p.operador && (
+            <span aria-hidden="true" className="text-xs text-muted-foreground">
+              {p.operador}
+            </span>
+          )}
+          <Dica>
+            <DicaGatilho asChild>
+              {/* A parcela zerada continua escrita — é ela que deixa a soma
+                  conferível —, mas não clica: levaria a uma tabela vazia, e uma
+                  tabela vazia depois de um clique se lê como defeito. */}
+              <button
+                type="button"
+                disabled={!onRecorte || p.veiculos === 0}
+                onClick={() => onRecorte?.(p.recorte)}
+                className={cn(
+                  "flex items-baseline gap-2 rounded-lg border bg-muted/50 px-2.5 py-1 text-left",
+                  onRecorte &&
+                    p.veiculos > 0 &&
+                    "transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                )}
+              >
+                <span className="text-[0.7rem] font-semibold text-muted-foreground">
+                  {p.rotulo}
+                </span>
+                {/* A saída é escrita positiva e pintada de perda: o operador
+                    "−" ao lado já diz que ela sai, e "−R$ 17.798,77" depois de
+                    um "−" se lê como dois sinais sobre o mesmo número. */}
+                <span
+                  className={cn(
+                    "font-mono text-xs tabular-nums",
+                    corDaDiferenca(p.negativa ? -p.valor : p.valor, "DINHEIRO"),
+                  )}
+                >
+                  {p.negativa ? formatBrl(p.valor) : escreverDiferenca(p.valor, "DINHEIRO")}
+                </span>
+                <span className="font-mono text-[0.7rem] text-muted-foreground">
+                  {formatNumber(p.veiculos, 0)} veíc.
+                </span>
+              </button>
+            </DicaGatilho>
+            <DicaConteudo className="max-w-xs">
+              {p.explicacao}
+              {onRecorte && p.veiculos > 0 && " Clique para ver na tabela."}
+            </DicaConteudo>
+          </Dica>
+        </Fragment>
+      ))}
+    </div>
   );
 }
