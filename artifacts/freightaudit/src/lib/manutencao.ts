@@ -13,7 +13,7 @@ import { numeroParaCsv } from "@/lib/csv";
 import { formatBrl, formatNumber } from "@/lib/format";
 
 /**
- * A metade de tela da Auditoria de Manutenção e Pneu — apresentação, e só.
+ * A metade de tela da Auditoria de Manutenção — apresentação, e só.
  *
  * A conta inteira mora em `@workspace/comparison/manutencao`, que o servidor
  * também importa. O que este arquivo acrescenta é o que é genuinamente de

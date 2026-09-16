@@ -15,11 +15,14 @@ import {
 } from "../manutencao";
 
 /**
- * A AUDITORIA DE MANUTENÇÃO E PNEU.
+ * A AUDITORIA DE MANUTENÇÃO.
  *
  * O que estes casos prendem é a recusa central desta rubrica — **R$/km não vira
  * reais aqui** — e o achado da origem: onde há contrato, o R$/km resolvido é o
  * do contrato; onde não há, ele não é o do BID e o export não explica o que é.
+ *
+ * Desde que o pneu saiu para `pneu.ts`, prendem também o que a separação
+ * afirmou: esta rubrica é **do cavalo, e só dele**.
  */
 
 const linha = (over: Partial<LinhaDeManutencao> = {}): LinhaDeManutencao => ({
@@ -52,18 +55,29 @@ const valor = (over: Partial<ValorDeManutencao> = {}): ValorDeManutencao => ({
   contrato: 0.34,
   vidaMeses: 59.8,
   freeMaintenance: 0,
-  pneu: 0,
   ...over,
 });
 
-describe("o catálogo — a manutenção é do cavalo, e o pneu é dos dois", () => {
-  it("só o pneu tem código de carreta", () => {
-    const comCarreta = VARIAVEIS_DE_MANUTENCAO.filter((v) => v.codigo.CARRETA);
-    expect(comCarreta.map((v) => v.chave)).toEqual(["pneu"]);
+describe("o catálogo — a manutenção é do cavalo, e só dele", () => {
+  /*
+    Enquanto o pneu morava aqui, esta era a única variável com código de carreta
+    — e era a zerada. Com ele em `pneu.ts`, nenhuma sobrou, e o catálogo passou a
+    dizer por estrutura o que o cabeçalho sempre disse por extenso: o
+    `Modelo_Carreta` não declara coluna de manutenção nenhuma.
+  */
+  it("nenhuma variável tem código de carreta", () => {
+    expect(VARIAVEIS_DE_MANUTENCAO.filter((v) => v.codigo.CARRETA)).toEqual([]);
   });
 
-  it("o recorte de carreta traz só o pneu", () => {
-    expect(codigosDoRecorteDeManutencao("CARRETA")).toEqual(["carreta.valor_pneus"]);
+  it("o recorte de carreta devolve lista vazia, e isso é a resposta certa", () => {
+    expect(codigosDoRecorteDeManutencao("CARRETA")).toEqual([]);
+  });
+
+  /* E o que saiu não voltou por engano: nenhum código de pneu continua no
+     recorte que esta tela pede ao motor. */
+  it("nenhum código de pneu sobrou no recorte", () => {
+    const codigos = codigosDoRecorteDeManutencao("TODOS");
+    expect(codigos.some((c) => c.includes("pneu"))).toBe(false);
   });
 });
 
@@ -94,9 +108,9 @@ describe("o impacto — R$/km não vira reais", () => {
     expect(impacto.alteracoesDeReaisKm).toBe(0);
   });
 
-  it("o pneu e as duplicatas saem pelo foraDaSoma", () => {
+  it("as duplicatas saem pelo foraDaSoma", () => {
     const impacto = impactoDeManutencao([
-      linha({ variavel: "pneu", medida: "DINHEIRO", foraDaSoma: "Zero em 100% das linhas." }),
+      linha({ variavel: "reaiskm_solto", foraDaSoma: "Não se sabe o que ela é." }),
       linha({ variavel: "valor_reajustado", foraDaSoma: "É o contrato com outro nome." }),
     ]);
     expect(impacto.foraDaSoma).toBe(2);

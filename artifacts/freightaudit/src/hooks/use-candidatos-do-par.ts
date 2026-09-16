@@ -65,6 +65,9 @@ export function useTextoAdiado(texto: string, espera = ESPERA_DA_BUSCA_MS) {
  * não veículo. Para esta lista isso não muda nada: o que a define é ter rota de
  * candidatas, e as duas têm — a contagem e o impacto saem das mesmas funções
  * que a tela chama depois do clique.
+ *
+ * Pneu e Consumo entraram com a separação da Manutenção, e são de trecho pela
+ * mesma razão: o pneu e o diesel com dado deste acervo são do percurso.
  */
 export type TelaComCandidatas =
   | "finame"
@@ -76,6 +79,8 @@ export type TelaComCandidatas =
   | "monitor-custo-fixo"
   | "monitor-equipe"
   | "km-rodado"
+  | "pneu"
+  | "consumo"
   | "velocidade-media"
   | "tma"
   | "qlp";

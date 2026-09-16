@@ -40,13 +40,26 @@
  *    onde ele vem. A tela mostra as três lado a lado e **não afirma a fórmula**,
  *    porque sugerir não é ver.
  *
- * 4. **O pneu é coluna sem dado, dos dois lados.** `cavalo.valor_pneu` e
- *    `carreta.valor_pneus` são zero em 100% das linhas, em todas as vigências;
- *    `pneu_medida_empurrada` é a mesma medida para a frota inteira. É a mesma
- *    espécie do montante de ICMS em `impostos.ts`: a coluna existe, é declarada,
- *    e o dinheiro nunca foi preenchido. Ela fica na tela, marcada e fora da
- *    soma — escondê-la apagaria o achado, e somá-la afirmaria que pneu custa
- *    R$ 0,00.
+ * ---------------------------------------------------------------------------
+ * O pneu saiu daqui, e o que ficou é só manutenção
+ * ---------------------------------------------------------------------------
+ * Esta rubrica já se chamou "Manutenção e Pneu", e o pneu dela eram três colunas
+ * do equipamento: `cavalo.valor_pneu` e `carreta.valor_pneus`, zeradas em 100%
+ * das linhas dos dois lados, e `pneu_medida_empurrada`, a mesma medida para a
+ * frota inteira. Com isso, pneu não era uma rubrica — era uma ressalva no rodapé
+ * desta.
+ *
+ * O pneu **com dado** está na tabela de frete, por trecho, e agora tem tela
+ * própria (`pneu.ts`): quantos pneus o conjunto leva, quanto custa cada um,
+ * quanto custa a recapagem, quanto a carcaça devolve, quanto ela dura, e o R$/km
+ * que sai disso. As três colunas de equipamento continuam declaradas lá, em
+ * `COLUNAS_DE_EQUIPAMENTO_DE_PNEU`, com o que se mediu sobre cada uma.
+ *
+ * O que sobrou aqui é de um grão só e de um assunto só: **o contrato de
+ * manutenção de um cavalo**. O `Modelo_Carreta` não declara coluna de manutenção
+ * nenhuma — não é que venham zeradas, é que não existem —, e por isso esta
+ * rubrica não tem mais recorte de carreta: `codigosDoRecorteDeManutencao`
+ * devolve lista vazia para ela, que é a resposta certa.
  */
 
 import {
@@ -99,10 +112,12 @@ export interface VariavelDeManutencao {
  * caminhão custa hoje, e o que resume a placa —, segue pelas duas origens que o
  * explicam (BID e contrato), e termina no que emoldura os três: quanto tempo de
  * vida ainda há, quantos meses de free maintenance, e qual reajuste foi
- * aplicado. O pneu vem por último porque é o que não tem número.
+ * aplicado.
  *
- * **Nenhuma delas é da carreta**, exceto o pneu. O `Modelo_Carreta` não tem
- * coluna de manutenção nenhuma — não é que venham zeradas, é que não existem.
+ * **Nenhuma delas é da carreta.** O `Modelo_Carreta` não tem coluna de
+ * manutenção nenhuma — não é que venham zeradas, é que não existem. Desde que o
+ * pneu saiu para `pneu.ts`, a carreta não declara variável nenhuma desta
+ * rubrica, e o catálogo mostra isso: nenhum `codigo` tem chave `CARRETA`.
  */
 export const VARIAVEIS_DE_MANUTENCAO: readonly VariavelDeManutencao[] = [
   {
@@ -160,22 +175,6 @@ export const VARIAVEIS_DE_MANUTENCAO: readonly VariavelDeManutencao[] = [
     ajuda:
       "O reajuste que já entrou no valor: 18 valores distintos, de 0 a 20,56%. É " +
       "percentual, e nunca entra numa soma de reais nem de R$/km.",
-  },
-  {
-    chave: "pneu",
-    rotulo: "Pneu",
-    medida: "DINHEIRO",
-    codigo: { CAVALO: "cavalo.valor_pneu", CARRETA: "carreta.valor_pneus" },
-    foraDaSoma:
-      "Zero em 100% das linhas dos dois equipamentos, em todas as vigências — 558 do " +
-      "cavalo e 657 da carreta. É coluna sem dado, não pneu de graça: a coluna existe, " +
-      "é declarada, e o dinheiro correspondente nunca foi preenchido. Somá-la daria um " +
-      "total de R$ 0,00 com cara de medição, que é a mesma recusa que o montante de " +
-      "ICMS recebe em impostos.ts.",
-    ajuda:
-      "A única variável desta tela que a carreta também declara — e os dois lados a " +
-      "declaram zerada. A medida do pneu, essa sim preenchida, é a mesma para a frota " +
-      "inteira e está no detalhe.",
   },
 ] as const;
 
@@ -235,18 +234,6 @@ export const VARIAVEIS_DE_DETALHE_DE_MANUTENCAO: readonly VariavelDeManutencao[]
       "Com quantos quilômetros o caminhão entrou: de 2.000 a 544.061 no acervo. É o " +
       "contexto que diz se uma faixa alta é desgaste ou cadastro antigo.",
   },
-  {
-    chave: "pneu_medida",
-    rotulo: "Medida do pneu",
-    medida: "TEXTO",
-    codigo: {
-      CAVALO: "cavalo.pneu_medida_empurrada",
-      CARRETA: "carreta.pneu_medida_empurrada",
-    },
-    ajuda:
-      "295/80R22,5 na frota inteira, nos dois equipamentos. É a única coluna de pneu " +
-      "que o acervo preenche — e ela é a mesma para todos.",
-  },
 ] as const;
 
 const TODAS = [...VARIAVEIS_DE_MANUTENCAO, ...VARIAVEIS_DE_DETALHE_DE_MANUTENCAO];
@@ -273,9 +260,12 @@ export const CODIGOS_DA_TABELA_DE_MANUTENCAO = codigosDeManutencao(VARIAVEIS_DE_
  * por Placa aceita (`tipo`), mas a leitura ponta a ponta só aceita uma lista de
  * atributos, e as duas precisam responder pelo mesmo recorte.
  *
- * Em `CARRETA` ele devolve só o pneu, que é a única variável que a carreta tem
- * — e é a que não tem valor. Uma aba Carreta com uma coluna zerada é a resposta
- * certa aqui, e não uma tela quebrada.
+ * Em `CARRETA` ele devolve **lista vazia**, e isso é a resposta certa: o
+ * `Modelo_Carreta` não declara coluna de manutenção nenhuma. Enquanto o pneu
+ * morava nesta rubrica, a carreta tinha uma variável — a zerada —, e a tela
+ * abria uma aba para ela; com o pneu em `pneu.ts`, a aba deixou de ter o que
+ * mostrar e deixou de existir. A função continua aceitando o recorte porque
+ * quem chama não deve precisar saber disso para perguntar.
  */
 export function codigosDoRecorteDeManutencao(
   recorte: "TODOS" | "CAVALO" | "CARRETA",
@@ -355,8 +345,8 @@ export interface LinhaDeManutencao {
  * Devolve `null` para o que não é desta rubrica — a função é o filtro e o
  * tradutor ao mesmo tempo, de modo que nenhuma tela precise saber os códigos.
  *
- * As duplicatas e o pneu **não** são barrados aqui: são o achado desta tela, e
- * escondê-los seria apagá-lo. Passam marcados, e quem soma
+ * As duplicatas **não** são barradas aqui: são o achado desta tela, e escondê-las
+ * seria apagá-lo. Passam marcados, e quem soma
  * ({@link impactoDeManutencao}) os recusa pelo `foraDaSoma`.
  */
 export function linhaDeManutencaoDaAlteracao(
@@ -496,7 +486,7 @@ export interface ImpactoDeManutencao {
  * **Não soma periodicidades diferentes.** Cada balde é uma periodicidade.
  *
  * **Não soma o que é duplicata nem o que é coluna sem dado.** O valor
- * reajustado, o R$/km solto e o pneu saem pelo `foraDaSoma`.
+ * reajustado e o R$/km solto saem pelo `foraDaSoma`.
  *
  * **Não multiplica R$/km por quilometragem.** A quilometragem é de outra
  * leitura (`km-rodado.ts`), de outra vigência e de outro grão; fazer a conta
@@ -755,8 +745,6 @@ export interface ValorDeManutencao {
   vidaMeses: number | null;
   /** Os meses de manutenção inclusa. */
   freeMaintenance: number | null;
-  /** O valor do pneu — zero em todo o acervo. */
-  pneu: number | null;
 }
 
 /** Um ponto do gráfico "R$/km médio por vigência". */
@@ -964,7 +952,7 @@ export type VeiculoDeManutencao = VeiculoDaRubrica<LinhaDeManutencao>;
  * A ordem em que a expansão lê as variáveis, e quem é o destaque.
  *
  * A ordem é a do catálogo: o R$/km resolvido primeiro, as duas origens que o
- * explicam logo abaixo, o contexto depois, e o pneu por último.
+ * explicam logo abaixo, e o contexto por último.
  *
  * O destaque é o **R$/km resolvido** — e ele é medido em R$/km, não em reais. A
  * tela declara isso em `medidaDoDestaque`, para que a coluna não escreva

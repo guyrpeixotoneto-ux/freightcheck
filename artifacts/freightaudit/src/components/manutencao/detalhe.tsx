@@ -114,14 +114,6 @@ export function diagnosticoDoVeiculo(linhas: readonly LinhaDeManutencao[]): stri
     );
   }
 
-  const pneu = por("pneu");
-  if (pneu) {
-    frases.push(
-      "O pneu chega zerado, como em 100% das linhas do acervo nos dois equipamentos. É coluna " +
-        "sem dado, não pneu de graça — e por isso ele fica fora de toda soma desta tela.",
-    );
-  }
-
   return frases;
 }
 

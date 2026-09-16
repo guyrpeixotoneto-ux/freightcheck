@@ -29,7 +29,7 @@ export const ESCRITA_DA_MANUTENCAO: EscritaDaRubrica<
   LinhaDeManutencao,
   VeiculoDeManutencao
 > = {
-  rubrica: "manutenção e pneu",
+  rubrica: "manutenção",
   destaque: "R$/km",
   medidaDoDestaque: "REAIS_POR_KM",
   escreverValor,

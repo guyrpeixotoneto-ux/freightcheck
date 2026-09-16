@@ -87,6 +87,7 @@ export function RecorteDeEquipamento({
   valor,
   onValor,
   disponiveis,
+  motivoDoVazio,
   idPrefixo,
   abaExtra,
 }: {
@@ -106,6 +107,20 @@ export function RecorteDeEquipamento({
    * notícia, e ela tem de estar escrita, não deduzida de uma tabela em branco.
    */
   disponiveis: Record<RecorteDeTipo, boolean>;
+  /**
+   * Por que um recorte está vazio, quando a razão **não** é a unidade.
+   *
+   * O motivo padrão — "nenhuma vigência desta unidade tem carreta" — vale para as
+   * auditorias em que a rubrica existe nos dois equipamentos e o acervo é que não
+   * tem um deles. Não vale para a Manutenção: ali a carreta está desabilitada
+   * porque o `Modelo_Carreta` **não declara coluna de manutenção nenhuma**, e
+   * mandar importar o arquivo correspondente seria pedir à pessoa um arquivo que
+   * já chegou e que não responde a pergunta.
+   *
+   * Uma frase errada num botão desabilitado custa mais do que botão nenhum: ela
+   * manda trabalhar à toa.
+   */
+  motivoDoVazio?: Partial<Record<RecorteDeTipo, string>>;
   idPrefixo: string;
   /** Ver {@link AbaExtraDoRecorte}. Ausente, a fileira é só os três recortes. */
   abaExtra?: AbaExtraDoRecorte;
@@ -140,7 +155,8 @@ export function RecorteDeEquipamento({
             disabled={vazio}
             title={
               vazio
-                ? `Nenhuma vigência desta unidade tem ${rotulo(r).toLowerCase()}. Importe o arquivo correspondente para auditá-lo aqui.`
+                ? (motivoDoVazio?.[r] ??
+                  `Nenhuma vigência desta unidade tem ${rotulo(r).toLowerCase()}. Importe o arquivo correspondente para auditá-lo aqui.`)
                 : undefined
             }
             onClick={() => onValor(r)}
