@@ -257,14 +257,31 @@ describe("o motivo de não haver par", () => {
     });
   });
 
-  /* E o que deixou de impedir: um tipo em comum basta. */
-  it("não vê motivo quando as coberturas se cruzam em pelo menos um tipo", () => {
+  /* E o que deixou de impedir: um tipo em comum basta, dentro do mesmo grão.
+
+     `CAVALO` com `CARRETA+CAVALO` é o caso do arquivo parcial — as duas são de
+     equipamento e têm cavalo em comum. Já `TRECHO` com `CAVALO+TRECHO` **não**
+     forma par, e é de propósito: a casca de trecho não é anterior de vigência
+     de equipamento (ver `coberturasSeFalam`). */
+  it("não vê motivo quando as coberturas se cruzam dentro do mesmo grão", () => {
+    const lista = [
+      vigencia("pe-set", "2026-09-01", PERNAMBUCO, "CAVALO"),
+      vigencia("pe-ago", "2026-08-01", PERNAMBUCO, "CARRETA+CAVALO"),
+    ];
+
+    expect(motivoSemPar(lista)).toBeNull();
+  });
+
+  it("vê motivo quando o que elas têm em comum é só o trecho", () => {
     const lista = [
       vigencia("pe-set", "2026-09-01", PERNAMBUCO, "TRECHO"),
       vigencia("pe-ago", "2026-08-01", PERNAMBUCO, "CAVALO+TRECHO"),
     ];
 
-    expect(motivoSemPar(lista)).toBeNull();
+    expect(motivoSemPar(lista)).toEqual({
+      motivo: "COBERTURAS_DIFERENTES",
+      coberturas: ["CAVALO+TRECHO", "TRECHO"],
+    });
   });
 
   /* Sem unidade aberta a lista é o acervo inteiro — e aí o motivo é outro. */

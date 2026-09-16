@@ -21,7 +21,7 @@ import {
   type ResumoDeImpacto,
 } from "./deduplicacao";
 import { carregarVinculosDeConjunto } from "./vinculos";
-import { coberturaComum } from "./recorte-de-rubrica";
+import { coberturaComum, coberturasSeFalam } from "./recorte-de-rubrica";
 
 /**
  * The comparison engine.
@@ -201,9 +201,10 @@ export async function computeChangeSet(
     setembro, porque é cavalo que as duas pontas têm.
   */
   const tiposComuns = coberturaComum(a.entityTypeSet, b.entityTypeSet);
-  if (tiposComuns.length === 0) {
+  if (!coberturasSeFalam(a.entityTypeSet, b.entityTypeSet)) {
     throw new Error(
-      `Coberturas sem tipo em comum: "${a.sourceLabel}" cobre ${a.entityTypeSet} e "${b.sourceLabel}" cobre ${b.entityTypeSet}.`,
+      `Coberturas que não formam par: "${a.sourceLabel}" cobre ${a.entityTypeSet} e "${b.sourceLabel}" cobre ${b.entityTypeSet}. ` +
+        `Ou não têm tipo em comum, ou são de grãos diferentes — equipamento não se compara com a casca de trecho.`,
     );
   }
   /*

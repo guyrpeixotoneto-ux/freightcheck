@@ -682,8 +682,8 @@ export function seriesKey(
  * particionava por cobertura e cortava a série no mês do arquivo parcial.
  *
  * A régua, na ordem em que `findPreviousSnapshot` a testa: mesma origem, mesmo
- * escopo, mesma família, mesmo canal, **algum tipo de equipamento em comum**, e
- * a data imediatamente anterior. Vigência morta ou de importação oculta não
+ * escopo, mesma família, mesmo canal, **algum tipo em comum e o mesmo grão**
+ * (ver `coberturasSeFalam`), e a data imediatamente anterior. Vigência morta ou de importação oculta não
  * conta, como em toda leitura deste produto.
  *
  * `alias` é o snapshot de quem se pergunta a anterior — quem chama garante que
@@ -706,6 +706,15 @@ export function anteriorDoSnapshot(alias: string) {
            IS NOT DISTINCT FROM ${channelSql(`${alias}.source_label`)}
        AND string_to_array(anterior.entity_type_set, '+')
            && string_to_array(${s("entity_type_set")}, '+')
+       -- E do mesmo GRÃO: quem cobre equipamento só se compara com quem cobre
+       -- equipamento. Sem este degrau, a casca de trecho de uma unidade
+       -- (entity_type_set = TRECHO, entregue como vigência separada) vira
+       -- candidata a anterior de uma vigência CARRETA+CAVALO+TRECHO, porque as
+       -- duas têm trecho em comum — e, sendo mais recente que a vigência de
+       -- equipamento de verdade, ganha. A comparação sairia com interseção só
+       -- de trecho: zero alterações de cavalo num mês em que houve.
+       AND (string_to_array(anterior.entity_type_set, '+') && ARRAY['CAVALO','CARRETA'])
+           = (string_to_array(${s("entity_type_set")}, '+') && ARRAY['CAVALO','CARRETA'])
        AND anterior.effective_date < ${s("effective_date")}
      ORDER BY anterior.effective_date DESC
      LIMIT 1

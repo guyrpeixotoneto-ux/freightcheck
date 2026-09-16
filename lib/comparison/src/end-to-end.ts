@@ -21,7 +21,7 @@ import {
   type ImpactSummary,
 } from "./grouped";
 import { listPeriods } from "./consolidated";
-import { coberturaComum } from "./recorte-de-rubrica";
+import { coberturaComum, coberturasSeFalam } from "./recorte-de-rubrica";
 import {
   contextFilter,
   listContexts,
@@ -281,7 +281,7 @@ export async function getEndToEndAnalysis(
   const contraparteDe = (serie: string) => {
     const candidatas = [...deA.keys()]
       .map((outra) => ({ outra, comuns: coberturaComum(serie, outra) }))
-      .filter((c) => c.comuns.length > 0)
+      .filter((c) => c.comuns.length > 0 && coberturasSeFalam(serie, c.outra))
       .sort(
         (x, y) =>
           y.comuns.length - x.comuns.length ||

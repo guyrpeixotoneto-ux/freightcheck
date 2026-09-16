@@ -189,25 +189,44 @@ export async function listarVigenciasDaAuditoria(
          AND s.entity_type_set IS DISTINCT FROM 'TRECHO'
     ),
     /*
-      A anterior da série, pela mesma definição de findPreviousSnapshot: mesma
-      origem, mesmo escopo, mesma cobertura, mesmo canal. PARTITION BY trata
-      NULL como um grupo, que é o que o IS NOT DISTINCT FROM de lá faz com o
-      canal ilegível — as vigências sem canal no rótulo formam uma série entre
-      si, e não uma série cada.
+      A anterior da série, pela mesma definição de findPreviousSnapshot e de
+      anteriorDoSnapshot (series.ts): mesma origem, mesmo escopo, mesmo canal,
+      algum tipo em comum e o mesmo grão.
 
-      (Sem crase nos comentários daqui para baixo: isto é um template literal, e
+      Era um lag() particionado tambem por entity_type_set, e a particao cortava
+      a serie no mes em que um arquivo parcial entrava: a partir dali as
+      vigencias cobriam um tipo a mais, caiam noutra janela, e a primeira delas
+      ficava sem anterior — o cartao da unidade dizia "sem comparacao" com um
+      ano de historico logo acima. Mesmo defeito de 16/09/2026, nesta tela.
+
+      O LATERAL e sobre vivas, e nao sobre snapshot, de proposito: vivas ja
+      recortou familia, operacao e a casca de trecho, e e sobre esse conjunto
+      que a Visao Gerencial soma. Buscar em snapshot traria de volta o que ela
+      acabou de excluir.
+
+      (Sem crase nos comentarios daqui para baixo: isto e um template literal, e
       uma crase no meio dele fecharia a consulta na cara do compilador.)
     */
     com_anterior AS (
       SELECT v.*,
-             lag(v.id)             OVER serie AS anterior_id,
-             lag(v.source_label)   OVER serie AS anterior_label,
-             lag(v.effective_date) OVER serie AS anterior_em
+             ant.id             AS anterior_id,
+             ant.source_label   AS anterior_label,
+             ant.effective_date AS anterior_em
         FROM vivas v
-      WINDOW serie AS (
-        PARTITION BY v.source_system, v.scope_hash, v.entity_type_set, v.channel
-            ORDER BY v.effective_date, v.id
-      )
+        LEFT JOIN LATERAL (
+          SELECT p.id, p.source_label, p.effective_date
+            FROM vivas p
+           WHERE p.source_system = v.source_system
+             AND p.scope_hash = v.scope_hash
+             AND p.channel IS NOT DISTINCT FROM v.channel
+             AND string_to_array(p.entity_type_set, '+')
+                 && string_to_array(v.entity_type_set, '+')
+             AND (string_to_array(p.entity_type_set, '+') && ARRAY['CAVALO','CARRETA'])
+                 = (string_to_array(v.entity_type_set, '+') && ARRAY['CAVALO','CARRETA'])
+             AND (p.effective_date, p.id) < (v.effective_date, v.id)
+           ORDER BY p.effective_date DESC, p.id DESC
+           LIMIT 1
+        ) ant ON TRUE
     )
     SELECT ca.id::text                     AS snapshot_id,
            ca.scope_hash,

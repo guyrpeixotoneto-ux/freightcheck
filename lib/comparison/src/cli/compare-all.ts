@@ -7,7 +7,7 @@ import { createDb } from "@workspace/db";
 import { computeChangeSet } from "../engine";
 import { getChangeSetBreakdown, listChanges, listComparableSnapshots } from "../query";
 import { seriesKey } from "../series";
-import { coberturaComum } from "../recorte-de-rubrica";
+import { coberturasSeFalam } from "../recorte-de-rubrica";
 
 const { db, pool } = createDb(process.env.DATABASE_URL!);
 const n = (v: number) => v.toLocaleString("pt-BR", { maximumFractionDigits: 2 });
@@ -54,7 +54,7 @@ try {
     // haver mais de uma cobertura, e a linha de cima nem sempre compara.
     let a: (typeof group)[number] | undefined;
     for (let j = i - 1; j >= 0; j--) {
-      if (coberturaComum(group[j].entityTypeSet, b.entityTypeSet).length > 0) {
+      if (coberturasSeFalam(group[j].entityTypeSet, b.entityTypeSet)) {
         a = group[j];
         break;
       }

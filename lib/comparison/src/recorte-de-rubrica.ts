@@ -631,7 +631,44 @@ export function coberturaComum(
 export function formamParDeVigencias(a: VigenciaEmparelhavel, b: VigenciaEmparelhavel): boolean {
   if (a.id === b.id) return false;
   if (a.scopeHash !== b.scopeHash) return false;
-  return coberturaComum(a.entityTypeSet, b.entityTypeSet).length > 0;
+  return coberturasSeFalam(a.entityTypeSet, b.entityTypeSet);
+}
+
+/**
+ * AS DUAS COBERTURAS FORMAM PAR — INTERSEÇÃO **E** MESMO GRÃO.
+ *
+ * ---------------------------------------------------------------------------
+ * Por que a interseção sozinha não basta
+ * ---------------------------------------------------------------------------
+ * Porque o acervo entrega o arquivo de trecho como vigência **separada**, com
+ * `entity_type_set = 'TRECHO'` — a "casca" que `listContexts`, a Visão
+ * Gerencial e o Radar já tratam à parte. Ela convive, na mesma unidade e no
+ * mesmo canal, com as vigências de equipamento.
+ *
+ * Enquanto a régua era igualdade, as duas séries não se viam. Trocada por
+ * "algum tipo em comum", abriu-se um caminho que não existia: uma vigência
+ * `CARRETA+CAVALO+TRECHO` tem trecho em comum com a casca, então a casca vira
+ * candidata a anterior dela — e, sendo mais recente que a vigência de
+ * equipamento de verdade, **ganha**. A comparação que sairia dali teria
+ * interseção só de trecho: zero alterações de cavalo num mês em que houve.
+ *
+ * É o defeito de 16/09/2026 com o sinal trocado, e foi encontrado na auditoria
+ * que o cliente pediu antes de apresentar os números.
+ *
+ * O segundo degrau é o **grão**: quem cobre equipamento (cavalo ou carreta) só
+ * se compara com quem cobre equipamento; quem não cobre — a casca — só com
+ * quem também não cobre. Dentro de cada grão vale a interseção, que é o que
+ * devolve a série quando um arquivo parcial muda a cobertura no meio do ano.
+ */
+export function coberturasSeFalam(
+  a: string | null | undefined,
+  b: string | null | undefined,
+): boolean {
+  if (coberturaComum(a, b).length === 0) return false;
+  const temEquipamento = (cobertura: string | null | undefined) =>
+    coberturasDe(cobertura).some((t) => TIPOS_DE_EQUIPAMENTO.includes(t));
+  /* Mesmo grão: ou as duas trazem equipamento, ou nenhuma das duas traz. */
+  return temEquipamento(a) === temEquipamento(b);
 }
 
 /**

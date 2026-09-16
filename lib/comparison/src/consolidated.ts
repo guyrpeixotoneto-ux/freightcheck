@@ -14,7 +14,7 @@ import {
   type RequestedContext,
   type SeriesContext,
 } from "./series";
-import { coberturaComum } from "./recorte-de-rubrica";
+import { coberturasSeFalam } from "./recorte-de-rubrica";
 
 /**
  * The consolidated view — a projection, not an entity.
@@ -325,7 +325,7 @@ export async function computeMissingChangeSets(
       */
       let a: (typeof group)[number] | undefined;
       for (let j = i - 1; j >= 0; j--) {
-        if (coberturaComum(group[j].entityTypeSet, b.entityTypeSet).length > 0) {
+        if (coberturasSeFalam(group[j].entityTypeSet, b.entityTypeSet)) {
           a = group[j];
           break;
         }
