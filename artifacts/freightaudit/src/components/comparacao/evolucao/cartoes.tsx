@@ -69,6 +69,23 @@ export function CartoesDaEvolucao({
   */
   const daPonta = ponta?.impact.byPeriodicity[evolucao.periodicidade] ?? null;
 
+  /*
+    Nenhuma alteração do intervalo tem preço — e então R$ 0,00 seria mentira.
+
+    Descoberto na prova no navegador das telas de Seguro e de Manutenção: as duas
+    fecham o ano com "0 valoradas · 118 sem valoração" no terceiro cartão e um
+    "R$ 0" enorme no primeiro. Os dois números estão certos e juntos dizem a
+    coisa errada — o R$ 0 lê-se como "nada se moveu", quando o que houve foram
+    118 movimentos que o motor não sabe precificar.
+    
+    A distinção é a mesma que os cartões da comparação já fazem entre "sem
+    impacto precificável" e "R$ 0,00". Vale para toda rubrica: o recorte Carreta
+    do IPVA cai no mesmo caso.
+  */
+  const nadaValorado =
+    totais.alteracoes > 0 &&
+    totais.alteracoes === totais.alteracoesSemValoracao + totais.alteracoesEmOutraPeriodicidade;
+
   const revertidas = ponta?.reverted.length ?? 0;
   const saiu = ponta?.fleet.removed ?? 0;
   const entrou = ponta?.fleet.added ?? 0;
@@ -78,18 +95,38 @@ export function CartoesDaEvolucao({
       <Cartao
         icon={ArrowLeftRight}
         titulo="Impacto líquido dos movimentos"
-        regua="soma das células"
-        valor={<Dinheiro valor={totais.liquido} sufixo={sufixo} />}
+        regua={nadaValorado ? "nada precificado" : "soma das células"}
+        valor={
+          nadaValorado ? (
+            <span className="text-base font-semibold text-muted-foreground">
+              sem impacto precificável
+            </span>
+          ) : (
+            <Dinheiro valor={totais.liquido} sufixo={sufixo} />
+          )
+        }
         nota={
-          <>
-            Positivo <b className="text-foreground">+{formatBrlShort(totais.ganho)}</b> · negativo{" "}
-            <b className="text-foreground">−{formatBrlShort(Math.abs(totais.perda))}</b>
-          </>
+          nadaValorado ? (
+            <>
+              As <b className="text-foreground">{formatNumber(totais.alteracoes, 0)}</b>{" "}
+              {totais.alteracoes === 1 ? "alteração do ano" : "alterações do ano"} são de
+              variáveis que não viram reais — {semValoracao}.
+            </>
+          ) : (
+            <>
+              Positivo <b className="text-foreground">+{formatBrlShort(totais.ganho)}</b> · negativo{" "}
+              <b className="text-foreground">−{formatBrlShort(Math.abs(totais.perda))}</b>
+            </>
+          )
         }
         dica={
-          "Tudo que se moveu no ano, vigência a vigência — inclusive o que depois " +
-          "voltou ao ponto de partida. É a soma das células da matriz, e fecha com " +
-          "ela ao centavo."
+          nadaValorado
+            ? "Nenhuma alteração deste intervalo tem preço, então não há soma a fazer. " +
+              "R$ 0,00 aqui seria um número diferente: diria que houve movimento e ele " +
+              "foi nulo, quando o que houve foi movimento sem valoração."
+            : "Tudo que se moveu no ano, vigência a vigência — inclusive o que depois " +
+              "voltou ao ponto de partida. É a soma das células da matriz, e fecha com " +
+              "ela ao centavo."
         }
       />
 

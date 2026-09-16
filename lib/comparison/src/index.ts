@@ -19,6 +19,8 @@ export * from "./qlp";
 export * from "./qlp-comparacao";
 export * from "./tma";
 export * from "./lucro-fixo";
+export * from "./seguro";
+export * from "./manutencao";
 export * from "./monitor-custo-fixo";
 export * from "./monitor-equipe";
 export * from "./deduplicacao";

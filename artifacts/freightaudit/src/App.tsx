@@ -70,6 +70,8 @@ import AuditoriaDeFiname from '@/pages/custo-fixo-finame';
 import AuditoriaDeIpva from '@/pages/custo-fixo-ipva';
 import AuditoriaDeLucroFixo from '@/pages/custo-fixo-lucro-fixo';
 import AuditoriaDeImpostos from '@/pages/custo-fixo-impostos';
+import AuditoriaDeSeguro from '@/pages/custo-fixo-seguro';
+import AuditoriaDeManutencao from '@/pages/custo-variavel-manutencao';
 import AuditoriaDeKmRodado from '@/pages/custo-variavel-km-rodado';
 import AuditoriaDeVelocidadeMedia from '@/pages/custo-variavel-velocidade-media';
 import AuditoriaDeTma from '@/pages/custo-variavel-tma';
@@ -553,6 +555,8 @@ function RotasDaAuditoria() {
         não mudou uma vírgula, como manda o catálogo.
       */}
       <Route path="/custo-fixo-impostos" component={AuditoriaDeImpostos} />
+      <Route path="/custo-fixo-seguro" component={AuditoriaDeSeguro} />
+      <Route path="/custo-variavel-manutencao" component={AuditoriaDeManutencao} />
       {/*
         Km Rodado sai de `TELAS_EM_PREPARO` e é a **primeira tela de custo
         variável** — e a primeira de grão trecho. As quatro de custo fixo são por

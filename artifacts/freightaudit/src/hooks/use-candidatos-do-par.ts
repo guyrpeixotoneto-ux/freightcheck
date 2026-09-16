@@ -71,6 +71,8 @@ export type TelaComCandidatas =
   | "ipva"
   | "lucro-fixo"
   | "impostos"
+  | "seguro"
+  | "manutencao"
   | "monitor-custo-fixo"
   | "km-rodado"
   | "velocidade-media"
