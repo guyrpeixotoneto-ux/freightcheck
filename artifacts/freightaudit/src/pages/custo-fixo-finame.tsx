@@ -58,7 +58,7 @@ import {
   vigenciasDaUnidade,
   vigenciasQueCobrem,
 } from "@workspace/comparison/recorte-de-rubrica";
-import { avisoDoParImpossivel } from "@/lib/par-de-vigencias";
+import { avisoDoParImpossivel, parDaUrl } from "@/lib/par-de-vigencias";
 import { lerRecorte } from "@/lib/recorte";
 import { contextoAberto, unidadeDe, useContextosDaCasca } from "@/lib/contextos";
 import { cn } from "@/lib/utils";
@@ -130,8 +130,18 @@ import { cn } from "@/lib/utils";
  * isso** — que é a resposta certa, e não uma falha.
  */
 export default function AuditoriaDeFiname() {
-  const [base, setBase] = useState("");
-  const [comparada, setComparada] = useState("");
+  /**
+   * O par que o endereço traz, quando traz — o que faz o **Abrir auditoria** do
+   * Monitor Custo Fixo chegar aqui no mesmo par que ele estava mostrando.
+   *
+   * É só o valor inicial: `parReconciliado`, abaixo, continua mandando, e um
+   * par que não pertença à unidade aberta é descartado como qualquer outro.
+   * Sem os parâmetros no endereço, as duas pontas nascem vazias — o estado que
+   * esta tela sempre teve. Ver `parDaUrl`, em `lib/par-de-vigencias.ts`.
+   */
+  const parInicial = parDaUrl(useSearch());
+  const [base, setBase] = useState(parInicial.base);
+  const [comparada, setComparada] = useState(parInicial.comparada);
   const [filtros, setFiltros] = useState<FiltrosDeFiname>(FILTROS_VAZIOS);
   const [comSemAlteracao, setComSemAlteracao] = useState(false);
   const [pagina, setPagina] = useState(1);

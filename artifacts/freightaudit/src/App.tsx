@@ -63,6 +63,7 @@ import Frota360 from '@/pages/frota-360';
 import RadarTrechos from '@/pages/radar-trechos';
 import QlpAdministrativo from '@/pages/qlp-administrativo';
 import QlpOperacional from '@/pages/qlp-operacional';
+import MonitorCustoFixo from '@/pages/monitor-custo-fixo';
 import AuditoriaDeFiname from '@/pages/custo-fixo-finame';
 import AuditoriaDeIpva from '@/pages/custo-fixo-ipva';
 import AuditoriaDeLucroFixo from '@/pages/custo-fixo-lucro-fixo';
@@ -509,6 +510,7 @@ function RotasDaAuditoria() {
         vigências**, que é o motor de `change_set` recortado nas catorze colunas
         de FINAME. O menu não mudou uma vírgula, como manda o catálogo.
       */}
+      <Route path="/monitor-custo-fixo" component={MonitorCustoFixo} />
       <Route path="/custo-fixo-finame" component={AuditoriaDeFiname} />
       {/*
         IPVA saiu de `TELAS_EM_PREPARO` pelo mesmo caminho do Finame, e com a
