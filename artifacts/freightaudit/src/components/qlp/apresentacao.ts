@@ -1,3 +1,4 @@
+import { partesDaChaveLegivel } from "@workspace/comparison/qlp";
 import { formatBrl, formatNumber } from "@/lib/format";
 import type { ChangeRow } from "@/components/changes/change-table";
 import type { AtributoDoQuadro, ValorDeFato } from "./tipos";
@@ -51,29 +52,56 @@ export function formatarValor(
  * `"07.526.557/0015-05 · ANALISTA ADM"` → as partes da identidade, cada uma no
  * seu campo.
  *
- * A chave legível é a emenda das colunas de identidade do tipo, na ordem em que
- * elas compõem a chave (`lib/ingest/src/tipos.ts`): unidade + cargo no QLP
- * Administrativo, unidade + cargo + turno no Operacional. Devolver as três
- * separadas é o que permite a tabela dar uma **coluna** a cada uma; emendá-las
- * num campo só faria o operacional ler
- * `"Cargo: MOTORISTA 28 · Cargo: EQUIPE ATIVA 8x16"` sob o cabeçalho "Cargo",
- * que é a mesma sopa que a chave normalizada, só que com pontos.
+ * A regra mora no núcleo (`partesDaChaveLegivel`), que o CSV também usa: a
+ * tabela e o arquivo exportado repartem a mesma chave do mesmo jeito. Aqui fica
+ * só o nome com que a tela chama isso.
  *
- * Um quarto pedaço (um tipo novo, ou uma versão da chave com mais colunas) fica
- * junto do turno em vez de sumir: a tela não sabe como ele se chama, mas
- * esconder um pedaço da identidade é pior do que escrevê-lo sem nome próprio.
+ * O valor sai **como o arquivo o escreveu**. Quem apara o prefixo `Cargo:` para
+ * a leitura é {@link identidadeNaTela}, e só na hora de desenhar.
  */
 export function separarRotulo(entityLabel: string): {
   unidade: string;
   cargo: string;
   turno: string;
 } {
-  const partes = entityLabel.split(" · ");
-  if (partes.length === 1) return { unidade: "", cargo: entityLabel, turno: "" };
+  return partesDaChaveLegivel(entityLabel);
+}
+
+/**
+ * O `Cargo:` que a origem repete dentro do próprio valor, fora — **na tela, e
+ * só nela**.
+ *
+ * O export do quadro operacional escreve `Cargo: MOTORISTA 28` na coluna do
+ * cargo e `Cargo: EQUIPE ATIVA 8x16` na do turno. Sob os cabeçalhos "Cargo" e
+ * "Turno", esse prefixo é ruído: repete o nome da coluna na primeira e mente o
+ * nome dela na segunda.
+ *
+ * O que ele **não** faz: mexer no dado. O valor importado continua inteiro no
+ * banco, a chave normalizada continua inteira embaixo do cargo, o CSV continua
+ * escrevendo o valor como veio, e a busca continua casando com as duas formas.
+ * É uma decisão de desenho, reversível numa linha.
+ *
+ * Só o prefixo exato sai, e só quando sobra alguma coisa depois dele: um cargo
+ * que se chamasse "Cargo:" continuaria se chamando assim, porque apagá-lo
+ * deixaria a célula vazia — e célula vazia quer dizer "não veio", que é outra
+ * coisa.
+ */
+export function semPrefixoDeCargo(valor: string): string {
+  const semPrefixo = valor.replace(/^\s*cargo\s*:\s*/i, "");
+  return semPrefixo === "" ? valor : semPrefixo;
+}
+
+/** A identidade como a tela a desenha: repartida e sem o prefixo da origem. */
+export function identidadeNaTela(entityLabel: string): {
+  unidade: string;
+  cargo: string;
+  turno: string;
+} {
+  const { unidade, cargo, turno } = separarRotulo(entityLabel);
   return {
-    unidade: partes[0],
-    cargo: partes[1],
-    turno: partes.slice(2).join(" · "),
+    unidade,
+    cargo: semPrefixoDeCargo(cargo),
+    turno: turno === "" ? "" : semPrefixoDeCargo(turno),
   };
 }
 
@@ -135,7 +163,7 @@ export function agruparMovimentos(
         que entrou no 12x36 são duas entradas, e escrever as duas como
         "MOTORISTA 28" faria a lista repetir o mesmo nome sem dizer por quê.
       */
-      const { unidade, cargo, turno } = separarRotulo(entityLabel);
+      const { unidade, cargo, turno } = identidadeNaTela(entityLabel);
       return { unidade, cargo: turno ? `${cargo} · ${turno}` : cargo };
     }
     const chave = entityLabel.match(/^(\d{14})([A-Z0-9]*)$/);

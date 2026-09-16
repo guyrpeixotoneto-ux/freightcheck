@@ -16,7 +16,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { escreverCargo, escreverValor } from "@/lib/qlp-comparacao";
+import { escreverCargoNaTela, escreverValor } from "@/lib/qlp-comparacao";
 import {
   FRASE_DA_SITUACAO_DE_EQUIPE,
   corDaDiferencaDeEquipe,
@@ -113,7 +113,7 @@ export function TabelaDoMonitorDeEquipe({
         </TableHeader>
         <TableBody>
           {linhas.map((l) => {
-            const { unidade, cargo, turno } = escreverCargo(l.cargo.chave, rotulos);
+            const { unidade, cargo, turno } = escreverCargoNaTela(l.cargo.chave, rotulos);
             return (
               <TableRow
                 key={l.id}

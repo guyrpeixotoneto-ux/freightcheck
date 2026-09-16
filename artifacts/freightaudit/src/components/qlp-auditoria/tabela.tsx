@@ -2,7 +2,7 @@ import { Fragment, useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatNumber } from "@/lib/format";
-import { separarRotulo } from "@/components/qlp/apresentacao";
+import { identidadeNaTela } from "@/components/qlp/apresentacao";
 import {
   ROTULO_DO_VEREDITO_DA_LINHA,
   SELO_DO_VEREDITO,
@@ -37,14 +37,15 @@ import {
  * administrativo não ganha uma coluna "Turno" vazia: a lista é dos dois quadros,
  * e o que decide é o que as linhas trazem, não o que o quadro poderia trazer.
  *
- * Os valores vão como o arquivo os escreveu, inclusive o prefixo `Cargo:` que a
- * origem repete em duas colunas. Ele é feio e é o que está lá; limpá-lo aqui
- * seria a tela discordando em silêncio do que foi importado.
+ * **O prefixo `Cargo:` que a origem repete dentro do valor sai só daqui.** Sob os
+ * cabeçalhos "Cargo" e "Turno" ele é ruído — repete o nome da coluna numa e mente
+ * o nome dela na outra —, mas o dado importado, a chave normalizada embaixo do
+ * cargo e o CSV continuam com o valor como ele veio. Ver `semPrefixoDeCargo`.
  */
 export function TabelaDeCargos({ linhas }: { linhas: ConferenciaDaLinha[] }) {
   const [aberto, setAberto] = useState<string | null>(null);
 
-  const identidades = linhas.map((l) => separarRotulo(l.nome ?? l.chave));
+  const identidades = linhas.map((l) => identidadeNaTela(l.nome ?? l.chave));
   const temUnidade = identidades.some((i) => i.unidade !== "");
   const temTurno = identidades.some((i) => i.turno !== "");
   const colunas = [

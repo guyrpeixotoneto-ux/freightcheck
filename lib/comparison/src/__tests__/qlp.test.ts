@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   celulasDoCsvDeQlp,
+  colunasDoCsvDeQlp,
+  formatoDoCsvDeQlp,
+  partesDaChaveLegivel,
   codigosDoQuadro,
   conferirAbono,
   conferirBenchmark,
@@ -428,16 +431,19 @@ describe("os indicadores do topo", () => {
 });
 
 describe("o CSV", () => {
+  /* O formato de um quadro sem unidade nem turno na chave: só "Cargo". */
+  const SO_CARGO = { comUnidade: false, comTurno: false };
+
   it("escreve uma linha por conta, e não uma por cargo", () => {
-    const linhas = celulasDoCsvDeQlp(conferirLinha(cargoAdm(), "ADMINISTRATIVO"));
+    const linhas = celulasDoCsvDeQlp(conferirLinha(cargoAdm(), "ADMINISTRATIVO"), SO_CARGO);
     expect(linhas).toHaveLength(6);
     expect(linhas[0][0]).toContain("AUXILIAR ADM");
     expect(linhas[0][7]).toBe("Fecha");
   });
 
   it("diz a forma da conta por extenso", () => {
-    const adm = celulasDoCsvDeQlp(conferirLinha(cargoAdm(), "ADMINISTRATIVO"));
-    const oper = celulasDoCsvDeQlp(conferirLinha(cargoOper(), "OPERACIONAL"));
+    const adm = celulasDoCsvDeQlp(conferirLinha(cargoAdm(), "ADMINISTRATIVO"), SO_CARGO);
+    const oper = celulasDoCsvDeQlp(conferirLinha(cargoOper(), "OPERACIONAL"), SO_CARGO);
     expect(adm[0][3]).toBe("quantidade × valor");
     expect(oper[0][3]).toBe("soma das parcelas");
   });
@@ -445,8 +451,84 @@ describe("o CSV", () => {
   it("marca a conta sem base, em vez de escrever zero", () => {
     const linhas = celulasDoCsvDeQlp(
       conferirLinha(cargoAdm({ [ADM("quantidade_ordenados")]: null }), "ADMINISTRATIVO"),
+      SO_CARGO,
     );
     expect(linhas[0][7]).toBe("Base insuficiente");
     expect(linhas[0][4]).toBeNull();
+  });
+
+  /*
+    A identidade em colunas, e a chave sem se repartir.
+
+    O que estes testes prendem é o contrato do arquivo exportado: cada pedaço da
+    chave legível na sua coluna, nenhuma coluna vazia num quadro que não tem
+    aquele pedaço, e o valor como o arquivo o trouxe — inclusive o prefixo
+    `Cargo:`, que só a tela apara.
+  */
+  const operacional = (nome: string) => ({
+    ...conferirLinha(cargoOper(), "OPERACIONAL"),
+    chave: "07526557001505CARGOMOTORISTA28CARGOEQUIPEATIVA8X16",
+    nome,
+  });
+
+  it("dá uma coluna a cada pedaço da chave legível", () => {
+    const linha = operacional(
+      "07526557001505_CERV · Cargo: MOTORISTA 28 · Cargo: EQUIPE ATIVA 8x16",
+    );
+    const formato = formatoDoCsvDeQlp([linha]);
+    expect(colunasDoCsvDeQlp(formato).slice(0, 4)).toEqual([
+      "Unidade",
+      "Cargo",
+      "Turno",
+      "Chave",
+    ]);
+    expect(celulasDoCsvDeQlp(linha, formato)[0].slice(0, 4)).toEqual([
+      "07526557001505_CERV",
+      "Cargo: MOTORISTA 28",
+      "Cargo: EQUIPE ATIVA 8x16",
+      "07526557001505CARGOMOTORISTA28CARGOEQUIPEATIVA8X16",
+    ]);
+  });
+
+  it("o quadro sem turno não ganha uma coluna de turno vazia", () => {
+    const linha = { ...conferirLinha(cargoAdm(), "ADMINISTRATIVO"), nome: "UN · AUXILIAR ADM" };
+    const formato = formatoDoCsvDeQlp([linha]);
+    expect(colunasDoCsvDeQlp(formato)).not.toContain("Turno");
+    expect(colunasDoCsvDeQlp(formato).slice(0, 3)).toEqual(["Unidade", "Cargo", "Chave"]);
+  });
+
+  it("sem nome legível, a chave normalizada ocupa a coluna do cargo", () => {
+    const linha = { ...conferirLinha(cargoAdm(), "ADMINISTRATIVO"), nome: null };
+    const formato = formatoDoCsvDeQlp([linha]);
+    expect(colunasDoCsvDeQlp(formato)[0]).toBe("Cargo");
+    expect(celulasDoCsvDeQlp(linha, formato)[0][0]).toBe(linha.chave);
+  });
+});
+
+describe("as partes da chave legível", () => {
+  it("reparte a identidade do operacional em três", () => {
+    expect(
+      partesDaChaveLegivel("07526557001505_CERV · Cargo: MOTORISTA 28 · Cargo: EQUIPE ATIVA 8x16"),
+    ).toEqual({
+      unidade: "07526557001505_CERV",
+      cargo: "Cargo: MOTORISTA 28",
+      turno: "Cargo: EQUIPE ATIVA 8x16",
+    });
+  });
+
+  it("uma quarta parte fica junto do turno, em vez de sumir", () => {
+    expect(partesDaChaveLegivel("UN · CARGO · TURNO · EXTRA")).toEqual({
+      unidade: "UN",
+      cargo: "CARGO",
+      turno: "TURNO · EXTRA",
+    });
+  });
+
+  it("sem separador, tudo é cargo — melhor do que inventar uma unidade", () => {
+    expect(partesDaChaveLegivel("AUXILIARADM")).toEqual({
+      unidade: "",
+      cargo: "AUXILIARADM",
+      turno: "",
+    });
   });
 });

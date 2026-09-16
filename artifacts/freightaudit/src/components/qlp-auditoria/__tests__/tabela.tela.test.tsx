@@ -13,6 +13,9 @@ import { TabelaDeCargos } from "../tabela";
  * `07526557001505_CERV · Cargo: MOTORISTA 28 · Cargo: EQUIPE ATIVA 8x16`, em que
  * nada se compara entre linhas. Isso não é verificável numa função pura: o que
  * se prende é a tabela montada.
+ *
+ * E prende também o que a tela **não** faz: aparar o prefixo `Cargo:` da origem
+ * não toca na chave normalizada, que continua inteira embaixo do cargo.
  */
 
 afterEach(cleanup);
@@ -78,14 +81,16 @@ describe("a identidade do cargo na tabela", () => {
 
     const celulas = celulasDaLinha(container, 0);
     expect(celulas[1]).toBe("07526557001505_CERV");
-    expect(celulas[2]).toContain("Cargo: MOTORISTA 28");
-    expect(celulas[3]).toBe("Cargo: EQUIPE ATIVA 8x16");
+    /* Sem o prefixo `Cargo:` da origem — que é ruído sob estes cabeçalhos. */
+    expect(celulas[2]).toContain("MOTORISTA 28");
+    expect(celulas[2]).not.toContain("Cargo:");
+    expect(celulas[3]).toBe("EQUIPE ATIVA 8x16");
   });
 
   it("o mesmo cargo em dois turnos deixa de ser duas linhas com o mesmo título", () => {
     const { container } = render(<TabelaDeCargos linhas={OPERACIONAL} />);
     const turnos = [0, 1].map((i) => celulasDaLinha(container, i)[3]);
-    expect(turnos).toEqual(["Cargo: EQUIPE ATIVA 8x16", "Cargo: EQUIPE ATIVA 12x36"]);
+    expect(turnos).toEqual(["EQUIPE ATIVA 8x16", "EQUIPE ATIVA 12x36"]);
   });
 
   it("a chave normalizada continua embaixo do cargo, inteira", () => {

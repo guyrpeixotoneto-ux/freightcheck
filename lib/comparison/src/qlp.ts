@@ -1324,9 +1324,33 @@ export function resumirQuadro(
 // Exportação
 // ---------------------------------------------------------------------------
 
-/** O cabeçalho do CSV — a ordem das colunas da tela. */
-export const COLUNAS_DO_CSV_DE_QLP = [
-  "Cargo",
+/**
+ * A identidade de uma linha do quadro, repartida como a chave legível a traz.
+ *
+ * A chave legível é a emenda das colunas de identidade do tipo, na ordem em que
+ * elas compõem a chave (`lib/ingest/src/tipos.ts`): unidade + cargo no
+ * administrativo, unidade + cargo + turno no operacional. Repartir aqui — e não
+ * na tela — é o que deixa a tabela e o CSV usarem a **mesma** regra: um arquivo
+ * exportado com uma divisão e uma tela com outra seriam duas verdades sobre a
+ * mesma linha.
+ *
+ * Um quarto pedaço (um tipo novo, ou uma versão da chave com mais colunas) fica
+ * junto do turno em vez de sumir: esconder parte da identidade é pior do que
+ * escrevê-la sem nome próprio. E a chave **normalizada** nunca se reparte: ela é
+ * uma coisa só, o que o resto do produto usa para se referir à linha.
+ */
+export function partesDaChaveLegivel(legivel: string): {
+  unidade: string;
+  cargo: string;
+  turno: string;
+} {
+  const partes = legivel.split(" · ");
+  if (partes.length === 1) return { unidade: "", cargo: legivel, turno: "" };
+  return { unidade: partes[0], cargo: partes[1], turno: partes.slice(2).join(" · ") };
+}
+
+/** As colunas do CSV que valem para qualquer quadro. */
+const COLUNAS_FIXAS_DO_CSV_DE_QLP = [
   "Chave",
   "Conta",
   "Forma",
@@ -1335,6 +1359,40 @@ export const COLUNAS_DO_CSV_DE_QLP = [
   "Diferença",
   "Leitura",
 ] as const;
+
+/** Quais colunas de identidade este recorte tem para escrever. */
+export interface FormatoDoCsvDeQlp {
+  comUnidade: boolean;
+  comTurno: boolean;
+}
+
+/**
+ * O cabeçalho do CSV, decidido pelas linhas que ele vai escrever.
+ *
+ * Unidade e turno só entram quando alguma linha os traz. O QLP Administrativo
+ * não tem turno, e uma coluna "Turno" vazia em toda linha convidaria quem abre a
+ * planilha a procurar o dado que falta — quando o que existe é um quadro cuja
+ * identidade tem duas partes, e não três.
+ */
+export function formatoDoCsvDeQlp(
+  linhas: readonly ConferenciaDaLinha[],
+): FormatoDoCsvDeQlp {
+  const partes = linhas.map((l) => partesDaChaveLegivel(l.nome ?? l.chave));
+  return {
+    comUnidade: partes.some((p) => p.unidade !== ""),
+    comTurno: partes.some((p) => p.turno !== ""),
+  };
+}
+
+/** O cabeçalho do CSV — a ordem das colunas da tela. */
+export function colunasDoCsvDeQlp(formato: FormatoDoCsvDeQlp): string[] {
+  return [
+    ...(formato.comUnidade ? ["Unidade"] : []),
+    "Cargo",
+    ...(formato.comTurno ? ["Turno"] : []),
+    ...COLUNAS_FIXAS_DO_CSV_DE_QLP,
+  ];
+}
 
 /** Como o CSV escreve o veredito de cada conta, por extenso. */
 function leituraNoCsv(confere: boolean | null): string {
@@ -1351,9 +1409,23 @@ function leituraNoCsv(confere: boolean | null): string {
  */
 export function celulasDoCsvDeQlp(
   conferencia: ConferenciaDaLinha,
+  formato: FormatoDoCsvDeQlp,
 ): (string | number | null)[][] {
-  return conferencia.contas.map((c) => [
+  /*
+    A identidade em colunas, e a chave inteira ao lado.
+
+    O CSV escreve o valor **como o arquivo o trouxe**, prefixo e tudo: a planilha
+    exportada é evidência do que foi importado, e é por ela que se confere a
+    origem. Quem aparou o `Cargo:` foi a tela, que é onde o prefixo atrapalha a
+    leitura — e lá ele não muda nem o dado nem a chave.
+  */
+  const { unidade, cargo, turno } = partesDaChaveLegivel(
     conferencia.nome ?? conferencia.chave,
+  );
+  return conferencia.contas.map((c) => [
+    ...(formato.comUnidade ? [unidade] : []),
+    cargo,
+    ...(formato.comTurno ? [turno] : []),
     conferencia.chave,
     c.rotulo,
     c.forma === "PRODUTO" ? "quantidade × valor" : "soma das parcelas",

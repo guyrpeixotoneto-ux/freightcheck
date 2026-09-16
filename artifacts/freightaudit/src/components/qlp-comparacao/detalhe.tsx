@@ -11,7 +11,7 @@ import {
   ROTULO_DO_ESTADO,
   SELO_DO_ESTADO,
   corDaDiferenca,
-  escreverCargo,
+  escreverCargoNaTela,
   escreverDiferenca,
   escreverRubrica,
   escreverValor,
@@ -56,7 +56,7 @@ export function DetalheDoCargo({
   const doCargo = linhas.filter((l) => l.entityLabel === cargo);
   const somaveis = doCargo.filter((l) => l.foraDaSoma === null);
   const foraDaSoma = doCargo.filter((l) => l.foraDaSoma !== null);
-  const { unidade, cargo: nome, turno } = escreverCargo(cargo, rotulos);
+  const { unidade, cargo: nome, turno } = escreverCargoNaTela(cargo, rotulos);
 
   /* Por rubrica, na ordem em que as rubricas apareceram — que é a ordem do
      catálogo, porque é dela que a tabela veio. */

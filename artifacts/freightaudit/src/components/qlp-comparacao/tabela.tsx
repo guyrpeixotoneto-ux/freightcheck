@@ -11,7 +11,7 @@ import {
   ROTULO_DO_ESTADO,
   SELO_DO_ESTADO,
   corDaDiferenca,
-  escreverCargo,
+  escreverCargoNaTela,
   escreverDiferenca,
   escreverValor,
   escreverVariacao,
@@ -87,7 +87,7 @@ export function TabelaDaComparacaoDeQlp({
         </thead>
         <tbody>
           {linhas.map((linha, indice) => {
-            const { unidade, cargo, turno } = escreverCargo(linha.entityLabel, rotulos);
+            const { unidade, cargo, turno } = escreverCargoNaTela(linha.entityLabel, rotulos);
             return (
               <tr
                 key={`${linha.entityLabel}-${linha.variavel}-${linha.id ?? indice}`}
