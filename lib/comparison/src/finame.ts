@@ -832,9 +832,23 @@ export interface ImpactoDeFiname {
  * O total composto da carreta (`carreta.finame`) nunca chega aqui: ele é
  * barrado antes, em {@link linhaDaAlteracao}.
  */
-export function impactoPorPeriodicidade(
+/**
+ * Quais linhas saem do total por já estarem representadas nas parcelas delas.
+ *
+ * A chave é `entityLabel\u001f entityType\u001f variavel` — a identidade de uma
+ * linha dentro do recorte.
+ *
+ * Saiu de dentro de {@link impactoPorPeriodicidade} para ser **uma** regra com
+ * dois leitores: a soma deste módulo e o Monitor Custo Fixo, que precisa dizer,
+ * linha a linha, por que ela não entrou no total. Enquanto esteve embutida no
+ * laço, a única forma de o Monitor saber isso era reescrever a regra — e duas
+ * redações da mesma exclusão produziriam duas respostas para o mesmo veículo.
+ *
+ * Nada mudou de comportamento na extração: o laço abaixo é o que estava lá.
+ */
+export function cobertasPorParcelasEm(
   linhas: readonly LinhaDeFiname[],
-): ImpactoDeFiname {
+): ReadonlySet<string> {
   /* Quais parcelas mudaram em cada veículo — a informação que a regra exige e
      que só existe depois de a lista inteira estar à mão. */
   const parcelasPorVeiculo = new Map<string, Set<string>>();
@@ -845,6 +859,27 @@ export function impactoPorPeriodicidade(
     set.add(l.variavel);
     parcelasPorVeiculo.set(chave, set);
   }
+
+  const cobertas = new Set<string>();
+  for (const l of linhas) {
+    if (l.estado !== "ALTERADO") continue;
+    if (l.foraDaSoma) continue;
+    if (!l.impactoCalculado || l.impactoAmount === null) continue;
+    const variavel = VARIAVEIS_DE_FINAME.find((v) => v.chave === l.variavel);
+    const parcelas = variavel?.parcelas ?? [];
+    if (parcelas.length === 0) continue;
+    const mudaram = parcelasPorVeiculo.get(`${l.entityLabel}\u001f${l.entityType}`);
+    if (parcelas.some((p) => mudaram?.has(p))) {
+      cobertas.add(`${l.entityLabel}\u001f${l.entityType}\u001f${l.variavel}`);
+    }
+  }
+  return cobertas;
+}
+
+export function impactoPorPeriodicidade(
+  linhas: readonly LinhaDeFiname[],
+): ImpactoDeFiname {
+  const cobertas = cobertasPorParcelasEm(linhas);
 
   const porPeriodicidade: Record<string, number> = {};
   let naoCalculavel = 0;
@@ -872,15 +907,9 @@ export function impactoPorPeriodicidade(
       continue;
     }
 
-    const variavel = VARIAVEIS_DE_FINAME.find((v) => v.chave === l.variavel);
-    const parcelas = variavel?.parcelas ?? [];
-    if (parcelas.length > 0) {
-      const mudaram = parcelasPorVeiculo.get(`${l.entityLabel}\u001f${l.entityType}`);
-      const coberto = parcelas.some((p) => mudaram?.has(p));
-      if (coberto) {
-        cobertasPorParcelas++;
-        continue;
-      }
+    if (cobertas.has(`${l.entityLabel}\u001f${l.entityType}\u001f${l.variavel}`)) {
+      cobertasPorParcelas++;
+      continue;
     }
 
     const balde = l.impactoPeriodicidade ?? "SEM_PERIODICIDADE";

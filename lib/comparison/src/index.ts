@@ -18,6 +18,7 @@ export * from "./velocidade-media";
 export * from "./qlp";
 export * from "./tma";
 export * from "./lucro-fixo";
+export * from "./monitor-custo-fixo";
 export * from "./deduplicacao";
 export * from "./vinculos";
 export * from "./impacto-apurado";

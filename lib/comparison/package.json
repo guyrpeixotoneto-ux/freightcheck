@@ -20,6 +20,7 @@
     "./tma": "./src/tma.ts",
     "./ipva": "./src/ipva.ts",
     "./lucro-fixo": "./src/lucro-fixo.ts",
+    "./monitor-custo-fixo": "./src/monitor-custo-fixo.ts",
     "./recorte-de-rubrica": "./src/recorte-de-rubrica.ts",
     "./tipos": "./src/tipos.ts",
     "./tipos-da-vigencia": "./src/tipos-da-vigencia.ts",
