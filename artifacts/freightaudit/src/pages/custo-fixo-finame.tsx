@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useSearch } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { Banknote, Download, Search, SlidersHorizontal } from "lucide-react";
@@ -156,6 +156,14 @@ export default function AuditoriaDeFiname() {
     entityLabel: string | null;
     entityType: string;
   } | null>(null);
+  /**
+   * As abas da tabela — para onde os chips da Evolução rolam a página.
+   *
+   * Sem isto o clique trocava o filtro de uma tabela que estava fora da tela, e
+   * a única coisa que se via mudar era o próprio chip: o painel parecia não
+   * fazer nada.
+   */
+  const abasDaTabela = useRef<HTMLDivElement>(null);
 
   const vigencias = useQuery({
     queryKey: ["snapshots"],
@@ -476,6 +484,18 @@ export default function AuditoriaDeFiname() {
     } as Record<RecorteDeTipo, number>;
   }, [comparacao.data]);
 
+  /**
+   * A evolução decomposta, no recorte aberto — a série já vem por tipo.
+   *
+   * Mesmo filtro dos totais, e pela mesma razão: o painel escreve os dois lados
+   * da mesma identidade, e um recorte que valesse só para metade dela mostraria
+   * três parcelas que não somam o total ao lado.
+   */
+  const evolucaoDoRecorte = useMemo(() => {
+    const toda = totais.data?.evolucao ?? [];
+    return recorteDeTipo === "TODOS" ? toda : toda.filter((e) => e.entityType === recorteDeTipo);
+  }, [totais.data, recorteDeTipo]);
+
   /** Os totais do gráfico, no recorte aberto — a série já vem por tipo. */
   const totaisDoRecorte = useMemo(() => {
     const todos = totais.data?.totais ?? [];
@@ -761,13 +781,33 @@ export default function AuditoriaDeFiname() {
               />
             </div>
 
+            {/*
+              Cada parcela do painel leva a tabela para o recorte que a sustenta
+              — é o que transforma o número em algo que se confere. Escreve os
+              três filtros de uma vez, e não só o estado: com a busca de outro
+              recorte ainda no ar, o chip mandaria para uma tabela vazia e o
+              número pareceria mentira.
+            */}
             <EvolucaoEntreVigencias
-              totais={totaisDoRecorte}
+              evolucao={evolucaoDoRecorte}
               rotuloBase={rotuloBase}
               rotuloComparada={rotuloComparada}
+              onRecorte={(r) => {
+                setFiltros((f) => ({
+                  ...f,
+                  busca: "",
+                  tipo: r.tipo,
+                  estado: r.estado,
+                  variavel: r.variavel,
+                }));
+                abasDaTabela.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+              }}
             />
 
-            <div className="flex flex-wrap items-center gap-x-5 gap-y-1 border-b">
+            <div
+              ref={abasDaTabela}
+              className="flex flex-wrap items-center gap-x-5 gap-y-1 border-b scroll-mt-4"
+            >
               {ABAS_DE_ESTADO.map((aba) => (
                 <button
                   key={aba.chave}
