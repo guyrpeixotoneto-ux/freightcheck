@@ -63,7 +63,12 @@
 import { sql } from "drizzle-orm";
 import type { Database } from "@workspace/db";
 import { computeChangeSet, findPreviousSnapshot } from "./engine";
-import { channelSql, contextLabel, datasetFamilyFilter } from "./series";
+import {
+  anteriorDoSnapshot,
+  channelSql,
+  contextLabel,
+  datasetFamilyFilter,
+} from "./series";
 import type { SeriesContext } from "./series";
 
 /**
@@ -109,7 +114,8 @@ export interface VigenciaDaSerie {
 /**
  * A série, em SQL, para decidir **o que pular** — e só isso.
  *
- * O `LATERAL` reproduz a régua de `findPreviousSnapshot`: mesma origem, mesmo
+ * `anteriorDoSnapshot` **é** a régua de `findPreviousSnapshot`, escrita uma vez
+ * em `series.ts` e usada por quem precisa dela dentro do banco: mesma origem, mesmo
  * escopo, mesma família, mesmo canal e **algum tipo de equipamento em comum**,
  * a vigência mais recente antes desta. Está aqui em SQL porque a alternativa —
  * uma ida ao banco por vigência só para descobrir que ela já está comparada —
@@ -147,23 +153,8 @@ function serieComAnterior(contexto: SeriesContext) {
   return sql`
     SELECT s.id,
            s.effective_date::text AS effective_date,
-           ant.id AS anterior_id
+           ${anteriorDoSnapshot("s")} AS anterior_id
       FROM snapshot s
-      LEFT JOIN LATERAL (
-        SELECT p.id
-          FROM snapshot p
-         WHERE p.status <> 'SUPERSEDED'
-           AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = p.import_run_id AND import_run.hidden_at IS NOT NULL)
-           AND p.source_system = s.source_system
-           AND p.scope_hash = s.scope_hash
-           AND p.dataset_family = s.dataset_family
-           AND ${channelSql("p.source_label")} IS NOT DISTINCT FROM ${channelSql("s.source_label")}
-           AND string_to_array(p.entity_type_set, '+')
-               && string_to_array(s.entity_type_set, '+')
-           AND p.effective_date < s.effective_date
-         ORDER BY p.effective_date DESC
-         LIMIT 1
-      ) ant ON TRUE
      WHERE s.status <> 'SUPERSEDED'
      AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = s.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND s.scope_hash = ${contexto.scopeHash}

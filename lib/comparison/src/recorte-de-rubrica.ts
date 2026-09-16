@@ -794,3 +794,58 @@ export function composicaoDoArquivo(
  * qual das séries é esta.
  */
 export const TITULO_DA_OUTRA_SERIE = "Trocar para outra série";
+
+/**
+ * Os três números de frota que uma rubrica publica.
+ *
+ * `NoRecorte` no nome porque os dois nomes óbvios já estão tomados no índice do
+ * pacote: `FrotaDoPar` é de `finame.ts` e `FrotaDoEquipamento` é de
+ * `ativos.ts`. Os três sairiam pelo mesmo `export *`, e dois nomes iguais ali
+ * não brigam em voz alta — viram export ambíguo, e o import chega `undefined`.
+ */
+export interface FrotaNoRecorte {
+  comparados: number;
+  novos: number;
+  ausentes: number;
+}
+
+/**
+ * OS VEÍCULOS DO PAR — SOMANDO **SÓ CAVALO E CARRETA**.
+ *
+ * ---------------------------------------------------------------------------
+ * Por que ela substituiu a soma do snapshot inteiro
+ * ---------------------------------------------------------------------------
+ * As quatro auditorias de Custo Fixo publicavam três números — comparados,
+ * novos e ausentes — tirados do resumo do `change_set` e de
+ * `snapshot.entity_count`. Os dois falam da **vigência inteira**, e a vigência
+ * inteira pode trazer trecho.
+ *
+ * A consequência é a que o cliente nomeou em 16/09/2026: uma importação de
+ * trecho não pode inventar entrada de frota numa tela de financiamento. Com a
+ * soma do snapshot, ela inventava — cada trecho que aparecesse numa ponta e não
+ * na outra entrava em "Novos na vigência" de FINAME, IPVA, Impostos e Lucro
+ * Fixo, ao lado de placas de caminhão, sem que uma linha de equipamento tivesse
+ * mudado.
+ *
+ * O recorte é **explícito** e não depende de a comparação ter sido recortada:
+ * as quatro telas leem cavalo e carreta, então é cavalo e carreta que elas
+ * somam, venha o que vier no acervo. `frotaPorTipo` já responde por tipo — esta
+ * função é só a soma honesta do que aquelas telas de fato mostram.
+ *
+ * Um tipo fora de `TIPOS_DE_EQUIPAMENTO` não é "zero" aqui: ele simplesmente
+ * não é assunto desta tela, e por isso não entra em nenhum dos três números.
+ */
+export function frotaDoEquipamento(
+  porTipo: Readonly<Record<string, FrotaNoRecorte>>,
+  tipos: readonly string[] = TIPOS_DE_EQUIPAMENTO,
+): FrotaNoRecorte {
+  const doRecorte = tipos.map((t) => t.trim().toUpperCase());
+  const total: FrotaNoRecorte = { comparados: 0, novos: 0, ausentes: 0 };
+  for (const [tipo, frota] of Object.entries(porTipo)) {
+    if (!doRecorte.includes(tipo.trim().toUpperCase())) continue;
+    total.comparados += frota.comparados;
+    total.novos += frota.novos;
+    total.ausentes += frota.ausentes;
+  }
+  return total;
+}

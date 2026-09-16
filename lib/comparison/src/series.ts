@@ -668,3 +668,46 @@ export function seriesKey(
 ): string {
   return `${scopeHash}|${channelOf(sourceLabel) ?? ""}`;
 }
+
+/**
+ * A vigência anterior de um snapshot, como subconsulta escalar.
+ *
+ * ---------------------------------------------------------------------------
+ * Por que ela existe, e por que em SQL
+ * ---------------------------------------------------------------------------
+ * Porque "a anterior" é uma definição só do produto — `findPreviousSnapshot`,
+ * em `engine.ts` — e três consultas precisam dela **dentro** do banco, sobre um
+ * conjunto de snapshots, não sobre um. Escrever a régua à mão em cada uma foi o
+ * que produziu o defeito de 16/09/2026 pela terceira vez: a garantia
+ * particionava por cobertura e cortava a série no mês do arquivo parcial.
+ *
+ * A régua, na ordem em que `findPreviousSnapshot` a testa: mesma origem, mesmo
+ * escopo, mesma família, mesmo canal, **algum tipo de equipamento em comum**, e
+ * a data imediatamente anterior. Vigência morta ou de importação oculta não
+ * conta, como em toda leitura deste produto.
+ *
+ * `alias` é o snapshot de quem se pergunta a anterior — quem chama garante que
+ * ele está no `FROM`.
+ */
+export function anteriorDoSnapshot(alias: string) {
+  const s = (coluna: string) => sql.raw(`${alias}.${coluna}`);
+  return sql`(
+    SELECT anterior.id
+      FROM snapshot anterior
+     WHERE anterior.status <> 'SUPERSEDED'
+       AND NOT EXISTS (
+             SELECT 1 FROM import_run
+              WHERE import_run.id = anterior.import_run_id
+                AND import_run.hidden_at IS NOT NULL)
+       AND anterior.source_system = ${s("source_system")}
+       AND anterior.scope_hash = ${s("scope_hash")}
+       AND anterior.dataset_family = ${s("dataset_family")}
+       AND ${channelSql("anterior.source_label")}
+           IS NOT DISTINCT FROM ${channelSql(`${alias}.source_label`)}
+       AND string_to_array(anterior.entity_type_set, '+')
+           && string_to_array(${s("entity_type_set")}, '+')
+       AND anterior.effective_date < ${s("effective_date")}
+     ORDER BY anterior.effective_date DESC
+     LIMIT 1
+  )`;
+}

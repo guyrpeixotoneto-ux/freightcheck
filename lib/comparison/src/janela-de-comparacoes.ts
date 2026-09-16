@@ -6,6 +6,7 @@ import { carregarVinculosDeConjunto, snapshotsDosChangeSets } from "./vinculos";
 import { listPeriods } from "./consolidated";
 import type { TipoDaLinhaDoTempo } from "./tipos";
 import {
+  anteriorDoSnapshot,
   contextFilter,
   listContexts,
   resolveContext,
@@ -177,6 +178,22 @@ export async function abrirJanelaDeComparacoes(
        -- o pede pelo nome. Sem recorte ele fica de fora. Ver a mesma nota em
        -- loadChanges.
        AND ${serieDoTipo(tipo)}
+       -- Só a comparação CANÔNICA de cada vigência: aquela cujo lado A é a
+       -- anterior da série. Sem esta linha a coluna de um mês somava toda
+       -- comparação já gravada com aquele lado B — e há muitas.
+       --
+       -- Quem as grava é o próprio seletor do par: a rota de candidatas
+       -- calcula, e persiste, a comparação de cada candidata contra o "Para"
+       -- aberto (candidatas-do-par.ts), de modo que abrir o menu uma vez deixa
+       -- no banco dezembro->julho, janeiro->julho, fevereiro->julho... Todas
+       -- legítimas, nenhuma consecutiva.
+       --
+       -- Medido em 16/09/2026, na Evolução anual do FINAME: a célula de julho
+       -- de uma placa saiu de -R$ 10.004 para -R$ 78.483 entre duas aberturas
+       -- da tela, sem que nenhum dado tivesse mudado — só o menu de vigências
+       -- havia sido aberto no intervalo. A tela somava oito comparações na
+       -- coluna de um mês só.
+       AND cs.snapshot_a_id = ${anteriorDoSnapshot("sb")}
      ORDER BY sb.effective_date DESC, sb.entity_type_set
   `);
 

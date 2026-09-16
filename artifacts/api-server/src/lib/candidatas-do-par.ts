@@ -1,10 +1,12 @@
 import type { Database } from "@workspace/db";
 import {
+  coberturaComum,
   computeChangeSet,
   formamParDeVigencias,
   getChangeSetForPair,
   listChanges,
   listComparableSnapshots,
+  vigenciasQueCobrem,
   type NaturezaEconomica,
   type Operacao,
 } from "@workspace/comparison";
@@ -146,6 +148,25 @@ export interface RecorteDaRubrica {
    */
   datasetFamily?: string;
   /**
+   * Os tipos de equipamento que esta rubrica **audita** — o recorte da lista.
+   *
+   * Diferente de `entityType`, logo abaixo, que recorta a contagem de
+   * alterações de um par já formado: este decide **quais vigências são
+   * candidatas**, antes de qualquer conta.
+   *
+   * Existe para uma regra do domínio, dita pelo cliente em 16/09/2026: trecho
+   * não é assunto de Custo Fixo, e não pode aparecer nem participar de conta
+   * nenhuma nas telas daqueles módulos. Sem este recorte, uma vigência que
+   * cobrisse `CAVALO+CARRETA+TRECHO` formaria par com uma de `TRECHO` puro — os
+   * dois têm trecho em comum —, e o menu do FINAME ofereceria uma vigência de
+   * pernas de rota para comparar financiamento.
+   *
+   * A tela já fazia este recorte do seu lado (`vigenciasQueCobrem`, com
+   * `TIPOS_DE_EQUIPAMENTO`). Aqui ele passa a valer também para quem monta o
+   * endereço à mão — que é onde um recorte de domínio tem de morar.
+   */
+  entityTypes?: readonly string[];
+  /**
    * O tipo de entidade que este recorte lê — todos, por omissão.
    *
    * Também do QLP: uma vigência do quadro traz o administrativo e o operacional
@@ -194,8 +215,22 @@ export async function candidatasDoPar(
      considerava candidatas, e elas apareciam lá sem número nenhum — uma linha
      em branco que quem lê a tela confunde com "nada mudou". Uma função só, e as
      duas pontas do produto recortam igual. */
-  const candidatas = vigencias
+  /* O recorte de domínio primeiro: quem esta rubrica nem sabe ler não é
+     candidata, e não chega a ser perguntada ao motor. */
+  const doRecorte = recorte.entityTypes
+    ? vigenciasQueCobrem(vigencias, recorte.entityTypes)
+    : vigencias;
+  const candidatas = doRecorte
     .filter((v) => formamParDeVigencias(v, destino))
+    /* E o par tem de ter em comum um tipo que **esta rubrica audita**: cavalo
+       com cavalo, e não a perna de rota que as duas por acaso carregam. */
+    .filter(
+      (v) =>
+        !recorte.entityTypes ||
+        coberturaComum(v.entityTypeSet, destino.entityTypeSet).some((t) =>
+          recorte.entityTypes!.includes(t),
+        ),
+    )
     .sort((a, b) => b.effectiveDate.localeCompare(a.effectiveDate));
 
   const limite = Date.now() + ORCAMENTO_DE_CANDIDATAS_MS;
