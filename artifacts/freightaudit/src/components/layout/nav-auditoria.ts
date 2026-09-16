@@ -48,6 +48,7 @@ import {
   TrendingUp,
   TriangleAlert,
   Truck,
+  Users,
   Wallet,
   type LucideIcon,
 } from "lucide-react";
@@ -68,6 +69,8 @@ import {
   temTrecho,
   type Equipamento,
 } from "@/lib/frota";
+import { modulosDoQlp } from "@workspace/comparison/qlp-comparacao";
+import { ROTULO_DA_RUBRICA as ROTULO_DO_MODULO } from "@/lib/qlp-comparacao";
 import { GRUPO_ADMINISTRACAO } from "./nav-administracao";
 import type { NavGroup } from "./nav";
 
@@ -442,6 +445,50 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
         { href: "/qlp-operacional", label: "QLP Operacional", icon: HardHat },
         { href: "/qlp-administrativo", label: "QLP Administrativo", icon: Briefcase },
       ],
+    },
+    {
+      /*
+        QLP — o quadro de pessoal lido por **assunto**, e não por quadro.
+
+        As duas telas de quadro continuam em Custo Fixo, onde elas moram desde
+        que o QLP deixou de ser seção: elas respondem *como está o quadro
+        administrativo* e *como está o operacional*, cada uma com a população
+        inteira. Esta seção responde outra pergunta, e é a que nenhuma das duas
+        responde: *o que mudou no vale-transporte*, *o que mudou no plano de
+        saúde* — o mesmo assunto nas duas populações, lado a lado.
+
+        **Os itens saem do catálogo, não desta lista.** `modulosDoQlp()`
+        (`@workspace/comparison/qlp-comparacao`) deriva um módulo por rubrica
+        das colunas que os dois quadros declaram, e é ele que decide quais
+        existem e em que quadro cada um acende. Uma lista escrita aqui
+        concordaria com o catálogo no dia em que fosse escrita: hoje o export
+        administrativo traz benefício numa coluna só e o operacional o decompõe
+        em nove, então plano de saúde e refeição só existem no operacional — e
+        no dia em que a Ambev mandar o administrativo decomposto, a aba acende
+        sozinha, sem ninguém vir a este arquivo.
+
+        **A chave da seção é `modulos-do-qlp`, e não `qlp`.** A seção `#qlp`
+        existiu e foi desfeita (ver o bloco de Custo Fixo), e quem a tivesse
+        desligado em Permissões tem essa decisão gravada naquela chave.
+        Reaproveitá-la ressuscitaria em silêncio uma decisão tomada sobre outra
+        coisa — aquela seção eram as duas telas de quadro, esta são os módulos
+        por assunto. Chave nova é decisão nova, que é o que ela é.
+
+        O ícone é o mesmo para todos os módulos de propósito: o que distingue
+        um do outro é o nome da rubrica, e dezesseis ícones diferentes para
+        dezesseis recortes da mesma leitura dariam a cada um uma identidade que
+        ele não tem.
+      */
+      id: "modulos-do-qlp",
+      titulo: "QLP",
+      descricao: "O quadro de pessoal por assunto — a mesma rubrica nos dois quadros",
+      icon: Users,
+      cor: "text-nav-custo-fixo",
+      itens: modulosDoQlp().map((modulo) => ({
+        href: `/qlp/${modulo.chave}`,
+        label: ROTULO_DO_MODULO[modulo.chave] ?? modulo.chave.replace(/_/g, " "),
+        icon: Layers,
+      })),
     },
     {
       /*

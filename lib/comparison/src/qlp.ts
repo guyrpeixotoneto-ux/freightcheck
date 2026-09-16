@@ -153,6 +153,16 @@ const OPER = (slug: string) => `qlp_operacional.${slug}`;
  * e segue pelas outras cinco rubricas, cada uma com o trio inteiro: quantas,
  * quanto vale cada uma, quanto dá. Termina no benchmark e no vale-transporte.
  */
+/*
+  A rubrica dos ordenados chama-se `salario`, e é o nome que o operacional usa.
+
+  A **conta** continua sendo "Ordenados", que é como o dicionário do QLP ADM a
+  declara. O que se unificou foi a **rubrica**, que é o eixo por onde a leitura
+  por assunto recorta: salário administrativo e piso operacional são a mesma
+  pergunta feita nas duas alturas do quadro, e um recorte que mudasse de nome
+  conforme o quadro obrigaria quem lê a traduzir entre os dois — o mesmo motivo
+  que já valia para `transporte`.
+*/
 export const VARIAVEIS_ADMINISTRATIVO: readonly VariavelDoQuadro[] = [
   {
     chave: "quantidade_ordenados",
@@ -160,7 +170,7 @@ export const VARIAVEIS_ADMINISTRATIVO: readonly VariavelDoQuadro[] = [
     medida: "QUANTIDADE",
     papel: "QUANTIDADE",
     codigo: ADM("quantidade_ordenados"),
-    rubrica: "ordenados",
+    rubrica: "salario",
     ajuda:
       "Quantas posições do cargo o QLP remunera — o efetivo reconhecido. É esta " +
       "quantidade que o benchmark confronta, e ela não é o número de linhas do quadro: " +
@@ -172,7 +182,7 @@ export const VARIAVEIS_ADMINISTRATIVO: readonly VariavelDoQuadro[] = [
     medida: "DINHEIRO",
     papel: "PARAMETRO",
     codigo: ADM("salario_ordenados"),
-    rubrica: "ordenados",
+    rubrica: "salario",
     ajuda: "Salário de uma posição, sem encargos. Multiplicado pelo efetivo, dá a despesa.",
   },
   {
@@ -181,7 +191,7 @@ export const VARIAVEIS_ADMINISTRATIVO: readonly VariavelDoQuadro[] = [
     medida: "DINHEIRO",
     papel: "MONTANTE",
     codigo: ADM("despesa_ordenados"),
-    rubrica: "ordenados",
+    rubrica: "salario",
   },
   {
     chave: "quantidade_encargos",
@@ -582,7 +592,7 @@ export const VARIAVEIS_OPERACIONAL: readonly VariavelDoQuadro[] = [
     medida: "DINHEIRO",
     papel: "MONTANTE",
     codigo: OPER("seguro_de_vida"),
-    rubrica: "beneficios",
+    rubrica: "seguro",
   },
   {
     chave: "pcmso_por_mes",

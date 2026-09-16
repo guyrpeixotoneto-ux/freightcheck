@@ -165,18 +165,18 @@ export const ABAS_DE_ESTADO: { chave: "TODAS" | EstadoDaLinha; rotulo: string }[
 
 /** O nome de uma rubrica na tela. Sem entrada, o próprio código, legível. */
 export const ROTULO_DA_RUBRICA: Record<string, string> = {
-  ordenados: "Ordenados",
+  salario: "Salário",
   encargos: "Encargos e provisões",
   beneficio: "Benefícios",
   saude: "Plano de saúde",
   refeicao: "Refeição",
+  transporte: "Vale-transporte",
+  seguro: "Seguro de vida",
   outros_beneficios: "Diária e PLR",
   frota_leve: "Frota leve",
   telefonia: "Telefonia",
   uniformes: "Uniformes",
   benchmark: "Quadro de referência",
-  transporte: "Vale-transporte",
-  salario: "Salário",
   abono: "Abono",
   subtotais: "Subtotais",
   variavel: "Remuneração variável",
@@ -184,6 +184,39 @@ export const ROTULO_DA_RUBRICA: Record<string, string> = {
   dimensionamento: "Dimensionamento",
   nao_identificado: "Sem rubrica declarada",
 };
+
+/**
+ * A frase da aba que o quadro não sustenta — dita, e não escondida.
+ *
+ * Um módulo que existe num quadro e não no outro não é defeito da tela: é o que
+ * o arquivo diz. O export administrativo traz benefício **numa coluna só**
+ * (`Quantidade × Valor = Despesa Benefício`) e o operacional o decompõe em
+ * nove, então plano de saúde e refeição existem lá e não existem aqui.
+ *
+ * Esconder a aba faria a ausência parecer uma escolha da tela; deixá-la abrir
+ * vazia faria parecer "nada mudou". A terceira saída é a única verdadeira —
+ * mostrar a aba e escrever por que ela não tem o que mostrar, com o pedido que
+ * a faria existir.
+ */
+export function porQueOModuloNaoExiste(
+  rotuloDoModulo: string,
+  quadro: QuadroDeQlp,
+): string {
+  if (quadro === "ADMINISTRATIVO") {
+    return (
+      `O export do QLP Administrativo não decompõe esta rubrica: ele traz benefício ` +
+      `numa coluna só — Quantidade Benefício × Valor Benefício = Despesa Benefício —, ` +
+      `e ${rotuloDoModulo.toLowerCase()} está dentro dela sem separação. Para esta aba ` +
+      `existir, o arquivo precisa vir decomposto como o do operacional já vem. ` +
+      `Enquanto isso, a comparação de benefícios do administrativo está no módulo ` +
+      `Benefícios.`
+    );
+  }
+  return (
+    `O export do QLP Operacional não traz coluna desta rubrica. Ela existe no quadro ` +
+    `administrativo, e a comparação dela está na aba ao lado.`
+  );
+}
 
 export function escreverRubrica(rubrica: string | null): string {
   if (!rubrica) return "—";

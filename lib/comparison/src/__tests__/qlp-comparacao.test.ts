@@ -9,6 +9,8 @@ import {
   linhaDeQlpDaAlteracao,
   linhaDeQlpSemAlteracao,
   linhasDeQlpComparado,
+  moduloDoQlp,
+  modulosDoQlp,
   movimentoDoEfetivo,
   resumirComparacaoDeQlp,
   somarEfetivo,
@@ -53,7 +55,7 @@ describe("a tradução de uma alteração", () => {
     const linha = linhaDeQlpDaAlteracao(alteracao(), "ADMINISTRATIVO")!;
     expect(linha.variavel).toBe("despesa_ordenados");
     expect(linha.papel).toBe("MONTANTE");
-    expect(linha.rubrica).toBe("ordenados");
+    expect(linha.rubrica).toBe("salario");
     expect(linha.medida).toBe("DINHEIRO");
     expect(linha.estado).toBe("ALTERADO");
     expect(linha.diferenca).toBe(600);
@@ -335,12 +337,57 @@ describe("a rubrica — o recorte por assunto", () => {
     expect(codigosDaRubrica("ADMINISTRATIVO", "saude")).toEqual([]);
   });
 
-  it("recorta o administrativo pelas três colunas do trio de ordenados", () => {
-    expect(codigosDaRubrica("ADMINISTRATIVO", "ordenados")).toEqual([
+  /*
+    O salário é o mesmo módulo nos dois quadros, com colunas diferentes: o trio
+    de ordenados no administrativo, o piso e os adicionais no operacional. A
+    **conta** administrativa continua se chamando "Ordenados", que é como o
+    dicionário a declara — o que se unificou foi a rubrica, que é o eixo da
+    leitura por assunto.
+  */
+  it("recorta o salário pelas colunas de cada quadro, sob o mesmo nome", () => {
+    expect(codigosDaRubrica("ADMINISTRATIVO", "salario")).toEqual([
       ADM("quantidade_ordenados"),
       ADM("salario_ordenados"),
       ADM("despesa_ordenados"),
     ]);
+    expect(codigosDaRubrica("OPERACIONAL", "salario")).toContain(OPER("piso_salarial"));
+  });
+
+  /*
+    Os módulos saem do catálogo, e é isso que os mantém verdadeiros.
+
+    Uma lista escrita à mão concordaria com o catálogo no dia em que fosse
+    escrita. Derivada, a seção acende a aba sozinha no dia em que a coluna
+    entrar — e, hoje, diz a verdade sobre o que falta: o administrativo traz
+    benefício numa coluna só e o operacional o decompõe em nove.
+  */
+  it("deriva os módulos do catálogo, com os quadros em que cada um existe", () => {
+    const porChave = new Map(modulosDoQlp().map((m) => [m.chave, m.quadros]));
+
+    expect(porChave.get("salario")).toEqual(["ADMINISTRATIVO", "OPERACIONAL"]);
+    expect(porChave.get("transporte")).toEqual(["ADMINISTRATIVO", "OPERACIONAL"]);
+    expect(porChave.get("saude")).toEqual(["OPERACIONAL"]);
+    expect(porChave.get("refeicao")).toEqual(["OPERACIONAL"]);
+    expect(porChave.get("beneficio")).toEqual(["ADMINISTRATIVO"]);
+
+    /* Subtotal e benchmark não são assunto: são eixo de leitura. */
+    expect(porChave.has("subtotais")).toBe(false);
+    expect(porChave.has("benchmark")).toBe(false);
+
+    expect(moduloDoQlp("saude")!.quadros).toEqual(["OPERACIONAL"]);
+    expect(moduloDoQlp("nao_existe")).toBeUndefined();
+  });
+
+  /*
+    O vale-transporte do administrativo está **fora de toda soma** enquanto a
+    Ambev não disser se ele já está dentro da despesa de benefício — e isso é
+    uma regra sobre somar, não sobre comparar. Gatilhar o módulo em `foraDaSoma`
+    apagaria do menu justamente a coluna sobre a qual há pergunta aberta.
+  */
+  it("mantém como módulo a coluna que não soma, porque comparar não é somar", () => {
+    const vt = codigosDaRubrica("ADMINISTRATIVO", "transporte");
+    expect(vt).toEqual([ADM("vale_transporte")]);
+    expect(modulosDoQlp().some((m) => m.chave === "transporte")).toBe(true);
   });
 });
 
