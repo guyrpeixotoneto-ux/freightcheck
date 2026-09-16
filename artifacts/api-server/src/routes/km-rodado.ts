@@ -23,7 +23,13 @@ import {
   type ValorDeKm,
   type RequestedContext,
 } from "@workspace/comparison";
+import {
+  baldesDeUmaNatureza,
+  candidatasDoPar,
+  TETO_DE_CANDIDATAS_MS,
+} from "../lib/candidatas-do-par";
 import { classificarFalha } from "../lib/classificar-falha";
+import { comTetoDeRota } from "../lib/timeout-de-rota";
 import { exigirOperacaoDoRecurso, operacaoDaConsulta } from "../lib/operacao";
 import { contextoDoPar } from "../lib/recorte-do-par";
 
@@ -323,5 +329,77 @@ function comoNumero(bruto: string | null): number | null {
   const n = Number(bruto);
   return Number.isFinite(n) ? n : null;
 }
+
+/**
+ * O que cada candidata a "De" produz contra o "Para" escolhido, no KM Rodado.
+ *
+ * `GET /km-rodado/candidatos?para=<snapshotId>`
+ *
+ * A pergunta é a mesma das quatro rubricas de custo fixo, e a resposta sai pelo
+ * mesmo caminho (`lib/candidatas-do-par.ts`): fixado o "Para", quanto cada
+ * candidata produz contra ele. O que sobra aqui é o recorte do KM — quais
+ * atributos ler, e como contar o que mudou neles.
+ *
+ * O grão é **trecho**, e não veículo. Isso não muda nada para esta rota: a
+ * contagem e o impacto saem de `resumirKm`, que é a mesma função que a tela
+ * chama depois do clique — e é o que faz o número do menu ser o número que o
+ * clique entrega.
+ */
+router.get("/km-rodado/candidatos", async (req, res, next): Promise<void> => {
+  const para = typeof req.query.para === "string" ? req.query.para : "";
+  if (!para) {
+    res.status(400).json({ error: "Informe a vigência de destino." });
+    return;
+  }
+  await exigirOperacaoDoRecurso(req, "vigência", para, () => operacaoDoSnapshot(db, para));
+  const operacao = operacaoDaConsulta(req.query as Record<string, unknown>);
+
+  try {
+    /* A resposta sai **fora** do teto, pela razão que `/finame/candidatos`
+       documenta: quando ela chega, a conexão já voltou inteira ao pool. */
+    const resposta = await comTetoDeRota(TETO_DE_CANDIDATAS_MS, (dbComTeto) =>
+      candidatasDoPar(
+        dbComTeto,
+        para,
+        {
+          attributeCodes: CODIGOS_DO_DETALHE_DE_KM,
+          numeros: (rows) => {
+            const linhas = linhasDeKm(rows);
+            /* Os trechos entram zerados de propósito: esta rota não publica
+               "trechos comparados" — só o que se moveu. É a mesma recusa de
+               `/finame/candidatos`, e pela mesma razão: derivar um indicador de
+               frota a partir de um zero seria pior do que não tê-lo. */
+            const { variaveisAlteradas, impacto } = resumirKm(linhas, {
+              comparados: 0,
+              novos: 0,
+              ausentes: 0,
+            });
+            /* Uma natureza só — a linha do menu sai sem prefixo de natureza,
+               como nas quatro rubricas. Ver `BaldeDoImpacto`. */
+            return {
+              alteracoes: variaveisAlteradas,
+              impacto: { baldes: baldesDeUmaNatureza(impacto.porPeriodicidade) },
+            };
+          },
+        },
+        { operacao, computedBy: "api:km-rodado-candidatos" },
+      ),
+    );
+
+    if ("naoEncontrada" in resposta) {
+      res.status(404).json({ error: "Essa vigência não existe." });
+      return;
+    }
+    res.json(resposta);
+  } catch (err) {
+    const desfecho = classificarFalha(err);
+    if (desfecho.tipo !== "REGRA") {
+      next(err);
+      return;
+    }
+    req.log.warn({ err }, "Candidatas de KM Rodado recusadas");
+    res.status(422).json({ error: desfecho.mensagem });
+  }
+});
 
 export default router;

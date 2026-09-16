@@ -66,8 +66,8 @@ export function CartoesDaEvolucaoDeFiname({
         valor={<Dinheiro valor={totais.liquido} sufixo={sufixo} />}
         nota={
           <>
-            Aumentos <b className="text-foreground">{formatBrlShort(totais.ganho)}</b> · reduções{" "}
-            <b className="text-foreground">{formatBrlShort(Math.abs(totais.perda))}</b>
+            Positivo <b className="text-foreground">+{formatBrlShort(totais.ganho)}</b> · negativo{" "}
+            <b className="text-foreground">−{formatBrlShort(Math.abs(totais.perda))}</b>
           </>
         }
         dica={
@@ -185,10 +185,17 @@ export function CartoesDaEvolucaoDeFiname({
   );
 }
 
-/** O número, com o sinal dito pela cor e pelo símbolo — nunca só pela cor. */
+/**
+ * O número, com o sinal dito pela cor e pelo símbolo — nunca só pela cor.
+ *
+ * Negativo é vermelho e positivo é verde, como em toda tela do produto: o que
+ * está medido aqui é a tabela de frete que a transportadora recebe, e um FINAME
+ * menor é menos dinheiro entrando. A cor invertida que havia aqui vinha de ler
+ * o FINAME como despesa da casa, que ele não é.
+ */
 function Dinheiro({ valor, sufixo }: { valor: number; sufixo: string }) {
   const cor =
-    valor > 0 ? "text-brand-red" : valor < 0 ? "text-success" : "text-muted-foreground";
+    valor < 0 ? "text-brand-red" : valor > 0 ? "text-success" : "text-muted-foreground";
   const sinal = valor > 0 ? "+" : valor < 0 ? "−" : "";
   return (
     <span className={`font-mono text-3xl font-bold tabular-nums ${cor}`}>

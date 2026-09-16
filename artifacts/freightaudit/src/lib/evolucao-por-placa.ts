@@ -459,81 +459,57 @@ export function recorteDaMatriz(
 /**
  * O papel visual da célula — verde, vermelho, neutro, âmbar.
  *
- * Os nomes são de **remuneração** porque é de lá que a matriz vem, e renomeá-los
- * tocaria em dezenas de linhas que funcionam. O que eles significam, hoje, é o
- * papel na tela: `ganho` é a cor de "o número foi na direção boa", `perda` é a
- * de "foi na direção ruim". Qual direção é a boa depende da rubrica — ver
- * {@link LeituraDaMatriz}.
+ * Os nomes são de **remuneração** porque é disso que toda a matriz trata: o que
+ * o FreightCheck mede é a tabela de frete que a transportadora recebe. `ganho`
+ * é mais dinheiro entrando, `perda` é menos — e a direção boa é a mesma em
+ * todas as rubricas, o FINAME incluído. Ver {@link LeituraDaMatriz}.
  */
 export type CorDaCelula = "ganho" | "perda" | "sem-alteracao" | "sem-valoracao";
 
 /**
- * A LEITURA DA MATRIZ — como a rubrica se chama, e para que lado ela é boa.
+ * A LEITURA DA MATRIZ — como a rubrica se chama nesta tela.
  *
  * ---------------------------------------------------------------------------
- * Por que isto existe
+ * Um idioma só, e é o de quem recebe
  * ---------------------------------------------------------------------------
- * Porque o sinal do impacto é **a direção do valor**, não um juízo. Medido na
- * base real: `cavalo.finame_cavalo` indo de R$ 10.578,03 para R$ 0 — um
- * financiamento quitado — grava `impact_amount = −10.578,03`.
+ * Tudo que o FreightCheck mede é a tabela de frete que a transportadora
+ * **recebe** — o FINAME incluído, que é uma rubrica dessa tabela e não uma
+ * despesa da casa. Por isso o sinal tem um significado só, em toda tela:
+ * positivo é mais dinheiro entrando (ganho, verde) e negativo é menos dinheiro
+ * entrando (perda, vermelho).
  *
- * Numa rubrica de **remuneração**, negativo é menos dinheiro entrando: perda,
- * vermelho. Numa rubrica de **custo**, negativo é menos dinheiro saindo:
- * economia, verde. O mesmo número, o mesmo sinal, cores opostas — e a matriz
- * nasceu falando só o primeiro idioma, porque só ele existia.
- *
- * Sem isto, a Evolução anual do FINAME pintava de vermelho, sob a palavra
- * "Perda", um financiamento que acabou de ser quitado — enquanto o cartão logo
- * acima do mesmo número o pintava de verde. Dois idiomas na mesma tela, sobre o
- * mesmo dado.
+ * Existiu aqui uma leitura "de custo" que invertia a cor do FINAME, na hipótese
+ * de que uma parcela menor fosse economia. Não é: quando `cavalo.finame_cavalo`
+ * cai de R$ 10.578,03 para R$ 0, o impacto gravado é −10.578,03 porque é
+ * exatamente isso que a transportadora deixa de receber. O vocabulário do
+ * produto é **ganho e perda** — e não receita e custo —, e a matriz voltou a
+ * falar só ele.
  *
  * ---------------------------------------------------------------------------
- * O que ela **não** faz
+ * O que ela faz, então
  * ---------------------------------------------------------------------------
- * Não toca em conta nenhuma. `net`, `ganho`, `perda` e `acumulado` chegam
- * prontos do servidor e saem daqui com o mesmo valor e o mesmo sinal: o que
- * muda é o nome e a cor com que a tela os escreve. Inverter o **número** seria
- * a tela discordando do domínio, que é outra coisa — e proibida.
+ * Dá nome à seção e à coluna do acumulado, e nada mais: "Variação do FINAME no
+ * ano" diz mais do que "Impacto acumulado" numa tela que só fala de FINAME.
+ * Nenhuma conta mora aqui — `net`, `ganho`, `perda` e `acumulado` chegam
+ * prontos do servidor e saem com o mesmo valor e o mesmo sinal.
  *
  * Ausente, a matriz continua exatamente como sempre foi.
  */
 export interface LeituraDaMatriz {
   /** O título da seção, sem a grandeza (que a matriz acrescenta). */
   titulo: string;
-  /** Como se chama um valor positivo. Ex.: "Aumento de custo". */
-  positivo: string;
-  /** Como se chama um valor negativo. Ex.: "Redução de custo". */
-  negativo: string;
   /** O cabeçalho da coluna do acumulado. Ex.: "Variação no ano". */
   acumulado: string;
-  /**
-   * Se subir é a direção ruim — o caso de qualquer custo.
-   *
-   * `true` inverte **a cor**, e só ela: positivo vira vermelho e negativo vira
-   * verde.
-   */
-  subirEhRuim: boolean;
 }
 
-/** A leitura de uma rubrica de custo — o FINAME, e qualquer despesa. */
-export const LEITURA_DE_CUSTO: Omit<LeituraDaMatriz, "titulo" | "acumulado"> = {
-  positivo: "Aumento de custo",
-  negativo: "Redução de custo",
-  subirEhRuim: true,
-};
-
 /** O que a célula é, para a tela pintar — e nunca um R$ 0 no lugar do vazio. */
-export function corDaCelula(
-  celula: CelulaDaPlaca | undefined,
-  leitura?: Pick<LeituraDaMatriz, "subirEhRuim">,
-): CorDaCelula {
+export function corDaCelula(celula: CelulaDaPlaca | undefined): CorDaCelula {
   if (celula === undefined) return "sem-alteracao";
   if (celula.net === null) return "sem-valoracao";
   if (celula.net === 0) return "sem-alteracao";
-  /* O sinal é do domínio; o que a leitura decide é qual sinal recebe a cor
-     ruim. Ver `LeituraDaMatriz`. */
-  const ruim = leitura?.subirEhRuim === true ? celula.net > 0 : celula.net < 0;
-  return ruim ? "perda" : "ganho";
+  /* O sinal é do domínio, e a tela não discute com ele: negativo é menos
+     dinheiro entrando. */
+  return celula.net < 0 ? "perda" : "ganho";
 }
 
 /**

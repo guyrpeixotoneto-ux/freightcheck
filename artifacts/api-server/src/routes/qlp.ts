@@ -21,6 +21,8 @@ import {
   resumirComparacaoDeQlp,
   resumirQuadro,
   rubricasDoQuadro,
+  SEM_IMPACTO_FINANCEIRO,
+  variaveisAlteradasDeQlp,
   somarEfetivo,
   resumoDasContas,
   TIPO_DO_QUADRO,
@@ -39,8 +41,13 @@ import {
   type FiltrosDoQuadro,
 } from "@workspace/qlp";
 
+import {
+  candidatasDoPar,
+  TETO_DE_CANDIDATAS_MS,
+} from "../lib/candidatas-do-par";
 import { parseContext as parseContextoDaConsulta } from "../lib/contexto";
 import { classificarFalha } from "../lib/classificar-falha";
+import { comTetoDeRota } from "../lib/timeout-de-rota";
 import { exigirOperacaoDoRecurso, operacaoDaConsulta } from "../lib/operacao";
 /**
  * QLP Administrativo — o quadro de pessoal da estrutura administrativa.
@@ -576,5 +583,111 @@ async function linhasIguaisDoQuadro(
   }
   return linhas;
 }
+
+/**
+ * O que cada candidata a "De" produz contra o "Para" escolhido, no QLP.
+ *
+ * `GET /qlp/candidatos?para=<snapshotId>&quadro=<ADMINISTRATIVO|OPERACIONAL>[&rubrica=<nome>]`
+ *
+ * ---------------------------------------------------------------------------
+ * A linha do menu não tem dinheiro, e isso é dito
+ * ---------------------------------------------------------------------------
+ * As outras seis rotas de candidatas escrevem `+R$ 7.238,85/mês · 7 alterações`.
+ * Esta escreve só `7 alterações`, e o campo `semImpacto` carrega a frase do
+ * porquê — a mesma que a tela publica no lugar do impacto
+ * (`SEM_IMPACTO_FINANCEIRO`): as colunas do QLP chegam sem semântica
+ * confirmada, e somar o que a curadoria não confirmou seria adivinhação.
+ *
+ * Devolver `baldes: []` sem a frase seria pior do que não ter a rota: a tela
+ * escreveria `R$ 0,00` ao lado de cada vigência, afirmando que nada mudou de
+ * dinheiro numa comparação que nunca mediu dinheiro. É a mesma mentira por
+ * omissão que `numeros: null` evita do outro lado, e ela não pode entrar pela
+ * porta dos fundos do menu.
+ *
+ * ---------------------------------------------------------------------------
+ * Os dois recortes que esta rota precisa e as outras não
+ * ---------------------------------------------------------------------------
+ * **A família.** As vigências do quadro não são as do acervo de frete; sem
+ * `datasetFamily`, a lista de candidatas viria vazia.
+ *
+ * **O tipo.** Uma vigência do quadro traz o administrativo e o operacional na
+ * mesma revisão, e contar sem separar diria que o operacional comparou 47
+ * cargos onde ele tem 6. É o mesmo `entityType` de `/qlp/comparacao`.
+ *
+ * E a rubrica entra porque o número do menu tem de ser o número que o clique
+ * entrega: com a tela recortada em "refeição", um menu que contasse o quadro
+ * inteiro prometeria alterações que o clique não mostraria.
+ */
+router.get("/qlp/candidatos", async (req, res, next): Promise<void> => {
+  const query = req.query as Record<string, unknown>;
+  const pedido = typeof query.quadro === "string" ? query.quadro.toUpperCase() : "";
+  if (pedido !== "ADMINISTRATIVO" && pedido !== "OPERACIONAL") {
+    res.status(400).json({ error: "Informe quadro=ADMINISTRATIVO ou quadro=OPERACIONAL." });
+    return;
+  }
+  const quadro = pedido as QuadroDeQlp;
+
+  const para = typeof query.para === "string" ? query.para : "";
+  if (!para) {
+    res.status(400).json({ error: "Informe a vigência de destino." });
+    return;
+  }
+  await exigirOperacaoDoRecurso(req, "vigência", para, () => operacaoDoSnapshot(db, para));
+  const operacao = operacaoDaConsulta(query);
+
+  /* O mesmo recorte de `/qlp/comparacao`, com a mesma recusa escrita: pedir uma
+     rubrica que o quadro não tem é pergunta sem resposta, e não resposta zero. */
+  const rubrica =
+    typeof query.rubrica === "string" && query.rubrica !== "" ? query.rubrica : null;
+  const codigos =
+    rubrica === null ? codigosDoQuadro(quadro) : codigosDaRubrica(quadro, rubrica);
+  if (rubrica !== null && codigos.length === 0) {
+    res.status(404).json({
+      error:
+        `O quadro ${quadro === "ADMINISTRATIVO" ? "administrativo" : "operacional"} não ` +
+        `tem a rubrica "${rubrica}". Disponíveis: ${rubricasDoQuadro(quadro).join(", ")}.`,
+    });
+    return;
+  }
+
+  try {
+    /* A resposta sai **fora** do teto, pela razão que `/finame/candidatos`
+       documenta: quando ela chega, a conexão já voltou inteira ao pool. */
+    const resposta = await comTetoDeRota(TETO_DE_CANDIDATAS_MS, (dbComTeto) =>
+      candidatasDoPar(
+        dbComTeto,
+        para,
+        {
+          attributeCodes: codigos,
+          datasetFamily: DATASET_FAMILY_QUADRO_DE_PESSOAL,
+          entityType: TIPO_DO_QUADRO[quadro],
+          numeros: (rows) => ({
+            /* A mesma contagem de `resumirComparacaoDeQlp`, pela mesma função:
+               o resumo inteiro pediria o quadro do par e o efetivo das duas
+               pontas, uma vez por candidata. Ver `variaveisAlteradasDeQlp`. */
+            alteracoes: variaveisAlteradasDeQlp(linhasDeQlpComparado(rows, quadro)),
+            impacto: { baldes: [] },
+            semImpacto: SEM_IMPACTO_FINANCEIRO,
+          }),
+        },
+        { operacao, computedBy: "api:qlp-candidatos" },
+      ),
+    );
+
+    if ("naoEncontrada" in resposta) {
+      res.status(404).json({ error: "Essa vigência não existe." });
+      return;
+    }
+    res.json(resposta);
+  } catch (err) {
+    const desfecho = classificarFalha(err);
+    if (desfecho.tipo !== "REGRA") {
+      next(err);
+      return;
+    }
+    req.log.warn({ err }, "Candidatas de QLP recusadas");
+    res.status(422).json({ error: desfecho.mensagem });
+  }
+});
 
 export default router;

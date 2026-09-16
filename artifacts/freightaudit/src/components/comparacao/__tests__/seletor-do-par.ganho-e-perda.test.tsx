@@ -1,17 +1,18 @@
 // @vitest-environment jsdom
 //
-// O MENU DIZ GANHO OU PERDA — COM A PALAVRA E COM A COR, PELA MESMA RÉGUA.
+// O MENU DIZ A DIREÇÃO PELO SINAL E PELA COR, PELA MESMA RÉGUA.
 //
 // A coluna da direita existe para decidir, num relance, se vale abrir aquele
-// par. `+R$ 7.238,85/mês` obrigava quem lê a traduzir um símbolo antes de
-// decidir; "Ganho R$ 7.238,85/mês" já é a leitura.
+// par. Houve aqui a palavra ("Ganho R$ 7.238,85/mês"), pela ideia de que o
+// símbolo exigia tradução. `−R$ 21.064,41/mês` em vermelho já é perda para quem
+// lê, e a palavra ao lado repetia o que o sinal e a cor diziam juntos.
 //
 // A régua é o sinal do líquido: positivo é ganho, negativo é perda, zero não é
-// nem um nem outro. E ela é **uma só** — a palavra e a cor saem da mesma
+// nem um nem outro. E ela é **uma só** — o sinal e a cor saem da mesma
 // `leitura` (`numerosDaLinha`), e não de duas contas sobre o mesmo número. Era
 // aí que morava o defeito que estes casos guardam: com a cor lendo o sinal no
 // seletor e o texto sendo escrito na outra ponta, bastava uma das duas mudar
-// para a linha dizer "Perda" em verde.
+// para a linha escrever `−` em verde.
 //
 // Estes casos abrem o menu de verdade e leem o que está escrito nele.
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -100,40 +101,43 @@ const corDe = (texto: string) => {
 afterEach(cleanup);
 
 describe("a leitura de cada linha de dinheiro do menu", () => {
-  it("positivo é Ganho, e sai em verde", () => {
+  it("positivo leva `+`, e sai em verde", () => {
     montar([{ periodicidade: "MENSAL", natureza: "CUSTO", valor: 7238.85 }], 7);
 
-    expect(linhaDeJulho().textContent).toContain("Ganho R$ 7.238,85/mês");
-    expect(corDe("Ganho R$ 7.238,85/mês")).toContain("text-emerald-700");
+    expect(linhaDeJulho().textContent).toContain("+R$ 7.238,85/mês");
+    expect(corDe("+R$ 7.238,85/mês")).toContain("text-emerald-700");
   });
 
-  it("negativo é Perda, e sai em vermelho", () => {
+  it("negativo leva `−`, e sai em vermelho", () => {
     montar([{ periodicidade: "MENSAL", natureza: "CUSTO", valor: -21064.41 }], 11);
 
-    expect(linhaDeJulho().textContent).toContain("Perda R$ 21.064,41/mês");
-    expect(corDe("Perda R$ 21.064,41/mês")).toContain("text-destructive");
+    expect(linhaDeJulho().textContent).toContain("−R$ 21.064,41/mês");
+    expect(corDe("−R$ 21.064,41/mês")).toContain("text-destructive");
   });
 
-  /* O valor vem em módulo: a palavra já é a direção, e o `−` ao lado dela
-     pareceria sinal de outra conta. */
-  it("o sinal não sobra ao lado da palavra", () => {
+  /* O prefixo é quem carrega a direção, e o valor vem em módulo: a linha não
+     pode escrever `−` duas vezes, nem repetir na palavra o que o sinal diz. */
+  it("a palavra não sobra ao lado do sinal, e o sinal não sai dobrado", () => {
     montar([{ periodicidade: "MENSAL", natureza: "CUSTO", valor: -21064.41 }]);
 
-    expect(linhaDeJulho().textContent).not.toContain("−R$ 21.064,41");
-    expect(linhaDeJulho().textContent).not.toContain("+R$");
+    const linha = linhaDeJulho().textContent ?? "";
+    expect(linha).toContain("−R$ 21.064,41/mês");
+    expect(linha).not.toContain("Perda");
+    expect(linha).not.toContain("Ganho");
+    expect(linha).not.toContain("−−R$");
   });
 
   /*
-    Zero não é ganho nem perda. Sem palavra e sem cor de direção — mas **com**
+    Zero não é ganho nem perda. Sem sinal e sem cor de direção — mas **com**
     número, porque a linha muda é "ainda não calculei", e esta calculou.
   */
-  it("zero não ganha palavra nem cor", () => {
+  it("zero não ganha sinal nem cor", () => {
     montar([{ periodicidade: "MENSAL", natureza: "CUSTO", valor: 0 }], 3);
 
     const linha = linhaDeJulho().textContent ?? "";
     expect(linha).toContain("R$ 0,00");
-    expect(linha).not.toContain("Ganho");
-    expect(linha).not.toContain("Perda");
+    expect(linha).not.toContain("+R$ 0,00");
+    expect(linha).not.toContain("−R$ 0,00");
     expect(corDe("R$ 0,00")).toContain("text-muted-foreground");
   });
 
@@ -149,18 +153,18 @@ describe("a leitura de cada linha de dinheiro do menu", () => {
     ]);
 
     const linha = linhaDeJulho().textContent ?? "";
-    expect(linha).toContain("Ganho R$ 7.238,85/mês");
-    expect(linha).toContain("Perda R$ 900,00/mês");
+    expect(linha).toContain("+R$ 7.238,85/mês");
+    expect(linha).toContain("−R$ 900,00/mês");
     /* 7.238,85 − 900 = 6.338,85, e ele não aparece: as duas continuam duas. */
     expect(linha).not.toContain("6.338,85");
   });
 
-  /* A rubrica manda `natureza: null` e lê pela mesma régua — a palavra não
-     depende de qual lado da DRE é, só do sinal. */
-  it("a rubrica de uma natureza só usa as mesmas palavras", () => {
+  /* A rubrica manda `natureza: null` e lê pela mesma régua — o sinal não
+     depende de qual lado da DRE é. */
+  it("a rubrica de uma natureza só usa a mesma régua", () => {
     montar([{ periodicidade: "MENSAL", natureza: null, valor: 7238.85 }], 7);
 
-    expect(linhaDeJulho().textContent).toContain("Ganho R$ 7.238,85/mês");
-    expect(corDe("Ganho R$ 7.238,85/mês")).toContain("text-emerald-700");
+    expect(linhaDeJulho().textContent).toContain("+R$ 7.238,85/mês");
+    expect(corDe("+R$ 7.238,85/mês")).toContain("text-emerald-700");
   });
 });

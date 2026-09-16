@@ -22,7 +22,13 @@ import {
   type ValorDeVelocidade,
   type RequestedContext,
 } from "@workspace/comparison";
+import {
+  baldesDeUmaNatureza,
+  candidatasDoPar,
+  TETO_DE_CANDIDATAS_MS,
+} from "../lib/candidatas-do-par";
 import { classificarFalha } from "../lib/classificar-falha";
+import { comTetoDeRota } from "../lib/timeout-de-rota";
 import { exigirOperacaoDoRecurso, operacaoDaConsulta } from "../lib/operacao";
 import { contextoDoPar } from "../lib/recorte-do-par";
 
@@ -300,5 +306,75 @@ function comoNumero(bruto: string | null): number | null {
   const n = Number(bruto);
   return Number.isFinite(n) ? n : null;
 }
+
+/**
+ * O que cada candidata a "De" produz contra o "Para", na Velocidade Média.
+ *
+ * `GET /velocidade-media/candidatos?para=<snapshotId>`
+ *
+ * Mesma pergunta e mesmo caminho das outras candidatas
+ * (`lib/candidatas-do-par.ts`). O que sobra aqui é o recorte da velocidade.
+ *
+ * **O número do menu é de dinheiro, e não de minuto.** `impactoDeVelocidade`
+ * só soma linha de medida `DINHEIRO`, e se recusa a virar minuto em R$ — o
+ * tempo vira custo pelo fator motorista e pela jornada, que é outra conta e
+ * depende de quantas viagens a operação rodou. Então uma candidata em que só
+ * tempos se moveram sai com `R$ 0,00` **e** a contagem de alterações: o zero é
+ * verdadeiro (nenhum dinheiro mudou nesta rubrica) e a contagem ao lado dele é
+ * o que diz que houve movimento. Ler o zero sozinho seria ler metade da linha,
+ * e é por isso que a contagem nunca sai daqui.
+ */
+router.get("/velocidade-media/candidatos", async (req, res, next): Promise<void> => {
+  const para = typeof req.query.para === "string" ? req.query.para : "";
+  if (!para) {
+    res.status(400).json({ error: "Informe a vigência de destino." });
+    return;
+  }
+  await exigirOperacaoDoRecurso(req, "vigência", para, () => operacaoDoSnapshot(db, para));
+  const operacao = operacaoDaConsulta(req.query as Record<string, unknown>);
+
+  try {
+    /* A resposta sai **fora** do teto, pela razão que `/finame/candidatos`
+       documenta: quando ela chega, a conexão já voltou inteira ao pool. */
+    const resposta = await comTetoDeRota(TETO_DE_CANDIDATAS_MS, (dbComTeto) =>
+      candidatasDoPar(
+        dbComTeto,
+        para,
+        {
+          attributeCodes: CODIGOS_DO_DETALHE_DE_VELOCIDADE,
+          numeros: (rows) => {
+            const linhas = linhasDeVelocidade(rows);
+            /* Os trechos entram zerados: esta rota não publica "trechos
+               comparados" — só o que se moveu. A mesma recusa das outras. */
+            const { variaveisAlteradas, impacto } = resumirVelocidade(linhas, {
+              comparados: 0,
+              novos: 0,
+              ausentes: 0,
+            });
+            return {
+              alteracoes: variaveisAlteradas,
+              impacto: { baldes: baldesDeUmaNatureza(impacto.porPeriodicidade) },
+            };
+          },
+        },
+        { operacao, computedBy: "api:velocidade-media-candidatos" },
+      ),
+    );
+
+    if ("naoEncontrada" in resposta) {
+      res.status(404).json({ error: "Essa vigência não existe." });
+      return;
+    }
+    res.json(resposta);
+  } catch (err) {
+    const desfecho = classificarFalha(err);
+    if (desfecho.tipo !== "REGRA") {
+      next(err);
+      return;
+    }
+    req.log.warn({ err }, "Candidatas de Velocidade Média recusadas");
+    res.status(422).json({ error: desfecho.mensagem });
+  }
+});
 
 export default router;

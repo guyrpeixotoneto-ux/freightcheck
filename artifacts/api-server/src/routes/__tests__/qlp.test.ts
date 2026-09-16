@@ -981,3 +981,130 @@ describe("a superfície do QLP Administrativo, na ordem em que a vida acontece",
     expect(await escoposDe([])).toEqual(new Set());
   }, 120_000);
 });
+
+/**
+ * `GET /qlp/candidatos` — o que cada candidata a "De" produz contra o "Para".
+ *
+ * As outras seis rotas de candidatas escrevem dinheiro e contagem ao lado de
+ * cada vigência do menu. Esta escreve só a contagem, e o que se protege aqui é
+ * exatamente a diferença: o QLP **não mede** dinheiro, e a linha do menu não
+ * pode dizer `R$ 0,00` sobre uma conta que ninguém fez. É a mesma mentira por
+ * omissão que `numeros: null` evita do outro lado, com o sinal trocado.
+ *
+ * As promessas comuns às sete — a lista é da série do destino, o número é do
+ * par, ausência nunca vira zero — continuam valendo, e as duas primeiras são o
+ * que os dois recortes desta rota (família e tipo de entidade) existem para
+ * sustentar.
+ */
+describe("GET /qlp/candidatos", () => {
+  it("exige o quadro e a vigência de destino", async () => {
+    expect((await get("/qlp/candidatos")).status).toBe(400);
+    expect((await get("/qlp/candidatos?quadro=ADMINISTRATIVO")).status).toBe(400);
+    const { setembro } = await parDaUnidadeMaior();
+    expect((await get(`/qlp/candidatos?para=${setembro.id}`)).status).toBe(400);
+  }, 120_000);
+
+  /**
+   * A promessa desta rota, e a razão de ela existir separada das outras seis.
+   *
+   * `baldes` vazio **com** a frase do porquê. Sem a frase, o cliente escreveria
+   * `R$ 0,00` — e `numerosDaLinha` só sabe calar a coluna do dinheiro porque
+   * este campo desce.
+   */
+  it("não publica dinheiro, e diz por quê em vez de escrever zero", async () => {
+    const { setembro } = await parDaUnidadeMaior();
+    const { status, body } = await get(
+      `/qlp/candidatos?quadro=ADMINISTRATIVO&para=${setembro.id}`,
+    );
+
+    expect(status).toBe(200);
+    const comNumero = body.candidatos.filter((c: any) => c.numeros !== null);
+    expect(comNumero.length).toBeGreaterThan(0);
+
+    for (const c of comNumero) {
+      expect(c.numeros.impacto.baldes).toEqual([]);
+      expect(c.numeros.semImpacto).toContain("sem semântica confirmada");
+      expect(typeof c.numeros.alteracoes).toBe("number");
+    }
+  }, 120_000);
+
+  /**
+   * O recorte por família: a lista sai do acervo do quadro, e não do de frete.
+   *
+   * Sem `datasetFamily`, `candidatasDoPar` listaria as vigências de frete,
+   * nenhuma formaria par com o "Para" do quadro, e o menu viria vazio na tela
+   * que mostra oito vigências. Um menu vazio é indistinguível de "não há com o
+   * que comparar", que é a resposta errada dita com a cara da certa.
+   */
+  it("as candidatas são vigências do quadro, da mesma unidade e cobertura", async () => {
+    const { agosto, setembro } = await parDaUnidadeMaior();
+    const { body } = await get(
+      `/qlp/candidatos?quadro=ADMINISTRATIVO&para=${setembro.id}`,
+    );
+
+    expect(body.candidatos.length).toBeGreaterThan(0);
+    expect(body.candidatos.some((c: any) => c.id === agosto.id)).toBe(true);
+
+    const { body: todas } = await get("/snapshots?datasetFamily=QUADRO_DE_PESSOAL");
+    const porId = new Map(todas.map((v: any) => [v.id, v]));
+    for (const c of body.candidatos) {
+      const v: any = porId.get(c.id);
+      expect(v, `candidata ${c.id} não é do quadro`).toBeDefined();
+      expect(v.scopeHash).toBe(setembro.scopeHash);
+      expect(v.entityTypeSet).toBe(setembro.entityTypeSet);
+      expect(c.id).not.toBe(setembro.id);
+    }
+  }, 120_000);
+
+  /**
+   * O número do menu é o mesmo de `/qlp/comparacao` para aquele par.
+   *
+   * A prova de que o menu não abre uma segunda régua. Vale para o quadro
+   * inteiro e vale recortado por rubrica — e é o recorte que importa: com a
+   * tela em "refeição", um menu que contasse o quadro inteiro prometeria
+   * alterações que o clique não mostraria.
+   */
+  it("a contagem do menu bate com a comparação, com e sem rubrica", async () => {
+    const { agosto, setembro } = await parDaUnidadeMaior();
+
+    /* `ordenados` existe no quadro administrativo (`rubricasDoQuadro`). Uma
+       rubrica inventada aqui faria o caso passar sem nunca exercitar o recorte,
+       que é justamente o que ele existe para exercitar. */
+    for (const recorte of ["", "&rubrica=ordenados"]) {
+      const { status, body } = await get(
+        `/qlp/candidatos?quadro=ADMINISTRATIVO&para=${setembro.id}${recorte}`,
+      );
+      expect(status, `recorte "${recorte}"`).toBe(200);
+
+      const candidata = body.candidatos.find((c: any) => c.id === agosto.id);
+      expect(candidata?.numeros, `recorte "${recorte}"`).not.toBeNull();
+
+      const { body: comparacao } = await get(
+        `/qlp/comparacao?quadro=ADMINISTRATIVO&base=${agosto.id}&comparada=${setembro.id}${recorte}`,
+      );
+      expect(candidata.numeros.alteracoes, `recorte "${recorte}"`).toBe(
+        comparacao.resumo.variaveisAlteradas,
+      );
+    }
+  }, 300_000);
+
+  /** A recusa escrita do recorte — pergunta sem resposta, e não resposta zero. */
+  it("recusa uma rubrica que o quadro não tem", async () => {
+    const { setembro } = await parDaUnidadeMaior();
+    const { status } = await get(
+      `/qlp/candidatos?quadro=ADMINISTRATIVO&para=${setembro.id}&rubrica=inexistente`,
+    );
+    expect(status).toBe(404);
+  }, 120_000);
+
+  /** Ausência de cálculo é `null`, e `pendentes` conta exatamente essas. */
+  it("ausência de cálculo é null, e nunca um zero inventado", async () => {
+    const { setembro } = await parDaUnidadeMaior();
+    const { body } = await get(
+      `/qlp/candidatos?quadro=ADMINISTRATIVO&para=${setembro.id}`,
+    );
+
+    const semNumero = body.candidatos.filter((c: any) => c.numeros === null).length;
+    expect(body.pendentes).toBe(semNumero);
+  }, 120_000);
+});
