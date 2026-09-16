@@ -435,6 +435,32 @@ export const VARIAVEIS_OPERACIONAL: readonly VariavelDoQuadro[] = [
       "e somá-lo às parcelas que o compõem dobra a folha.",
   },
   {
+    chave: "premiacao_produtividade",
+    rotulo: "Premiação por produtividade",
+    medida: "DINHEIRO",
+    papel: "MONTANTE",
+    codigo: OPER("premiacao_produtividade"),
+    rubrica: "variavel",
+    ajuda:
+      "O que o cargo recebe por resultado, ao lado do salário fixo. É a parcela que " +
+      "separa o contracheque do salário fixo — nos arquivos recebidos, salário fixo mais " +
+      "premiação dá exatamente o contracheque declarado.",
+  },
+  {
+    chave: "remuneracao_variavel",
+    rotulo: "Remuneração variável",
+    medida: "DINHEIRO",
+    papel: "SUBTOTAL",
+    codigo: OPER("remuneracao_variavel"),
+    rubrica: "variavel",
+    foraDaSoma:
+      "Subtotal: a premiação já acrescida dos encargos que incidem sobre ela — nos " +
+      "arquivos recebidos ela é a premiação multiplicada por 1 + o percentual de " +
+      "encargo, a menos de centavos. O dicionário não declara a composição, então a " +
+      "tela não a confere; o que ela faz é manter a coluna fora de toda soma, porque " +
+      "somá-la junto da premiação conta o mesmo prêmio duas vezes.",
+  },
+  {
     chave: "remuneracao_contra_cheque",
     rotulo: "Remuneração do contracheque",
     medida: "DINHEIRO",
@@ -477,6 +503,111 @@ export const VARIAVEIS_OPERACIONAL: readonly VariavelDoQuadro[] = [
       "Subtotal: o contracheque acrescido de encargos e provisões — o custo do cargo " +
       "para quem paga, e não o que a pessoa recebe.",
   },
+  /*
+    As nove parcelas que compõem os benefícios fixos.
+
+    Elas chegam em toda linha do export desde o primeiro arquivo, e ficavam fora
+    do catálogo — os valores entravam no acervo e não apareciam em tela nenhuma,
+    porque a do operacional é só a auditoria e a auditoria só mostra o que uma
+    conta usa. Enquanto estiveram de fora, o subtotal que elas compõem era um
+    número sem partes: dava para dizer que os benefícios custam R$ 3.159,86 e não
+    dava para dizer de quê.
+
+    Duas delas surpreendem e por isso estão anotadas: a **diária** e a **PLR**
+    entram no subtotal de benefícios, e não na remuneração. Não é leitura de
+    nome — é o que fecha a conta, ver `CONTAS_OPERACIONAL`.
+  */
+  {
+    chave: "assistencia_medica",
+    rotulo: "Assistência médica",
+    medida: "DINHEIRO",
+    papel: "MONTANTE",
+    codigo: OPER("assistencia_medica"),
+    rubrica: "beneficios",
+  },
+  {
+    chave: "cafe_da_manha",
+    rotulo: "Café da manhã",
+    medida: "DINHEIRO",
+    papel: "MONTANTE",
+    codigo: OPER("cafe_da_manha"),
+    rubrica: "beneficios",
+  },
+  {
+    chave: "cesta_basica",
+    rotulo: "Cesta básica",
+    medida: "DINHEIRO",
+    papel: "MONTANTE",
+    codigo: OPER("cesta_basica"),
+    rubrica: "beneficios",
+  },
+  {
+    chave: "ticket_refeicao_liquido",
+    rotulo: "Ticket-refeição, líquido",
+    medida: "DINHEIRO",
+    papel: "MONTANTE",
+    codigo: OPER("ticket_refeicao_liquido"),
+    rubrica: "beneficios",
+    ajuda:
+      "Líquido: já descontada a parte que o empregado paga. É o custo do empregador, " +
+      "que é o que o subtotal de benefícios soma.",
+  },
+  {
+    chave: "vale_transporte_liquido",
+    rotulo: "Vale-transporte, líquido",
+    medida: "DINHEIRO",
+    papel: "MONTANTE",
+    codigo: OPER("vale_transporte_liquido"),
+    rubrica: "beneficios",
+    ajuda:
+      "Líquido da coparticipação legal do empregado. **Não é o mesmo caso do " +
+      "vale-transporte do quadro administrativo**, onde a dúvida é se ele já está " +
+      "dentro da despesa de benefício: aqui a composição do subtotal fecha com ele " +
+      "dentro, e a pergunta não se repete.",
+  },
+  {
+    chave: "seguro_de_vida",
+    rotulo: "Seguro de vida",
+    medida: "DINHEIRO",
+    papel: "MONTANTE",
+    codigo: OPER("seguro_de_vida"),
+    rubrica: "beneficios",
+  },
+  {
+    chave: "pcmso_por_mes",
+    rotulo: "PCMSO, por mês",
+    medida: "DINHEIRO",
+    papel: "MONTANTE",
+    codigo: OPER("pcmso_por_mes"),
+    rubrica: "beneficios",
+    ajuda:
+      "O Programa de Controle Médico de Saúde Ocupacional — exames admissional, " +
+      "periódico e demissional — rateado no custo mensal do cargo. É obrigação de " +
+      "saúde ocupacional, e entra no subtotal de benefícios.",
+  },
+  {
+    chave: "diaria",
+    rotulo: "Diária",
+    medida: "DINHEIRO",
+    papel: "MONTANTE",
+    codigo: OPER("diaria"),
+    rubrica: "beneficios",
+    ajuda:
+      "O que o cargo recebe por dia fora da base. Ela varia com o turno — o mesmo " +
+      "motorista custa diárias diferentes em 8x16 e em 12x36 —, e **entra no subtotal " +
+      "de benefícios**, não na remuneração: é o que fecha a conta dos benefícios fixos.",
+  },
+  {
+    chave: "plr",
+    rotulo: "PLR",
+    medida: "DINHEIRO",
+    papel: "MONTANTE",
+    codigo: OPER("plr"),
+    rubrica: "beneficios",
+    ajuda:
+      "A participação nos lucros e resultados, rateada no mês. Sem natureza salarial, " +
+      "e — como a diária — dentro do subtotal de benefícios, não da remuneração.",
+  },
   {
     chave: "total_beneficio_fixo",
     rotulo: "Benefícios fixos",
@@ -485,8 +616,8 @@ export const VARIAVEIS_OPERACIONAL: readonly VariavelDoQuadro[] = [
     codigo: OPER("total_beneficio_fixo"),
     rubrica: "subtotais",
     foraDaSoma:
-      "Subtotal: alimentação, saúde, transporte e seguro de vida somados. Somá-lo às " +
-      "parcelas conta os mesmos benefícios duas vezes.",
+      "Subtotal: alimentação, saúde, transporte e seguro de vida somados, mais a " +
+      "diária e a PLR. Somá-lo às parcelas conta os mesmos benefícios duas vezes.",
   },
   {
     chave: "total_uniforme_epi",
@@ -651,13 +782,28 @@ export const CONTAS_ADMINISTRATIVO: readonly ContaDoQuadro[] = [
 ] as const;
 
 /**
- * As contas do quadro operacional: três degraus da cadeia dos subtotais.
+ * As contas do quadro operacional: a cadeia dos subtotais, e os benefícios.
  *
- * **São três, e não quatro.** O dicionário descreve a cadeia inteira, mas um dos
- * degraus é `salarioFixo + parcelas de folha → remuneracaoContraCheque`, e
- * "parcelas de folha" não nomeia colunas. Inventar quais são elas para fazer a
- * conta fechar seria exatamente o que este produto não faz — a ligação fica
- * declarada na tela como não conferível, que é a informação verdadeira.
+ * **Três degraus vêm do dicionário e um vem do arquivo**, e a diferença entre
+ * os dois está escrita em cada `fonte` de propósito.
+ *
+ * Os três primeiros o dicionário da tabela de equipe declara. O quarto —
+ * `total_beneficio_fixo` — ele **não** declara: diz que a coluna é um subtotal e
+ * não nomeia as parcelas. A composição foi medida nos exports recebidos, fecha
+ * ao centavo em todas as linhas de todas as vigências, e é a única leitura
+ * possível das nove colunas de benefício que o arquivo traz. Ela entra por isso,
+ * e entra **dita como medida**: se um export futuro trouxer uma décima parcela,
+ * a conta deixa de fechar e a tela diz onde — que é o comportamento certo para
+ * uma leitura que não veio da fonte.
+ *
+ * Um degrau continua fora, e é o que separa as duas coisas: o dicionário
+ * descreve `salarioFixo + parcelas de folha → remuneracaoContraCheque`, e
+ * "parcelas de folha" não nomeia colunas. Nos arquivos recebidos essa parcela é
+ * a premiação por produtividade, e fecha nas 36 linhas — mas uma parcela só que
+ * fecha não prova que é *a* regra, e sim que nenhuma outra apareceu ainda.
+ * Declarar a conta dos benefícios, onde nove colunas do arquivo não têm outro
+ * lugar possível, é diferente de declarar esta, onde a fonte pode ter uma
+ * parcela que a unidade de Camaçari não usa.
  */
 export const CONTAS_OPERACIONAL: readonly ContaDoQuadro[] = [
   {
@@ -685,6 +831,29 @@ export const CONTAS_OPERACIONAL: readonly ContaDoQuadro[] = [
     fonte:
       "“remuneracaoContraCheque + encargos e provisões → remuneracaoFixa”, do dicionário " +
       "da tabela de equipe.",
+  },
+  {
+    chave: "total_beneficio_fixo",
+    rotulo: "Benefícios fixos",
+    forma: "SOMA",
+    resultado: OPER("total_beneficio_fixo"),
+    parcelas: [
+      OPER("assistencia_medica"),
+      OPER("cafe_da_manha"),
+      OPER("cesta_basica"),
+      OPER("ticket_refeicao_liquido"),
+      OPER("vale_transporte_liquido"),
+      OPER("seguro_de_vida"),
+      OPER("pcmso_por_mes"),
+      OPER("diaria"),
+      OPER("plr"),
+    ],
+    fonte:
+      "**Medida, e não declarada.** O dicionário da tabela de equipe diz que " +
+      "totalBeneficioFixo é subtotal e não nomeia as parcelas. Estas nove são as " +
+      "colunas de benefício que o export traz, e a soma delas dá o subtotal declarado " +
+      "ao centavo em todas as linhas de todas as vigências recebidas. A diária e a PLR " +
+      "entram aqui — é o arquivo que as põe neste subtotal, e não a leitura do nome.",
   },
   {
     chave: "total",

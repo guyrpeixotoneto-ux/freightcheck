@@ -81,6 +81,15 @@ const cargoOper = (over: Record<string, number | null> = {}): LinhaDoQuadro => (
     [OPER("remuneracao_contra_cheque")]: 3_653.33,
     [OPER("total_encargo_provisao")]: 1_500,
     [OPER("remuneracao_fixa")]: 5_153.33,
+    [OPER("assistencia_medica")]: 420,
+    [OPER("cafe_da_manha")]: 30,
+    [OPER("cesta_basica")]: 150,
+    [OPER("ticket_refeicao_liquido")]: 160,
+    [OPER("vale_transporte_liquido")]: 60,
+    [OPER("seguro_de_vida")]: 5,
+    [OPER("pcmso_por_mes")]: 25,
+    [OPER("diaria")]: 30,
+    [OPER("plr")]: 20,
     [OPER("total_beneficio_fixo")]: 900,
     [OPER("total_uniforme_epi")]: 80,
     [OPER("total")]: 6_133.33,
@@ -147,18 +156,92 @@ describe("os dois quadros", () => {
     }
   });
 
-  it("confere três degraus da cadeia, e não quatro", () => {
+  it("confere quatro degraus, e deixa o do contracheque de fora", () => {
     /*
-      O quarto degrau é `salarioFixo + parcelas de folha → remuneracaoContraCheque`,
-      e "parcelas de folha" não nomeia colunas. Inventar quais são para fazer a
-      conta fechar seria o oposto do que este produto faz.
+      O degrau que fica de fora é `salarioFixo + parcelas de folha →
+      remuneracaoContraCheque`, e "parcelas de folha" não nomeia colunas. Nos
+      exports recebidos essa parcela é a premiação e fecha em todas as linhas —
+      mas uma parcela que fecha não prova que é a regra, e sim que nenhuma outra
+      apareceu. A dos benefícios entra porque ali as nove colunas do arquivo não
+      têm outro lugar possível, e a `fonte` dela diz que foi medida.
     */
-    expect(CONTAS_OPERACIONAL).toHaveLength(3);
     expect(CONTAS_OPERACIONAL.map((c) => c.chave)).toEqual([
       "salario_fixo",
       "remuneracao_fixa",
+      "total_beneficio_fixo",
       "total",
     ]);
+    expect(
+      CONTAS_OPERACIONAL.some((c) => c.resultado === OPER("remuneracao_contra_cheque")),
+    ).toBe(false);
+  });
+
+  /*
+    As onze colunas do export que ficavam fora do catálogo.
+
+    Elas chegam em toda linha desde o primeiro arquivo e entravam no acervo sem
+    aparecer em tela nenhuma: a do operacional é só a auditoria, e a auditoria só
+    mostra o que uma conta usa. Este teste prende as duas metades — estar no
+    catálogo e estar numa conta —, porque só a primeira as deixaria invisíveis
+    exatamente como antes.
+  */
+  it("traz as onze colunas de benefício e de variável, e nove delas dentro de uma conta", () => {
+    const beneficios = [
+      "assistencia_medica",
+      "cafe_da_manha",
+      "cesta_basica",
+      "ticket_refeicao_liquido",
+      "vale_transporte_liquido",
+      "seguro_de_vida",
+      "pcmso_por_mes",
+      "diaria",
+      "plr",
+    ];
+    const variaveis = ["premiacao_produtividade", "remuneracao_variavel"];
+
+    for (const slug of [...beneficios, ...variaveis]) {
+      const variavel = variavelDoQuadroDoCodigo("OPERACIONAL", OPER(slug));
+      expect(variavel, `${slug} precisa estar no catálogo do operacional`).toBeTruthy();
+      expect(variavel!.medida).toBe("DINHEIRO");
+      expect(codigosDoQuadro("OPERACIONAL")).toContain(OPER(slug));
+    }
+
+    // As nove de benefício são as parcelas do subtotal, na ordem em que somam.
+    const conta = CONTAS_OPERACIONAL.find((c) => c.chave === "total_beneficio_fixo")!;
+    expect(conta.parcelas).toEqual(beneficios.map((slug) => OPER(slug)));
+    expect(conta.fonte).toContain("Medida");
+
+    /*
+      A diária e a PLR são a parte que ninguém adivinharia: elas somam em
+      benefício, e não em remuneração. Trocá-las de lugar faria a conta parar de
+      fechar sem nada na tela explicando por quê.
+    */
+    for (const slug of ["diaria", "plr"]) {
+      expect(variavelDoQuadroDoCodigo("OPERACIONAL", OPER(slug))!.rubrica).toBe("beneficios");
+      expect(conta.parcelas).toContain(OPER(slug));
+    }
+
+    // A remuneração variável é subtotal da premiação: fora de toda soma.
+    const remVariavel = variavelDoQuadroDoCodigo("OPERACIONAL", OPER("remuneracao_variavel"))!;
+    expect(remVariavel.papel).toBe("SUBTOTAL");
+    expect(remVariavel.foraDaSoma).toBeTruthy();
+    expect(
+      CONTAS_OPERACIONAL.flatMap((c) => c.parcelas),
+      "um subtotal não entra como parcela de outra conta",
+    ).not.toContain(OPER("remuneracao_variavel"));
+  });
+
+  it("soma as nove parcelas e acusa a que sumiu do subtotal de benefícios", () => {
+    const conta = CONTAS_OPERACIONAL.find((c) => c.chave === "total_beneficio_fixo")!;
+
+    const fecha = conferirConta(cargoOper(), conta);
+    expect(fecha.esperado).toBe(900);
+    expect(fecha.confere).toBe(true);
+
+    // A PLR fora do subtotal: a conta acusa exatamente o tamanho dela.
+    const semPlr = conferirConta(cargoOper({ [OPER("total_beneficio_fixo")]: 880 }), conta);
+    expect(semPlr.diferenca).toBe(-20);
+    expect(semPlr.confere).toBe(false);
   });
 
   it("carrega a fonte de cada conta, e não só a conta", () => {

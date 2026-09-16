@@ -94,6 +94,71 @@ const COLUNAS = [
   "QLP Benchmark Quantidade",
 ];
 
+/**
+ * As colunas de benefício do quadro operacional, e o subtotal que elas somam.
+ *
+ * São as que ficavam fora do catálogo: o export as trazia, o acervo as guardava
+ * e nenhuma tela as mostrava. Escritas aqui com os nomes reais do dicionário da
+ * tabela de equipe.
+ */
+const COLUNAS_OPERACIONAL = [
+  "pisoSalarial",
+  "premiacaoProdutividade",
+  "remuneracaoVariavel",
+  "assistenciaMedica",
+  "cafeDaManha",
+  "cestaBasica",
+  "ticketRefeicaoLiquido",
+  "valeTransporteLiquido",
+  "seguroDeVida",
+  "pcmsoPorMes",
+  "diaria",
+  "plr",
+  "totalBeneficioFixo",
+];
+
+/** Os benefícios de um cargo, e o subtotal que a soma deles tem de dar. */
+const BENEFICIOS = {
+  assistenciaMedica: 421.01,
+  cafeDaManha: 0,
+  cestaBasica: 200,
+  ticketRefeicaoLiquido: 216.88,
+  valeTransporteLiquido: 260.33,
+  seguroDeVida: 5.21,
+  pcmsoPorMes: 59.97,
+  diaria: 1954.79,
+  plr: 41.67,
+};
+const TOTAL_DOS_BENEFICIOS = Object.values(BENEFICIOS).reduce((a, b) => a + b, 0);
+
+const cargoOperacional = (nome: string, turno: string) => ({
+  placa: nome,
+  turno,
+  valores: {
+    pisoSalarial: 2942.26,
+    premiacaoProdutividade: 2815.45,
+    remuneracaoVariavel: 4391.62,
+    ...BENEFICIOS,
+    totalBeneficioFixo: Number(TOTAL_DOS_BENEFICIOS.toFixed(2)),
+  },
+});
+
+const planilhaOperacional = () =>
+  escreverPlanilha({
+    vigencia: "EMPURRADA_1_10_2026",
+    abas: [
+      {
+        nome: "equipe mot",
+        identificador: "cargoEquipeEmpurrada",
+        colunas: COLUNAS_OPERACIONAL,
+        linhas: [
+          cargoOperacional("MOTORISTA 28", "EQUIPE ATIVA 8x16"),
+          cargoOperacional("MOTORISTA 40", "EQUIPE ATIVA 12x36"),
+        ],
+      },
+    ],
+  });
+
 const UNIDADE_B = "20.618.821/0007-99";
 /** A terceira unidade existe só para o teste de escopo do fim do arquivo. */
 const UNIDADE_C = "33.041.260/0652-90";
@@ -661,27 +726,49 @@ describe("a superfície do QLP Administrativo, na ordem em que a vida acontece",
     a evidência de que ele falta é que tinha sumido.
   */
   it("o operacional entra na mesma vigência e o que ficou de fora continua visível", async () => {
-    await importarQlpOperacional(
-      escreverPlanilha({
-        vigencia: "EMPURRADA_1_10_2026",
-        abas: [
-          {
-            nome: "equipe mot",
-            identificador: "cargoEquipeEmpurrada",
-            colunas: ["pisoSalarial"],
-            linhas: [
-              { placa: "MOTORISTA 28", turno: "EQUIPE ATIVA 8x16", valores: { pisoSalarial: 2942.26 } },
-              { placa: "MOTORISTA 40", turno: "EQUIPE ATIVA 8x16", valores: { pisoSalarial: 3677.94 } },
-            ],
-          },
-        ],
-      }),
-    );
+    await importarQlpOperacional(planilhaOperacional());
 
     // O operacional entrou: a auditoria dele lê os dois cargos.
     const operacional = await get("/qlp/auditoria?quadro=OPERACIONAL&period=2026-10-01");
     expect(operacional.status).toBe(200);
     expect(operacional.body.linhas).toHaveLength(2);
+
+    /*
+      E as onze colunas chegam à tela, que é a metade que o catálogo sozinho não
+      garante: uma coluna no catálogo e fora de toda conta continua invisível
+      aqui, porque esta tela mostra o que as contas usam.
+    */
+    for (const slug of [
+      "assistencia_medica",
+      "cafe_da_manha",
+      "cesta_basica",
+      "ticket_refeicao_liquido",
+      "vale_transporte_liquido",
+      "seguro_de_vida",
+      "pcmso_por_mes",
+      "diaria",
+      "plr",
+      "premiacao_produtividade",
+      "remuneracao_variavel",
+    ]) {
+      expect(
+        operacional.body.colunasDesconhecidas,
+        `${slug} chegou no arquivo e a tela precisa conhecê-la`,
+      ).not.toContain(`qlp_operacional.${slug}`);
+    }
+
+    // E a conta dos benefícios fecha nos dois cargos, com as nove parcelas.
+    const beneficios = operacional.body.contas.find(
+      (c: any) => c.conta === "total_beneficio_fixo",
+    );
+    expect(beneficios.linhas).toBe(2);
+    expect(beneficios.conferem).toBe(2);
+    expect(beneficios.divergem).toBe(0);
+    const primeira = operacional.body.linhas[0].contas.find(
+      (c: any) => c.conta === "total_beneficio_fixo",
+    );
+    expect(primeira.esperado).toBe(Number(TOTAL_DOS_BENEFICIOS.toFixed(2)));
+    expect(primeira.confere).toBe(true);
 
     // E a pendência do administrativo continua onde alguém a encontra.
     const quadro = await get("/qlp/administrativo?period=2026-10-01");
