@@ -125,9 +125,9 @@ describe("o CSV", () => {
   });
 
   /*
-    A identidade no arquivo exportado segue a da tabela: uma coluna por pedaço.
-    O que muda entre os dois é só o prefixo `Cargo:` — a tela o apara para a
-    leitura, e o arquivo o mantém, porque ele é evidência do que foi importado.
+    A identidade no arquivo exportado segue a da tabela: uma coluna por pedaço e
+    o prefixo `Cargo:` aparado. O que liga a planilha ao que foi importado é a
+    coluna `Chave`, que vai inteira ao lado.
   */
   it("reparte a identidade em colunas, e mantém a chave inteira ao lado", () => {
     const operacional = linha(
@@ -139,8 +139,8 @@ describe("o CSV", () => {
     expect(linhas[0].slice(0, 4)).toEqual(["Unidade", "Cargo", "Turno", "Chave"]);
     expect(linhas[1].slice(0, 4)).toEqual([
       "07526557001505_CERV",
-      "Cargo: MOTORISTA 28",
-      "Cargo: EQUIPE ATIVA 8x16",
+      "MOTORISTA 28",
+      "EQUIPE ATIVA 8x16",
       "07526557001505CARGOMOTORISTA28CARGOEQUIPEATIVA8X16",
     ]);
   });

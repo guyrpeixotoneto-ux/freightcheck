@@ -4,6 +4,7 @@ import {
   colunasDoCsvDeQlp,
   formatoDoCsvDeQlp,
   partesDaChaveLegivel,
+  semPrefixoDeCargo,
   codigosDoQuadro,
   conferirAbono,
   conferirBenchmark,
@@ -462,8 +463,8 @@ describe("o CSV", () => {
 
     O que estes testes prendem é o contrato do arquivo exportado: cada pedaço da
     chave legível na sua coluna, nenhuma coluna vazia num quadro que não tem
-    aquele pedaço, e o valor como o arquivo o trouxe — inclusive o prefixo
-    `Cargo:`, que só a tela apara.
+    aquele pedaço, e o prefixo `Cargo:` da origem aparado como na tabela — com a
+    `Chave` inteira na mesma linha, que é por onde se volta ao que foi importado.
   */
   const operacional = (nome: string) => ({
     ...conferirLinha(cargoOper(), "OPERACIONAL"),
@@ -484,8 +485,8 @@ describe("o CSV", () => {
     ]);
     expect(celulasDoCsvDeQlp(linha, formato)[0].slice(0, 4)).toEqual([
       "07526557001505_CERV",
-      "Cargo: MOTORISTA 28",
-      "Cargo: EQUIPE ATIVA 8x16",
+      "MOTORISTA 28",
+      "EQUIPE ATIVA 8x16",
       "07526557001505CARGOMOTORISTA28CARGOEQUIPEATIVA8X16",
     ]);
   });
@@ -502,6 +503,33 @@ describe("o CSV", () => {
     const formato = formatoDoCsvDeQlp([linha]);
     expect(colunasDoCsvDeQlp(formato)[0]).toBe("Cargo");
     expect(celulasDoCsvDeQlp(linha, formato)[0][0]).toBe(linha.chave);
+  });
+});
+
+describe("o prefixo `Cargo:` da origem", () => {
+  it("sai do que se lê, na planilha como na tela", () => {
+    expect(semPrefixoDeCargo("Cargo: MOTORISTA 28")).toBe("MOTORISTA 28");
+    expect(semPrefixoDeCargo("cargo:EQUIPE ATIVA 8x16")).toBe("EQUIPE ATIVA 8x16");
+  });
+
+  it("não mexe em quem não tem o prefixo", () => {
+    expect(semPrefixoDeCargo("ANALISTA ADM")).toBe("ANALISTA ADM");
+    expect(semPrefixoDeCargo("Encarregado de cargo: pátio")).toBe("Encarregado de cargo: pátio");
+  });
+
+  it("não esvazia a célula: um valor que é só o prefixo fica como está", () => {
+    expect(semPrefixoDeCargo("Cargo:")).toBe("Cargo:");
+  });
+
+  it("a chave normalizada do CSV nunca é aparada", () => {
+    const linha = {
+      ...conferirLinha(cargoOper(), "OPERACIONAL"),
+      chave: "07526557001505CARGOMOTORISTA28CARGOEQUIPEATIVA8X16",
+      nome: "07526557001505_CERV · Cargo: MOTORISTA 28 · Cargo: EQUIPE ATIVA 8x16",
+    };
+    const formato = formatoDoCsvDeQlp([linha]);
+    const chave = colunasDoCsvDeQlp(formato).indexOf("Chave");
+    expect(celulasDoCsvDeQlp(linha, formato)[0][chave]).toBe(linha.chave);
   });
 });
 

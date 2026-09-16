@@ -1,4 +1,4 @@
-import { partesDaChaveLegivel } from "@workspace/comparison/qlp";
+import { partesDaChaveLegivel, semPrefixoDeCargo } from "@workspace/comparison/qlp";
 import { formatBrl, formatNumber } from "@/lib/format";
 import type { ChangeRow } from "@/components/changes/change-table";
 import type { AtributoDoQuadro, ValorDeFato } from "./tipos";
@@ -57,7 +57,7 @@ export function formatarValor(
  * só o nome com que a tela chama isso.
  *
  * O valor sai **como o arquivo o escreveu**. Quem apara o prefixo `Cargo:` para
- * a leitura é {@link identidadeNaTela}, e só na hora de desenhar.
+ * a leitura é {@link identidadeNaTela}.
  */
 export function separarRotulo(entityLabel: string): {
   unidade: string;
@@ -68,28 +68,13 @@ export function separarRotulo(entityLabel: string): {
 }
 
 /**
- * O `Cargo:` que a origem repete dentro do próprio valor, fora — **na tela, e
- * só nela**.
+ * O `Cargo:` que a origem repete dentro do próprio valor, fora.
  *
- * O export do quadro operacional escreve `Cargo: MOTORISTA 28` na coluna do
- * cargo e `Cargo: EQUIPE ATIVA 8x16` na do turno. Sob os cabeçalhos "Cargo" e
- * "Turno", esse prefixo é ruído: repete o nome da coluna na primeira e mente o
- * nome dela na segunda.
- *
- * O que ele **não** faz: mexer no dado. O valor importado continua inteiro no
- * banco, a chave normalizada continua inteira embaixo do cargo, o CSV continua
- * escrevendo o valor como veio, e a busca continua casando com as duas formas.
- * É uma decisão de desenho, reversível numa linha.
- *
- * Só o prefixo exato sai, e só quando sobra alguma coisa depois dele: um cargo
- * que se chamasse "Cargo:" continuaria se chamando assim, porque apagá-lo
- * deixaria a célula vazia — e célula vazia quer dizer "não veio", que é outra
- * coisa.
+ * A regra mora no núcleo, e o CSV usa a mesma: o arquivo exportado se lê como a
+ * tabela. Ver `semPrefixoDeCargo` em `@workspace/comparison/qlp` — o dado
+ * importado, a chave normalizada e a busca continuam sobre a forma que veio.
  */
-export function semPrefixoDeCargo(valor: string): string {
-  const semPrefixo = valor.replace(/^\s*cargo\s*:\s*/i, "");
-  return semPrefixo === "" ? valor : semPrefixo;
-}
+export { semPrefixoDeCargo };
 
 /** A identidade como a tela a desenha: repartida e sem o prefixo da origem. */
 export function identidadeNaTela(entityLabel: string): {

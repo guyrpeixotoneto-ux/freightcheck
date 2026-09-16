@@ -174,41 +174,54 @@ export function TabelaDeCargos({ linhas }: { linhas: ConferenciaDaLinha[] }) {
                 {estaAberto && (
                   <tr className="border-b border-superficie-borda bg-muted/20">
                     <td colSpan={colunas.length} className="px-3 py-3">
+                      {/*
+                        As colunas da gaveta respiram: sem folga lateral, o número
+                        da diferença encostava na leitura e as duas se liam como
+                        uma palavra só ("—Base insuficiente"). A primeira e a
+                        última ficam rentes às bordas, para a gaveta alinhar com a
+                        linha que a abriu.
+                      */}
                       <table className="w-full border-collapse text-xs">
                         <thead>
                           <tr className="text-[0.65rem] uppercase tracking-[0.07em] text-muted-foreground">
-                            <th scope="col" className="py-1 text-left font-bold">Conta</th>
-                            <th scope="col" className="py-1 text-left font-bold">Forma</th>
-                            <th scope="col" className="py-1 text-right font-bold">Esperado</th>
-                            <th scope="col" className="py-1 text-right font-bold">Declarado</th>
-                            <th scope="col" className="py-1 text-right font-bold">Diferença</th>
-                            <th scope="col" className="py-1 text-left font-bold">Leitura</th>
+                            <th scope="col" className="py-1 pr-4 text-left font-bold">Conta</th>
+                            <th scope="col" className="py-1 px-4 text-left font-bold">Forma</th>
+                            <th scope="col" className="whitespace-nowrap py-1 px-4 text-right font-bold">
+                              Esperado
+                            </th>
+                            <th scope="col" className="whitespace-nowrap py-1 px-4 text-right font-bold">
+                              Declarado
+                            </th>
+                            <th scope="col" className="whitespace-nowrap py-1 px-4 text-right font-bold">
+                              Diferença
+                            </th>
+                            <th scope="col" className="py-1 pl-4 text-left font-bold">Leitura</th>
                           </tr>
                         </thead>
                         <tbody>
                           {l.contas.map((c) => (
                             <tr key={c.conta} className="border-t border-superficie-borda">
-                              <td className="py-1.5 font-semibold">{c.rotulo}</td>
-                              <td className="py-1.5 text-muted-foreground">
+                              <td className="py-1.5 pr-4 font-semibold">{c.rotulo}</td>
+                              <td className="whitespace-nowrap py-1.5 px-4 text-muted-foreground">
                                 {c.forma === "PRODUTO"
                                   ? "quantidade × valor"
                                   : "soma das parcelas"}
                               </td>
-                              <td className="py-1.5 text-right font-mono tabular-nums">
+                              <td className="whitespace-nowrap py-1.5 px-4 text-right font-mono tabular-nums">
                                 {escreverConta(c.esperado)}
                               </td>
-                              <td className="py-1.5 text-right font-mono tabular-nums">
+                              <td className="whitespace-nowrap py-1.5 px-4 text-right font-mono tabular-nums">
                                 {escreverConta(c.declarado)}
                               </td>
                               <td
                                 className={cn(
-                                  "py-1.5 text-right font-mono tabular-nums",
+                                  "whitespace-nowrap py-1.5 px-4 text-right font-mono tabular-nums",
                                   c.confere === false && "text-warning-foreground",
                                 )}
                               >
                                 {escreverDiferenca(c.diferenca)}
                               </td>
-                              <td className="py-1.5">
+                              <td className="whitespace-nowrap py-1.5 pl-4">
                                 {c.confere === null ? (
                                   <span className="text-muted-foreground">Base insuficiente</span>
                                 ) : c.confere ? (

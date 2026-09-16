@@ -1349,6 +1349,29 @@ export function partesDaChaveLegivel(legivel: string): {
   return { unidade: partes[0], cargo: partes[1], turno: partes.slice(2).join(" · ") };
 }
 
+/**
+ * O `Cargo:` que a origem repete dentro do próprio valor, fora.
+ *
+ * O export do quadro operacional escreve `Cargo: MOTORISTA 28` na coluna do
+ * cargo e `Cargo: EQUIPE ATIVA 8x16` na do turno. Sob os cabeçalhos "Cargo" e
+ * "Turno" — na tabela e na planilha exportada — esse prefixo repete o nome de
+ * uma coluna e mente o nome da outra.
+ *
+ * O que ele **não** faz: mexer no dado. O valor importado continua inteiro no
+ * banco, a chave normalizada vai inteira ao lado, e a busca casa com as duas
+ * formas. É apresentação, e a `Chave` na mesma linha é o que permite voltar à
+ * origem.
+ *
+ * Só o prefixo exato sai, e só quando sobra alguma coisa depois dele: um cargo
+ * que se chamasse "Cargo:" continuaria se chamando assim, porque apagá-lo
+ * deixaria a célula vazia — e célula vazia quer dizer "não veio", que é outra
+ * coisa.
+ */
+export function semPrefixoDeCargo(valor: string): string {
+  const semPrefixo = valor.replace(/^\s*cargo\s*:\s*/i, "");
+  return semPrefixo === "" ? valor : semPrefixo;
+}
+
 /** As colunas do CSV que valem para qualquer quadro. */
 const COLUNAS_FIXAS_DO_CSV_DE_QLP = [
   "Chave",
@@ -1414,18 +1437,18 @@ export function celulasDoCsvDeQlp(
   /*
     A identidade em colunas, e a chave inteira ao lado.
 
-    O CSV escreve o valor **como o arquivo o trouxe**, prefixo e tudo: a planilha
-    exportada é evidência do que foi importado, e é por ela que se confere a
-    origem. Quem aparou o `Cargo:` foi a tela, que é onde o prefixo atrapalha a
-    leitura — e lá ele não muda nem o dado nem a chave.
+    O arquivo se lê como a tabela: mesma divisão e mesmo prefixo aparado. O que
+    sustenta isso é a coluna `Chave`, que vai na mesma linha e sem se repartir —
+    é por ela que se volta ao que foi importado, e é ela que o resto do produto
+    usa para se referir à linha.
   */
   const { unidade, cargo, turno } = partesDaChaveLegivel(
     conferencia.nome ?? conferencia.chave,
   );
   return conferencia.contas.map((c) => [
     ...(formato.comUnidade ? [unidade] : []),
-    cargo,
-    ...(formato.comTurno ? [turno] : []),
+    semPrefixoDeCargo(cargo),
+    ...(formato.comTurno ? [semPrefixoDeCargo(turno)] : []),
     conferencia.chave,
     c.rotulo,
     c.forma === "PRODUTO" ? "quantidade × valor" : "soma das parcelas",
