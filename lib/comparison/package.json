@@ -11,6 +11,7 @@
     "./nome-de-unidade": "./src/nome-de-unidade.ts",
     "./painel-de-justificativas-escopo": "./src/painel-de-justificativas-escopo.ts",
     "./justificativa-estruturada": "./src/justificativa-estruturada.ts",
+    "./cockpit": "./src/cockpit.ts",
     "./composition": "./src/composition.ts",
     "./finame": "./src/finame.ts",
     "./impostos": "./src/impostos.ts",

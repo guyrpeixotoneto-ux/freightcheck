@@ -1,7 +1,22 @@
 import { ArrowDown, ArrowDownRight, ArrowUp, ArrowUpRight, Minus } from "lucide-react";
 import type { LinhaDoMonitor } from "@workspace/comparison/monitor-custo-fixo";
 import { ROTULO_DA_SITUACAO } from "@workspace/comparison/monitor-custo-fixo";
-import { SEVERITY_LABELS } from "@workspace/comparison";
+/*
+  Pelo caminho do módulo, e não pelo barril de `@workspace/comparison`.
+
+  O barril reexporta o pacote inteiro — `engine`, `query`, `chamados` —, e em
+  modo dev o Vite executa cada um desses módulos ao servir o import: um deles
+  chega a `@workspace/ingest`, que chega a `canonical-identity`, que importa
+  `node:crypto`. O navegador não tem `node:crypto`, e a aplicação **inteira**
+  parava de renderizar em dev — não só o Monitor, porque as páginas são
+  importadas juntas. No build de produção o Rollup removia o ramo por
+  tree-shaking, então o defeito só existia onde se desenvolve, que é onde ele
+  custa mais caro.
+
+  `cockpit` não importa nada de servidor: só `./labels`, e tipos de `./grouped`
+  que a compilação apaga.
+*/
+import { SEVERITY_LABELS } from "@workspace/comparison/cockpit";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,

@@ -25,7 +25,7 @@ import { TabelaDoMonitor } from "@/components/monitor/tabela";
 import { DetalheDaAlteracao } from "@/components/monitor/detalhe";
 import { FiltrosDoMonitorGlobais } from "@/components/monitor/filtros";
 import { fetchJson } from "@/lib/api";
-import { useCandidatosDoPar } from "@/hooks/use-candidatos-do-par";
+import { useCandidatosDoPar, useTextoAdiado } from "@/hooks/use-candidatos-do-par";
 import { avisoDoParImpossivel } from "@/lib/par-de-vigencias";
 import { lerRecorte } from "@/lib/recorte";
 import { contextoAberto, unidadeDe, useContextosDaCasca } from "@/lib/contextos";
@@ -172,11 +172,17 @@ export default function MonitorCustoFixo() {
    * entre cartão e tabela que esta tela evita pedindo o recorte ao servidor em
    * vez de recortar no navegador.
    */
+  /*
+    Só a busca é adiada, e só ela precisa: módulo, equipamento, situação e
+    periodicidade são um clique cada, e adiar um clique seria piscar esqueleto
+    onde não havia hesitação nenhuma. A busca é a única que chega tecla a tecla.
+  */
+  const busca = useTextoAdiado(filtros.busca);
   const candidatos = useCandidatosDoPar(
     "monitor-custo-fixo",
     filtros.comparada,
     escopoAberto,
-    escreverRecorte(filtros),
+    escreverRecorte({ ...filtros, busca: busca.valor }),
   );
 
   const semPar = useMemo(() => motivoSemPar(daUnidade), [daUnidade]);
@@ -243,8 +249,14 @@ export default function MonitorCustoFixo() {
             onInverter={() =>
               aplicar({ ...filtros, base: filtros.comparada, comparada: filtros.base })
             }
-            candidatos={candidatos.data}
-            carregandoCandidatos={candidatos.isFetching}
+            /*
+              Enquanto a busca não assenta, o menu não mostra número: o que ele
+              tem na mão é a resposta do texto anterior, e escrevê-la seria
+              responder com um número uma pergunta que já mudou. O esqueleto diz
+              "está vindo", que é o que de fato está acontecendo.
+            */
+            candidatos={busca.emTransito ? undefined : candidatos.data}
+            carregandoCandidatos={busca.emTransito || candidatos.isFetching}
             erroDosCandidatos={
               candidatos.error instanceof Error ? candidatos.error.message : null
             }

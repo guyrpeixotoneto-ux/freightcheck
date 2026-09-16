@@ -5,7 +5,9 @@ import {
   ROTULO_DA_NATUREZA,
   ROTULO_DA_SITUACAO,
 } from "@workspace/comparison/monitor-custo-fixo";
-import { ROTULO_DO_ESTADO, SEVERITY_LABELS } from "@workspace/comparison";
+/* Pelo caminho de cada módulo, e não pelo barril — ver `tabela.tsx`. */
+import { ROTULO_DO_ESTADO } from "@workspace/comparison/recorte-de-rubrica";
+import { SEVERITY_LABELS } from "@workspace/comparison/cockpit";
 import {
   Sheet,
   SheetContent,

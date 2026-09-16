@@ -1,7 +1,56 @@
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { fetchJson } from "@/lib/api";
 import type { CandidatosDoPar } from "@/lib/candidatos";
+
+/**
+ * Quanto se espera a pessoa parar de digitar antes de refazer a pergunta.
+ *
+ * A busca do Monitor escreve no endereço a cada tecla, e o recorte vai na chave
+ * das candidatas: sem espera, "carreta" dispara **sete** rodadas, cada uma
+ * podendo custar o orçamento inteiro da rota (oito segundos) vezes o número de
+ * candidatas. As seis primeiras são perguntas que ninguém queria fazer — a
+ * resposta que interessa é a do texto inteiro.
+ *
+ * 400ms é a pausa entre palavras de quem digita, e não a pausa entre teclas:
+ * curto o bastante para a coluna chegar antes de alguém abrir o menu, longo o
+ * bastante para uma palavra inteira contar como um gesto só.
+ */
+export const ESPERA_DA_BUSCA_MS = 400;
+
+/**
+ * UM TEXTO QUE SÓ VALE DEPOIS DA PAUSA — e o aviso de que ele ainda não vale.
+ *
+ * ---------------------------------------------------------------------------
+ * Por que devolve `emTransito`, e por que ele não é opcional
+ * ---------------------------------------------------------------------------
+ * Porque o adiamento cria uma janela em que o menu **sabe** que o que tem na
+ * mão não responde mais à pergunta da tela: o recorte já mudou, os números são
+ * do anterior. Um debounce que só atrasasse a consulta deixaria esses números
+ * em tela durante a janela, e eles estariam errados — não desatualizados, e sim
+ * respondendo outra pergunta. É exatamente o defeito que mandar o recorte junto
+ * existe para não ter.
+ *
+ * Com `emTransito`, a janela vira esqueleto: quem chama passa `undefined` no
+ * lugar dos dados e `true` no carregamento, e a linha diz *está vindo* em vez
+ * de dizer um número. É a mesma régua de `numerosDaLinha` — ausência de
+ * cálculo nunca se escreve com número —, aplicada ao caso em que o cálculo
+ * existe mas é de outro recorte.
+ *
+ * O primeiro valor entra sem espera: abrir a tela com um filtro no endereço não
+ * é alguém digitando.
+ */
+export function useTextoAdiado(texto: string, espera = ESPERA_DA_BUSCA_MS) {
+  const [adiado, setAdiado] = useState(texto);
+
+  useEffect(() => {
+    if (adiado === texto) return;
+    const id = setTimeout(() => setAdiado(texto), espera);
+    return () => clearTimeout(id);
+  }, [texto, espera, adiado]);
+
+  return { valor: adiado, emTransito: adiado !== texto };
+}
 
 /**
  * As telas que têm rota de candidatas — o prefixo é o caminho dela.
