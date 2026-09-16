@@ -1,7 +1,7 @@
 import { ArrowDown, ArrowDownRight, ArrowUp, ArrowUpRight, Minus } from "lucide-react";
 import type { LinhaDoMonitor } from "@workspace/comparison/monitor-custo-fixo";
 import { ROTULO_DA_SITUACAO } from "@workspace/comparison/monitor-custo-fixo";
-import { SEVERITY_LABELS } from "@workspace/comparison";
+import { SEVERITY_LABELS } from "@workspace/comparison/cockpit";
 import { Badge } from "@/components/ui/badge";
 import {
   Table,
