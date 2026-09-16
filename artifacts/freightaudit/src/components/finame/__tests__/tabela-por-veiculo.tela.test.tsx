@@ -259,15 +259,9 @@ describe("justificar direto na tabela", () => {
         name: "Reescrever a justificativa de Amortização de QYW6D15",
       }),
     );
-    // A justificativa atual viaja junto: o diálogo abre com ela nos campos,
-    // dizendo o que se está substituindo.
-    expect(onJustificar).toHaveBeenCalledWith(
-      [expect.objectContaining({ id: 2 })],
-      expect.objectContaining({
-        regra: "O valor acompanha o contrato de financiamento.",
-        conforme: true,
-      }),
-    );
+    // A célula manda só a alteração; a justificativa que já existe o diálogo
+    // acha por `change.id` no mapa da página, e abre com ela nos campos.
+    expect(onJustificar).toHaveBeenCalledWith([expect.objectContaining({ id: 2 })]);
   });
 
   it("sem onJustificar, a coluna fica só de leitura", () => {

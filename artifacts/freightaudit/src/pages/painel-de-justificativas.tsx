@@ -510,13 +510,54 @@ export default function PainelDeJustificativas() {
         });
       }
     },
-    onSuccess: () => {
+    onSuccess: (_data, input) => {
       /* O painel inteiro reconta: os cartões, a rosca, as barras e a lista. */
       queryClient.invalidateQueries({ queryKey: ["justificativas"] });
-      setSelecionadas(new Set());
-      setDialogAlvo(null);
+      /*
+        Sai da seleção o que acabou de ser gravado, e não a seleção inteira: o
+        diálogo grava uma variável por vez, e limpar tudo na primeira deixaria
+        a tela de trás dizendo que nada estava escolhido enquanto as outras
+        ainda estavam sendo justificadas. Fechar também é dele.
+      */
+      setSelecionadas((atual) => {
+        const proximo = new Set(atual);
+        for (const linha of input.linhas) proximo.delete(linha.changeId);
+        return proximo;
+      });
     },
   });
+
+  /**
+   * O que já está explicado entre as alterações abertas no diálogo.
+   *
+   * A linha do painel já traz a justificativa junto — é a mesma consulta
+   * paginada que pinta a fila —, então não há nada a buscar: o mapa é a
+   * releitura dessas colunas na forma que o diálogo lê, por `change.id`. Sem
+   * ele, reabrir uma linha já justificada abriria os campos em branco e a
+   * caixa proporia redigir do zero o que já estava escrito.
+   */
+  const justificativasDoAlvo = useMemo(() => {
+    const mapa = new Map<number, Justificativa>();
+    for (const linha of dialogAlvo ?? []) {
+      if (linha.texto === null) continue;
+      mapa.set(linha.changeId, {
+        id: String(linha.changeId),
+        changeSetId: linha.changeSetId,
+        changeId: linha.changeId,
+        entityLabel: linha.entityLabel,
+        entityType: linha.entityType,
+        texto: linha.texto ?? "",
+        formula: linha.formula,
+        regra: linha.regra,
+        conforme: linha.conforme,
+        motivoExcecao: linha.motivoExcecao,
+        responsavelAprovacao: linha.responsavelAprovacao,
+        criadoPor: linha.criadoPor ?? "",
+        criadoEm: linha.criadoEm ?? "",
+      });
+    }
+    return mapa;
+  }, [dialogAlvo]);
 
   const alternar = (changeId: number) =>
     setSelecionadas((atual) => {
@@ -1395,31 +1436,15 @@ export default function PainelDeJustificativas() {
             ? `vigência ${nomeDaVigencia.get(dialogAlvo[0].changeSetId) ?? ""}`.trim()
             : undefined
         }
-        justificativaAtual={
-          dialogAlvo?.length === 1 && dialogAlvo[0].texto !== null
-            ? {
-                id: String(dialogAlvo[0].changeId),
-                changeSetId: dialogAlvo[0].changeSetId,
-                changeId: dialogAlvo[0].changeId,
-                entityLabel: dialogAlvo[0].entityLabel,
-                entityType: dialogAlvo[0].entityType,
-                texto: dialogAlvo[0].texto ?? "",
-                formula: dialogAlvo[0].formula,
-                regra: dialogAlvo[0].regra,
-                conforme: dialogAlvo[0].conforme,
-                motivoExcecao: dialogAlvo[0].motivoExcecao,
-                responsavelAprovacao: dialogAlvo[0].responsavelAprovacao,
-                criadoPor: dialogAlvo[0].criadoPor ?? "",
-                criadoEm: dialogAlvo[0].criadoEm ?? "",
-              }
-            : null
-        }
+        justificativas={justificativasDoAlvo}
         pendente={justificar.isPending}
         erro={justificar.error}
         onClose={() => setDialogAlvo(null)}
-        onConfirmar={(justificativa) =>
-          dialogAlvo && justificar.mutate({ linhas: dialogAlvo, justificativa })
-        }
+        onConfirmar={(alvo, justificativa) => {
+          const linha = dialogAlvo?.find((l) => l.changeId === alvo.id);
+          if (!linha) return;
+          return justificar.mutateAsync({ linhas: [linha], justificativa });
+        }}
       />
     </Layout>
   );

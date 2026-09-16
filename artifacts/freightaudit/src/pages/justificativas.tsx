@@ -283,7 +283,8 @@ export default function Justificativas() {
         for (const changeId of input.changeIds) proximo.delete(changeId);
         return proximo;
       });
-      setDialogAlvo(null);
+      /* Fechar é do diálogo: ele grava uma variável por vez e só sai quando
+         não sobrou nenhuma pendente da seleção. */
     },
   });
 
@@ -553,16 +554,24 @@ export default function Justificativas() {
 
       <JustificarDialog
         alvo={dialogAlvo}
+        /* Em que vigência isto vai ser gravado — a mesma que o cabeçalho
+           escreve, para que a caixa não peça uma decisão sem dizer sobre qual
+           competência ela vale. */
+        contexto={
+          vigenciaAberta
+            ? [vigenciaAberta.competencia, vigenciaAberta.unidade].filter(Boolean).join(" · ")
+            : undefined
+        }
+        justificativas={justificadaPor}
         pendente={mutation.isPending}
         erro={mutation.error}
         onClose={() => {
           setDialogAlvo(null);
           mutation.reset();
         }}
-        onConfirmar={(justificativa) => {
-          if (!dialogAlvo) return;
-          mutation.mutate({ changeIds: dialogAlvo.map((c) => c.id), justificativa });
-        }}
+        onConfirmar={(alvo, justificativa) =>
+          mutation.mutateAsync({ changeIds: [alvo.id], justificativa })
+        }
       />
     </Layout>
   );

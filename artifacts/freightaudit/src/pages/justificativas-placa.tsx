@@ -78,8 +78,6 @@ interface AlvoDaJustificativa {
   changeSetId: string;
   rotulo: string;
   changes: ChangeRow[];
-  /** A justificativa que já existe, quando se está reescrevendo uma célula verde. */
-  atual: Justificativa | null;
 }
 
 export default function JustificativasPlaca() {
@@ -208,12 +206,7 @@ export default function JustificativasPlaca() {
       verde abre com tudo — ali o clique é deliberadamente "reescrever".
     */
     const changes = celula.pendentes.length > 0 ? celula.pendentes : celula.alteracoes;
-    setDialogAlvo({
-      changeSetId: celula.changeSetId,
-      rotulo: celula.rotulo,
-      changes,
-      atual: celula.pendentes.length === 0 ? (justificadaPor.get(changes[0].id) ?? null) : null,
-    });
+    setDialogAlvo({ changeSetId: celula.changeSetId, rotulo: celula.rotulo, changes });
   };
 
   const mutation = useMutation({
@@ -233,7 +226,7 @@ export default function JustificativasPlaca() {
       }),
     onSuccess: (_data, input) => {
       queryClient.invalidateQueries({ queryKey: ["justificativas", input.changeSetId] });
-      setDialogAlvo(null);
+      /* Quem fecha é o diálogo, depois da última variável da célula. */
     },
   });
 
@@ -430,7 +423,6 @@ export default function JustificativasPlaca() {
                                     changeSetId: vigencia.changeSetId,
                                     rotulo: vigencia.rotulo,
                                     changes: pendentes,
-                                    atual: null,
                                   })
                                 }
                               >
@@ -455,18 +447,18 @@ export default function JustificativasPlaca() {
       <JustificarDialog
         alvo={dialogAlvo?.changes ?? null}
         contexto={dialogAlvo ? `vigência ${dialogAlvo.rotulo}` : undefined}
-        justificativaAtual={dialogAlvo?.atual ?? null}
+        justificativas={justificadaPor}
         pendente={mutation.isPending}
         erro={mutation.error}
         onClose={() => {
           setDialogAlvo(null);
           mutation.reset();
         }}
-        onConfirmar={(justificativa) => {
+        onConfirmar={(alvo, justificativa) => {
           if (!dialogAlvo) return;
-          mutation.mutate({
+          return mutation.mutateAsync({
             changeSetId: dialogAlvo.changeSetId,
-            changeIds: dialogAlvo.changes.map((c) => c.id),
+            changeIds: [alvo.id],
             justificativa,
           });
         }}
