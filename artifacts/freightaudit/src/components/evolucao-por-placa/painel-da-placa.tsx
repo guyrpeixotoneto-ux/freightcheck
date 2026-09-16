@@ -46,6 +46,7 @@ export function PainelDaPlaca({
   onFechar,
   leitura,
   className,
+  historicoInicial = false,
 }: {
   ativo: AtivoNaEvolucao;
   evolucao: EvolucaoPorPlaca;
@@ -75,8 +76,18 @@ export function PainelDaPlaca({
    * moldura passa por esta propriedade.
    */
   className?: string;
+  /**
+   * Abrir já com o histórico à mostra.
+   *
+   * Quem chegou aqui clicando no **nome** da placa perguntou "o que mudou nela?"
+   * — e responder isso com um resumo e um botão é cobrar um segundo clique por
+   * uma pergunta que já tinha sido feita. É estado inicial, e não controle: a
+   * partir daí o botão manda, como sempre mandou. Quem abre pelo resto da linha
+   * continua caindo no resumo.
+   */
+  historicoInicial?: boolean;
 }) {
-  const [historico, setHistorico] = useState(false);
+  const [historico, setHistorico] = useState(historicoInicial);
   const sufixo = periodicitySuffix(evolucao.periodicidade);
   const serie = serieDaPlaca(ativo, evolucao.colunas);
 

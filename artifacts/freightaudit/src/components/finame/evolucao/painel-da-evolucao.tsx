@@ -120,6 +120,10 @@ export function PainelDaEvolucaoDeFiname({
   const [ordem, setOrdem] = useState<OrdemDaEvolucao>("prioridade");
   const [busca, setBusca] = useState("");
   const [placa, setPlaca] = useState<string | null>(null);
+  /* De onde veio o clique: o nome da placa pede o histórico, a linha pede o
+     resumo. Vive separado de `placa` porque a mesma placa pode ser aberta das
+     duas formas, uma depois da outra. */
+  const [comHistorico, setComHistorico] = useState(false);
 
   const anos = useMemo(() => anosDasVigencias(datas), [datas]);
   /* Sem ano escolhido, o mais recente do acervo — nunca o ano do relógio, que
@@ -324,7 +328,14 @@ export function PainelDaEvolucaoDeFiname({
             onOrdem={setOrdem}
             onBusca={setBusca}
             onLimparInsight={() => undefined}
-            onEscolherPlaca={(id) => setPlaca((atual) => (atual === id ? null : id))}
+            onEscolherPlaca={(id, opcoes) => {
+              const historico = opcoes?.historico === true;
+              setComHistorico(historico);
+              /* No nome da placa não há alternância: pedir o histórico de uma
+                 placa já aberta no resumo tem de **abrir o histórico**, e não
+                 fechar a gaveta. */
+              setPlaca((atual) => (!historico && atual === id ? null : id));
+            }}
             leitura={LEITURA_DO_FINAME}
           />
 
@@ -343,9 +354,14 @@ export function PainelDaEvolucaoDeFiname({
                     Detalhe de {aberta.rotulo}
                   </SheetTitle>
                   <PainelDaPlaca
+                    /* Remonta a cada abertura: `historicoInicial` é estado
+                       inicial, e sem trocar a chave a segunda abertura herdaria
+                       o histórico que a primeira deixou aberto. */
+                    key={`${aberta.entityId}:${comHistorico}`}
                     ativo={aberta}
                     evolucao={dados}
                     leitura={LEITURA_DO_FINAME}
+                    historicoInicial={comHistorico}
                     /* A gaveta já é a casca, e já tem o seu × no canto. */
                     className="rounded-none border-0 bg-transparent p-6 shadow-none lg:static"
                   />

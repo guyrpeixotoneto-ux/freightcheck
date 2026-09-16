@@ -132,6 +132,10 @@ export default function EvolucaoPorPlacaPage() {
     que envelheceria na próxima importação.
   */
   const [insight, setInsight] = useState<InsightDaEvolucao | null>(null);
+  /* De onde veio o clique: o nome da placa pede o histórico, a linha pede o
+     resumo. Não vai para o endereço junto com `placa` — é a profundidade de uma
+     abertura, e não um estado que mereça ser compartilhado por link. */
+  const [comHistorico, setComHistorico] = useState(false);
   const recorte = useMemo(
     () =>
       insight && evolucao?.insights.some((i) => i.chave === insight.chave)
@@ -355,9 +359,16 @@ export default function EvolucaoPorPlacaPage() {
               }
               onBusca={(valor) => trocarPara({ busca: valor })}
               onLimparInsight={() => setInsight(null)}
-              onEscolherPlaca={(entityId) =>
-                trocarPara({ placa: entityId === placaAberta ? null : entityId })
-              }
+              onEscolherPlaca={(entityId, opcoes) => {
+                const historico = opcoes?.historico === true;
+                setComHistorico(historico);
+                /* No nome da placa não há alternância: pedir o histórico de uma
+                   placa já aberta no resumo tem de **abrir o histórico**, e não
+                   fechar a gaveta. */
+                trocarPara({
+                  placa: !historico && entityId === placaAberta ? null : entityId,
+                });
+              }}
             />
 
             <Sheet
@@ -375,8 +386,13 @@ export default function EvolucaoPorPlacaPage() {
                       Detalhe de {aberta.rotulo}
                     </SheetTitle>
                     <PainelDaPlaca
+                      /* Remonta a cada abertura: `historicoInicial` é estado
+                         inicial, e sem trocar a chave a segunda abertura
+                         herdaria o histórico que a primeira deixou aberto. */
+                      key={`${aberta.entityId}:${comHistorico}`}
                       ativo={aberta}
                       evolucao={evolucao}
+                      historicoInicial={comHistorico}
                       /* A gaveta já é a casca, e já tem o seu × no canto. */
                       className="rounded-none border-0 bg-transparent p-6 shadow-none lg:static"
                     />
