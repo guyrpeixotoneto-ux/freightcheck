@@ -101,6 +101,13 @@ export interface EscritaDaRubrica<L extends LinhaAgrupavel, V extends VeiculoDaR
    * "Parcela para" — a placa e a vigência já estão ditas no seletor acima.
    */
   destaque: string;
+  /**
+   * A unidade do destaque. Dinheiro, por padrão — mas nem toda rubrica de custo
+   * mede em reais: a Manutenção resume a placa em **R$/km**, e escrever
+   * "R$ 0,34" onde a fonte disse trinta e quatro centavos por quilômetro é o
+   * erro que a coluna inteira convida a cometer.
+   */
+  medidaDoDestaque?: MedidaDaVariavel;
   escreverValor: (valor: string | null, medida: MedidaDaVariavel) => string;
   escreverDiferenca: (diferenca: number | null, medida: MedidaDaVariavel) => string;
   escreverVariacao: (variacao: number | null) => string;
@@ -260,6 +267,7 @@ function FragmentoDoVeiculo<
   onAbrir: () => void;
 }) {
   const diferenca = v.destaque?.diferenca ?? null;
+  const medida = escrita.medidaDoDestaque ?? "DINHEIRO";
   const fora = new Set(escrita.foraDaExpansao ?? []);
   const linhasDaExpansao = v.linhas.filter((l) => !fora.has(l.variavel));
   const aviso = escrita.avisoDaPlaca?.(v) ?? null;
@@ -352,23 +360,23 @@ function FragmentoDoVeiculo<
           )}
         </td>
         <td className="whitespace-nowrap px-3 py-2 text-right font-mono tabular-nums">
-          {escrita.escreverValor(v.destaque?.base?.toString() ?? null, "DINHEIRO")}
+          {escrita.escreverValor(v.destaque?.base?.toString() ?? null, medida)}
         </td>
         <td className="whitespace-nowrap px-3 py-2 text-right font-mono tabular-nums">
-          {escrita.escreverValor(v.destaque?.comparada?.toString() ?? null, "DINHEIRO")}
+          {escrita.escreverValor(v.destaque?.comparada?.toString() ?? null, medida)}
         </td>
         <td
           className={cn(
             "whitespace-nowrap px-3 py-2 text-right font-mono tabular-nums",
-            escrita.corDaDiferenca(diferenca, "DINHEIRO"),
+            escrita.corDaDiferenca(diferenca, medida),
           )}
         >
-          {escrita.escreverDiferenca(diferenca, "DINHEIRO")}
+          {escrita.escreverDiferenca(diferenca, medida)}
         </td>
         <td
           className={cn(
             "whitespace-nowrap px-3 py-2 text-right font-mono tabular-nums",
-            escrita.corDaDiferenca(diferenca, "DINHEIRO"),
+            escrita.corDaDiferenca(diferenca, medida),
           )}
         >
           {escrita.escreverVariacao(v.destaque?.variacao ?? null)}

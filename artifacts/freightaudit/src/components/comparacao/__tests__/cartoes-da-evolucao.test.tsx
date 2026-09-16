@@ -115,4 +115,35 @@ describe("os dois impactos", () => {
     /* O líquido dos movimentos continua lá: uma leitura não espera a outra. */
     expect(screen.getByText(/Impacto líquido dos movimentos/)).toBeTruthy();
   });
+
+  /*
+    O defeito que a prova no navegador das telas de Seguro e de Manutenção
+    mostrou: as duas fecham o ano com "0 valoradas · 118 sem valoração" no
+    terceiro cartão e um "R$ 0" enorme no primeiro. Os dois números estão certos
+    e juntos dizem a coisa errada — o R$ 0 lê-se como "nada se moveu", quando o
+    que houve foram 118 movimentos que o motor não sabe precificar.
+  */
+  it("com nada precificado, o líquido diz isso em vez de escrever R$ 0", () => {
+    const semPreco = {
+      ...EVOLUCAO,
+      totais: {
+        ...EVOLUCAO.totais,
+        liquido: 0,
+        ganho: 0,
+        perda: 0,
+        alteracoes: 118,
+        alteracoesSemValoracao: 118,
+        alteracoesEmOutraPeriodicidade: 0,
+      },
+    } as unknown as EvolucaoPorPlaca;
+
+    render(
+      <CartoesDaEvolucao evolucao={semPreco} ponta={PONTA} carregandoPonta={false} {...RUBRICA} />,
+    );
+    expect(screen.getByText("sem impacto precificável")).toBeTruthy();
+    /* E o R$ 0 não pode aparecer no lugar do valor. */
+    expect(screen.queryByText("R$ 0")).toBeNull();
+    /* A frase diz quantas foram e por que não têm preço. */
+    expect(screen.getByText(/não viram reais/)).toBeTruthy();
+  });
 });
