@@ -555,8 +555,23 @@ router.get("/changes/evolucao-por-placa", async (req, res): Promise<void> => {
     em `OpcoesDaEvolucao`.
   */
   const grao = texto("grao") === "CONJUNTO" ? "CONJUNTO" : "ATIVO";
+  /*
+    `parameters` recorta a leitura a um universo de atributos — é o que permite a
+    Evolução anual do FINAME ser esta mesma matriz, e não uma segunda cópia
+    dela. Vazio ou ausente é o intervalo inteiro, como sempre foi.
+
+    O recorte é aplicado dentro do domínio, e de propósito: ele tem de acontecer
+    **depois** de a janela montar o índice de dupla contagem (ver `parameters`,
+    em `OpcoesDaEvolucao`). Uma rota que filtrasse a resposta aqui devolveria os
+    mesmos ativos com o dinheiro errado.
+  */
+  const parameters = (texto("parameters") ?? "")
+    .split(",")
+    .map((p) => p.trim())
+    .filter(Boolean);
   const evolucao = await evolucaoPorPlaca(db, {
     grao,
+    ...(parameters.length > 0 ? { parameters } : {}),
     ...(texto("from") ? { from: texto("from")! } : {}),
     ...(texto("to") ? { to: texto("to")! } : {}),
     context: parseContext(req.query as Record<string, unknown>),

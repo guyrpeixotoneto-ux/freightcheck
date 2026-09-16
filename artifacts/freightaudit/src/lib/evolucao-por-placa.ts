@@ -190,11 +190,22 @@ export function consultaDaEvolucao(
   tipo?: TipoDaLinhaDoTempo | null,
   periodicidade?: string | null,
   grao?: GraoDaEvolucao | null,
+  /**
+   * O universo de atributos, quando a leitura é de uma rubrica só.
+   *
+   * Chega como objeto, e não como um sétimo posicional, porque seis já era o
+   * limite do que se lê numa chamada sem contar vírgulas — e porque quem o usa
+   * (a Evolução anual do FINAME) não passa `grao` nem `tipo` pela mesma via.
+   */
+  extras?: { parameters?: readonly string[] | null },
 ): URLSearchParams {
   const query = new URLSearchParams(consulta);
   query.delete("period");
   if (de) query.set("from", de);
   if (ate) query.set("to", ate);
+  if (extras?.parameters && extras.parameters.length > 0) {
+    query.set("parameters", extras.parameters.join(","));
+  }
   /*
     `tipo` e o grão de conjunto não se combinam — um conjunto recortado a um dos
     dois lados seria a aba Cavalo com outro nome. A tela nem chega a mandar os
@@ -215,8 +226,9 @@ export function opcoesDaEvolucao(
   tipo?: TipoDaLinhaDoTempo | null,
   periodicidade?: string | null,
   grao?: GraoDaEvolucao | null,
+  extras?: { parameters?: readonly string[] | null },
 ): Pick<UseQueryOptions<EvolucaoPorPlaca | null>, "queryKey" | "queryFn" | "staleTime"> {
-  const query = consultaDaEvolucao(consulta, de, ate, tipo, periodicidade, grao);
+  const query = consultaDaEvolucao(consulta, de, ate, tipo, periodicidade, grao, extras);
   return {
     queryKey: ["evolucao-por-placa", query.toString()],
     queryFn: () => fetchJsonOrNull<EvolucaoPorPlaca>(`/changes/evolucao-por-placa?${query}`),
