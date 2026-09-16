@@ -580,13 +580,23 @@ export const COLUNAS_DO_CSV_DE_QLP_COMPARADO = [
   "Status",
   "Motivo",
   "Fora da soma",
+  "Justificativa",
 ] as const;
 
-/** Uma linha do CSV, na ordem do cabeçalho. Números crus — a tela formata. */
+/**
+ * Uma linha do CSV, na ordem do cabeçalho. Números crus — a tela formata.
+ *
+ * O aviso da coluna que não soma viaja junto, e existe no arquivo porque o
+ * arquivo sai do produto e vira soma na planilha de outra pessoa: um CSV que
+ * exporta o subtotal sem dizer que ele embute as parcelas é um convite a dobrar
+ * a folha fora daqui. A justificativa vem pelo mesmo motivo que ela está na
+ * tabela — a explicação de uma queda vale tanto quanto a queda.
+ */
 export function celulasDoCsvDeQlpComparado(
   linha: LinhaDeQlpComparado,
   rotuloDoCargo: string,
   rotuloDoEstado: string,
+  justificativa: string | null = null,
 ): (string | number | null)[] {
   return [
     rotuloDoCargo,
@@ -601,5 +611,6 @@ export function celulasDoCsvDeQlpComparado(
     rotuloDoEstado,
     linha.motivo,
     linha.foraDaSoma,
+    justificativa,
   ];
 }

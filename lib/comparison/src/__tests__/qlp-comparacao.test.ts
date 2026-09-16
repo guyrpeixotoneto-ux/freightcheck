@@ -357,4 +357,27 @@ describe("a exportação", () => {
     expect(celulas[7]).toBe(600);
     expect(celulas[9]).toBe("Alterado");
   });
+
+  /*
+    O aviso da coluna que não soma e a justificativa saem no arquivo pelo mesmo
+    motivo: o CSV vira soma na planilha de outra pessoa, e um subtotal exportado
+    sem dizer que embute as parcelas é um convite a dobrar a folha fora daqui.
+  */
+  it("leva o aviso de fora da soma e a justificativa junto", () => {
+    const subtotal = linhaDeQlpDaAlteracao(
+      alteracao({
+        entityType: "QLP_OPERACIONAL",
+        attributeCode: OPER("total_beneficio_fixo"),
+      }),
+      "OPERACIONAL",
+    )!;
+    const celulas = celulasDoCsvDeQlpComparado(
+      subtotal,
+      "CAMAÇARI · MOTORISTA 28",
+      "Alterado",
+      "Reajuste da convenção coletiva.",
+    );
+    expect(String(celulas[11])).toContain("Subtotal");
+    expect(celulas[12]).toBe("Reajuste da convenção coletiva.");
+  });
 });

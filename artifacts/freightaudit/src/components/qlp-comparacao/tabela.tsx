@@ -1,5 +1,11 @@
 import { Info } from "lucide-react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  CelulaDeJustificativa,
+  COLUNA_DE_JUSTIFICATIVA,
+  type AbrirJustificativa,
+} from "@/components/justificativas/coluna";
+import type { Justificativa } from "@/lib/justificativas";
 import { cn } from "@/lib/utils";
 import {
   ROTULO_DO_ESTADO,
@@ -27,13 +33,26 @@ import {
  * **A coluna que não entra em soma diz isso no ⓘ.** Um subtotal muda junto com
  * as parcelas dele, e a linha do subtotal ao lado das linhas das parcelas é a
  * forma mais fácil de contar a mesma mudança duas vezes.
+ *
+ * **A coluna de justificativa é a mesma das outras seis** — mesmo componente,
+ * mesmo `change.id`, mesmo POST. Uma queda de efetivo se explica olhando a linha
+ * que caiu, e era exatamente ali que não dava para escrever.
  */
 export function TabelaDaComparacaoDeQlp({
   linhas,
   rotulos,
+  justificadaPor,
+  onAbrir,
+  onJustificar,
 }: {
   linhas: LinhaDeQlpComparado[];
   rotulos: Record<string, string>;
+  /** A justificativa mais recente de cada alteração, por `change.id`. */
+  justificadaPor?: ReadonlyMap<number, Justificativa>;
+  /** Abrir a gaveta do cargo desta linha. */
+  onAbrir: (cargo: string) => void;
+  /** Sem ele a coluna é só de leitura — ver `CelulaDeJustificativa`. */
+  onJustificar?: AbrirJustificativa;
 }) {
   return (
     <div className="superficie overflow-x-auto">
@@ -43,8 +62,16 @@ export function TabelaDaComparacaoDeQlp({
         </caption>
         <thead>
           <tr className="border-b bg-muted/60">
-            {["Cargo", "Variável", "De", "Para", "Diferença", "Variação %", "Status"].map(
-              (titulo, i) => (
+            {[
+              "Cargo",
+              "Variável",
+              "De",
+              "Para",
+              "Diferença",
+              "Variação %",
+              "Status",
+              COLUNA_DE_JUSTIFICATIVA,
+            ].map((titulo, i) => (
                 <th
                   key={titulo}
                   scope="col"
@@ -52,11 +79,10 @@ export function TabelaDaComparacaoDeQlp({
                     "whitespace-nowrap px-3 py-2.5 text-[0.65rem] font-bold uppercase tracking-[0.07em] text-muted-foreground",
                     i >= 2 && i <= 5 ? "text-right" : "text-left",
                   )}
-                >
-                  {titulo}
-                </th>
-              ),
-            )}
+              >
+                {titulo}
+              </th>
+            ))}
           </tr>
         </thead>
         <tbody>
@@ -65,7 +91,17 @@ export function TabelaDaComparacaoDeQlp({
             return (
               <tr
                 key={`${linha.entityLabel}-${linha.variavel}-${linha.id ?? indice}`}
-                className="border-b border-superficie-borda hover:bg-muted/40"
+                className="cursor-pointer border-b border-superficie-borda hover:bg-muted/40"
+                onClick={() => linha.entityLabel && onAbrir(linha.entityLabel)}
+                tabIndex={0}
+                role="button"
+                aria-label={`Abrir as variáveis de ${cargo}`}
+                onKeyDown={(e) => {
+                  if ((e.key === "Enter" || e.key === " ") && linha.entityLabel) {
+                    e.preventDefault();
+                    onAbrir(linha.entityLabel);
+                  }
+                }}
               >
                 <td className="px-3 py-2">
                   <div className="font-medium">{cargo}</div>
@@ -124,6 +160,24 @@ export function TabelaDaComparacaoDeQlp({
                       {linha.motivo}
                     </p>
                   )}
+                </td>
+                <td className="px-3 py-2 text-xs">
+                  {/*
+                    O cargo entra legível no diálogo, e não pela chave.
+
+                    `entityLabel` é o que a caixa de justificar escreve no topo,
+                    e o motor grava ali a chave normalizada
+                    (`07526557001505CARGOMANOBRISTA…`). Quem vai explicar uma
+                    alteração precisa ler de que cargo ela é; o que identifica a
+                    gravação é o `change.id`, que não muda com isto.
+                  */}
+                  <CelulaDeJustificativa
+                    linha={{ ...linha, entityLabel: unidade ? `${unidade} · ${cargo}` : cargo }}
+                    justificativa={
+                      linha.id === null ? undefined : justificadaPor?.get(linha.id)
+                    }
+                    {...(onJustificar ? { onJustificar } : {})}
+                  />
                 </td>
               </tr>
             );

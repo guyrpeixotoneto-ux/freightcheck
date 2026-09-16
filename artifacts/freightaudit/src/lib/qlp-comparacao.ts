@@ -244,6 +244,14 @@ export function contagemPorEstado(
 export function linhasDoCsv(
   linhas: LinhaDeQlpComparado[],
   rotulos: Record<string, string>,
+  /*
+     O que o gestor escreveu sobre cada alteração, por `change.id` — a mesma
+     leitura que a coluna da tabela usa. Opcional porque ela pode não ter
+     voltado: um CSV com a coluna em branco continua sendo o arquivo da
+     comparação, e recusá-lo por causa do comentário seria trocar o dado pela
+     nota sobre o dado.
+  */
+  justificadaPor?: ReadonlyMap<number, { texto: string }>,
 ): string[][] {
   return [
     [...COLUNAS_DO_CSV_DE_QLP_COMPARADO],
@@ -252,6 +260,7 @@ export function linhasDoCsv(
         l,
         cargoEmUmaLinha(l.entityLabel, rotulos),
         ROTULO_DO_ESTADO[l.estado],
+        l.id === null ? null : (justificadaPor?.get(l.id)?.texto ?? null),
       ).map((celula) =>
         celula === null ? "" : typeof celula === "number" ? numeroParaCsv(celula) : celula,
       ),

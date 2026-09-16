@@ -36,6 +36,13 @@ import { ApiErrorNotice } from "@/components/api-error";
 import { SeletorDoPar, type VigenciaEscolhivel } from "@/components/comparacao/seletor-do-par";
 import { avisoDoParImpossivel } from "@/lib/par-de-vigencias";
 import { TabelaDaComparacaoDeQlp } from "@/components/qlp-comparacao/tabela";
+import { DetalheDoCargo } from "@/components/qlp-comparacao/detalhe";
+import {
+  AlteracoesPorVariavel,
+  DistribuicaoPorEstado,
+} from "@/components/qlp-comparacao/graficos";
+import { JustificarDialog } from "@/components/justificativas/justificar-dialog";
+import { useJustificarNaTabela } from "@/lib/justificar-na-tabela";
 import { fetchJson, salvarArquivo } from "@/lib/api";
 import { csvComoBlob, paraNomeDeArquivo } from "@/lib/csv";
 import { formatNumber } from "@/lib/format";
@@ -106,6 +113,7 @@ export function ComparacaoDoQuadro({
   const [comSemAlteracao, setComSemAlteracao] = useState(false);
   const [pagina, setPagina] = useState(1);
   const [porPagina, setPorPagina] = useState(50);
+  const [cargoAberto, setCargoAberto] = useState<string | null>(null);
 
   /*
     A família é pedida ao servidor, e não recortada depois: `/snapshots` responde
@@ -188,6 +196,20 @@ export function ComparacaoDoQuadro({
 
   useEffect(() => setPagina(1), [filtros, parametros]);
 
+  const rotuloBase = dados?.base.sourceLabel ?? "De";
+  const rotuloComparada = dados?.comparada.sourceLabel ?? "Para";
+
+  /*
+    Justificar sem sair daqui — a mesma caixa de Chamados, o mesmo POST, e a
+    vigência escrita nela: quem justifica a partir desta tela escolheu o par no
+    seletor acima, e um diálogo que não diz onde grava deixa a decisão sem a
+    metade que a torna verificável.
+  */
+  const justificar = useJustificarNaTabela(
+    dados?.changeSetId,
+    `comparação ${rotuloBase} → ${rotuloComparada} do ${ROTULO_DO_QUADRO[quadro]}`,
+  );
+
   /*
     A frase da tela vazia sai do motivo, e não de um palpite: `motivoSemPar`
     separa "não importaram" de "importaram uma só" de "são de unidades
@@ -212,7 +234,7 @@ export function ComparacaoDoQuadro({
   }
 
   function exportar() {
-    const blob = csvComoBlob(linhasDoCsv(filtradas, rotulos));
+    const blob = csvComoBlob(linhasDoCsv(filtradas, rotulos, justificar.justificadaPor));
     const nome = paraNomeDeArquivo(
       `${dados?.base.sourceLabel ?? "de"}-${dados?.comparada.sourceLabel ?? "para"}`,
     );
@@ -263,6 +285,11 @@ export function ComparacaoDoQuadro({
       {dados && (
         <>
           <Cartoes dados={dados} />
+
+          <div className="grid gap-3 lg:grid-cols-2">
+            <AlteracoesPorVariavel dados={dados.alteracoesPorVariavel} />
+            <DistribuicaoPorEstado dados={dados.distribuicaoPorEstado} />
+          </div>
 
           <p className="flex items-start gap-2 text-xs text-muted-foreground">
             <Info className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
@@ -360,7 +387,13 @@ export function ComparacaoDoQuadro({
             />
           ) : (
             <>
-              <TabelaDaComparacaoDeQlp linhas={naPagina} rotulos={rotulos} />
+              <TabelaDaComparacaoDeQlp
+                linhas={naPagina}
+                rotulos={rotulos}
+                justificadaPor={justificar.justificadaPor}
+                onAbrir={setCargoAberto}
+                onJustificar={justificar.abrir}
+              />
               <Paginacao
                 pagina={pagina}
                 porPagina={porPagina}
@@ -372,6 +405,15 @@ export function ComparacaoDoQuadro({
               />
             </>
           )}
+          <DetalheDoCargo
+            cargo={cargoAberto}
+            linhas={linhas}
+            rotulos={rotulos}
+            rotuloBase={rotuloBase}
+            rotuloComparada={rotuloComparada}
+            onFechar={() => setCargoAberto(null)}
+          />
+          <JustificarDialog {...justificar.propsDoDialogo} />
         </>
       )}
     </div>
