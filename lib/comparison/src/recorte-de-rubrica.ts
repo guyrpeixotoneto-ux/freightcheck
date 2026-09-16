@@ -534,3 +534,203 @@ export function rotulosDasVigencias<T extends VigenciaRotulavel>(
 
   return rotulos;
 }
+
+// ---------------------------------------------------------------------------
+// A compatibilidade de duas pontas — a recusa do motor, dita antes do clique
+// ---------------------------------------------------------------------------
+//
+// Este bloco é a terceira cópia de uma regra que já existia duas vezes, e é por
+// isso que ele existe: `engine.ts` recusa o par (escopo, cobertura, e um
+// snapshot contra si mesmo), `candidatas-do-par.ts` antecipa a recusa para não
+// gastar orçamento com par que não vai rodar, e o seletor das telas **não
+// antecipava nada** — oferecia as doze linhas da unidade como se fossem
+// intercambiáveis.
+//
+// O sintoma medido, relatado em 15/09/2026 na Auditoria de FINAME, depois de
+// uma importação de carreta que mudou a cobertura de parte do acervo: o menu
+// "De" mostrava número em duas linhas e **nada** nas outras oito. Quem lê a
+// tela conclui que as oito não têm alteração; o que elas são, na verdade, é
+// incomparáveis com o "Para" aberto — o servidor sequer as considerou
+// (`candidatas-do-par.ts`), porque a cobertura não bate. Uma linha muda ao lado
+// de uma vigência é a pior resposta possível numa tela de auditoria: ela não
+// mente com número, mas deixa quem lê inventar o número que falta.
+//
+// Com a regra aqui, o seletor recorta a lista pela mesma condição que o
+// servidor usa para montar as candidatas. O que sobra na lista é o que produz
+// comparação; o que não produz não é oferecido, e a ausência é explicada por
+// escrito em vez de ficar em branco.
+
+/**
+ * As duas pontas formam par que o motor aceita?
+ *
+ * `DeVigencias` no nome não é enfeite: `composition.ts` já publica um
+ * `formamPar`, e ele fala de **equipamento** — se um cavalo e uma carreta
+ * formam conjunto. Os dois saem pelo mesmo `export *` do índice do pacote, e
+ * dois nomes iguais ali não brigam em voz alta: o export vira ambíguo, o import
+ * chega `undefined`, e o que se vê é a rota respondendo 500 longe daqui. Foi
+ * exatamente o que aconteceu na primeira versão desta função.
+ *
+ * As três condições são as de `engine.ts`, na ordem em que ele as testa —
+ * um snapshot não se compara consigo mesmo, escopos diferentes não se comparam,
+ * coberturas diferentes não se comparam. O canal, que é a quarta recusa do
+ * motor, não entra aqui: ele não está em `VigenciaEmparelhavel` e já é recortado
+ * antes, por operação, em `listComparableSnapshots`.
+ *
+ * A igualdade da cobertura é **exata**, e não "tem algum tipo em comum": é o
+ * que `engine.ts` faz (`a.entityTypeSet !== b.entityTypeSet`), e é o que a
+ * comparação exige — uma vigência de `CARRETA+CAVALO` contra uma de `CAVALO`
+ * faria toda carreta aparecer como removida.
+ */
+export function formamParDeVigencias(a: VigenciaEmparelhavel, b: VigenciaEmparelhavel): boolean {
+  if (a.id === b.id) return false;
+  if (a.scopeHash !== b.scopeHash) return false;
+  return a.entityTypeSet === b.entityTypeSet;
+}
+
+/**
+ * As vigências que podem ficar do outro lado de uma ponta escolhida.
+ *
+ * É o recorte que o seletor oferece: com `julho/2026` de um lado, só entram na
+ * outra caixa as vigências da mesma unidade e da mesma cobertura. Sem
+ * referência, não há o que recortar — a lista inteira é a resposta, porque
+ * recortar por um critério que não existe é esconder sem motivo.
+ */
+export function vigenciasCompativeisCom<T extends VigenciaEmparelhavel>(
+  vigencias: readonly T[],
+  referencia: VigenciaEmparelhavel | null | undefined,
+): T[] {
+  if (!referencia) return [...vigencias];
+  return vigencias.filter((v) => formamParDeVigencias(v, referencia));
+}
+
+/**
+ * A compatível mais próxima no tempo — quem entra na outra caixa sozinha.
+ *
+ * Trocar o "De" para uma vigência de outra cobertura invalida o "Para" que
+ * estava lá. Deixar o campo como estava seria manter em tela um par que o motor
+ * recusa; esvaziá-lo seria pedir mais um clique para chegar ao lugar óbvio. A
+ * escolha é a vizinha: a vigência compatível cuja data está mais perto da
+ * referência, que é o par que quem audita quase sempre quer — o mês anterior,
+ * ou a quinzena anterior.
+ *
+ * Empate entre uma anterior e uma posterior à mesma distância: fica a
+ * **anterior**. "De" é a origem e "Para" o destino, e a leitura natural do
+ * produto anda para frente no tempo; na dúvida, a origem é a mais velha.
+ */
+export function compativelMaisProxima<T extends VigenciaEmparelhavel>(
+  vigencias: readonly T[],
+  referencia: VigenciaEmparelhavel | null | undefined,
+): T | null {
+  if (!referencia) return null;
+  const candidatas = vigenciasCompativeisCom(vigencias, referencia);
+  if (candidatas.length === 0) return null;
+  const distancia = (v: T) => Math.abs(Date.parse(v.effectiveDate) - Date.parse(referencia.effectiveDate));
+  return [...candidatas].sort(
+    (a, b) =>
+      distancia(a) - distancia(b) || a.effectiveDate.localeCompare(b.effectiveDate),
+  )[0]!;
+}
+
+/**
+ * A cobertura escrita como quem fala dela — `Cavalo + Carreta`.
+ *
+ * O acervo grava o conjunto em ordem alfabética (`CARRETA+CAVALO`), que é o que
+ * a identidade precisa e não é como ninguém diz: o cavalo puxa a carreta, e a
+ * frase é nessa ordem. Existe para a mensagem que explica a lista vazia — uma
+ * frase que dissesse `CARRETA+CAVALO` devolveria a quem lê o vocabulário do
+ * banco em vez do da operação.
+ */
+export function rotuloDaCobertura(entityTypeSet: string): string {
+  const ordem = ["CAVALO", "CARRETA", "TRECHO"];
+  const tipos = (entityTypeSet ?? "")
+    .split("+")
+    .map((t) => t.trim().toUpperCase())
+    .filter((t) => t !== "");
+  if (tipos.length === 0) return "";
+  return tipos
+    .sort((a, b) => {
+      const ia = ordem.indexOf(a);
+      const ib = ordem.indexOf(b);
+      return (ia === -1 ? ordem.length : ia) - (ib === -1 ? ordem.length : ib) || a.localeCompare(b);
+    })
+    .map((t) => t.charAt(0) + t.slice(1).toLowerCase())
+    .join(" + ");
+}
+
+/**
+ * Como o equipamento veio na vigência — `Somente cavalo`, `Cavalo com carreta`.
+ *
+ * ---------------------------------------------------------------------------
+ * Por que ela substituiu "Outra cobertura"
+ * ---------------------------------------------------------------------------
+ * Porque aquele nome passou a contradizer a tela. O seletor do par separa as
+ * vigências que formam par com a ponta aberta das que não formam, e enquanto
+ * ele era o único eixo da tela "cobertura" era a palavra certa — era ela que
+ * distinguia as linhas. Depois que a aba de equipamento subiu para cima do par,
+ * a mesma palavra virou uma contradição em voz alta: dentro da aba **Cavalo**,
+ * um grupo chamado "Outra cobertura" cujas linhas dizem "Cavalo".
+ *
+ * O que separa aquelas linhas não é o equipamento — as duas têm cavalo. É a
+ * **composição do arquivo de origem**: numa o cavalo veio sozinho, na outra
+ * veio junto com a carreta, e o motor não compara uma com a outra porque a
+ * comparação é da vigência inteira (`engine.ts`). Dizer isso por extenso
+ * explica a divisão; dizer "cobertura" só a nomeia com o vocabulário do banco.
+ *
+ * `foco` é o equipamento da aba aberta, e é ele que decide a frase: na aba
+ * Cavalo, `CARRETA+CAVALO` é "Cavalo com carreta"; na de Carreta, a mesma
+ * vigência é "Carreta com cavalo". A mesma cobertura, lida da pergunta que está
+ * sendo feita — que é o oposto de um rótulo fixo que obriga quem lê a traduzir.
+ *
+ * Sem `foco` — a aba que mostra os dois —, a ordem é a de quem fala: o cavalo
+ * puxa a carreta.
+ *
+ * `DoArquivo`, e não `DaVigencia`: `tipos-da-vigencia.ts` já publica um
+ * `composicaoDaVigencia`, e ele responde outra pergunta — quais tipos existem
+ * naquela vigência e onde estão os que faltam. Os dois saem pelo mesmo
+ * `export *` do índice, e dois nomes iguais ali se anulam em silêncio. O nome
+ * daqui também é mais honesto: o que se descreve é como o **arquivo de origem**
+ * veio composto.
+ */
+export function composicaoDoArquivo(
+  entityTypeSet: string,
+  foco?: string | null,
+): string {
+  const tipos = (entityTypeSet ?? "")
+    .split("+")
+    .map((t) => t.trim().toUpperCase())
+    .filter((t) => t !== "");
+  if (tipos.length === 0) return "";
+
+  const minusculo = (t: string) => t.toLowerCase();
+  const alvo = foco?.trim().toUpperCase();
+  const principal = alvo && tipos.includes(alvo) ? alvo : null;
+
+  if (principal) {
+    const outros = tipos.filter((t) => t !== principal).map(minusculo);
+    return outros.length === 0
+      ? `Somente ${minusculo(principal)}`
+      : `${rotuloDaCobertura(principal)} com ${outros.join(" e ")}`;
+  }
+
+  if (tipos.length === 1) return `Somente ${minusculo(tipos[0]!)}`;
+  /* `rotuloDaCobertura` já ordena por como se fala — cavalo antes de carreta. */
+  const [primeiro, ...resto] = rotuloDaCobertura(entityTypeSet).split(" + ");
+  return `${primeiro} com ${resto.map((t) => t.toLowerCase()).join(" e ")}`;
+}
+
+/**
+ * O título do grupo que reúne as vigências de outra composição.
+ *
+ * O artigo vem de tabela e não de regra: "o cavalo", "a carreta". Uma regra de
+ * gênero para três palavras é mais código do que as três palavras.
+ */
+export function tituloDaComposicao(foco?: string | null): string {
+  const artigos: Record<string, string> = {
+    CAVALO: "o cavalo",
+    CARRETA: "a carreta",
+    TRECHO: "o trecho",
+  };
+  const alvo = foco?.trim().toUpperCase();
+  const sujeito = (alvo && artigos[alvo]) || "o equipamento";
+  return `Como ${sujeito} veio na vigência`;
+}

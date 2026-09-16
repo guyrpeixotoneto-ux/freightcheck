@@ -1,6 +1,7 @@
 import type { Database } from "@workspace/db";
 import {
   computeChangeSet,
+  formamParDeVigencias,
   getChangeSetForPair,
   listChanges,
   listComparableSnapshots,
@@ -86,13 +87,14 @@ export async function candidatasDoPar(
 
   /* A mesma série do destino, da mais recente para a mais antiga: quem abre o
      menu olha primeiro as de cima, então são elas que ganham o orçamento. */
+  /* `formamParDeVigencias` é a mesma função que o seletor das telas usa para montar a
+     lista (`recorte-de-rubrica.ts`). Era aqui que a regra morava escrita à mão,
+     e o seletor não a tinha: o menu oferecia vigências que esta rota nem
+     considerava candidatas, e elas apareciam lá sem número nenhum — uma linha
+     em branco que quem lê a tela confunde com "nada mudou". Uma função só, e as
+     duas pontas do produto recortam igual. */
   const candidatas = vigencias
-    .filter(
-      (v) =>
-        v.id !== destino.id &&
-        v.scopeHash === destino.scopeHash &&
-        v.entityTypeSet === destino.entityTypeSet,
-    )
+    .filter((v) => formamParDeVigencias(v, destino))
     .sort((a, b) => b.effectiveDate.localeCompare(a.effectiveDate));
 
   const limite = Date.now() + ORCAMENTO_DE_CANDIDATAS_MS;

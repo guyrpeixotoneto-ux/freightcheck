@@ -34,6 +34,10 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { SeletorDoPar, type VigenciaEscolhivel } from "@/components/comparacao/seletor-do-par";
+import {
+  RecorteDeEquipamento,
+  type RecorteDeTipo,
+} from "@/components/comparacao/recorte-de-equipamento";
 import { CartoesDeLucroFixo } from "@/components/lucro-fixo/cartoes";
 import {
   AlteracoesPorVariavel,
@@ -148,7 +152,25 @@ export default function AuditoriaDeLucroFixo() {
    * é a recusa do motor em tela ("Coberturas diferentes") ou zero linhas sem
    * explicação, nas duas vezes por um erro que não é de quem clicou.
    */
-  const daUnidade = useMemo(
+  /**
+   * A série aberta — cavalo, carreta, ou as duas.
+   *
+   * Declarada **antes** da lista de vigências porque é ela que a recorta: na
+   * aba Cavalo o seletor do par só oferece vigências que têm cavalo. O
+   * mecanismo continua sendo `filtros.tipo`, que a tabela, as abas de estado e
+   * o CSV já respeitavam; o que mudou é quem o comanda e o quanto ele alcança.
+   */
+  const recorteDeTipo = (filtros.tipo === "TODOS" ? "TODOS" : filtros.tipo) as RecorteDeTipo;
+
+  /**
+   * As vigências de equipamento da unidade — **antes** da aba.
+   *
+   * Existe separada da lista que o seletor oferece porque três coisas precisam
+   * do acervo inteiro da unidade, e não do recorte de uma aba: o rótulo de cada
+   * vigência, quais abas habilitar, e nada mais. Recortar antes delas foi o
+   * defeito que esta separação conserta — ver `rotulos`, logo abaixo.
+   */
+  const daUnidadeTodas = useMemo(
     () =>
       unidadeResolvida
         ? vigenciasQueCobrem(
@@ -159,9 +181,56 @@ export default function AuditoriaDeLucroFixo() {
     [vigencias.data, escopoAberto, unidadeResolvida],
   );
 
+  /**
+   * A lista que o seletor do par oferece — a da aba aberta.
+   *
+   * A aba escolhe a série: Cavalo oferece quem tem cavalo — inclusive as
+   * vigências que trazem os dois —, Carreta idem, e "Cavalo + Carreta" o acervo
+   * de equipamento inteiro. Quem garante que as duas pontas do par continuam
+   * comparáveis dentro da aba é o seletor (`vigenciasCompativeisCom`): a
+   * cobertura da vigência ainda tem de bater exatamente, e uma série de cavalo
+   * puro não casa com uma de cavalo mais carreta.
+   */
+  const daUnidade = useMemo(
+    () =>
+      recorteDeTipo === "TODOS"
+        ? daUnidadeTodas
+        : vigenciasQueCobrem(daUnidadeTodas, [recorteDeTipo]),
+    [daUnidadeTodas, recorteDeTipo],
+  );
+
+  /**
+   * Quais séries esta unidade tem — o que habilita cada aba.
+   *
+   * Sai da lista de vigências, e não da comparação: a aba precisa estar certa
+   * antes de existir par escolhido. E sai de `daUnidadeTodas`, não de
+   * `daUnidade` — este já está recortado pela aba aberta, e a pergunta aqui é
+   * sobre o acervo da unidade.
+   */
+  const disponiveis = useMemo(
+    () =>
+      ({
+        TODOS: true,
+        CAVALO: vigenciasQueCobrem(daUnidadeTodas, ["CAVALO"]).length > 0,
+        CARRETA: vigenciasQueCobrem(daUnidadeTodas, ["CARRETA"]).length > 0,
+      }) as Record<RecorteDeTipo, boolean>,
+    [daUnidadeTodas],
+  );
+
+  /*
+    Sobre `daUnidadeTodas`, e nunca sobre a lista da aba.
+
+    `rotulosDasVigencias` decide a marca da quinzena olhando as **outras datas
+    da lista** que recebe: uma entrega sozinha no mês é "agosto/2026", duas no
+    mesmo mês viram "1ª quinzena" e "2ª quinzena". Alimentado com a lista já
+    recortada pela aba, o mesmo `snapshot` mudava de nome conforme a aba aberta
+    — medido: "agosto/2026 · 1ª quinzena" na lista inteira e "agosto/2026" na
+    aba Carreta, quando a outra quinzena do mês não tem carreta. O nome de uma
+    vigência não pode depender de onde se está olhando.
+  */
   const rotulos = useMemo(
-    () => rotulosDasVigencias(daUnidade, (hash) => nomePorEscopo.get(hash) ?? null),
-    [daUnidade, nomePorEscopo],
+    () => rotulosDasVigencias(daUnidadeTodas, (hash) => nomePorEscopo.get(hash) ?? null),
+    [daUnidadeTodas, nomePorEscopo],
   );
 
   /**
@@ -237,6 +306,50 @@ export default function AuditoriaDeLucroFixo() {
    */
   const viradas = useMemo(() => viradasDeCiclo(linhas), [linhas]);
 
+
+  const agregados =
+    recorteDeTipo === "TODOS"
+      ? comparacao.data
+      : comparacao.data?.porTipo?.[recorteDeTipo];
+
+  /**
+   * Quantos veículos cada recorte tem — o número ao lado de cada aba.
+   *
+   * Comparados + novos + ausentes: os três estados da frota no par. Zero
+   * desabilita a aba, porque uma vigência sem carreta não tem tela de carreta.
+   */
+  const contagensDoRecorte = useMemo(() => {
+    const quantos = (
+      a:
+        | {
+            resumo: {
+              veiculosComparados: number;
+              novosNaVigencia: number;
+              ausentesNaComparada: number;
+            };
+          }
+        | undefined,
+    ) =>
+      a
+        ? a.resumo.veiculosComparados +
+          a.resumo.novosNaVigencia +
+          a.resumo.ausentesNaComparada
+        : 0;
+    return {
+      TODOS: quantos(comparacao.data),
+      CAVALO: quantos(comparacao.data?.porTipo?.CAVALO),
+      CARRETA: quantos(comparacao.data?.porTipo?.CARRETA),
+    } as Record<RecorteDeTipo, number>;
+  }, [comparacao.data]);
+
+  /** Os totais do gráfico, no recorte aberto — a série já vem por tipo. */
+  const totaisDoRecorte = useMemo(() => {
+    const todos = totais.data?.totais ?? [];
+    return recorteDeTipo === "TODOS"
+      ? todos
+      : todos.filter((t) => t.entityType === recorteDeTipo);
+  }, [totais.data, recorteDeTipo]);
+
   const filtradas = useMemo(
     () => filtrar(linhas, filtros, viradas),
     [linhas, filtros, viradas],
@@ -253,9 +366,31 @@ export default function AuditoriaDeLucroFixo() {
   // Filtrar encurta a lista; a página em que se estava pode não existir mais.
   useEffect(() => setPagina(1), [filtros, base, comparada, comSemAlteracao]);
 
-  const rotuloBase = vigencias.data?.find((v) => v.id === base)?.sourceLabel ?? "De";
+  /*
+    As duas pontas escritas como quem fala delas — `julho/2026`.
+
+    Saíam do `sourceLabel`: o gráfico dizia `EMPURRADA_2_7_2026` sob o mesmo par
+    que o seletor, dois centímetros acima, chamava de `julho/2026`. Duas
+    palavras para a mesma vigência na mesma tela, e a do gráfico é a que
+    ninguém usa para falar — ninguém abre a tela querendo saber o que mudou no
+    `EMPURRADA_2_7_2026`.
+
+    `rotulos` é o mesmo mapa do seletor, de modo que as duas partes da tela não
+    podem divergir: a marca da quinzena, o nome da unidade e o desempate saem de
+    uma régua só. O `sourceLabel` fica de reserva para a vigência que não
+    estiver no mapa.
+
+    Com isto o nome do arquivo deixa de aparecer nesta tela por padrão — e é o
+    que se quer: ele não é como a vigência se chama, é o que ela veio. Onde ele
+    ainda importa, `rotulosDasVigencias` o traz de volta sozinho, como último
+    desempate entre duas linhas que seguiriam indistinguíveis.
+  */
+  const rotuloBase =
+    rotulos.get(base) ?? vigencias.data?.find((v) => v.id === base)?.sourceLabel ?? "De";
   const rotuloComparada =
-    vigencias.data?.find((v) => v.id === comparada)?.sourceLabel ?? "Para";
+    rotulos.get(comparada) ??
+    vigencias.data?.find((v) => v.id === comparada)?.sourceLabel ??
+    "Para";
 
   /*
     Justificar sem sair daqui — a mesma caixa de Chamados, o mesmo POST, e a
@@ -304,25 +439,34 @@ export default function AuditoriaDeLucroFixo() {
             onTentarDeNovo={() => void vigencias.refetch()}
           />
         ) : (
-          <SeletorDoPar
-            vigencias={daUnidade}
-            rotulos={rotulos}
-            base={base}
-            comparada={comparada}
-            onBase={setBase}
-            onComparada={setComparada}
-            onInverter={() => {
-              setBase(comparada);
-              setComparada(base);
-            }}
-            carregando={comparacao.isFetching}
-            idPrefixo="lucro-fixo"
-            candidatos={candidatos.data}
-            carregandoCandidatos={candidatos.isFetching}
-            erroDosCandidatos={
-              candidatos.error instanceof Error ? candidatos.error.message : null
-            }
-          />
+          <>
+            <RecorteDeEquipamento
+              valor={recorteDeTipo}
+              onValor={(tipo) => setFiltros((f) => ({ ...f, tipo }))}
+              disponiveis={disponiveis}
+              idPrefixo="lucro-fixo"
+            />
+            <SeletorDoPar
+              vigencias={daUnidade}
+              foco={recorteDeTipo === "TODOS" ? null : recorteDeTipo}
+              rotulos={rotulos}
+              base={base}
+              comparada={comparada}
+              onBase={setBase}
+              onComparada={setComparada}
+              onInverter={() => {
+                setBase(comparada);
+                setComparada(base);
+              }}
+              carregando={comparacao.isFetching}
+              idPrefixo="lucro-fixo"
+              candidatos={candidatos.data}
+              carregandoCandidatos={candidatos.isFetching}
+              erroDosCandidatos={
+                candidatos.error instanceof Error ? candidatos.error.message : null
+              }
+            />
+          </>
         )}
 
         {semParPossivel && (
@@ -367,14 +511,14 @@ export default function AuditoriaDeLucroFixo() {
         {comparacao.data && (
           <>
             <CartoesDeLucroFixo
-              resumo={comparacao.data.resumo}
+              resumo={(agregados ?? comparacao.data).resumo}
               coexistencias={coexistencias.length}
             />
 
-            {comparacao.data.resumo.impacto.foraDaSoma > 0 && (
+            {(agregados ?? comparacao.data).resumo.impacto.foraDaSoma > 0 && (
               <p className="text-xs text-muted-foreground">
-                {formatNumber(comparacao.data.resumo.impacto.foraDaSoma, 0)}{" "}
-                {comparacao.data.resumo.impacto.foraDaSoma === 1
+                {formatNumber((agregados ?? comparacao.data).resumo.impacto.foraDaSoma, 0)}{" "}
+                {(agregados ?? comparacao.data).resumo.impacto.foraDaSoma === 1
                   ? "alteração ficou"
                   : "alterações ficaram"}{" "}
                 fora do impacto por serem da coluna do conjunto, que embute a parcela do cavalo
@@ -402,16 +546,16 @@ export default function AuditoriaDeLucroFixo() {
 
             <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
               <TotalPorVigencia
-                totais={totais.data?.totais ?? []}
+                totais={totaisDoRecorte}
                 rotuloBase={rotuloBase}
                 rotuloComparada={rotuloComparada}
               />
-              <AlteracoesPorVariavel dados={comparacao.data.alteracoesPorVariavel} />
-              <DistribuicaoPorEstado dados={comparacao.data.distribuicaoPorEstado} />
+              <AlteracoesPorVariavel dados={(agregados ?? comparacao.data).alteracoesPorVariavel} />
+              <DistribuicaoPorEstado dados={(agregados ?? comparacao.data).distribuicaoPorEstado} />
             </div>
 
             <EvolucaoEntreVigencias
-              totais={totais.data?.totais ?? []}
+              totais={totaisDoRecorte}
               rotuloBase={rotuloBase}
               rotuloComparada={rotuloComparada}
             />
@@ -453,20 +597,13 @@ export default function AuditoriaDeLucroFixo() {
                 />
               </div>
 
-              <Select
-                value={filtros.tipo}
-                onValueChange={(tipo) => setFiltros((f) => ({ ...f, tipo }))}
-              >
-                <SelectTrigger className="w-[9.5rem]" aria-label="Tipo de equipamento">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="TODOS">Todos os tipos</SelectItem>
-                  <SelectItem value="CAVALO">Cavalo</SelectItem>
-                  <SelectItem value="CARRETA">Carreta</SelectItem>
-                </SelectContent>
-              </Select>
-
+              {/*
+                O seletor "Tipo de equipamento" morava aqui e subiu para o topo
+                da tela (`RecorteDeEquipamento`). Duas caixas comandando o mesmo
+                `filtros.tipo` seriam duas respostas possíveis para "qual
+                recorte está aberto" — e a de baixo, entre filtros de tabela,
+                sugeriria que o recorte é só da tabela.
+              */}
               <Select
                 value={filtros.variavel}
                 onValueChange={(variavel) => setFiltros((f) => ({ ...f, variavel }))}
@@ -537,7 +674,7 @@ export default function AuditoriaDeLucroFixo() {
                   icone={TrendingUp}
                   titulo="Nenhuma variável de lucro fixo mudou entre as duas vigências"
                   descricao={`${formatNumber(
-                    comparacao.data.resumo.veiculosComparados,
+                    (agregados ?? comparacao.data).resumo.veiculosComparados,
                     0,
                   )} veículos comparados, e a remuneração fixa de todos eles chegou igual nas duas planilhas.`}
                 />

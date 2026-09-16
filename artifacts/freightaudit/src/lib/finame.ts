@@ -25,10 +25,16 @@ import { formatBrl, formatNumber } from "@/lib/format";
  */
 
 /** O que a API de `/finame/comparacao` devolve. */
-export interface ComparacaoDeFiname {
-  changeSetId: string;
-  base: { id: string; sourceLabel: string | null; effectiveDate: string | null };
-  comparada: { id: string; sourceLabel: string | null; effectiveDate: string | null };
+/**
+ * Os três agregados que os cartões e os gráficos leem.
+ *
+ * Existe como tipo próprio porque agora vem **quatro vezes** na mesma resposta:
+ * uma para a comparação inteira e uma por tipo de equipamento (`porTipo`), que
+ * é o que as abas Cavalo e Carreta mostram. Escrito uma vez, ele garante que a
+ * aba e o total tenham a mesma forma — e a mesma forma é o que permite a tela
+ * trocar de recorte sem trocar de código.
+ */
+export interface AgregadosDeFiname {
   resumo: {
     veiculosComparados: number;
     semAlteracao: number;
@@ -56,6 +62,21 @@ export interface ComparacaoDeFiname {
     veiculos: number;
     fracao: number;
   }[];
+}
+
+export interface ComparacaoDeFiname extends AgregadosDeFiname {
+  changeSetId: string;
+  base: { id: string; sourceLabel: string | null; effectiveDate: string | null };
+  comparada: { id: string; sourceLabel: string | null; effectiveDate: string | null };
+  /**
+   * Os mesmos agregados, um por tipo — calculados no servidor.
+   *
+   * Não é a tela que os recompõe a partir de `linhas`: "veículos comparados"
+   * sai do acervo (`frotaPorTipo`, em `query.ts`) e não da lista de alterações,
+   * porque um veículo em que nada mudou não produz linha nenhuma. Uma aba que
+   * contasse a lista diria zero comparados sobre uma frota inteira parada.
+   */
+  porTipo: Record<string, AgregadosDeFiname>;
   linhas: LinhaDeFiname[];
 }
 
