@@ -20,8 +20,10 @@ import { MatrizDaEvolucao } from "@/components/evolucao-por-placa/matriz";
 import { PainelDaPlaca } from "@/components/evolucao-por-placa/painel-da-placa";
 import { CartoesDaEvolucaoDeFiname } from "@/components/finame/evolucao/cartoes";
 import {
+  LEITURA_DE_CUSTO,
   opcoesDaEvolucao,
   type FiltroDaEvolucao,
+  type LeituraDaMatriz,
   type OrdemDaEvolucao,
 } from "@/lib/evolucao-por-placa";
 import type { PontaAPonta } from "@/lib/analise";
@@ -69,6 +71,30 @@ import { periodicityAdjective } from "@/lib/format";
  * As colunas continuam sendo as vigências que existem: quinzenas viram duas
  * colunas, e vigência sem comparação vira lacuna nomeada.
  */
+/**
+ * Como esta tela lê os números — o FINAME é **custo**, e não remuneração.
+ *
+ * A matriz nasceu na Evolução por Placa, onde o eixo é a remuneração do
+ * transportador: ali, negativo é menos dinheiro entrando, e "Perda" em vermelho
+ * é a palavra certa. Aqui o eixo é o financiamento, e o sinal quer dizer o
+ * contrário: medido na base real, `cavalo.finame_cavalo` indo de R$ 10.578,03
+ * para R$ 0 — um financiamento **quitado** — grava impacto −10.578,03.
+ *
+ * Com o vocabulário de origem, a tela pintava de vermelho, sob a palavra
+ * "Perda", exatamente a parcela que deixou de ser paga — e o cartão logo acima
+ * pintava o mesmo número de verde. Dois idiomas na mesma tela, sobre o mesmo
+ * dado.
+ *
+ * O que muda é nome e cor. Nenhum número é invertido: `net`, `acumulado`,
+ * `ganho` e `perda` saem daqui com o mesmo valor e o mesmo sinal com que
+ * chegaram do servidor.
+ */
+const LEITURA_DO_FINAME: LeituraDaMatriz = {
+  ...LEITURA_DE_CUSTO,
+  titulo: "Variação do FINAME por veículo ao longo do ano",
+  acumulado: "Variação no ano",
+};
+
 export function PainelDaEvolucaoDeFiname({
   consulta,
   datas,
@@ -288,12 +314,14 @@ export function PainelDaEvolucaoDeFiname({
               onBusca={setBusca}
               onLimparInsight={() => undefined}
               onEscolherPlaca={(id) => setPlaca((atual) => (atual === id ? null : id))}
+              leitura={LEITURA_DO_FINAME}
             />
             {aberta && (
               <PainelDaPlaca
                 ativo={aberta}
                 evolucao={dados}
                 onFechar={() => setPlaca(null)}
+                leitura={LEITURA_DO_FINAME}
               />
             )}
           </div>
