@@ -209,8 +209,8 @@ describe("a lateral", () => {
   });
 
   /*
-    A seção QLP é a primeira derivada de um catálogo, e é isso que este caso
-    prende: os itens dela **são** os módulos que as rubricas dos dois quadros
+    A seção Equipe é a primeira derivada de um catálogo, e é isso que este caso
+    prende: os módulos dela **são** os que as rubricas dos dois quadros
     sustentam, nem um a mais nem um a menos.
 
     Escrita à mão, a lista concordaria com o catálogo no dia em que fosse
@@ -218,14 +218,31 @@ describe("a lateral", () => {
     decomposto, continuaria dizendo que plano de saúde só existe no operacional.
     Derivada, ela acende sozinha; este teste é o que impede alguém de voltar a
     escrevê-la.
-  */
-  it("lista na seção QLP exatamente os módulos que o catálogo sustenta", () => {
-    const secao = navGroupsAuditoria("auditoria").find((g) => g.id === "modulos-do-qlp");
-    expect(secao, "a seção QLP precisa existir na lateral").toBeTruthy();
 
-    expect(secao!.itens.map((i) => i.href)).toEqual(
-      modulosDoQlp().map((m) => `/qlp/${m.chave}`),
-    );
+    As duas telas de quadro abrem a seção e são escritas à mão, porque são duas
+    e não saem de catálogo nenhum: elas vieram de Custo Fixo quando o critério
+    da seção passou a ser a população, e por isso entram aqui **antes** dos
+    módulos — o quadro inteiro primeiro, o assunto depois.
+  */
+  it("abre a seção Equipe pelos dois quadros e lista os módulos do catálogo", () => {
+    const secao = navGroupsAuditoria("auditoria").find((g) => g.id === "modulos-do-qlp");
+    expect(secao, "a seção Equipe precisa existir na lateral").toBeTruthy();
+    expect(secao!.titulo).toBe("Equipe");
+
+    expect(secao!.itens.map((i) => i.href)).toEqual([
+      "/qlp-operacional",
+      "/qlp-administrativo",
+      ...modulosDoQlp().map((m) => `/qlp/${m.chave}`),
+    ]);
+
+    /*
+      E o ícone de cada módulo é do assunto dele: dezesseis iguais viravam um
+      bloco em que o olho não achava linha nenhuma — ver `ICONE_DO_MODULO`, em
+      `nav-auditoria.ts`. O caso não prende qual é o desenho de cada rubrica,
+      que é escolha de quem desenha; prende que a coluna distingue.
+    */
+    const dosModulos = secao!.itens.filter((i) => i.href.startsWith("/qlp/"));
+    expect(new Set(dosModulos.map((i) => i.icon)).size).toBe(dosModulos.length);
 
     /* E os três que o usuário procura estão entre eles, com nome de gente. */
     const porHref = new Map(secao!.itens.map((i) => [i.href, i.label]));
@@ -458,26 +475,32 @@ describe("a lateral", () => {
         elas.
       */
       /*
-        **As duas telas de quadro do QLP são linhas de Custo Fixo**, e não
-        seção: elas respondem à mesma pergunta das rubricas do ativo — o que se
-        paga independente do quanto se rodou. Ver `nav-auditoria.ts`.
+        **Custo Fixo são as quatro rubricas do ativo**: Finame, IPVA, Lucro
+        Fixo e Impostos — o que se paga por ter o equipamento, esteja ele
+        parado ou não. Ver `nav-auditoria.ts`.
       */
       "Custo Fixo",
       /*
-        **E o QLP volta a ser seção, por outra pergunta.** As duas linhas acima
-        são por **quadro**: cada uma mostra a população inteira de uma altura do
-        quadro de pessoal. Esta seção é por **assunto** — o que mudou no
-        vale-transporte, no plano de saúde —, com as duas populações em abas
-        dentro de cada módulo.
+        **E logo abaixo, Equipe: a mesma pergunta sobre gente.** As duas telas
+        de quadro — QLP Operacional e QLP Administrativo — moraram em Custo
+        Fixo, porque quadro de pessoal também é custo que não depende de ter
+        rodado, e vieram para cá quando o critério da seção passou a ser a
+        população: quem procura o quadro de lotação procura por gente, não pela
+        rubrica fixa ao lado do Finame.
 
-        Os itens dela saem do catálogo (`modulosDoQlp`), e não de uma lista
-        escrita: é o que faz um módulo acender no quadro em que a coluna existe
-        e dizer por que não existe no outro. A chave da seção é
-        `modulos-do-qlp`, e não o `#qlp` de antes — aquela chave guarda a
-        decisão de quem desligou **a outra** seção, e reaproveitá-la
-        ressuscitaria em silêncio uma escolha feita sobre outra coisa.
+        Depois delas vêm os módulos por **assunto** — o que mudou no
+        vale-transporte, no plano de saúde —, com as duas populações em abas
+        dentro de cada um. Eles saem do catálogo (`modulosDoQlp`), e não de uma
+        lista escrita: é o que faz um módulo acender no quadro em que a coluna
+        existe e dizer por que não existe no outro.
+
+        A chave da seção é `modulos-do-qlp`, e não o `#qlp` de antes — aquela
+        chave guarda a decisão de quem desligou **a outra** seção, e
+        reaproveitá-la ressuscitaria em silêncio uma escolha feita sobre outra
+        coisa. O rótulo mudou de "QLP" para "Equipe" sem mexer nela, pela mesma
+        razão ao contrário: chave é identidade, rótulo é nome.
       */
-      "QLP",
+      "Equipe",
       /*
         E o Custo Variável logo abaixo dele, porque é a outra metade da mesma
         conta: ali o que se paga por ter o ativo, aqui o que se paga por rodar

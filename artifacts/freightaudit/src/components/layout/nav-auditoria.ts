@@ -4,15 +4,20 @@ import {
   Banknote,
   Bot,
   Briefcase,
+  BusFront,
   Calculator,
+  CalendarCheck,
   CalendarDays,
+  Car,
   ChartColumn,
   ChartNoAxesCombined,
   CircleDollarSign,
-  Compass,
+  CircleHelp,
   ClipboardCheck,
   ClipboardList,
   CloudDownload,
+  Coins,
+  Compass,
   Container,
   Database,
   FileCheck2,
@@ -22,23 +27,34 @@ import {
   FolderTree,
   Forklift,
   Gauge,
+  Gift,
   GitCompareArrows,
   HardHat,
   Headset,
+  HeartPulse,
   History,
   House,
   Landmark,
   Layers,
-  LineChart,
   LayoutDashboard,
+  LineChart,
+  Percent,
+  PiggyBank,
   Plug,
   Radar,
   Receipt,
+  ReceiptText,
   Route,
+  Ruler,
   Scale,
   ScanSearch,
+  Shield,
+  ShieldCheck,
+  Shirt,
   ShoppingCart,
+  Sigma,
   SlidersVertical,
+  Smartphone,
   Sparkles,
   SquareActivity,
   SquareTerminal,
@@ -49,6 +65,7 @@ import {
   TriangleAlert,
   Truck,
   Users,
+  UtensilsCrossed,
   Wallet,
   type LucideIcon,
 } from "lucide-react";
@@ -107,8 +124,8 @@ import type { NavGroup } from "./nav";
  * cartão que reúne o monitoramento, a conciliação com a planilha, a fila de
  * justificativas e o painel de cobertura dela), libera-se o que precisa ser
  * comprado hoje (**Compras**), confere-se o que se paga por ter o ativo e a
- * estrutura de gente que o modelo remunera (**Custo Fixo**, que é onde o QLP
- * mora desde que deixou de ser seção) e o que se paga por rodar com ele
+ * estrutura que o modelo remunera (**Custo Fixo** para as rubricas do ativo,
+ * **Equipe** para o quadro de pessoal) e o que se paga por rodar com ele
  * (**Custo Variável**), procura-se o desvio no que essas contas mudaram
  * (**Auditoria**), desce-se ao ativo que o sofreu (**Frota**), pergunta-se ao
  * assistente o que sobrou (**Inteligência**), e por baixo de tudo estão o
@@ -119,6 +136,49 @@ import type { NavGroup } from "./nav";
  * têm tela abrem uma página que diz o que falta no banco para respondê-los e
  * para onde ir enquanto isso — ver `pages/telas-em-preparo.ts`.
  */
+/**
+ * O ícone de cada módulo do QLP, por rubrica.
+ *
+ * A seção Equipe deriva os módulos do catálogo (`modulosDoQlp`), e por muito
+ * tempo os desenhou **todos com o mesmo ícone**, de propósito: dezesseis
+ * recortes da mesma leitura não teriam dezesseis identidades. Na tela, porém, o
+ * efeito foi o contrário do pretendido — dezesseis `Layers` empilhados viram um
+ * bloco cinza em que nenhuma linha se distingue, e a coluna de ícones deixa de
+ * informar qualquer coisa: ela só repete, dezesseis vezes, "isto é um módulo".
+ *
+ * Um ícone por rubrica devolve a essa coluna a função que ela tem em toda a
+ * lateral, que é ancorar o olho antes da leitura do nome. O desenho é do
+ * **assunto** — ônibus no vale-transporte, prato na refeição, batimento no
+ * plano de saúde —, e não do módulo, que é o que impede a lista de virar
+ * dezesseis símbolos decorativos.
+ *
+ * Fica de fora o módulo que o catálogo trouxer sem entrada aqui: ele cai no
+ * `Layers` do chamador, e essa é a leitura certa — o genérico marca o assunto
+ * que ainda não recebeu desenho, e não a lista inteira. As chaves são as de
+ * `ROTULO_DA_RUBRICA` (`lib/qlp-comparacao.ts`); acrescentar rubrica lá e
+ * esquecer aqui não quebra a lateral, só deixa uma linha sem desenho próprio.
+ */
+const ICONE_DO_MODULO: Record<string, LucideIcon> = {
+  salario: Coins,
+  encargos: ReceiptText,
+  beneficio: Gift,
+  saude: HeartPulse,
+  refeicao: UtensilsCrossed,
+  transporte: BusFront,
+  seguro: ShieldCheck,
+  outros_beneficios: PiggyBank,
+  frota_leve: Car,
+  telefonia: Smartphone,
+  uniformes: Shirt,
+  epi: Shield,
+  abono: CalendarCheck,
+  variavel: Percent,
+  benchmark: Ruler,
+  dimensionamento: Ruler,
+  subtotais: Sigma,
+  nao_identificado: CircleHelp,
+};
+
 export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
   return [
     {
@@ -389,35 +449,35 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
         linhas lidas por outro eixo, e um item solto dentro da Frota faria a
         leitura por rubrica parecer um recorte de placa.
 
-        **São seis módulos, e eles se leem em dois blocos.** Primeiro as quatro
-        rubricas do ativo: Finame — o principal do financiamento —, IPVA, Lucro
-        Fixo e Impostos. Depois as duas de
-        gente: QLP Operacional e QLP Administrativo, o quadro de lotação que o
-        modelo remunera, nas duas alturas em que o Freightech o publica.
+        **São quatro módulos, e todos são do ativo**: Finame — o principal do
+        financiamento —, IPVA, Lucro Fixo e Impostos.
 
-        **O QLP era seção própria, e virou as duas últimas linhas desta.** Ele
-        estava separado porque a população é outra — gente, não metal —, mas a
-        pergunta que ele responde é a mesma que as quatro acima: o que se paga
-        todo mês independente do quanto se rodou. Estrutura de pessoal é custo
-        fixo, e mantê-la num cartão vizinho obrigava a somar de cabeça duas
-        seções para ver a conta inteira.
+        **As duas telas de gente moraram aqui, e foram para Equipe.** QLP
+        Operacional e QLP Administrativo entraram nesta seção quando o critério
+        foi a conta: quadro de pessoal é custo que se paga esteja o equipamento
+        parado ou não, exatamente como as quatro acima. O critério agora é a
+        população. Equipe reúne tudo o que se lê sobre gente — o quadro inteiro
+        e a rubrica por assunto —, e quem procura o quadro de lotação procura
+        por gente, não pela rubrica fixa ao lado do Finame e do IPVA.
 
-        **Uma consequência a registrar**: a chave de seção era `#qlp`
-        (`nav.ts`), e quem tivesse desligado a seção QLP em Permissões tinha
-        essa decisão gravada nela. A seção não existe mais, e as duas telas
-        passam a responder à chave de Custo Fixo — as chaves **por item**
-        (`/qlp-operacional`, `/qlp-administrativo`) continuam valendo, porque
-        são o `href`, e o `href` não mudou.
+        **Uma consequência a registrar**: enquanto estiveram aqui, as duas
+        telas responderam em Permissões à chave desta seção, e agora respondem
+        à de Equipe (`modulos-do-qlp`) — quem tivesse desligado Custo Fixo
+        continua sem as quatro rubricas do ativo e volta a enxergar o quadro de
+        pessoal. As chaves **por item** (`/qlp-operacional`,
+        `/qlp-administrativo`) continuam valendo, porque são o `href`, e o
+        `href` não mudou.
 
         **O Monitor Custo Fixo abre a seção, e é a única tela dela que não é uma
-        auditoria.** As seis abaixo são especializadas: cada uma desce a fundo
+        auditoria.** As quatro abaixo são especializadas: cada uma desce a fundo
         numa rubrica, com o catálogo, os gráficos e a conferência dela. O
         Monitor não substitui nenhuma — ele responde a pergunta que nenhuma
         responde, que é *o que mudou hoje no custo fixo inteiro*, e devolve para
         a auditoria de origem assim que a resposta exige profundidade. Quem abre
-        o dia começa nele; quem investiga um número termina numa das seis.
+        o dia começa nele; quem investiga um número termina numa das quatro.
 
-        Ele consolida **quatro** dos seis, e não os seis: QLP Operacional e
+        Ele consolida **as quatro**, e nunca consolidou as duas de gente — nem
+        no tempo em que elas eram linhas desta seção: QLP Operacional e
         Administrativo conferem a aritmética dentro de uma vigência, não
         comparam duas, e o quadro de pessoal chega sem semântica confirmada — no
         Monitor eles seriam linhas sem valoração, que é ruído e não vigilância.
@@ -428,8 +488,7 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
         Impostos — entram **só com o nome**, e abrem telas em preparo: cada verbete em `pages/telas-em-preparo.ts` diz o que falta para
         a rubrica virar número e para onde ir enquanto isso; quando a definição
         de um deles chegar, ele sai de lá, vira `<Route>` em `App.tsx`, e este
-        menu não muda uma vírgula. O QLP Administrativo já é tela de verdade; o
-        Operacional ainda espera o export dele.
+        menu não muda uma vírgula.
       */
       id: "custo-fixo",
       titulo: "Custo Fixo",
@@ -442,53 +501,68 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
         { href: "/custo-fixo-ipva", label: "IPVA", icon: Receipt },
         { href: "/custo-fixo-lucro-fixo", label: "Lucro Fixo", icon: TrendingUp },
         { href: "/custo-fixo-impostos", label: "Impostos", icon: Landmark },
-        { href: "/qlp-operacional", label: "QLP Operacional", icon: HardHat },
-        { href: "/qlp-administrativo", label: "QLP Administrativo", icon: Briefcase },
       ],
     },
     {
       /*
-        QLP — o quadro de pessoal lido por **assunto**, e não por quadro.
+        EQUIPE — gente. Tudo o que se lê sobre o quadro de pessoal mora aqui, e
+        se lê em duas alturas.
 
-        As duas telas de quadro continuam em Custo Fixo, onde elas moram desde
-        que o QLP deixou de ser seção: elas respondem *como está o quadro
-        administrativo* e *como está o operacional*, cada uma com a população
-        inteira. Esta seção responde outra pergunta, e é a que nenhuma das duas
-        responde: *o que mudou no vale-transporte*, *o que mudou no plano de
-        saúde* — o mesmo assunto nas duas populações, lado a lado.
+        **Primeiro por quadro**: QLP Operacional e QLP Administrativo, cada uma
+        com a população inteira de uma das duas alturas em que o Freightech
+        publica o quadro de lotação. As duas moraram em Custo Fixo, porque
+        quadro de pessoal é custo que se paga esteja o equipamento parado ou
+        não — e vieram para cá porque quem as procura procura por **gente**, e
+        não pela rubrica fixa ao lado do Finame e do IPVA. Estar junto dos
+        módulos por assunto é o que faz a seção responder o quadro inteiro e o
+        detalhe dele sem trocar de cartão.
 
-        **Os itens saem do catálogo, não desta lista.** `modulosDoQlp()`
-        (`@workspace/comparison/qlp-comparacao`) deriva um módulo por rubrica
-        das colunas que os dois quadros declaram, e é ele que decide quais
-        existem e em que quadro cada um acende. Uma lista escrita aqui
-        concordaria com o catálogo no dia em que fosse escrita: hoje o export
-        administrativo traz benefício numa coluna só e o operacional o decompõe
-        em nove, então plano de saúde e refeição só existem no operacional — e
-        no dia em que a Ambev mandar o administrativo decomposto, a aba acende
-        sozinha, sem ninguém vir a este arquivo.
+        **Depois por assunto**: os módulos — o que mudou no vale-transporte, o
+        que mudou no plano de saúde —, o mesmo assunto nas duas populações,
+        lado a lado. É a pergunta que nenhuma das duas telas de quadro
+        responde, porque cada uma delas é de uma população só.
 
-        **A chave da seção é `modulos-do-qlp`, e não `qlp`.** A seção `#qlp`
-        existiu e foi desfeita (ver o bloco de Custo Fixo), e quem a tivesse
-        desligado em Permissões tem essa decisão gravada naquela chave.
-        Reaproveitá-la ressuscitaria em silêncio uma decisão tomada sobre outra
-        coisa — aquela seção eram as duas telas de quadro, esta são os módulos
-        por assunto. Chave nova é decisão nova, que é o que ela é.
+        **Os itens do segundo bloco saem do catálogo, não desta lista.**
+        `modulosDoQlp()` (`@workspace/comparison/qlp-comparacao`) deriva um
+        módulo por rubrica das colunas que os dois quadros declaram, e é ele que
+        decide quais existem e em que quadro cada um acende. Uma lista escrita
+        aqui concordaria com o catálogo no dia em que fosse escrita: hoje o
+        export administrativo traz benefício numa coluna só e o operacional o
+        decompõe em nove, então plano de saúde e refeição só existem no
+        operacional — e no dia em que a Ambev mandar o administrativo
+        decomposto, a aba acende sozinha, sem ninguém vir a este arquivo.
 
-        O ícone é o mesmo para todos os módulos de propósito: o que distingue
-        um do outro é o nome da rubrica, e dezesseis ícones diferentes para
-        dezesseis recortes da mesma leitura dariam a cada um uma identidade que
-        ele não tem.
+        **A chave da seção é `modulos-do-qlp`, e o rótulo mudou sem que ela
+        mudasse.** A seção `#qlp` existiu antes desta e foi desfeita, e quem a
+        tivesse desligado em Permissões tem essa decisão gravada naquela chave;
+        reaproveitá-la ressuscitaria em silêncio uma escolha feita sobre outra
+        coisa. Pela mesma razão, renomear "QLP" para "Equipe" **não** renomeia a
+        chave: quem desligou esta seção desligou esta seção, e trocar a chave
+        junto com o rótulo apagaria essa decisão e reacenderia o cartão para
+        todo mundo. Chave é identidade, rótulo é nome.
+
+        **O ícone diz de que rubrica é cada módulo.** Eram dezesseis `Layers`
+        iguais, um atrás do outro, e a lista inteira virava um bloco em que o
+        olho não achava linha nenhuma — a coluna de ícones só repetia o que o
+        nome já dizia. `ICONE_DO_MODULO`, logo abaixo, dá a cada rubrica um
+        desenho do assunto dela (ônibus no vale-transporte, prato na refeição),
+        e `Layers` fica onde ele é honesto: o módulo que o catálogo trouxer sem
+        entrada no mapa, que é um assunto que ainda não recebeu desenho.
       */
       id: "modulos-do-qlp",
-      titulo: "QLP",
-      descricao: "O quadro de pessoal por assunto — a mesma rubrica nos dois quadros",
+      titulo: "Equipe",
+      descricao: "O quadro de pessoal — os dois quadros inteiros, e cada rubrica por assunto",
       icon: Users,
       cor: "text-nav-custo-fixo",
-      itens: modulosDoQlp().map((modulo) => ({
-        href: `/qlp/${modulo.chave}`,
-        label: ROTULO_DO_MODULO[modulo.chave] ?? modulo.chave.replace(/_/g, " "),
-        icon: Layers,
-      })),
+      itens: [
+        { href: "/qlp-operacional", label: "QLP Operacional", icon: HardHat },
+        { href: "/qlp-administrativo", label: "QLP Administrativo", icon: Briefcase },
+        ...modulosDoQlp().map((modulo) => ({
+          href: `/qlp/${modulo.chave}`,
+          label: ROTULO_DO_MODULO[modulo.chave] ?? modulo.chave.replace(/_/g, " "),
+          icon: ICONE_DO_MODULO[modulo.chave] ?? Layers,
+        })),
+      ],
     },
     {
       /*
