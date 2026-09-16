@@ -427,8 +427,23 @@ router.get("/monitor-custo-fixo/candidatos", async (req, res, next): Promise<voi
   const { filtros, ignorados } = parseFiltros(query);
 
   try {
-    await comTetoDeRota(TETO_DE_CANDIDATAS_MS, async (dbComTeto) => {
-      const resposta = await candidatasDoPar(
+    /*
+      A resposta sai **fora** do teto, e não de dentro dele.
+
+      Dentro, `res.json` era a última linha da função que `comTetoDeRota`
+      embrulha — então o HTTP terminava antes de o `finally` daquela função
+      devolver a conexão ao pool. Quem recebeu a resposta seguia adiante com
+      uma consulta de limpeza (`SET statement_timeout = DEFAULT`) ainda em voo,
+      e um `pool.end()` logo em seguida a pegava no meio da devolução e não
+      resolvia mais. Foi assim que `monitor-custo-fixo-candidatos.test.ts`
+      estourou o `afterAll` em CI: a suíte mais pesada sob este teto é a que
+      abre mais essa janela.
+
+      Calcular dentro e responder fora fecha a janela pela ordem: quando a
+      resposta sai, a conexão já voltou inteira.
+    */
+    const resposta = await comTetoDeRota(TETO_DE_CANDIDATAS_MS, (dbComTeto) =>
+      candidatasDoPar(
         dbComTeto,
         para,
         {
@@ -462,17 +477,17 @@ router.get("/monitor-custo-fixo/candidatos", async (req, res, next): Promise<voi
           },
         },
         { operacao, computedBy: "api:monitor-custo-fixo-candidatos" },
-      );
+      ),
+    );
 
-      if ("naoEncontrada" in resposta) {
-        res.status(404).json({ error: "Essa vigência não existe." });
-        return;
-      }
-      /* O que o recorte ignorou vai junto, pela razão de `/consolidado`: um
-         filtro inválido que sumisse em silêncio deixaria o menu respondendo
-         por um recorte mais largo do que o pedido, sem dizer. */
-      res.json({ ...resposta, ignorados });
-    });
+    if ("naoEncontrada" in resposta) {
+      res.status(404).json({ error: "Essa vigência não existe." });
+      return;
+    }
+    /* O que o recorte ignorou vai junto, pela razão de `/consolidado`: um
+       filtro inválido que sumisse em silêncio deixaria o menu respondendo
+       por um recorte mais largo do que o pedido, sem dizer. */
+    res.json({ ...resposta, ignorados });
   } catch (err) {
     const desfecho = classificarFalha(err);
     if (desfecho.tipo !== "REGRA") {
