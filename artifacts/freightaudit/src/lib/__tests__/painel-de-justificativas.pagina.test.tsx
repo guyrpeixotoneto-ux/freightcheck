@@ -217,7 +217,7 @@ describe("o cabeçalho do Painel de Justificativas", () => {
     await screen.findByText("Tipo de ativo");
     const cabecalho = screen.getByRole("banner");
     expect(within(cabecalho).queryByRole("button", { name: /Trocar vigência/ })).toBeNull();
-    expect(within(cabecalho).getByText("agosto/2026")).toBeTruthy();
+    expect(within(cabecalho).getByText(/^agosto\/2026/)).toBeTruthy();
     expect(within(cabecalho).queryByText("Todas as vigências")).toBeNull();
   });
 
@@ -229,10 +229,10 @@ describe("o cabeçalho do Painel de Justificativas", () => {
     fireEvent.keyDown(botao, { key: "Enter" });
 
     const menu = await screen.findByRole("menu");
-    fireEvent.click(within(menu).getByText("julho/2026"));
+    fireEvent.click(within(menu).getByText(/^julho\/2026/));
 
     const cabecalho = screen.getByRole("banner");
-    await waitFor(() => expect(within(cabecalho).getByText("julho/2026")).toBeTruthy());
+    await waitFor(() => expect(within(cabecalho).getByText(/^julho\/2026/)).toBeTruthy());
     /* 40 + 60, e não as 500 do acervo. */
     await waitFor(() =>
       expect(within(cartao("Alterações no recorte")).getByText("100")).toBeTruthy(),

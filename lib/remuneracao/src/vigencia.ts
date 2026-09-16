@@ -32,18 +32,15 @@ import { quinzenaDe, rotuloDaVigencia } from "@workspace/comparison";
  * não depende do Fechamento, e uma linha de calendário não paga trazer o
  * ambiente inteiro para dentro do leitor do acervo.
  *
- * **O rótulo é do conjunto, e não da data sozinha.** Uma unidade que entrega
- * uma vigência por mês não tem quinzena nenhuma, e chamar o `2026-08-01` dela
- * de "1ª quinzena" inventaria um grão que os arquivos não têm — a inferência
- * que este módulo recusa em todo o resto. Por isso a função recebe as vigências
- * do contexto: mês com uma entrega continua sendo `agosto/2026`, e só o mês
- * partido ganha a ordinal.
- *
- * E quando o mês tem entregas que a quinzena não separa — três vigências, ou
- * duas caídas na mesma metade —, o rótulo é o **dia**, em `dd/mm/aaaa`, que é
- * como o produto inteiro escreve um dia. É a saída honesta das duas pontas:
- * distingue sempre, porque duas vigências do mesmo contexto nunca têm a mesma
- * data, e não afirma uma quinzena que o calendário não sustenta.
+ * **A ordinal sai do dia; o desempate é que é do conjunto.** `2026-08-16` é a
+ * 2ª quinzena de agosto porque começou no dia 16, e não porque a 1ª também foi
+ * importada — é um fato sobre a vigência, não sobre o acervo. O rótulo escreve
+ * a marca sempre, e é por isso que a função ainda recebe as vigências do
+ * contexto: quando o mês tem entregas que a quinzena não separa — três
+ * vigências, ou duas caídas na mesma metade —, o **dia** entra ao lado da
+ * ordinal (`agosto/2026 · 1ª quinzena · dia 05`). Distingue sempre, porque duas
+ * vigências do mesmo contexto nunca têm a mesma data, e não apaga a metade em
+ * que a entrega caiu para conseguir distinguir.
  */
 
 /** Os dois dias em que uma quinzena começa, e os meses que existem. */

@@ -34,7 +34,7 @@ describe("agrupamento — a redução de linhas a conclusões", () => {
     expect(view).not.toBeNull();
     expect(view!.totals.changes).toBe(267);
     expect(view!.totals.groups).toBe(20);
-    expect(view!.periodLabel).toBe("agosto/2026");
+    expect(view!.periodLabel).toBe("agosto/2026 · 1ª quinzena");
   });
 
   it("julho/2026: 593 alterações viram 26 grupos — a lista antiga mostrava 300", async () => {

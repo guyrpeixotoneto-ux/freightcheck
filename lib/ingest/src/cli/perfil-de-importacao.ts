@@ -10,7 +10,9 @@
  * — e a próxima pessoa que mexer no pipeline vai precisar responder à mesma
  * pergunta ("ficou mais rápido ou mais lento, e onde?") sem ter estado aqui.
  *
- * Este arquivo é a resposta reproduzível. Ele mede, por etapa: tempo de
+ * Este arquivo é a resposta reproduzível. Ele mede as cinco etapas por onde um
+ * arquivo passa — receber, capturar o RAW, preparar, pré-visualizar e
+ * **aprovar** — e, de cada uma: tempo de
  * relógio, CPU do Node, tempo de execução dentro do Postgres
  * (`pg_stat_statements`), tempo dentro do driver, quantas idas ao banco, e o
  * que o banco esperou (`pg_stat_activity`, `pg_locks`). Roda contra um banco
@@ -65,7 +67,14 @@ import { createRequire } from "node:module";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { sql } from "drizzle-orm";
-import { captureRaw, preview, receiveFile, stage } from "../pipeline";
+import {
+  captureRaw,
+  preview,
+  promote,
+  receiveFile,
+  reservarPromocao,
+  stage,
+} from "../pipeline";
 import { createTestDatabase, type TestDb } from "../testing";
 import { escreverPlanilha, type LinhaSpec } from "../__tests__/planilha-sintetica";
 
@@ -386,6 +395,21 @@ async function importarMedindo(
   await medir("captureRaw", () => captureRaw(ctx.db, recebido.importRunId));
   await medir("stage", () => stage(ctx.db, recebido.importRunId));
   await medir("preview", () => preview(ctx.db, recebido.importRunId));
+  /*
+    E a aprovação — que é a etapa mais longa das cinco, e era a única que esta
+    ferramenta não media.
+
+    Enquanto o perfil ia só até o preview, o trecho onde a importação de
+    verdade passa a maior parte do tempo ficava fora do número: uma varredura
+    quadrática na resolução de escopos e uma ida ao banco por veículo novo
+    viviam ali, invisíveis para quem media. A reserva antes da chamada é a
+    mesma que a rota faz (`POST /imports/:id/promote`), e é o que liga a barra
+    de progresso da promoção.
+  */
+  await medir("promote", async () => {
+    await reservarPromocao(ctx.db, recebido.importRunId);
+    await promote(ctx.db, recebido.importRunId, { reservado: true });
+  });
 
   const cpu = process.cpuUsage(cpu0);
   return {
