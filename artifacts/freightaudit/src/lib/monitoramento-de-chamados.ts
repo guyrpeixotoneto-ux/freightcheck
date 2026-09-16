@@ -210,6 +210,30 @@ export interface FiltrosDaTela {
   busca?: string;
 }
 
+/**
+ * A TAXA DE APROVAÇÃO do envio — quanto do arquivo do dia a Ambev já aprovou.
+ *
+ * O denominador é o **total contado nos chamados** (`situacoes.total`), e não a
+ * soma dos três desfechos: um envio com chamados cancelados fecharia acima de
+ * 100% se as "outras situações" saíssem de baixo da fração, e uma taxa acima de
+ * cem é o tipo de número que faz a tela inteira perder crédito.
+ *
+ * `null` quando não há envio: uma barra em 0% sobre um dia sem arquivo diria
+ * "nada foi aprovado" onde o certo é "não há o que aprovar".
+ *
+ * Os dois arredondamentos são presos de propósito. 100% só sai quando **todos**
+ * os chamados estão aprovados, e 0% só quando nenhum está: 3.399 de 3.400
+ * arredondam para 100 e diriam ao operador que não sobrou nada para olhar, que
+ * é exatamente o chamado que ele precisa achar.
+ */
+export function taxaDeAprovacao(situacoes: SituacoesNoEnvio | null): number | null {
+  if (situacoes === null || situacoes.total <= 0) return null;
+  const bruta = (situacoes.aprovados / situacoes.total) * 100;
+  if (bruta >= 100) return 100;
+  if (bruta <= 0) return 0;
+  return Math.min(99, Math.max(1, Math.round(bruta)));
+}
+
 /** O rótulo com que a série indeterminada viaja na URL. Igual ao da rota. */
 export const SEM_SERIE = "@sem-serie";
 
@@ -420,6 +444,26 @@ export function fraseDoDia(resumo: ResumoDoDia | null): FraseDoDia | null {
     case "PENDENTE":
       return null;
   }
+}
+
+/**
+ * Os avisos da importação que a frase do dia **ainda não disse**.
+ *
+ * A frase da primeira carga não escreve texto próprio: ela cita o aviso
+ * `BASELINE` palavra por palavra (ver `fraseDoDia`). Com a faixa de
+ * complementos logo abaixo da frase — as duas com a largura da tela —, o mesmo
+ * parágrafo aparecia duas vezes seguidas, uma em azul e outra em âmbar, e o
+ * segundo se lia como um problema a mais em vez de a repetição do primeiro.
+ *
+ * O que se tira é a repetição, e nunca um aviso: um texto que a frase não diz
+ * continua aparecendo, inclusive num dia em que a frase cala.
+ *
+ * @returns `AvisoDoDia[]`
+ */
+export function avisosPorDizer(resumo: ResumoDoDia | null): AvisoDoDia[] {
+  if (resumo === null) return [];
+  const jaDita = fraseDoDia(resumo)?.detalhe;
+  return resumo.avisos.filter((a) => a.texto !== jaDita);
 }
 
 // ---------------------------------------------------------------------------
@@ -652,6 +696,40 @@ export function useResumoDoDia({
  * junto com o resumo faria todo dia pagar por uma lista que a maioria dos dias
  * não vai olhar — a mesma razão pela qual ela é rota própria no servidor.
  */
+/**
+ * O endereço da relação — um só, para a lista paginada e para a exportação.
+ *
+ * As duas pedem a mesma fila com os mesmos filtros e diferem só na janela
+ * (`limit`/`offset`). Escrito duas vezes, um filtro novo entraria na tela e
+ * ficaria de fora do arquivo — e um CSV com mais linhas do que a tela mostra é
+ * exatamente o tipo de divergência silenciosa que este produto existe para
+ * pegar.
+ */
+function enderecoDaFila({
+  dia,
+  serie,
+  filtros,
+  limit,
+  offset,
+}: {
+  dia: string;
+  serie: string | null | undefined;
+  filtros: FiltrosDaTela;
+  limit: number;
+  offset: number;
+}): string {
+  return `${BASE}/dia/${dia}/chamados${query([
+    comSerie(serie),
+    filtros.unidade && `unidade=${encodeURIComponent(filtros.unidade)}`,
+    filtros.area && `area=${encodeURIComponent(filtros.area)}`,
+    filtros.responsavel && `responsavel=${encodeURIComponent(filtros.responsavel)}`,
+    filtros.statusBucket && `statusBucket=${encodeURIComponent(filtros.statusBucket)}`,
+    filtros.busca && `busca=${encodeURIComponent(filtros.busca)}`,
+    `limit=${limit}`,
+    `offset=${offset}`,
+  ])}`;
+}
+
 export function useFilaDoDia({
   dia,
   serie,
@@ -667,16 +745,13 @@ export function useFilaDoDia({
   porPagina: number;
   habilitado?: boolean;
 }) {
-  const endereco = `${BASE}/dia/${dia}/chamados${query([
-    comSerie(serie),
-    filtros.unidade && `unidade=${encodeURIComponent(filtros.unidade)}`,
-    filtros.area && `area=${encodeURIComponent(filtros.area)}`,
-    filtros.responsavel && `responsavel=${encodeURIComponent(filtros.responsavel)}`,
-    filtros.statusBucket && `statusBucket=${encodeURIComponent(filtros.statusBucket)}`,
-    filtros.busca && `busca=${encodeURIComponent(filtros.busca)}`,
-    `limit=${porPagina}`,
-    `offset=${(pagina - 1) * porPagina}`,
-  ])}`;
+  const endereco = enderecoDaFila({
+    dia,
+    serie,
+    filtros,
+    limit: porPagina,
+    offset: (pagina - 1) * porPagina,
+  });
 
   return useConsultaResiliente<FilaDoDia>({
     queryKey: [
@@ -692,6 +767,68 @@ export function useFilaDoDia({
     buscar: () => fetchJson(endereco),
     enabled: habilitado,
   });
+}
+
+/** O teto que a rota da relação aplica por página — ver `TETO_DA_PAGINA`. */
+const POR_REQUISICAO = 100;
+
+/**
+ * Quanto o botão Exportar chega a baixar.
+ *
+ * O arquivo de um dia tem milhares de chamados, e o CSV é conferência contra a
+ * planilha — cortar aqui seria devolver um arquivo menor do que a tela promete.
+ * O teto existe mesmo assim, porque uma relação de cem mil linhas é um pedido
+ * que ninguém fez de propósito; quando ele é alcançado, quem chamou fica
+ * sabendo (`completo`) e a tela diz que o arquivo saiu cortado.
+ */
+export const TETO_DA_EXPORTACAO = 20_000;
+
+/**
+ * A relação inteira do dia, com os filtros que estão em tela.
+ *
+ * A lista pagina de 25 em 25 porque é o que se lê; o arquivo não se lê, se
+ * confere — e um CSV com a página à vista seria um arquivo que mente por
+ * omissão sobre o tamanho do envio. Aqui a fila é percorrida até o fim, em
+ * páginas do tamanho que a rota aceita.
+ *
+ * Sequencial de propósito: são dezenas de requisições sobre a mesma tabela, e
+ * dispará-las juntas trocaria um botão que demora alguns segundos por um pico
+ * que atrapalha quem está lendo a tela ao lado.
+ */
+export async function buscarRelacaoInteira({
+  dia,
+  serie,
+  filtros,
+}: {
+  dia: string;
+  serie: string | null | undefined;
+  filtros: FiltrosDaTela;
+}): Promise<{ chamados: ChamadoNaFila[]; envios: EnvioDaFila[]; completo: boolean }> {
+  const chamados: ChamadoNaFila[] = [];
+  let envios: EnvioDaFila[] = [];
+  let total = 0;
+
+  do {
+    const pagina = await fetchJson<FilaDoDia>(
+      enderecoDaFila({
+        dia,
+        serie,
+        filtros,
+        limit: POR_REQUISICAO,
+        offset: chamados.length,
+      }),
+    );
+    if (chamados.length === 0) {
+      envios = pagina.envios;
+      total = pagina.totalFiltrado;
+    }
+    // Uma página vazia antes do total encerra o laço: sem isso, um total que
+    // não bate com o que a consulta devolve viraria requisição sem fim.
+    if (pagina.rows.length === 0) break;
+    chamados.push(...pagina.rows);
+  } while (chamados.length < total && chamados.length < TETO_DA_EXPORTACAO);
+
+  return { chamados, envios, completo: chamados.length >= total };
 }
 
 /**
