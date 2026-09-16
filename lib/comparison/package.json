@@ -25,6 +25,7 @@
     "./lucro-fixo": "./src/lucro-fixo.ts",
     "./monitor-custo-fixo": "./src/monitor-custo-fixo.ts",
     "./recorte-de-rubrica": "./src/recorte-de-rubrica.ts",
+    "./agrupamento-por-veiculo": "./src/agrupamento-por-veiculo.ts",
     "./tipos": "./src/tipos.ts",
     "./tipos-da-vigencia": "./src/tipos-da-vigencia.ts",
     "./visao-geral-de-parametros": "./src/visao-geral-de-parametros.ts"

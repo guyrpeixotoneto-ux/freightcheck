@@ -16,6 +16,7 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { LinhaDeIpva } from "@workspace/comparison/ipva";
+import { agruparPorVeiculoDeIpva } from "@workspace/comparison/ipva";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { TabelaDeIpva } from "@/components/ipva/tabela";
@@ -61,26 +62,35 @@ const JUSTIFICADA: Justificativa = {
   criadoEm: "2026-09-01T12:00:00.000Z",
 };
 
+/*
+  A coluna mora na expansão da placa desde que a tabela passou a listar veículos
+  em vez de variáveis: a justificativa é de **uma alteração**, e alteração é o
+  que a expansão mostra. Por isso todo caso abre a placa antes de olhar — é o
+  mesmo clique que quem audita dá.
+*/
 const renderizar = (
   linhas: LinhaDeIpva[],
-  { comJustificativa = false, onJustificar = vi.fn(), onAbrir = vi.fn() } = {},
+  { comJustificativa = false, onJustificar = vi.fn(), onAbrir = vi.fn(), abrir = true } = {},
 ) => {
   render(
     <TooltipProvider>
       <TabelaDeIpva
-        linhas={linhas}
+        veiculos={agruparPorVeiculoDeIpva(linhas)}
         justificadaPor={comJustificativa ? new Map([[1, JUSTIFICADA]]) : undefined}
         onAbrir={onAbrir}
         onJustificar={onJustificar}
       />
     </TooltipProvider>,
   );
+  if (abrir) {
+    fireEvent.click(screen.getByRole("button", { name: /^Abrir as alterações de/ }));
+  }
   return { onJustificar, onAbrir };
 };
 
 describe("a coluna de justificativa da tabela de rubrica", () => {
   it("tem cabeçalho próprio, como as demais colunas", () => {
-    renderizar([linha()]);
+    renderizar([linha()], { abrir: false });
     expect(screen.getByRole("columnheader", { name: "Justificativa" })).toBeTruthy();
   });
 
@@ -106,7 +116,9 @@ describe("a coluna de justificativa da tabela de rubrica", () => {
   /* O clique da célula não pode abrir a gaveta do veículo por baixo do diálogo. */
   it("justificar não abre o detalhe da linha", () => {
     const { onAbrir } = renderizar([linha()]);
-    fireEvent.click(screen.getByRole("button", { name: /^Justificar/ }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Justificar IPVA / Licenciamento de QYW6D15" }),
+    );
     expect(onAbrir).not.toHaveBeenCalled();
   });
 
@@ -130,10 +142,13 @@ describe("a coluna de justificativa da tabela de rubrica", () => {
   it("sem onJustificar a coluna é só de leitura", () => {
     render(
       <TooltipProvider>
-        <TabelaDeIpva linhas={[linha()]} onAbrir={vi.fn()} />
+        <TabelaDeIpva veiculos={agruparPorVeiculoDeIpva([linha()])} onAbrir={vi.fn()} />
       </TooltipProvider>,
     );
+    fireEvent.click(screen.getByRole("button", { name: /^Abrir as alterações de/ }));
     expect(screen.queryByRole("button", { name: /^Justificar/ })).toBeNull();
-    expect(screen.getByText("Sem justificativa")).toBeTruthy();
+    /* Duas vezes: a linha da placa resume o que falta, e a célula da alteração
+       diz o mesmo sobre a linha dela. */
+    expect(screen.getAllByText("Sem justificativa").length).toBe(2);
   });
 });
