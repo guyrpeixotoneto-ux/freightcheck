@@ -77,7 +77,7 @@ import { contextoAberto, unidadeDe, useContextosDaCasca } from "@/lib/contextos"
 import { cn } from "@/lib/utils";
 
 /**
- * AUDITORIA DE MANUTENÇÃO E PNEU — o que se paga por rodar, e não por ter.
+ * AUDITORIA DE MANUTENÇÃO — o contrato de manutenção de cada cavalo.
  *
  * ---------------------------------------------------------------------------
  * Por que esta tela é de custo **variável**
@@ -113,17 +113,25 @@ import { cn } from "@/lib/utils";
  * 3. **`cavalo.free_maintenance` é `cavalo.manutencao_free_maintenance`.** Idem,
  *    558 de 558. A tela mostra uma.
  *
- * 4. **O pneu é coluna sem dado, dos dois lados.** `cavalo.valor_pneu` e
- *    `carreta.valor_pneus` são zero em 100% das linhas; a medida do pneu é a
- *    mesma para a frota inteira. É a mesma espécie do montante de ICMS na
- *    Auditoria de Impostos: fica na tela marcado, e fora de toda soma.
- *
  * ---------------------------------------------------------------------------
- * A manutenção é do cavalo; a carreta entra só pelo pneu
+ * A manutenção é do cavalo, e só dele
  * ---------------------------------------------------------------------------
  * O `Modelo_Carreta` não tem coluna de manutenção nenhuma — não é que venham
- * zeradas, é que não existem. A aba Carreta abre com uma variável só, e ela é a
- * que não tem valor. É a resposta certa, e não uma tela quebrada.
+ * zeradas, é que não existem. Enquanto esta tela se chamava "Manutenção e Pneu",
+ * a carreta entrava por uma variável só: o valor de pneus, zerado em 100% das
+ * linhas. Com o pneu em tela própria, a aba Carreta ficou sem nada para mostrar,
+ * e por isso ela está desabilitada com a razão escrita no botão — que é a razão
+ * da **rubrica**, e não a do acervo da unidade.
+ *
+ * ---------------------------------------------------------------------------
+ * O pneu saiu daqui, e virou tela
+ * ---------------------------------------------------------------------------
+ * Ele era três colunas do equipamento, todas sem dado: `cavalo.valor_pneu` e
+ * `carreta.valor_pneus` zerados, e a medida do pneu igual para a frota inteira.
+ * O pneu **com dado** deste acervo é do trecho — sete colunas da tabela de frete
+ * que nenhuma tela mostrava —, e está em `/custo-variavel-pneu`. As três colunas
+ * de equipamento continuam publicadas lá, no aviso, com o que se mediu sobre
+ * cada uma.
  *
  * **Nenhuma conta mora neste arquivo.** Estado, diferença, variação, impacto, a
  * conferência de origem e os agregados vêm de
@@ -330,10 +338,25 @@ export default function AuditoriaDeManutencao() {
       ({
         TODOS: true,
         CAVALO: vigenciasQueCobrem(daUnidadeTodas, ["CAVALO"]).length > 0,
-        CARRETA: vigenciasQueCobrem(daUnidadeTodas, ["CARRETA"]).length > 0,
+        /*
+          Carreta é `false` sempre, e não por falta de acervo: o `Modelo_Carreta`
+          não declara coluna de manutenção nenhuma. Enquanto o pneu morava nesta
+          rubrica, a aba abria com uma variável — a zerada —; com ele em
+          `/custo-variavel-pneu`, ela abriria em branco. Um botão clicável para
+          uma tela vazia é a falha que este controle existe para não ter, e o
+          motivo abaixo é o que impede o botão de mandar importar um arquivo que
+          já chegou.
+        */
+        CARRETA: false,
       }) as Record<RecorteDeTipo, boolean>,
     [daUnidadeTodas],
   );
+
+  /** Por que a carreta não tem tela aqui — a razão é da rubrica, não da unidade. */
+  const MOTIVO_SEM_CARRETA = {
+    CARRETA:
+      "O Modelo_Carreta não declara coluna de manutenção nenhuma — não é que venham zeradas, é que não existem. O pneu, que era a única variável de carreta desta tela, agora está em Pneu.",
+  } as const;
 
   /**
    * O texto de cada opção do seletor, distinto por construção.
@@ -549,7 +572,7 @@ export default function AuditoriaDeManutencao() {
       <CabecalhoDePagina
         titulo={
           <span className="flex flex-wrap items-center gap-2.5">
-            Auditoria de Manutenção e Pneu
+            Auditoria de Manutenção
             <span className="rounded-full border border-brand/25 bg-brand/10 px-2.5 py-0.5 text-xs font-semibold text-brand">
               {modo === "evolucao" ? "Evolução anual" : "Comparação entre vigências"}
             </span>
@@ -559,7 +582,7 @@ export default function AuditoriaDeManutencao() {
         descricao={
           modo === "evolucao"
             ? "Como o contrato de manutenção de cada caminhão se moveu ao longo do ano, uma coluna por vigência — com o impacto dos movimentos e a variação ponta a ponta lidos separadamente."
-            : "O custo por quilômetro de cada caminhão entre duas vigências — de onde ele vem, quanto de vida útil resta, e o pneu que o acervo declara e nunca preencheu."
+            : "O custo por quilômetro de cada caminhão entre duas vigências — de onde ele vem, quanto de vida útil resta, e quanto de reajuste já entrou no valor."
         }
         atualizando={
           modo === "comparacao" && comparacao.isFetching && !comparacao.isLoading
@@ -576,6 +599,7 @@ export default function AuditoriaDeManutencao() {
         ) : (
           <>
             <RecorteDeEquipamento
+              motivoDoVazio={MOTIVO_SEM_CARRETA}
               valor={recorteDeTipo}
               onValor={(tipo) => {
                 /* Escolher um equipamento é sair da Evolução: os três primeiros
@@ -692,10 +716,9 @@ export default function AuditoriaDeManutencao() {
                 {(agregados ?? comparacao.data).resumo.impacto.foraDaSoma === 1
                   ? "alteração ficou"
                   : "alterações ficaram"}{" "}
-                fora do impacto: o pneu é zero em 100% das linhas do acervo, o valor
-                reajustado é o R$/km do contrato com outro nome, e o R$/km solto é uma
-                terceira coluna que o export não explica. As três aparecem na tabela e no
-                detalhe, nunca numa soma.
+                fora do impacto: o valor reajustado é o R$/km do contrato com outro
+                nome, e o R$/km solto é uma terceira coluna que o export não explica. As
+                duas aparecem no detalhe, nunca numa soma.
               </p>
             )}
 

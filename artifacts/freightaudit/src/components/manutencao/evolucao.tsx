@@ -6,7 +6,7 @@ import {
 import type { RubricaDaEvolucao } from "@/components/comparacao/evolucao/painel";
 
 /**
- * A Auditoria de Manutenção e Pneu na aba Evolução — o que só ela tem a dizer.
+ * A Auditoria de Manutenção na aba Evolução — o que só ela tem a dizer.
  *
  * A tela inteira mora em `comparacao/evolucao/painel.tsx`, com as outras
  * rubricas.
@@ -17,7 +17,7 @@ import type { RubricaDaEvolucao } from "@/components/comparacao/evolucao/painel"
  * mostrasse R$ 0,00 no lugar afirmaria que o contrato mudou e não custou nada.
  */
 export const EVOLUCAO_DA_MANUTENCAO: RubricaDaEvolucao = {
-  nome: "manutenção e pneu",
+  nome: "manutenção",
   icone: Wrench,
   idPrefixo: "manutencao",
   codigosDaTabela: CODIGOS_DA_TABELA_DE_MANUTENCAO,

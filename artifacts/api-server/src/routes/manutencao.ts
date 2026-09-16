@@ -34,7 +34,7 @@ import {
 } from "../lib/candidatas-do-par";
 
 /**
- * AUDITORIA DE MANUTENÇÃO E PNEU — o que se paga por rodar.
+ * AUDITORIA DE MANUTENÇÃO — o contrato de manutenção de cada cavalo.
  *
  * ---------------------------------------------------------------------------
  * Por que esta rota é tão curta
@@ -192,9 +192,12 @@ router.get("/manutencao/comparacao", async (req, res, next): Promise<void> => {
       alteracoesPorVariavel: alteracoesPorVariavelDeManutencao(linhas),
       distribuicaoPorEstado: distribuicaoPorEstadoDeManutencao(linhas, frota),
       /*
-        Os mesmos três agregados, um por tipo de equipamento. Aqui a aba Carreta
-        só tem o pneu — e o pneu é zero em toda parte —, o que é o dado: a
-        carreta não declara coluna de manutenção nenhuma.
+        Os mesmos três agregados, um por tipo de equipamento. `CARRETA` continua
+        na lista e volta vazia: desde que o pneu saiu para a Auditoria de Pneu, o
+        `Modelo_Carreta` não declara coluna nenhuma desta rubrica. Mantê-la aqui
+        é o que faz a resposta dizer "zero de carreta" em vez de omitir a
+        pergunta — a tela não abre aba para ela, e quem consome a API pelo lado
+        de fora continua sabendo que o tipo foi olhado.
       */
       porTipo: Object.fromEntries(
         (["CAVALO", "CARRETA"] as const).map((tipo) => {
@@ -293,7 +296,6 @@ router.get("/manutencao/totais", async (req, res): Promise<void> => {
             contrato: ler(linha, doTipo.get("contrato")),
             vidaMeses: ler(linha, doTipo.get("vida_meses")),
             freeMaintenance: ler(linha, doTipo.get("free_maintenance")),
-            pneu: ler(linha, doTipo.get("pneu")),
           });
         }
       }

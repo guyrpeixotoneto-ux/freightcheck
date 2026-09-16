@@ -228,16 +228,41 @@ export const TELAS_QUE_HONRAM_ESCOPO = new Set<string>([
   */
   "/custo-fixo-seguro",
   /*
-    A Auditoria de Manutenção e Pneu. Ela é de custo variável pela unidade — mede
-    R$/km, e não reais —, mas o grão dela é o **equipamento**, e não o trecho: o
-    contrato de manutenção é de um caminhão, não de uma rota. Por isso ela entra
-    aqui com o filtro das outras quatro de cima, e não com o filtro de trecho das
-    três de baixo.
+    A Auditoria de Manutenção. Ela é de custo variável pela unidade — mede R$/km,
+    e não reais —, mas o grão dela é o **equipamento**, e não o trecho: o contrato
+    de manutenção é de um caminhão, não de uma rota. Por isso ela entra aqui com o
+    filtro das outras quatro de cima, e não com o filtro de trecho das de baixo.
+
+    Ela já respondeu também pelo pneu, e por isso é a única desta seção com grão de
+    equipamento: o pneu com dado do acervo é do trecho, e saiu para tela própria.
 
     Fora de `TELAS_QUE_HONRAM_VISAO_GERAL` pelo motivo de sempre: o motor recusa
     comparar vigências de escopos distintos.
   */
   "/custo-variavel-manutencao",
+  /*
+    A Auditoria de Pneu, pelo mesmo mecanismo e com o filtro de trecho: a tela
+    (`pages/custo-variavel-pneu.tsx`) recorta o seletor pela unidade aberta **e**
+    pelas vigências que cobrem trecho, que é o grão em que o pneu deste acervo é
+    medido — sete colunas da tabela de frete, e não a coluna zerada do cavalo.
+
+    Fora de `TELAS_QUE_HONRAM_VISAO_GERAL` pelo motivo de sempre: o motor recusa
+    comparar vigências de escopos distintos.
+  */
+  "/custo-variavel-pneu",
+  /*
+    A Auditoria de Consumo, pelo mesmo mecanismo e com o mesmo filtro de trecho.
+
+    Aqui o recorte por unidade faz mais do que trocar o dado, e é o que distingue
+    esta tela das irmãs: o preço do litro de referência é a **mediana entre os
+    trechos da vigência**, e uma vigência com duas unidades dentro devolveria a
+    mediana de duas tabelas de preço coladas. Os trechos que destoassem seriam os
+    da unidade menor, e não os precificados sobre outra premissa de diesel.
+
+    Fora de `TELAS_QUE_HONRAM_VISAO_GERAL` pelo motivo de sempre: o motor recusa
+    comparar vigências de escopos distintos.
+  */
+  "/custo-variavel-consumo",
   /*
     A Auditoria de Km Rodado, pelo mesmo mecanismo das quatro acima e com um
     filtro a mais: a tela (`pages/custo-variavel-km-rodado.tsx`) recorta a lista

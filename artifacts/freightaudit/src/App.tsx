@@ -73,6 +73,8 @@ import AuditoriaDeImpostos from '@/pages/custo-fixo-impostos';
 import AuditoriaDeSeguro from '@/pages/custo-fixo-seguro';
 import AuditoriaDeManutencao from '@/pages/custo-variavel-manutencao';
 import AuditoriaDeKmRodado from '@/pages/custo-variavel-km-rodado';
+import AuditoriaDePneu from '@/pages/custo-variavel-pneu';
+import AuditoriaDeConsumo from '@/pages/custo-variavel-consumo';
 import AuditoriaDeVelocidadeMedia from '@/pages/custo-variavel-velocidade-media';
 import AuditoriaDeTma from '@/pages/custo-variavel-tma';
 import Remunerado from '@/pages/remunerado';
@@ -574,6 +576,8 @@ function RotasDaAuditoria() {
         vírgula, como manda o catálogo.
       */}
       <Route path="/custo-variavel-km-rodado" component={AuditoriaDeKmRodado} />
+      <Route path="/custo-variavel-pneu" component={AuditoriaDePneu} />
+      <Route path="/custo-variavel-consumo" component={AuditoriaDeConsumo} />
       {/*
         Velocidade Média sai de `TELAS_EM_PREPARO` e é a segunda de custo
         variável, no mesmo grão da primeira: o trecho.

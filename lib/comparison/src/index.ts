@@ -21,6 +21,8 @@ export * from "./tma";
 export * from "./lucro-fixo";
 export * from "./seguro";
 export * from "./manutencao";
+export * from "./pneu";
+export * from "./consumo";
 export * from "./monitor-custo-fixo";
 export * from "./monitor-equipe";
 export * from "./deduplicacao";

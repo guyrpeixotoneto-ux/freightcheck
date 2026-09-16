@@ -46,8 +46,9 @@ export function CartoesDeManutencao({
         valor={formatNumber(resumo.veiculosComparados, 0)}
         nota="presentes nas duas vigências"
         ajuda={
-          "Ativos com fato nas duas pontas. Só o cavalo tem contrato de manutenção — " +
-          "a carreta não declara nenhuma dessas colunas, e entra aqui apenas pelo pneu."
+          "Ativos com fato nas duas pontas. Só o cavalo tem contrato de manutenção: o " +
+          "Modelo_Carreta não declara nenhuma dessas colunas — não é que venham zeradas, é " +
+          "que não existem."
         }
         icone={Truck}
       />
