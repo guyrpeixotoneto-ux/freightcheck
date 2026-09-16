@@ -50,11 +50,23 @@ export const justificativaTable = pgTable(
     formula: text("formula"),
     /** Sob que condição este valor pode mudar. */
     regra: text("regra"),
-    /** A alteração seguiu a regra acima, ou foi exceção? */
+    /** A alteração seguiu a regra acima? */
     conforme: boolean("conforme"),
-    /** Por que se alterou mesmo fora da regra — só faz sentido com `conforme` falso. */
+    /**
+     * **Que tipo** de não conformidade — `EXCECAO` ou `DESCUMPRIMENTO`. Nulo
+     * quando `conforme`, e nulo também nas justificativas anteriores a `0100`,
+     * que só sabiam dizer "não".
+     *
+     * A distinção não é vocabulário: uma exceção é um desvio **aprovado**, e
+     * tem aprovador; um descumprimento da regra de remuneração não tem, porque
+     * ninguém o autorizou. Guardar as duas como o mesmo "não" fazia a coluna
+     * `responsavel_aprovacao` ter de ser preenchida nos dois casos — e no
+     * segundo ela registraria um aval que não existiu.
+     */
+    naoConformidade: text("nao_conformidade"),
+    /** Por que se alterou fora da regra — o motivo da exceção ou do descumprimento. */
     motivoExcecao: text("motivo_excecao"),
-    /** Quem autorizou a exceção — idem. */
+    /** Quem autorizou a exceção. Só na exceção: descumprimento não tem aprovador. */
     responsavelAprovacao: text("responsavel_aprovacao"),
     /** Nunca nulo: uma justificativa sem autor não é auditável. */
     criadoPor: text("criado_por").notNull(),

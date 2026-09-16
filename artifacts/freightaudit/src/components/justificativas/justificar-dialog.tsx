@@ -1,22 +1,42 @@
-import { useEffect, useState, type ReactNode } from "react";
-import { Lock, Maximize2, Minimize2, Sparkles } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import {
-  Dialog,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from "@/components/ui/dialog";
+  CalendarDays,
+  Check,
+  ChevronRight,
+  Lock,
+  Maximize2,
+  Minimize2,
+  Sigma,
+  Sparkles,
+  Truck,
+  X,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Dialog } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { ApiErrorNotice } from "@/components/api-error";
 import {
+  conformidadeDaJustificativa,
   faltamNaJustificativa,
+  montarJustificativa,
+  ROTULO_DA_CONFORMIDADE,
+  type Conformidade,
   type JustificativaEstruturada,
+  type RascunhoDaJustificativa,
 } from "@workspace/comparison/justificativa-estruturada";
+import {
+  formulaDoTotalDerivado,
+  separarTotaisDerivados,
+  totalDerivado,
+} from "@workspace/comparison/totais-derivados";
 import type { Justificativa } from "@/lib/justificativas";
+import {
+  apagarRascunho,
+  gravarRascunho,
+  lerRascunho,
+  rascunhoVazio,
+} from "@/lib/rascunho-de-justificativa";
 import { cn } from "@/lib/utils";
 
 /**
@@ -46,10 +66,39 @@ export interface AlvoDaJustificativa {
   deltaPercent?: number | null;
 }
 
+const VAZIO: RascunhoDaJustificativa = {
+  formula: "",
+  regra: "",
+  conformidade: null,
+  motivoExcecao: "",
+  responsavelAprovacao: "",
+};
+
+/** As três respostas, na ordem em que a tela as oferece. */
+const CONFORMIDADES: Conformidade[] = ["CONFORME", "EXCECAO", "DESCUMPRIMENTO"];
+
+/** O que já está gravado, aberto nos campos para ser corrigido. */
+function comoRascunho(j: Justificativa | null | undefined): RascunhoDaJustificativa {
+  if (!j) return VAZIO;
+  /*
+    Justificativa anterior a `0098` tem `texto` e não tem os campos: ela abre
+    com a fórmula e a regra em branco, e é o que se quer — a frase antiga não
+    é uma regra, e copiá-la para o campo "Regra" afirmaria que alguém a
+    escreveu como tal.
+  */
+  return {
+    formula: j.formula ?? "",
+    regra: j.regra ?? "",
+    conformidade: conformidadeDaJustificativa(j),
+    motivoExcecao: j.motivoExcecao ?? "",
+    responsavelAprovacao: j.responsavelAprovacao ?? "",
+  };
+}
+
 /**
- * O formulário de justificar — uma ou várias alterações de uma vez, mesma
- * justificativa para todas. Compartilhado entre a lista de Justificativas, a
- * tela de detalhe por placa, o Painel e o FINAME: nenhuma delas muda o que
+ * O formulário de justificar — uma variável de cada vez, ainda que se tenha
+ * aberto quatro. Compartilhado entre a lista de Justificativas, a tela de
+ * detalhe por placa, o Painel e as seis rubricas: nenhuma delas muda o que
  * significa justificar, só de onde a lista de alterações-alvo vem.
  *
  * ---------------------------------------------------------------------------
@@ -67,25 +116,43 @@ export interface AlvoDaJustificativa {
  * motivo e o responsável aparecem juntos e só na exceção: exceção sem
  * responsável não é exceção, é alteração sem dono.
  *
+ * ---------------------------------------------------------------------------
+ * De uma justificativa para várias — por que virou um assistente
+ * ---------------------------------------------------------------------------
+ * Abrir quatro alterações gravava **a mesma** fórmula e a mesma regra nas
+ * quatro. Mas quatro variáveis alteradas na mesma placa não têm uma fórmula
+ * só: a Parcela FINAME se calcula de um jeito, os Juros de outro, e o Fim do
+ * contrato não se calcula — é uma data. A justificativa em lote era, na
+ * prática, a mesma frase genérica repetida quatro vezes, que é exatamente o
+ * que os campos vieram acabar.
+ *
+ * Então a lista virou uma fila: a lateral mostra as variáveis, quantas já
+ * foram concluídas, e o painel da direita pergunta por **uma** delas. Cada
+ * "Salvar e próxima" é um POST daquela variável — quem fechar no meio deixou
+ * gravadas as que concluiu, e não perdeu o trabalho inteiro por causa da
+ * quarta. O que ainda não está completo cabe em "Salvar rascunho", que fica no
+ * navegador (ver `lib/rascunho-de-justificativa.ts`) e **não** conta como
+ * explicação dada em lugar nenhum.
+ *
  * Quem decide se está completo é `faltamNaJustificativa`, a mesma função que a
  * rota usa para recusar o POST. Duas listas do que é obrigatório concordariam
  * no dia em que fossem escritas e discordariam no seguinte — e a discordância
  * apareceria como um botão que se acende e um 400 logo depois, com o texto
  * todo perdido.
  *
- * `contexto` e `justificativaAtual` são o que a grade da tela de placa
- * precisou acrescentar. Na fila, justificar é sempre na vigência que o
- * seletor mostra; na grade, o clique pode cair em qualquer coluna, e um
- * diálogo que não diz **em que vigência** se está gravando deixa a decisão sem
- * a metade que a torna verificável. `justificativaAtual` aparece quando se
- * clica numa célula já verde: o que já está gravado abre nos campos, porque
- * quem reabre uma célula explicada quase sempre quer corrigir o que escreveu,
- * e não redigir do zero sem saber o que está substituindo.
+ * `contexto` e `justificativas` são o que as telas acrescentam. Na fila,
+ * justificar é sempre na vigência que o seletor mostra; na grade por placa o
+ * clique pode cair em qualquer coluna, e um diálogo que não diz **em que
+ * vigência** se está gravando deixa a decisão sem a metade que a torna
+ * verificável. `justificativas` é o que já está gravado, por `change.id`: a
+ * variável que já tem justificativa abre marcada como concluída e com o texto
+ * nos campos, porque quem reabre uma célula explicada quase sempre quer
+ * corrigir o que escreveu, e não redigir do zero sem saber o que substitui.
  */
 export function JustificarDialog({
   alvo,
   contexto,
-  justificativaAtual,
+  justificativas,
   pendente,
   erro,
   onClose,
@@ -94,63 +161,185 @@ export function JustificarDialog({
   alvo: readonly AlvoDaJustificativa[] | null;
   /** Onde isto vai ser gravado — "vigência 01/08/26". Opcional: a fila não precisa. */
   contexto?: string;
-  /** A justificativa que já existe para o alvo, quando se está reescrevendo. */
-  justificativaAtual?: Justificativa | null;
+  /** O que já está gravado, por `change.id` — para reescrever e para contar o que falta. */
+  justificativas?: ReadonlyMap<number, Justificativa>;
   pendente: boolean;
   erro: unknown;
   onClose: () => void;
-  onConfirmar: (justificativa: JustificativaEstruturada) => void;
+  /**
+   * Grava **uma** variável. A promessa é o que diz ao assistente que pode
+   * avançar: uma gravação que falhou não pode empurrar a fila para a próxima
+   * variável, senão o texto recusado some da tela junto com o erro.
+   */
+  onConfirmar: (
+    alvo: AlvoDaJustificativa,
+    justificativa: JustificativaEstruturada,
+  ) => Promise<unknown> | void;
 }) {
-  const [formula, setFormula] = useState("");
-  const [regra, setRegra] = useState("");
-  const [conforme, setConforme] = useState<boolean | null>(null);
-  const [motivoExcecao, setMotivoExcecao] = useState("");
-  const [responsavelAprovacao, setResponsavelAprovacao] = useState("");
+  /*
+    O total que é a conta das suas parcelas não entra na fila.
+
+    A Parcela FINAME é juros mais amortização: perguntar a fórmula das três
+    pede a mesma coisa duas vezes, e abre espaço para a resposta do total
+    contradizer a das parcelas. Ela é gravada pelo servidor a partir delas
+    (`gravarJustificativasDerivadas`) assim que as parcelas que se moveram
+    estiverem justificadas — por isso sair da fila aqui não é sair da cobrança.
+
+    Aberta **sozinha**, ela continua sendo perguntada: ali não há de onde
+    deduzir nada. Ver `separarTotaisDerivados`.
+  */
+  const { fila, derivados } = useMemo(
+    () => separarTotaisDerivados(alvo ?? []),
+    [alvo],
+  );
+
+  const [indice, setIndice] = useState(0);
+  const [respostas, setRespostas] = useState<Map<number, RascunhoDaJustificativa>>(new Map());
+  const [salvas, setSalvas] = useState<Set<number>>(new Set());
+  /**
+   * O que esta abertura veio fazer — as variáveis que a fila vai percorrer.
+   *
+   * Normalmente são as que ainda não têm justificativa: salvar uma avança para
+   * a próxima que falta, e quando não falta nenhuma a caixa fecha. Mas quando
+   * **todas** já estão justificadas, a abertura é deliberadamente uma
+   * reescrita (é o clique numa célula inteira verde, na grade por placa), e aí
+   * a fila é a lista inteira — senão a caixa gravaria a primeira e fecharia,
+   * abandonando as outras três que quem clicou foi reescrever.
+   */
+  const [porFazer, setPorFazer] = useState<Set<number>>(new Set());
+  const [rascunhadas, setRascunhadas] = useState<Set<number>>(new Set());
   const [formulaExpandida, setFormulaExpandida] = useState(false);
+  const [avisoDeRascunho, setAvisoDeRascunho] = useState(false);
 
   /*
     Os campos são semeados quando o alvo muda, e não a cada render: semear a
     cada render apagaria o que está sendo digitado. `alvo` é estado da tela que
     abre o diálogo, então trocar de célula troca a referência — que é
-    exatamente quando o texto deve ser resemeado.
-
-    Justificativa anterior a `0098` tem `texto` e não tem os campos: ela abre
-    com a fórmula e a regra em branco, e é o que se quer — a frase antiga não
-    é uma regra, e copiá-la para o campo "Regra" afirmaria que alguém a
-    escreveu como tal.
+    exatamente quando o texto deve ser resemeado. `justificativas` de propósito
+    fica fora das dependências: ele se renova a cada gravação (a consulta é
+    invalidada), e resemear ali jogaria fora o que já estivesse digitado na
+    variável seguinte.
   */
   useEffect(() => {
     if (alvo === null) return;
-    setFormula(justificativaAtual?.formula ?? "");
-    setRegra(justificativaAtual?.regra ?? "");
-    setConforme(justificativaAtual?.conforme ?? null);
-    setMotivoExcecao(justificativaAtual?.motivoExcecao ?? "");
-    setResponsavelAprovacao(justificativaAtual?.responsavelAprovacao ?? "");
+    const iniciais = new Map<number, RascunhoDaJustificativa>();
+    const comRascunho = new Set<number>();
+    for (const a of fila) {
+      const rascunho = lerRascunho(a.id);
+      if (rascunho && !rascunhoVazio(rascunho)) comRascunho.add(a.id);
+      iniciais.set(a.id, rascunho ?? comoRascunho(justificativas?.get(a.id)));
+    }
+    const pendentes = fila.filter((a) => !justificativas?.has(a.id)).map((a) => a.id);
+    setPorFazer(new Set(pendentes.length > 0 ? pendentes : fila.map((a) => a.id)));
+    setRespostas(iniciais);
+    setRascunhadas(comRascunho);
+    setSalvas(new Set());
     setFormulaExpandida(false);
+    setAvisoDeRascunho(false);
+    /* Abre na primeira que ainda não tem justificativa: quem abriu "4
+       pendentes" não quer começar relendo a que já explicou. */
+    const primeiraPendente = fila.findIndex((a) => !justificativas?.has(a.id));
+    setIndice(primeiraPendente === -1 ? 0 : primeiraPendente);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [alvo]);
 
-  const faltam = faltamNaJustificativa({
-    formula,
-    regra,
-    conforme,
-    motivoExcecao,
-    responsavelAprovacao,
-  });
-  const excecao = conforme === false;
+  const total = fila.length;
+  const atual = indice < total ? fila[indice] : null;
+  const resposta = (atual && respostas.get(atual.id)) ?? VAZIO;
 
-  const confirmar = () => {
-    if (faltam.length > 0 || conforme === null) return;
-    onConfirmar({
-      formula: formula.trim(),
-      regra: regra.trim(),
-      conforme,
-      motivoExcecao: conforme ? null : motivoExcecao.trim(),
-      responsavelAprovacao: conforme ? null : responsavelAprovacao.trim(),
+  const concluida = useMemo(() => {
+    const ids = new Set(salvas);
+    for (const a of fila) if (justificativas?.has(a.id)) ids.add(a.id);
+    return ids;
+  }, [fila, justificativas, salvas]);
+
+  /*
+    A placa, uma vez só.
+
+    A fila é **de uma placa**: é assim que ela se abre em toda tela deste
+    produto — a linha da tabela da rubrica, o card de Chamados, a célula da
+    grade. Repetir "QYX1E98" em cada uma das quatro etapas é escrever quatro
+    vezes o que não muda entre elas, e o que não muda entre as etapas pertence
+    ao cabeçalho, ao lado da vigência.
+    
+    A exceção é a seleção do Painel, que atravessa placas de propósito: ali o
+    cabeçalho não pode afirmar uma placa, e cada etapa diz a sua.
+  */
+  const placaUnica = useMemo(() => {
+    const placas = new Set(fila.map((a) => a.entityLabel ?? ""));
+    const [unica] = [...placas];
+    return placas.size === 1 && unica ? unica : null;
+  }, [fila]);
+
+  const faltam = faltamNaJustificativa(resposta);
+  const foraDaRegra = !!resposta.conformidade && resposta.conformidade !== "CONFORME";
+  const excecao = resposta.conformidade === "EXCECAO";
+  const varias = total > 1;
+
+  const alterar = (mudanca: Partial<RascunhoDaJustificativa>) => {
+    if (!atual) return;
+    setAvisoDeRascunho(false);
+    setRespostas((anterior) => {
+      const proximo = new Map(anterior);
+      proximo.set(atual.id, { ...(anterior.get(atual.id) ?? VAZIO), ...mudanca });
+      return proximo;
     });
   };
 
-  const unico = alvo && alvo.length === 1 ? alvo[0] : null;
+  /** A próxima que ainda falta, a partir da atual e dando a volta — `null` quando não há. */
+  const proximaPendente = (jaSalvas: Set<number>): number | null => {
+    for (let passo = 1; passo <= total; passo++) {
+      const i = (indice + passo) % total;
+      const id = fila[i].id;
+      if (porFazer.has(id) && !jaSalvas.has(id)) return i;
+    }
+    return null;
+  };
+
+  const temProxima = proximaPendente(salvas) !== null;
+
+  const confirmar = async () => {
+    if (!atual || faltam.length > 0) return;
+    try {
+      await onConfirmar(atual, montarJustificativa(resposta));
+    } catch {
+      /* A recusa já chega em `erro`; o que importa aqui é não avançar. */
+      return;
+    }
+    apagarRascunho(atual.id);
+    const jaSalvas = new Set(salvas).add(atual.id);
+    setSalvas(jaSalvas);
+    setRascunhadas((anterior) => {
+      const proximo = new Set(anterior);
+      proximo.delete(atual.id);
+      return proximo;
+    });
+    const proxima = proximaPendente(jaSalvas);
+    if (proxima === null) {
+      onClose();
+      return;
+    }
+    setIndice(proxima);
+    setFormulaExpandida(false);
+    setAvisoDeRascunho(false);
+  };
+
+  const salvarRascunho = () => {
+    if (!atual) return;
+    gravarRascunho(atual.id, resposta);
+    setRascunhadas((anterior) => new Set(anterior).add(atual.id));
+    setAvisoDeRascunho(true);
+  };
+
+  const rotuloDeSalvar = varias
+    ? temProxima
+      ? "Salvar e próxima"
+      : "Salvar e concluir"
+    : excecao
+      ? "Salvar exceção"
+      : resposta.conformidade === "DESCUMPRIMENTO"
+        ? "Salvar descumprimento"
+        : "Salvar justificativa";
 
   return (
     <Dialog
@@ -158,192 +347,467 @@ export function JustificarDialog({
       onOpenChange={(open) => {
         if (!open) onClose();
       }}
-      className="max-w-2xl"
+      className={cn("p-0 overflow-hidden", varias ? "max-w-4xl" : "max-w-2xl")}
     >
-      {alvo && (
+      {alvo && atual && (
         <>
-          <DialogHeader className="border-b pb-4">
-            <DialogTitle className="text-xl">
-              {unico
-                ? `Justificar alteração — ${unico.attributeName ?? unico.attributeCode ?? "atributo"}`
-                : `Justificar ${alvo.length} alterações`}
-            </DialogTitle>
-            <DialogDescription className="text-base">
-              {[unico?.entityLabel, contexto].filter(Boolean).join(" • ") ||
-                "O mesmo texto vale para todas as alterações selecionadas, uma justificativa por alteração."}
-            </DialogDescription>
-          </DialogHeader>
-
-          {alvo.length > 1 && (
-            <div className="flex flex-wrap gap-1.5 mb-4">
-              {alvo.map((change) => (
-                <Badge key={change.id} variant="secondary" className="font-mono">
-                  {change.entityLabel} · {change.attributeName ?? change.attributeCode ?? "—"}
-                </Badge>
-              ))}
-            </div>
-          )}
-
-          {unico && <AlteracaoRealizada alvo={unico} />}
-
-          <div className="mb-4 flex items-start gap-3 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2.5">
-            <span className="mt-0.5 rounded-md bg-primary/10 p-1.5 text-primary">
-              <Sparkles className="h-4 w-4" />
-            </span>
-            <div className="text-sm">
-              <p className="font-semibold">Ajude o sistema a aprender</p>
-              <p className="text-muted-foreground">
-                Informe a fórmula, a regra esperada e se esta alteração seguiu o padrão.
-              </p>
-            </div>
-          </div>
-
-          {justificativaAtual && (
-            <p className="mb-4 text-xs text-muted-foreground">
-              Reescrevendo a justificativa de {justificativaAtual.criadoPor} de{" "}
-              {new Date(justificativaAtual.criadoEm).toLocaleString("pt-BR")}. A anterior
-              não é apagada — fica no histórico.
+          <header className="relative border-b px-6 pt-6 pb-5">
+            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+              Justificativa de alterações
             </p>
-          )}
-
-          <div className="space-y-4">
-            <Campo rotulo="Fórmula de cálculo" obrigatorio>
-              <Textarea
-                value={formula}
-                onChange={(e) => setFormula(e.target.value)}
-                placeholder="Ex.: Amortização mensal = Valor amortizável ÷ Prazo de amortização"
-                rows={formulaExpandida ? 10 : 2}
-                autoFocus
-              />
-              {/*
-                  A fórmula é o campo que às vezes tem uma linha e às vezes tem
-                  dez — cadeias de cálculo do FINAME não cabem em duas. Expandir
-                  é da fórmula só, e não do diálogo: crescer a caixa inteira
-                  empurraria os botões para fora da tela justamente quando se
-                  está escrevendo o campo mais longo.
-              */}
-              <button
-                type="button"
-                className="ml-auto flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
-                onClick={() => setFormulaExpandida((v) => !v)}
-              >
-                {formulaExpandida ? (
-                  <Minimize2 className="h-3.5 w-3.5" />
-                ) : (
-                  <Maximize2 className="h-3.5 w-3.5" />
+            <h2 className="mt-1 text-2xl font-bold tracking-tight">
+              {varias
+                ? `Justificar ${total} alterações`
+                : `Justificar alteração — ${atual.attributeName ?? atual.attributeCode ?? "atributo"}`}
+            </h2>
+            {(placaUnica || contexto) && (
+              <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
+                {placaUnica && (
+                  <span className="inline-flex items-center gap-1.5">
+                    <Truck className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    <span className="font-mono font-semibold text-foreground">{placaUnica}</span>
+                  </span>
                 )}
-                {formulaExpandida ? "Recolher" : "Expandir"}
-              </button>
-            </Campo>
-
-            <Campo rotulo="Regra para alteração do valor" obrigatorio>
-              <Textarea
-                value={regra}
-                onChange={(e) => setRegra(e.target.value)}
-                placeholder="Ex.: O valor somente pode ser alterado quando houver mudança no prazo ou no valor amortizável aprovado."
-                rows={2}
-              />
-            </Campo>
-
-            {/*
-                Este campo é um grupo de opções, e não uma caixa de texto: por
-                isso não é um `<label>`. Envolver dois botões de opção num
-                rótulo faz o nome acessível de cada um virar o texto inteiro do
-                grupo — os dois passam a se chamar a mesma coisa, e nem um
-                leitor de tela nem um teste conseguem distinguir "sim" de
-                "não".
-            */}
-            <Campo rotulo="Esta alteração foi realizada conforme a regra?" obrigatorio grupo>
-              <div className="grid gap-2 sm:grid-cols-2" role="radiogroup">
-                <OpcaoDeConformidade
-                  marcada={conforme === true}
-                  onSelecionar={() => setConforme(true)}
-                >
-                  Sim, está conforme a regra
-                </OpcaoDeConformidade>
-                <OpcaoDeConformidade
-                  marcada={conforme === false}
-                  onSelecionar={() => setConforme(false)}
-                >
-                  Não, foi realizada como exceção
-                </OpcaoDeConformidade>
-              </div>
-            </Campo>
-
-            {/*
-                Motivo e responsável aparecem juntos, e só na exceção: pedi-los
-                de quem marcou "conforme" seria pedir a explicação de uma
-                exceção que não houve.
-            */}
-            {excecao && (
-              <>
-                <Campo rotulo="Motivo da exceção" obrigatorio>
-                  <Textarea
-                    value={motivoExcecao}
-                    onChange={(e) => setMotivoExcecao(e.target.value)}
-                    placeholder="Explique por que o valor foi alterado mesmo não atendendo à regra definida."
-                    rows={2}
-                  />
-                </Campo>
-
-                <Campo rotulo="Responsável pela aprovação" obrigatorio>
-                  <Input
-                    value={responsavelAprovacao}
-                    onChange={(e) => setResponsavelAprovacao(e.target.value)}
-                    placeholder="Nome de quem autorizou a exceção"
-                  />
-                </Campo>
-              </>
+                {placaUnica && contexto && <span aria-hidden="true">·</span>}
+                {contexto && (
+                  <span className="inline-flex items-center gap-1.5">
+                    <CalendarDays className="h-4 w-4 shrink-0" aria-hidden="true" />
+                    {contexto}
+                  </span>
+                )}
+              </p>
             )}
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Fechar"
+              className="absolute right-4 top-4 rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </header>
+
+          <div
+            className={cn(
+              "grid",
+              varias && "md:grid-cols-[minmax(0,19rem)_minmax(0,1fr)]",
+            )}
+          >
+            {varias && (
+              <ListaDeVariaveis
+                alvo={fila}
+                derivados={derivados}
+                indice={indice}
+                concluida={concluida}
+                salvas={salvas}
+                rascunhadas={rascunhadas}
+                onIr={(i) => {
+                  setIndice(i);
+                  setFormulaExpandida(false);
+                  setAvisoDeRascunho(false);
+                }}
+              />
+            )}
+
+            <section className="px-6 py-5">
+              {varias && (
+                <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                  Variável {indice + 1} de {total}
+                </p>
+              )}
+              <h3 className="mt-1 text-xl font-bold tracking-tight">
+                {atual.attributeName ?? atual.attributeCode ?? "Atributo"}
+              </h3>
+              {/* Só quando o cabeçalho não pôde afirmar a placa — ver `placaUnica`. */}
+              {!placaUnica && atual.entityLabel && (
+                <p className="text-sm text-muted-foreground">
+                  Alteração em <span className="font-mono font-semibold">{atual.entityLabel}</span>
+                </p>
+              )}
+
+              <div className="mt-4 flex items-start gap-3 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2.5">
+                <span className="mt-0.5 shrink-0 rounded-md bg-primary/10 p-1.5 text-primary">
+                  <Sparkles className="h-4 w-4" />
+                </span>
+                <p className="text-sm">
+                  {varias
+                    ? "Informe a lógica específica desta variável."
+                    : "Informe a fórmula, a regra esperada e se esta alteração seguiu o padrão."}
+                </p>
+              </div>
+
+              {!varias && <NotaDosTotais derivados={derivados} />}
+
+              <AlteracaoRealizada alvo={atual} />
+
+              {justificativas?.get(atual.id) && (
+                <p className="mt-4 text-xs text-muted-foreground">
+                  Reescrevendo a justificativa de {justificativas.get(atual.id)!.criadoPor} de{" "}
+                  {new Date(justificativas.get(atual.id)!.criadoEm).toLocaleString("pt-BR")}. A
+                  anterior não é apagada — fica no histórico.
+                </p>
+              )}
+
+              <div className="mt-4 space-y-4">
+                <Campo
+                  rotulo="Fórmula de cálculo"
+                  obrigatorio
+                  nota={varias ? atual.attributeName : null}
+                  /*
+                      A fórmula é o campo que às vezes tem uma linha e às vezes
+                      tem dez — cadeias de cálculo do FINAME não cabem em duas.
+                      Expandir é da fórmula só, e não do diálogo: crescer a
+                      caixa inteira empurraria os botões para fora da tela
+                      justamente quando se está escrevendo o campo mais longo.
+                  */
+                  acao={
+                    <button
+                      type="button"
+                      className="flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
+                      onClick={() => setFormulaExpandida((v) => !v)}
+                    >
+                      {formulaExpandida ? (
+                        <Minimize2 className="h-3.5 w-3.5" />
+                      ) : (
+                        <Maximize2 className="h-3.5 w-3.5" />
+                      )}
+                      {formulaExpandida ? "Recolher" : "Expandir"}
+                    </button>
+                  }
+                >
+                  <Textarea
+                    value={resposta.formula ?? ""}
+                    onChange={(e) => alterar({ formula: e.target.value })}
+                    placeholder="Descreva como o valor deve ser calculado."
+                    rows={formulaExpandida ? 10 : 3}
+                    autoFocus
+                  />
+                </Campo>
+
+                <Campo
+                  rotulo="Regra para alteração do valor"
+                  obrigatorio
+                  nota={varias ? atual.attributeName : null}
+                >
+                  <Textarea
+                    value={resposta.regra ?? ""}
+                    onChange={(e) => alterar({ regra: e.target.value })}
+                    placeholder="Explique quando esta variável pode ser alterada."
+                    rows={3}
+                  />
+                </Campo>
+
+                {/*
+                    Este campo é um grupo de opções, e não uma caixa de texto: por
+                    isso não é um `<label>`. Envolver dois botões de opção num
+                    rótulo faz o nome acessível de cada um virar o texto inteiro do
+                    grupo — os dois passam a se chamar a mesma coisa, e nem um
+                    leitor de tela nem um teste conseguem distinguir "sim" de
+                    "não".
+                */}
+                <Campo
+                  rotulo="Esta alteração seguiu a regra?"
+                  obrigatorio
+                  grupo
+                  nota={varias ? atual.attributeName : null}
+                >
+                  {/*
+                      Empilhadas, e não lado a lado: com três respostas, a
+                      terceira ("Não, regra de remuneração descumprida") é a
+                      mais longa das três, e numa fileira de três colunas ela
+                      quebra em duas linhas enquanto as outras ficam com meia
+                      caixa vazia. Empilhado, as três se leem na mesma varredura
+                      e nenhuma depende da largura da caixa.
+                  */}
+                  <div className="grid gap-2" role="radiogroup">
+                    {CONFORMIDADES.map((opcao) => (
+                      <OpcaoDeConformidade
+                        key={opcao}
+                        marcada={resposta.conformidade === opcao}
+                        onSelecionar={() => alterar({ conformidade: opcao })}
+                      >
+                        {ROTULO_DA_CONFORMIDADE[opcao]}
+                      </OpcaoDeConformidade>
+                    ))}
+                  </div>
+                </Campo>
+
+                {/*
+                    O motivo aparece nos dois desvios — é ele que diz o que
+                    houve —, e o aprovador só na exceção. Pedi-los de quem
+                    marcou "conforme" seria pedir a explicação de um desvio que
+                    não houve; pedir um aprovador de um descumprimento seria
+                    registrar um aval que ninguém deu.
+                */}
+                {foraDaRegra && (
+                  <Campo rotulo={excecao ? "Motivo da exceção" : "O que foi descumprido"} obrigatorio>
+                    <Textarea
+                      value={resposta.motivoExcecao ?? ""}
+                      onChange={(e) => alterar({ motivoExcecao: e.target.value })}
+                      placeholder={
+                        excecao
+                          ? "Explique por que o valor foi alterado mesmo não atendendo à regra definida."
+                          : "Descreva a regra de remuneração que não foi cumprida nesta alteração."
+                      }
+                      rows={2}
+                    />
+                  </Campo>
+                )}
+
+                {excecao && (
+                  <Campo rotulo="Responsável pela aprovação" obrigatorio>
+                    <Input
+                      value={resposta.responsavelAprovacao ?? ""}
+                      onChange={(e) => alterar({ responsavelAprovacao: e.target.value })}
+                      placeholder="Nome de quem autorizou a exceção"
+                    />
+                  </Campo>
+                )}
+              </div>
+
+              {erro != null && (
+                <div className="mt-4">
+                  <ApiErrorNotice error={erro} what="A justificativa não pôde ser salva." />
+                </div>
+              )}
+            </section>
           </div>
 
-          {erro != null && (
-            <div className="mt-4">
-              <ApiErrorNotice error={erro} what="A justificativa não pôde ser salva." />
-            </div>
-          )}
-
-          <DialogFooter className="items-center border-t sm:justify-between">
+          <footer className="sticky bottom-0 flex flex-col gap-3 border-t bg-background px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
             <p className="flex items-center gap-2 text-xs text-muted-foreground">
               <Lock className="h-3.5 w-3.5 shrink-0" />
-              A regra e as exceções ficarão registradas para orientar futuras alterações.
+              {avisoDeRascunho
+                ? "Rascunho salvo neste navegador — ainda não conta como justificativa."
+                : varias
+                  ? "Cada justificativa será registrada individualmente."
+                  : "A regra e as exceções ficarão registradas para orientar futuras alterações."}
             </p>
-            <div className="flex gap-2">
+            <div className="flex gap-2 sm:justify-end">
               <Button variant="outline" size="sm" onClick={onClose}>
                 Cancelar
               </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={rascunhoVazio(resposta) || pendente}
+                onClick={salvarRascunho}
+              >
+                Salvar rascunho
+              </Button>
               <Button size="sm" disabled={faltam.length > 0 || pendente} onClick={confirmar}>
-                {pendente ? "Salvando…" : excecao ? "Salvar exceção" : "Salvar justificativa"}
+                {pendente ? "Salvando…" : rotuloDeSalvar}
               </Button>
             </div>
-          </DialogFooter>
+          </footer>
         </>
       )}
     </Dialog>
   );
 }
 
-/** Rótulo em caixa alta com o asterisco do obrigatório — o desenho de todos os campos daqui. */
+/**
+ * A lateral: o que falta justificar, e onde se está.
+ *
+ * Ela existe para responder, sem fechar a caixa, as duas perguntas de quem
+ * abriu quatro alterações de uma vez — "quantas ainda faltam?" e "posso
+ * escrever a Amortização antes da Parcela?". A ordem não é imposta: clicar em
+ * qualquer variável leva até ela, e o que estava digitado na anterior continua
+ * lá (em memória enquanto a caixa estiver aberta; no navegador, se tiver sido
+ * salvo como rascunho).
+ */
+function ListaDeVariaveis({
+  alvo,
+  derivados,
+  indice,
+  concluida,
+  salvas,
+  rascunhadas,
+  onIr,
+}: {
+  alvo: readonly AlvoDaJustificativa[];
+  /** Os totais que saíram da fila, e de que parcelas eles saem. */
+  derivados: readonly { total: AlvoDaJustificativa; parcelas: AlvoDaJustificativa[] }[];
+  indice: number;
+  /** O que tem justificativa gravada — a de antes de abrir, ou a desta sentada. */
+  concluida: ReadonlySet<number>;
+  /** O que foi gravado agora: a etapa em que se está só deixa de ser "em preenchimento" depois disso. */
+  salvas: ReadonlySet<number>;
+  rascunhadas: ReadonlySet<number>;
+  onIr: (i: number) => void;
+}) {
+  const feitas = alvo.filter((a) => concluida.has(a.id)).length;
+  const percentual = Math.round((feitas / alvo.length) * 100);
+
+  return (
+    <aside className="border-b bg-muted/30 px-6 py-5 md:border-b-0 md:border-r">
+      <h3 className="text-lg font-bold tracking-tight">Variáveis alteradas</h3>
+      <p className="text-sm text-muted-foreground">Justifique cada alteração</p>
+
+      <div className="mt-4">
+        <div className="flex items-baseline justify-between text-sm">
+          <span className="font-semibold">
+            {feitas} de {alvo.length} concluída{alvo.length === 1 ? "" : "s"}
+          </span>
+          <span className="text-muted-foreground">{percentual}%</span>
+        </div>
+        <div
+          className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-muted"
+          role="progressbar"
+          aria-valuenow={percentual}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-label="Justificativas concluídas"
+        >
+          <div className="h-full rounded-full bg-primary" style={{ width: `${percentual}%` }} />
+        </div>
+      </div>
+
+      <ol className="mt-4 space-y-2">
+        {alvo.map((a, i) => {
+          const feita = concluida.has(a.id);
+          const atual = i === indice;
+          /* O sinal segue o texto: a etapa em que se está mostra o número,
+             mesmo quando ela já tinha justificativa — um certo verde ao lado de
+             "Em preenchimento" diz duas coisas ao mesmo tempo. */
+          const marcada = salvas.has(a.id) || (feita && !atual);
+          const estado = salvas.has(a.id)
+            ? "Concluída"
+            : atual
+              ? "Em preenchimento"
+              : feita
+                ? "Concluída"
+                : rascunhadas.has(a.id)
+                  ? "Rascunho salvo"
+                  : "Pendente";
+          return (
+            <li key={a.id}>
+              <button
+                type="button"
+                onClick={() => onIr(i)}
+                aria-current={atual ? "step" : undefined}
+                className={cn(
+                  "flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors",
+                  atual ? "border-primary bg-primary/5" : "bg-background hover:bg-muted/60",
+                )}
+              >
+                <span
+                  className={cn(
+                    "flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold",
+                    marcada
+                      ? "bg-emerald-600 text-white"
+                      : atual
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted text-muted-foreground",
+                  )}
+                >
+                  {marcada ? <Check className="h-4 w-4" aria-hidden="true" /> : i + 1}
+                </span>
+                <span className="min-w-0 flex-1">
+                  {/* Duas linhas, e não uma cortada: "Lucro variável previsto
+                      (carreta)" e "Lucro variável previsto" viram a mesma
+                      etiqueta truncada, e a lista passa a ter duas entradas
+                      indistinguíveis. */}
+                  <span
+                    className="block line-clamp-2 text-sm font-semibold"
+                    title={a.attributeName ?? a.attributeCode ?? undefined}
+                  >
+                    {a.attributeName ?? a.attributeCode ?? "Atributo"}
+                  </span>
+                  <span className="block text-xs text-muted-foreground">{estado}</span>
+                </span>
+                <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+              </button>
+            </li>
+          );
+        })}
+      </ol>
+
+      <NotaDosTotais derivados={derivados} />
+    </aside>
+  );
+}
+
+/**
+ * O que saiu da fila, dito por extenso.
+ *
+ * Sem esta nota, quem selecionou quatro alterações abriria uma caixa escrita
+ * "Justificar 3 alterações" e passaria o resto do dia procurando a quarta. Ela
+ * responde as duas perguntas de quem conta: qual sumiu, e por que não é uma
+ * pendência escondida — o total é gravado a partir das parcelas, e a cobertura
+ * fecha com ele.
+ */
+function NotaDosTotais({
+  derivados,
+}: {
+  derivados: readonly { total: AlvoDaJustificativa; parcelas: AlvoDaJustificativa[] }[];
+}) {
+  if (derivados.length === 0) return null;
+  const nome = (a: AlvoDaJustificativa) => a.attributeName ?? a.attributeCode ?? "—";
+  return (
+    <section className="mt-4 rounded-lg border border-dashed px-3 py-2.5">
+      <h4 className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+        <Sigma className="h-3.5 w-3.5" aria-hidden="true" />
+        Total calculado
+      </h4>
+      <ul className="mt-1.5 space-y-1.5 text-xs text-muted-foreground">
+        {derivados.map(({ total, parcelas }) => (
+          <li key={total.id}>
+            <span className="font-medium text-foreground">
+              {formulaDoTotalDerivado(
+                nome(total),
+                totalDerivado(total.attributeCode)?.forma ?? "SOMA",
+                parcelas.map(nome),
+              )}
+            </span>
+            . Não é perguntado aqui: será registrado a partir das justificativas das
+            parcelas.
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/** Rótulo com o asterisco do obrigatório — o desenho de todos os campos daqui. */
 function Campo({
   rotulo,
   obrigatorio,
   grupo,
+  nota,
+  acao,
   children,
 }: {
   rotulo: string;
   obrigatorio?: boolean;
   /** Um grupo de opções em vez de um controle só — ver a chamada. */
   grupo?: boolean;
+  /**
+   * O nome da variável a que esta resposta pertence, quando há mais de uma em
+   * jogo. É a frase que impede o engano central do assistente: a caixa parece
+   * a mesma em todas as etapas, e sem ela é fácil escrever a fórmula dos Juros
+   * achando que vale para as quatro.
+   */
+  nota?: string | null;
+  /** Um comando do campo — hoje só o "Expandir" da fórmula. */
+  acao?: ReactNode;
   children: ReactNode;
 }) {
   const Envolucro = grupo ? "div" : "label";
   return (
     <Envolucro className="flex flex-col gap-1.5">
-      <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+      <span className="text-sm font-semibold">
         {rotulo}
         {obrigatorio && <span className="ml-1 text-destructive">*</span>}
       </span>
       {children}
+      {(nota || acao) && (
+        <span className="flex items-start justify-between gap-3">
+          <span className="text-xs text-muted-foreground">
+            {nota && `Esta resposta será associada somente à variável ${nota}.`}
+          </span>
+          {acao}
+        </span>
+      )}
     </Envolucro>
   );
 }
@@ -398,10 +862,10 @@ function AlteracaoRealizada({ alvo }: { alvo: AlvoDaJustificativa }) {
   const percentual = alvo.deltaPercent ?? null;
 
   return (
-    <section className="mb-4">
-      <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+    <section className="mt-4">
+      <h4 className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
         Alteração realizada
-      </h3>
+      </h4>
       <div className="grid gap-2 sm:grid-cols-3">
         <Valor rotulo="Valor anterior">{alvo.valueBefore ?? "—"}</Valor>
         <Valor rotulo="Novo valor">{alvo.valueAfter ?? "—"}</Valor>
@@ -428,7 +892,7 @@ function AlteracaoRealizada({ alvo }: { alvo: AlvoDaJustificativa }) {
 
 function Valor({ rotulo, children }: { rotulo: string; children: ReactNode }) {
   return (
-    <div className="rounded-lg border px-3 py-2">
+    <div className="rounded-lg border bg-background px-3 py-2">
       <p className="text-[0.7rem] uppercase tracking-wider text-muted-foreground">{rotulo}</p>
       <p className="text-base font-semibold tabular-nums">{children}</p>
     </div>
