@@ -60,13 +60,20 @@ export function useTextoAdiado(texto: string, espera = ESPERA_DA_BUSCA_MS) {
  * dele aceita os filtros da tela junto (`opcoes.filtros`). O nome mudou com o
  * conjunto — um tipo chamado "rubrica" com o Monitor dentro obrigaria quem lê a
  * lembrar que a palavra não vale para um dos membros.
+ *
+ * KM Rodado e Velocidade Média entraram depois, e o grão delas é **trecho** e
+ * não veículo. Para esta lista isso não muda nada: o que a define é ter rota de
+ * candidatas, e as duas têm — a contagem e o impacto saem das mesmas funções
+ * que a tela chama depois do clique.
  */
 export type TelaComCandidatas =
   | "finame"
   | "ipva"
   | "lucro-fixo"
   | "impostos"
-  | "monitor-custo-fixo";
+  | "monitor-custo-fixo"
+  | "km-rodado"
+  | "velocidade-media";
 
 /**
  * Quanto se espera entre uma rodada e a seguinte enquanto ainda há pendente.
