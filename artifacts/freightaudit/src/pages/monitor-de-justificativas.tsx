@@ -3,13 +3,18 @@ import { useLocation, useSearch } from "wouter";
 import {
   CalendarRange,
   CheckCircle2,
+  CircleHelp,
   Clock,
   Download,
   FileCheck2,
+  Fuel,
+  Landmark,
+  Lightbulb,
+  ListChecks,
   Radar,
   RotateCcw,
-  Layers,
-  ListChecks,
+  Truck,
+  Users,
   WifiOff,
 } from "lucide-react";
 import { Cell, Pie, PieChart, ResponsiveContainer } from "recharts";
@@ -35,14 +40,11 @@ import {
 import { fetchJson, salvarArquivo } from "@/lib/api";
 import { useAmbiente } from "@/lib/ambiente-aberto";
 import { contextoAberto, useContextosDaCasca } from "@/lib/contextos";
-import {
-  contracaoDoTipo,
-  palavrasDoTipo,
-  rotuloDoTipo,
-} from "@/lib/frota";
+import { contracaoDoTipo, palavrasDoTipo, rotuloDoTipo } from "@/lib/frota";
 import { formatNumber } from "@/lib/format";
 import { nomeDaUnidade } from "@/lib/recorte";
 import { opcoesDeVigencia, useComparacoes } from "@/lib/justificativas";
+import { tempoRelativo } from "@/lib/visao-geral";
 import {
   enderecoDasLinhas,
   iniciaisDoResponsavel,
@@ -55,6 +57,7 @@ import {
   usePainelDeJustificativas,
   vigenciasDoPainel,
   type LinhaDoPainel,
+  type VigenciaDoPainel,
 } from "@/lib/painel-de-justificativas";
 import {
   moduloDeJustificativa,
@@ -77,69 +80,63 @@ import { cn } from "@/lib/utils";
  *
  * Não acontece mais. Cada rubrica do Custo Fixo, do Custo Variável e do QLP
  * justifica as próprias alterações, na tela em que o gestor já está vendo o
- * número que mudou — com o catálogo daquela rubrica ao lado, a fórmula dela na
- * frente, e sem ter de reconhecer a alteração por uma linha de tabela fora de
- * contexto. Uma nona porta de escrita, aqui, competiria com as oito: seria o
+ * número que mudou — com o catálogo daquela rubrica ao lado e a fórmula dela na
+ * frente. Uma nona porta de escrita, aqui, competiria com as oito: seria o
  * lugar onde se justifica **pior**, porque é o único que não sabe de que
  * rubrica está falando.
  *
  * O que sobra é o que nenhuma das telas de rubrica sabe responder, porque cada
  * uma vê só a própria: **quanto do que mudou já está explicado, e onde está o
  * que falta**. É a pergunta de quem cobra o trabalho, e é a única desta tela.
- * Por isso ela é um monitor, e não um painel de trabalho: tudo aqui é leitura,
- * e toda ação é um link para a tela que grava.
+ * Tudo aqui é leitura, e toda ação é um link para a tela que grava.
  *
- * O que saiu, item a item:
- *
- * - **A lista por placa e o botão `Justificar`.** A lista era do trabalho, e o
- *   trabalho mudou de lugar. No lugar dela está a tabela **por rubrica**, que
- *   responde a pergunta que a lista não respondia: para que tela mandar quem
- *   deve a explicação. A linha continua tendo um botão, e o botão continua
- *   levando ao mesmo lugar de sempre — só que agora é a tela da rubrica.
- * - **O diálogo de justificar, a seleção e o "Justificar selecionadas".** Sem
- *   lista para selecionar, não há seleção. A rota de escrita não mudou uma
- *   vírgula: quem grava é a mesma `POST /justificativas`, chamada pelas telas
- *   de rubrica e pela fila.
- * - **Os filtros de impacto e de responsável.** Os dois recortavam a lista que
- *   saiu, e não a cobertura: aumento e redução são propriedade da alteração, e
- *   a rubrica soma as duas. Continuam existindo onde existem de verdade — na
- *   fila e nas telas de rubrica.
- * - **O cartão "Placas com pendência".** Ele contava a frota, e este monitor
- *   conta o trabalho: a pergunta virou *quantas telas alguém precisa abrir*, e
- *   é o que o quarto cartão responde agora. A contagem por placa continua na
- *   fila, que é onde se trabalha placa a placa.
+ * O que saiu: a lista por placa e o botão `Justificar`, o diálogo, a seleção, e
+ * os filtros de impacto e de responsável — os dois recortavam a lista que saiu,
+ * e não a cobertura. O cartão "Placas com pendência" virou "Rubricas com
+ * pendência": a pergunta deste monitor é *quantas telas alguém precisa abrir*.
+ * A contagem por placa não sumiu — ela é da leitura por tipo de ativo, e está
+ * na aba dela.
  *
  * ---------------------------------------------------------------------------
- * O que ficou, e por quê
+ * As quatro leituras, e por que elas são abas
  * ---------------------------------------------------------------------------
- * **A exportação**, e maior do que era: ela sai com as duas situações e com as
- * colunas de módulo e rubrica, porque o CSV é o único lugar onde o detalhe por
- * alteração ainda mora depois que a lista saiu da tela.
+ * A mesma cobertura, por quatro eixos: **por módulo** (onde está a pendência),
+ * **por responsável** (quem escreveu o que já está escrito), **por vigência**
+ * (se o atraso é de uma quinzena ou do acervo) e **por tipo de ativo** (a quem
+ * mandar a fila). São perguntas diferentes sobre a mesma máquina — e nenhuma
+ * delas pede consulta nova, porque a cobertura chega inteira de uma vez.
  *
- * **As abas por tipo de ativo**, o botão de trocar vigência, o recorte por
- * unidade, a tabela por vigência e "Quem justificou" — tudo isso é leitura de
- * cobertura, que é justamente o que esta tela passou a ser inteira.
+ * Eram abas **por tipo de ativo** (Geral, Cavalo, Carreta), e o tipo desceu para
+ * os filtros: ele é um recorte *dentro* da leitura, e não qual leitura se está
+ * fazendo — e com o QLP entre os módulos, uma fileira de abas por tipo de ativo
+ * deixaria de fora justamente a população que não tem placa. `?tipo=` continua
+ * valendo no endereço, agora como filtro: um link antigo abre o mesmo recorte
+ * que abria.
  *
  * **O endereço é o mesmo** (`/painel-de-justificativas`). O nome na lateral
  * mudou, a tela mudou, e o link que alguém colou num chat há três meses
  * continua abrindo a leitura de cobertura que ele prometia.
  *
  * ---------------------------------------------------------------------------
- * As contas
+ * O que a tela não afirma
  * ---------------------------------------------------------------------------
- * Moram em `lib/painel-de-justificativas.ts`, que não lê tela nenhuma, e o mapa
- * de *qual alteração é de qual módulo* mora em
- * `@workspace/comparison/modulos-de-justificativa`, que é o mesmo que o
- * servidor usa para dobrar as contagens. Aqui fica o desenho.
+ * **Prazo.** Nenhuma justificativa vence, porque nenhuma tem data para ser
+ * escrita. Um cartão vermelho de "vencidos" seria número inventado.
  *
- * **Esta tela não tem prazo**, e continua não tendo: nenhuma justificativa
- * vence, porque nenhuma tem data para ser escrita. Um cartão vermelho de
- * "vencidos" seria o número inventado que a regra da casa proíbe.
+ * **Dono da pendência.** A coluna "Quem escreveu" diz quem justificou por
+ * último naquela rubrica — não de quem é o que falta. O produto não tem
+ * atribuição de responsável, e um nome ao lado de uma pendência afirmaria uma
+ * que não existe. Pela mesma razão não há botão de cobrar: cobrar exige saber
+ * de quem, e a tela não sabe.
  *
- * **E ela não atribui responsável.** A coluna "Última justificativa" diz quem
- * escreveu por último naquela rubrica — não de quem é a pendência. O produto
- * não tem atribuição de dono, e um nome ao lado de uma pendência afirmaria uma
- * que não existe.
+ * **Tendência.** O destaque ao lado do gráfico diz qual vigência tem menos
+ * explicação e qual módulo puxa a conta dela para baixo — o que está no dado.
+ * "A pendência é recente" seria uma leitura de duas colunas viradas em
+ * afirmação sobre o trabalho.
+ *
+ * As contas moram em `lib/painel-de-justificativas.ts`, e o mapa de *qual
+ * alteração é de qual módulo* em `@workspace/comparison/modulos-de-justificativa`
+ * — o mesmo que o servidor usa para dobrar as contagens. Aqui fica o desenho.
  */
 
 /* O endereço desta tela — o mesmo que `App.tsx` registra, e o mesmo de quando
@@ -152,8 +149,62 @@ const TODOS_OS_MODULOS = "__todos_modulos__";
 const TODAS_AS_UNIDADES = "__todas_unidades__";
 
 const CORES = {
-  justificadas: "hsl(142 71% 45%)",
+  justificadas: "hsl(152 64% 31%)",
   pendentes: "hsl(32 95% 54%)",
+};
+
+/** As quatro leituras. A primeira é a de partida, e não vai para o endereço. */
+const ABAS = [
+  { chave: "modulo", rotulo: "Por módulo", hint: "onde está a pendência" },
+  {
+    chave: "responsavel",
+    rotulo: "Por responsável",
+    hint: "quem escreveu o que já está escrito",
+  },
+  { chave: "vigencia", rotulo: "Por vigência", hint: "se o atraso é de uma quinzena ou do acervo" },
+  {
+    chave: "tipo",
+    rotulo: "Por tipo de ativo",
+    hint: "a quem mandar a fila — cavalo, carreta",
+  },
+] as const;
+
+type Aba = (typeof ABAS)[number]["chave"];
+
+/**
+ * O selo e o ícone de cada módulo.
+ *
+ * A cor é a mesma nas duas leituras — a barra de "Cobertura por módulo" e o selo
+ * da tabela —, e é ela que permite descer de uma para a outra sem reler o nome.
+ */
+const DESENHO_DO_MODULO: Record<
+  ChaveDeModulo,
+  { icone: typeof Landmark; selo: string; fundo: string; tinta: string }
+> = {
+  CUSTO_FIXO: {
+    icone: Landmark,
+    selo: "bg-sky-50 text-sky-700",
+    fundo: "bg-sky-50",
+    tinta: "text-sky-700",
+  },
+  CUSTO_VARIAVEL: {
+    icone: Fuel,
+    selo: "bg-emerald-50 text-emerald-700",
+    fundo: "bg-emerald-50",
+    tinta: "text-emerald-700",
+  },
+  QLP: {
+    icone: Users,
+    selo: "bg-amber-50 text-amber-800",
+    fundo: "bg-amber-50",
+    tinta: "text-amber-700",
+  },
+  SEM_CLASSE: {
+    icone: CircleHelp,
+    selo: "bg-muted text-muted-foreground",
+    fundo: "bg-muted",
+    tinta: "text-muted-foreground",
+  },
 };
 
 /** A régua de porcentagem da tela: uma casa, como os demais cartões da casa. */
@@ -200,11 +251,28 @@ function Cartao({
 }
 
 /**
- * A rubrica de uma alteração do CSV — o mesmo mapa que a tabela usa.
+ * A barra de duas cores — o que está explicado e o que falta, na mesma régua.
  *
- * O arquivo escreve módulo e rubrica em cada linha, e são os da tela: se
- * viessem de outra régua, o CSV contradiria o número que o gerou.
+ * Duas cores, e não uma sobre um trilho cinza: o trilho diria "o resto" sem
+ * dizer que o resto é trabalho de alguém. O laranja é o mesmo do cartão "Falta
+ * justificar", e o verde o mesmo do "Justificadas".
  */
+function BarraDaCobertura({ cobertura }: { cobertura: number }) {
+  return (
+    <span className="flex h-2.5 w-full overflow-hidden rounded-full bg-muted">
+      <span
+        className="block h-full"
+        style={{ width: `${cobertura}%`, background: CORES.justificadas }}
+      />
+      <span
+        className="block h-full"
+        style={{ width: `${100 - cobertura}%`, background: CORES.pendentes }}
+      />
+    </span>
+  );
+}
+
+/** A rubrica de uma alteração do CSV — o mesmo mapa que a tabela usa. */
 function rubricaDaLinha(linha: LinhaDoPainel): { modulo: ChaveDeModulo; rotulo: string } {
   const rubrica = rubricaDaAlteracao(linha);
   return {
@@ -213,11 +281,6 @@ function rubricaDaLinha(linha: LinhaDoPainel): { modulo: ChaveDeModulo; rotulo: 
        comparação devolve a chave crua de propósito. */
     rotulo: rubrica.rubricaDoQlp ? escreverRubrica(rubrica.rubricaDoQlp) : rubrica.rotulo,
   };
-}
-
-/** O nome do módulo no arquivo. */
-function moduloEscrito(modulo: ChaveDeModulo): string {
-  return moduloDeJustificativa(modulo).rotulo;
 }
 
 export default function MonitorDeJustificativas() {
@@ -231,9 +294,9 @@ export default function MonitorDeJustificativas() {
   /*
     A unidade aberta é a da lateral: a que a URL pede em `scopeHash`, e a
     primeira de `/contexts` quando ninguém pediu — a mesma regra da fila
-    (`pages/justificativas.tsx`) e da caixa "Unidade atual". Sem este recorte o
-    monitor somaria a operação inteira sob a lateral escrita PERNAMBUCO.
-    `visaoGeral=1` é a escolha de somar todas — pedida, e não presumida.
+    (`pages/justificativas.tsx`). Sem este recorte o monitor somaria a operação
+    inteira sob a lateral escrita PERNAMBUCO. `visaoGeral=1` é a escolha de
+    somar todas — pedida, e não presumida.
   */
   const params = new URLSearchParams(search);
   const emVisaoGeral = params.get("visaoGeral") === "1";
@@ -303,33 +366,30 @@ export default function MonitorDeJustificativas() {
     somadas — é o estado de partida.
   */
   const [vigenciaEscolhida, setVigenciaEscolhida] = useState<string | null>(null);
-  const [tipoFiltrado, setTipoFiltrado] = useState<string | null>(null);
   const [moduloFiltrado, setModuloFiltrado] = useState<ChaveDeModulo | null>(null);
   const [pagina, setPagina] = useState(1);
   const [porPagina, setPorPagina] = useState(10);
   const [exportando, setExportando] = useState(false);
 
   /*
-    Qual aba — e a aba **é** o tipo de ativo.
+    A aba é **qual leitura** se está fazendo, e por isso mora no endereço: é o
+    que alguém cola num chat ("olha a cobertura por vigência"). `?aba=` que não
+    seja uma das quatro cai na primeira, e não numa escolhida por nós — a mesma
+    régua de `?tipo=`.
+  */
+  const abaPedida = params.get("aba");
+  const aba: Aba =
+    (ABAS.find((a) => a.chave === abaPedida)?.chave as Aba | undefined) ?? "modulo";
 
-    Ela mora no endereço, e os filtros não: uma aba não é um recorte da leitura,
-    é **qual leitura** se está fazendo. É o que alguém cola num chat ("olha a
-    cobertura do cavalo"). `?tipo=` que não seja um dos tipos deste monitor cai
-    na Geral, e não numa aba escolhida por nós.
+  /*
+    O tipo de ativo é filtro, e continua lido do endereço: ele era a aba, e um
+    link antigo (`?tipo=CAVALO`) abre hoje o mesmo recorte que abria — só que
+    numa tela que também sabe falar de QLP, que não tem placa.
   */
   const equipamentos = tiposDoPainel(ambiente);
   const pedido = params.get("tipo");
-  const tipoDaAba =
-    pedido !== null && (equipamentos as readonly string[]).includes(pedido)
-      ? pedido
-      : null;
-  const porTipo = tipoDaAba !== null;
-
-  /*
-    O tipo que a leitura inteira usa. Na aba Geral é o filtro (nulo = todos); na
-    aba de um tipo é a população, e é ela que manda.
-  */
-  const tipo = porTipo ? tipoDaAba : tipoFiltrado;
+  const tipo =
+    pedido !== null && (equipamentos as readonly string[]).includes(pedido) ? pedido : null;
 
   const irPara = (mudancas: Record<string, string | null>) => {
     const proxima = new URLSearchParams(search);
@@ -339,6 +399,15 @@ export default function MonitorDeJustificativas() {
     }
     const texto = proxima.toString();
     navegar(texto ? `${MONITOR_DE_JUSTIFICATIVAS}?${texto}` : MONITOR_DE_JUSTIFICATIVAS);
+  };
+
+  /*
+    Trocar qualquer recorte volta a tabela para a primeira página: a página 4 de
+    uma lista que encolheu não existe, e é a mesma razão da troca de aba na fila.
+  */
+  const trocar = (mudanca: () => void) => {
+    mudanca();
+    setPagina(1);
   };
 
   const changeSetId =
@@ -373,7 +442,6 @@ export default function MonitorDeJustificativas() {
     () => linhasDeRubrica.slice((pagina - 1) * porPagina, pagina * porPagina),
     [linhasDeRubrica, pagina, porPagina],
   );
-
   /* O quarto cartão: quantas telas alguém precisa abrir para zerar a fila —
      sempre do recorte inteiro, e não do módulo filtrado. */
   const rubricasPendentes = useMemo(
@@ -401,9 +469,7 @@ export default function MonitorDeJustificativas() {
 
   /*
     O nome de cada vigência — a mesma régua do seletor da fila, e a mesma regra
-    para a unidade: ela só entra quando a lista atravessa unidades. Dentro de
-    uma, o nome repetiria em toda linha do menu a mesma palavra que a lateral e
-    o cabeçalho já dizem.
+    para a unidade: ela só entra quando a lista atravessa unidades.
   */
   const nomeDaVigencia = useMemo(() => {
     const nomes = new Map<string, string>();
@@ -415,6 +481,72 @@ export default function MonitorDeJustificativas() {
     }
     return nomes;
   }, [comparacoes.data, contextos.contextos, escopoDaConsulta]);
+
+  /*
+    O rótulo curto da coluna do gráfico — `jul/26 · 2ª qz`.
+
+    O nome inteiro ("julho/2026 · 2ª quinzena") é o da tabela e o do menu, onde
+    ele tem uma linha só para ele. Debaixo de uma coluna de doze, ele empurra a
+    vizinha para fora do cartão — foi o que aconteceu no primeiro desenho, e o
+    gráfico saiu pela direita.
+  */
+  const rotuloCurtoDaVigencia = useMemo(() => {
+    const curtos = new Map<string, string>();
+    for (const o of opcoesDeVigencia(comparacoes.data ?? [], contextos.contextos)) {
+      const [mes, ano] = o.mes.split("/");
+      const abreviado = ano ? `${mes.slice(0, 3)}/${ano.slice(-2)}` : o.mes;
+      curtos.set(o.id, o.marca ? `${abreviado} · ${o.marca.replace("quinzena", "qz")}` : abreviado);
+    }
+    return curtos;
+  }, [comparacoes.data, contextos.contextos]);
+
+  /*
+    A data de cada comparação — é ela que põe as colunas do gráfico em ordem.
+
+    O gráfico é o único lugar da tela que lê a vigência pelo **tempo**: as
+    tabelas ordenam por pendência, porque servem para achar por onde começar, e
+    uma série temporal fora de ordem cronológica não é uma série — é uma lista
+    com um eixo desenhado por cima.
+  */
+  const dataDaVigencia = useMemo(() => {
+    const datas = new Map<string, string>();
+    for (const c of comparacoes.data ?? []) datas.set(c.id, c.snapshotBDate.slice(0, 10));
+    return datas;
+  }, [comparacoes.data]);
+
+  /* As doze últimas, em ordem — mais do que isso vira uma fileira de fios num
+     cartão desta largura, e a pergunta que o gráfico responde (o atraso é de
+     uma quinzena ou do acervo?) já está nas últimas. */
+  const serieDeVigencias: VigenciaDoPainel[] = useMemo(
+    () =>
+      [...porVigencia]
+        .sort((a, b) =>
+          (dataDaVigencia.get(a.changeSetId) ?? "").localeCompare(
+            dataDaVigencia.get(b.changeSetId) ?? "",
+          ),
+        )
+        .slice(-12),
+    [porVigencia, dataDaVigencia],
+  );
+
+  /*
+    O destaque ao lado do gráfico — a leitura que ele dá, escrita.
+
+    Ele **não** interpreta tendência ("a pendência é recente"): duas colunas
+    bastam para uma reta, e não para uma afirmação sobre o trabalho. Ele diz o
+    que está no dado — qual vigência tem menos explicação, e qual módulo puxa a
+    conta dela para baixo —, que é por onde se começa.
+  */
+  const destaque = useMemo(() => {
+    const pior = [...porVigencia]
+      .filter((v) => v.pendentes > 0)
+      .sort((a, b) => a.cobertura - b.cobertura || b.pendentes - a.pendentes)[0];
+    if (!pior) return null;
+    const moduloPior = modulosDoPainel(rubricas, pior.changeSetId, tipo)
+      .filter((m) => m.pendentes > 0)
+      .sort((a, b) => a.cobertura - b.cobertura || b.pendentes - a.pendentes)[0];
+    return { vigencia: pior, modulo: moduloPior ?? null };
+  }, [porVigencia, rubricas, tipo]);
 
   /*
     No CSV a unidade fica sempre. O arquivo sai da tela e é aberto sem a
@@ -430,36 +562,24 @@ export default function MonitorDeJustificativas() {
     return nomes;
   }, [comparacoes.data, contextos.contextos]);
 
-  /*
-    Trocar qualquer recorte volta a tabela para a primeira página: a página 4 de
-    uma lista que encolheu não existe, e é a mesma razão da troca de aba na fila.
-  */
-  const trocar = (mudanca: () => void) => {
-    mudanca();
-    setPagina(1);
-  };
-
   /* A vigência não está aqui, e é de propósito: ela saiu dos filtros para o
      botão do cabeçalho, e lá ela é o recorte da leitura — como a unidade da
      lateral. "Limpar filtros" desfaz o que se ajustou *dentro* de uma leitura. */
   const limparFiltros = () =>
     trocar(() => {
       setUnidadeEscolhida(null);
-      // Na aba de tipo o tipo não é filtro a limpar: é a população da aba.
-      setTipoFiltrado(null);
       setModuloFiltrado(null);
+      irPara({ tipo: null });
     });
 
-  const temFiltro =
-    tipoFiltrado !== null || moduloFiltrado !== null || unidadeEscolhida !== null;
+  const temFiltro = tipo !== null || moduloFiltrado !== null || unidadeEscolhida !== null;
 
   /**
    * Exportar o recorte aberto — alteração a alteração.
    *
    * É o único lugar onde o detalhe por alteração mora desde que a lista saiu da
    * tela, e por isso ele sai **inteiro**: as justificadas e as pendentes, com o
-   * módulo e a rubrica de cada uma ao lado do que mudou. As páginas são
-   * buscadas em sequência até a lista acabar, porque é isso que a rota oferece.
+   * módulo e a rubrica de cada uma ao lado do que mudou.
    */
   const exportar = async () => {
     setExportando(true);
@@ -503,11 +623,11 @@ export default function MonitorDeJustificativas() {
         ].join(";"),
         ...tudo.map((l) => {
           /* O mesmo mapa da tabela — a linha do CSV e a linha da tela dizem a
-             mesma rubrica, ou o arquivo contradiria a tela que o gerou. */
+             mesma rubrica, ou o arquivo contradiria o número que o gerou. */
           const rubrica = rubricaDaLinha(l);
           return [
             aspas(nomeDaVigenciaNoArquivo.get(l.changeSetId) ?? l.changeSetId),
-            aspas(moduloEscrito(rubrica.modulo)),
+            aspas(moduloDeJustificativa(rubrica.modulo).rotulo),
             aspas(rubrica.rotulo),
             aspas(l.entityLabel),
             aspas(l.entityType ? rotuloDoTipo(l.entityType) : null),
@@ -542,6 +662,204 @@ export default function MonitorDeJustificativas() {
 
   const carregando = consulta.carregando && !cobertura;
 
+  /** A tabela por rubrica — a mesma nas abas que a mostram. */
+  const tabelaDeRubricas = (
+    <section className="superficie overflow-hidden">
+      <div className="px-6 py-4 flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-lg font-bold">Onde está a pendência</h2>
+        <p className="text-sm text-muted-foreground">
+          Uma linha por rubrica. Nenhuma se justifica aqui — o botão leva à tela que grava.
+        </p>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead className="border-y bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
+            <tr>
+              <th className="px-4 py-2.5 text-left font-semibold">Módulo</th>
+              <th className="px-3 py-2.5 text-left font-semibold">Rubrica</th>
+              <th className="px-3 py-2.5 text-right font-semibold">Alterações</th>
+              <th className="px-3 py-2.5 text-right font-semibold">Justificadas</th>
+              <th className="px-3 py-2.5 text-left font-semibold w-64">Cobertura</th>
+              <th className="px-3 py-2.5 text-left font-semibold">Quem escreveu</th>
+              <th className="px-3 py-2.5 text-left font-semibold">Última justificativa</th>
+              <th className="px-3 py-2.5 text-right font-semibold">Ações</th>
+            </tr>
+          </thead>
+          <tbody>
+            {linhasDeRubrica.length === 0 && (
+              <tr>
+                <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
+                  Nenhuma rubrica neste recorte.
+                </td>
+              </tr>
+            )}
+            {paginaDeRubricas.map((linha) => {
+              const desenho = DESENHO_DO_MODULO[linha.modulo];
+              return (
+                <tr key={linha.chave} className="border-b last:border-0 hover:bg-muted/30">
+                  <td className="px-4 py-3">
+                    <span
+                      className={cn(
+                        "inline-block whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-bold",
+                        desenho.selo,
+                      )}
+                    >
+                      {linha.moduloRotulo}
+                    </span>
+                  </td>
+                  <td className="px-3 py-3 font-medium">{linha.rotulo}</td>
+                  <td className="px-3 py-3 text-right tabular-nums">
+                    {linha.alteracoes.toLocaleString("pt-BR")}
+                  </td>
+                  <td className="px-3 py-3 text-right tabular-nums text-emerald-700">
+                    {linha.justificadas.toLocaleString("pt-BR")}
+                  </td>
+                  <td className="px-3 py-3">
+                    <BarraDaCobertura cobertura={linha.cobertura} />
+                    <span className="mt-1.5 block text-xs text-muted-foreground tabular-nums">
+                      {pct(linha.cobertura)} ·{" "}
+                      <span className="text-amber-700">
+                        {linha.pendentes.toLocaleString("pt-BR")} pendentes
+                      </span>
+                    </span>
+                  </td>
+                  <td className="px-3 py-3">
+                    {linha.ultimoAutor === null ? (
+                      /* Ninguém — e não "sem responsável": a rubrica não tem
+                         dono a quem cobrar, tem trabalho a fazer. */
+                      <span className="text-xs text-muted-foreground">—</span>
+                    ) : (
+                      <span className="flex items-center gap-2 text-xs">
+                        <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-bold">
+                          {iniciaisDoResponsavel(linha.ultimoAutor)}
+                        </span>
+                        <span className="truncate max-w-[12rem]">{linha.ultimoAutor}</span>
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-3 py-3 text-xs text-muted-foreground">
+                    {linha.ultimaEm === null
+                      ? "Nenhuma ainda"
+                      : tempoRelativo(new Date(linha.ultimaEm))}
+                  </td>
+                  <td className="px-3 py-3 text-right">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-primary font-semibold"
+                      onClick={() =>
+                        navegar(
+                          /*
+                            A tela da rubrica quando ela tem uma; a fila quando
+                            não — e a fila justifica qualquer alteração. Nenhum
+                            dos dois caminhos abre um diálogo daqui: quem grava
+                            é a tela de destino.
+                          */
+                          `${linha.rota ?? "/justificativas"}?${recorteDoEndereco(
+                            changeSetId ? { changeSetId } : {},
+                          )}`,
+                        )
+                      }
+                    >
+                      {linha.rota ? `Abrir em ${linha.moduloRotulo}` : "Abrir na fila"} →
+                    </Button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {linhasDeRubrica.length > 0 && (
+        <Paginacao
+          pagina={pagina}
+          porPagina={porPagina}
+          total={linhasDeRubrica.length}
+          onPagina={setPagina}
+          onPorPagina={(n) => {
+            setPorPagina(n);
+            setPagina(1);
+          }}
+          tamanhos={[10, 25, 50, 100]}
+          unidade="rubricas"
+        />
+      )}
+    </section>
+  );
+
+  /** O gráfico por vigência — verde é o que já está explicado. */
+  const graficoDeVigencias = (
+    <section className="superficie px-6 py-5">
+      <div className="flex items-baseline justify-between gap-3">
+        <h2 className="text-lg font-bold">Cobertura por vigência</h2>
+        <p className="text-xs text-muted-foreground">verde = explicado</p>
+      </div>
+      <ul className="mt-5 flex items-end gap-2 overflow-hidden">
+        {serieDeVigencias.map((v) => (
+          <li
+            key={v.changeSetId}
+            className="flex min-w-0 flex-1 basis-0 flex-col items-center gap-2"
+          >
+            <button
+              type="button"
+              onClick={() =>
+                trocar(() =>
+                  setVigenciaEscolhida(changeSetId === v.changeSetId ? null : v.changeSetId),
+                )
+              }
+              className={cn(
+                "w-full rounded-md p-1 hover:bg-muted/60 transition-colors",
+                changeSetId === v.changeSetId && "bg-muted",
+              )}
+              title={`${nomeDaVigencia.get(v.changeSetId) ?? v.changeSetId} — ${pct(
+                v.cobertura,
+              )} explicado`}
+            >
+              <span className="flex h-28 w-full flex-col justify-end overflow-hidden rounded-md bg-muted">
+                <span
+                  className="block w-full"
+                  style={{
+                    height: `${100 - v.cobertura}%`,
+                    background: CORES.pendentes,
+                  }}
+                />
+                <span
+                  className="block w-full"
+                  style={{ height: `${v.cobertura}%`, background: CORES.justificadas }}
+                />
+              </span>
+            </button>
+            <span className="w-full break-words text-center text-[10px] leading-tight text-muted-foreground">
+              {rotuloCurtoDaVigencia.get(v.changeSetId) ?? v.changeSetId}
+            </span>
+          </li>
+        ))}
+      </ul>
+
+      {destaque && (
+        <div className="mt-5 flex gap-3 rounded-lg border bg-accent/60 px-4 py-3 text-sm">
+          <Lightbulb className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+          <p>
+            <strong>
+              Comece por{" "}
+              {nomeDaVigencia.get(destaque.vigencia.changeSetId) ??
+                destaque.vigencia.changeSetId}
+            </strong>{" "}
+            — é a vigência com menos explicação: {pct(100 - destaque.vigencia.cobertura)} do que
+            mudou nela ainda não tem justificativa
+            {destaque.modulo
+              ? `, e o módulo mais atrasado dentro dela é ${destaque.modulo.rotulo} (${pct(
+                  destaque.modulo.cobertura,
+                )} explicado)`
+              : ""}
+            .
+          </p>
+        </div>
+      )}
+    </section>
+  );
+
   return (
     <Layout>
       <CabecalhoDePagina
@@ -568,7 +886,7 @@ export default function MonitorDeJustificativas() {
                 linha diz o nome dela e não "todas": as duas leituras são o mesmo
                 conjunto, e nomeá-lo é o que responde de quando são os números. */}
             {porVigencia.length > 0 && (
-              <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground mt-3">
+              <span className="inline-flex flex-wrap items-center gap-1.5 text-sm text-muted-foreground mt-3">
                 <CalendarRange className="w-3.5 h-3.5" />
                 <span className="text-xs uppercase tracking-wide">Vigência</span>
                 <span className="font-semibold text-foreground">
@@ -576,6 +894,7 @@ export default function MonitorDeJustificativas() {
                     ? "Todas as vigências"
                     : (nomeDaVigencia.get(vigenciaEscrita) ?? vigenciaEscrita)}
                 </span>
+                <span className="text-xs">· comparadas duas a duas</span>
               </span>
             )}
           </>
@@ -583,10 +902,9 @@ export default function MonitorDeJustificativas() {
         acoes={
           /*
             A vigência é o recorte da leitura, e não um filtro dela: ela decide
-            **de que acervo** os cartões, a rosca, os módulos e a tabela falam,
-            do mesmo jeito que a unidade da lateral. Por isso o botão da casa —
-            "Trocar vigência" —, no canto direito do cabeçalho, onde ele está no
-            Resumo executivo, na Linha do Tempo e na fila.
+            **de que acervo** os cartões, os módulos e a tabela falam, do mesmo
+            jeito que a unidade da lateral. Por isso o botão da casa — "Trocar
+            vigência" —, no canto direito do cabeçalho.
           */
           <>
             {porVigencia.length > 1 && (
@@ -631,27 +949,21 @@ export default function MonitorDeJustificativas() {
 
       <div className="px-8 border-b max-w-[1400px]">
         <nav className="flex flex-wrap items-center gap-1" role="tablist">
-          <AbaBotao
-            active={!porTipo}
-            onClick={() => trocar(() => irPara({ tipo: null }))}
-            icon={<Layers className="w-4 h-4" />}
-            label="Geral"
-            hint="a frota inteira, com o tipo de ativo entre os filtros"
-          />
-          {equipamentos.map((codigo) => (
+          {ABAS.map((a) => (
             <AbaBotao
-              key={codigo}
-              active={codigo === tipoDaAba}
-              onClick={() => trocar(() => irPara({ tipo: codigo }))}
-              label={rotuloDoTipo(codigo)}
-              hint={`o mesmo monitor, só ${contracaoDoTipo(codigo, "de")} ${palavrasDoTipo(codigo).plural}`}
+              key={a.chave}
+              active={a.chave === aba}
+              onClick={() => trocar(() => irPara({ aba: a.chave === "modulo" ? null : a.chave }))}
+              icon={a.chave === "modulo" ? <ListChecks className="w-4 h-4" /> : undefined}
+              label={a.rotulo}
+              hint={a.hint}
             />
           ))}
         </nav>
       </div>
 
       <div className="px-8 pb-10 space-y-4 max-w-[1400px] pt-4">
-        {porTipo && tipo !== null && (
+        {tipo !== null && (
           <p className="text-sm text-muted-foreground">
             Tudo abaixo — os cartões, os módulos e a tabela — fala só{" "}
             {contracaoDoTipo(tipo, "de")} {palavrasDoTipo(tipo).plural}.
@@ -701,20 +1013,22 @@ export default function MonitorDeJustificativas() {
         {resumo && resumo.alteracoes === 0 && (
           <section className="superficie px-6 py-10 text-center">
             <p className="text-lg font-bold">
-              {porTipo && tipo !== null
+              {tipo !== null
                 ? `Nada a justificar ${contracaoDoTipo(tipo, "em")} ${palavrasDoTipo(tipo).plural} deste recorte.`
                 : "Nada a justificar neste recorte."}
             </p>
             <p className="text-sm text-muted-foreground mt-1">
               {/*
-                Na aba de tipo há uma terceira causa possível, e a tela não sabe
-                distinguir as três: pode não haver alteração, pode não haver
+                Com um tipo filtrado há uma terceira causa possível, e a tela não
+                sabe distinguir as três: pode não haver alteração, pode não haver
                 comparação calculada, e pode aquele tipo não ter sido importado
                 aqui. Dizê-las juntas é mais honesto do que escolher uma.
               */}
               Sem alteração por ativo nas comparações escolhidas, não há
               justificativa a cobrar
-              {porTipo ? " — e pode ser que este tipo nem tenha sido importado neste recorte" : ""}
+              {tipo !== null
+                ? " — e pode ser que este tipo nem tenha sido importado neste recorte"
+                : ""}
               . Abra a aba Alterações para calcular a comparação entre as
               vigências importadas.
             </p>
@@ -727,7 +1041,13 @@ export default function MonitorDeJustificativas() {
               <Cartao
                 titulo="Alterações no recorte"
                 valor={resumo.alteracoes.toLocaleString("pt-BR")}
-                rodape="O que mudou entre as vigências, nos módulos abaixo"
+                rodape={
+                  modulos.length > 0
+                    ? `O que mudou entre as vigências, em ${modulos.length} ${
+                        modulos.length === 1 ? "módulo" : "módulos"
+                      }`
+                    : "O que mudou entre as vigências"
+                }
                 icon={FileCheck2}
                 tom="neutro"
               />
@@ -748,504 +1068,480 @@ export default function MonitorDeJustificativas() {
               <Cartao
                 titulo="Rubricas com pendência"
                 valor={rubricasPendentes.toLocaleString("pt-BR")}
-                rodape={
-                  modulos.length > 0
-                    ? `em ${modulos.length} ${modulos.length === 1 ? "módulo" : "módulos"} — cada uma é uma tela a abrir`
-                    : "cada uma é uma tela a abrir"
-                }
+                rodape="Cada uma é uma tela a abrir"
                 icon={ListChecks}
                 tom="azul"
               />
             </div>
 
-            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)]">
-              <section className="superficie px-6 py-5">
-                <h2 className="text-lg font-bold">Visão geral</h2>
-                <div className="flex items-center gap-6 mt-3">
-                  <div className="relative shrink-0">
-                    <ResponsiveContainer width={170} height={170}>
-                      <PieChart>
-                        <Pie
-                          data={rosca}
-                          cx="50%"
-                          cy="50%"
-                          innerRadius={54}
-                          outerRadius={80}
-                          dataKey="value"
-                          stroke="none"
-                          isAnimationActive={false}
-                        >
-                          {rosca.map((fatia) => (
-                            <Cell key={fatia.name} fill={fatia.cor} />
-                          ))}
-                        </Pie>
-                      </PieChart>
-                    </ResponsiveContainer>
-                    <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                      <span className="text-2xl font-bold tabular-nums">
-                        {resumo.alteracoes.toLocaleString("pt-BR")}
-                      </span>
-                      <span className="text-xs text-muted-foreground">Total</span>
+            {aba === "modulo" && (
+              <>
+                <div className="grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
+                  {/*
+                    A leitura que esta tela existe para dar: onde está a
+                    pendência, por módulo. Clicar na linha recorta a tabela
+                    abaixo — que é a continuação da mesma pergunta, um nível mais
+                    fundo —, e "Abrir" vai para a tela do módulo inteiro.
+                  */}
+                  <section className="superficie px-6 py-5">
+                    <div className="flex items-baseline justify-between gap-3">
+                      <h2 className="text-lg font-bold">Cobertura por módulo</h2>
+                      <p className="text-xs text-muted-foreground">
+                        A barra diz onde mandar a cobrança. Clique para recortar a tabela.
+                      </p>
                     </div>
-                  </div>
-                  <dl className="space-y-3 text-sm">
-                    <div>
-                      <dt className="flex items-center gap-2 font-medium">
-                        <span
-                          className="w-2.5 h-2.5 rounded-full"
-                          style={{ background: CORES.justificadas }}
-                        />
-                        Justificadas
-                      </dt>
-                      <dd className="text-muted-foreground tabular-nums ml-[18px]">
-                        {resumo.justificadas.toLocaleString("pt-BR")} ({pct(resumo.cobertura)})
-                      </dd>
-                    </div>
-                    <div>
-                      <dt className="flex items-center gap-2 font-medium">
-                        <span
-                          className="w-2.5 h-2.5 rounded-full"
-                          style={{ background: CORES.pendentes }}
-                        />
-                        Pendentes
-                      </dt>
-                      <dd className="text-muted-foreground tabular-nums ml-[18px]">
-                        {resumo.pendentes.toLocaleString("pt-BR")} (
-                        {pct(100 - resumo.cobertura)})
-                      </dd>
-                    </div>
-                  </dl>
-                </div>
-                <Progress value={resumo.cobertura} className="mt-4" />
-                <p className="text-xs text-muted-foreground mt-2">
-                  {pct(resumo.cobertura)} do que mudou já tem justificativa escrita.
-                </p>
-              </section>
+                    {modulos.length === 0 ? (
+                      <p className="text-sm text-muted-foreground mt-3">
+                        A cobertura por módulo não veio nesta resposta.
+                      </p>
+                    ) : (
+                      <ul className="mt-2 divide-y">
+                        {modulos.map((m) => {
+                          const desenho = DESENHO_DO_MODULO[m.modulo];
+                          const Icone = desenho.icone;
+                          return (
+                            <li key={m.modulo} className="py-3">
+                              <div className="flex items-start gap-3">
+                                <span
+                                  className={cn(
+                                    "mt-0.5 shrink-0 rounded-xl p-2",
+                                    desenho.fundo,
+                                    desenho.tinta,
+                                  )}
+                                >
+                                  <Icone className="h-4 w-4" />
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    trocar(() =>
+                                      setModuloFiltrado(
+                                        m.modulo === moduloFiltrado ? null : m.modulo,
+                                      ),
+                                    )
+                                  }
+                                  aria-pressed={moduloFiltrado === m.modulo}
+                                  className={cn(
+                                    "min-w-0 flex-1 rounded-md px-2 py-1 text-left hover:bg-muted/60 transition-colors",
+                                    moduloFiltrado === m.modulo && "bg-muted",
+                                  )}
+                                >
+                                  <span className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                                    <span className="font-bold">{m.rotulo}</span>
+                                    <span className="text-xs text-muted-foreground tabular-nums">
+                                      {m.justificadas.toLocaleString("pt-BR")} justificadas ·{" "}
+                                      {m.pendentes.toLocaleString("pt-BR")} pendentes ·{" "}
+                                      {m.alteracoes.toLocaleString("pt-BR")} alterações
+                                    </span>
+                                  </span>
+                                  <span className="mt-2 block">
+                                    <BarraDaCobertura cobertura={m.cobertura} />
+                                  </span>
+                                  {/* As rubricas deste recorte, e não uma lista
+                                      fixa — ver `modulosDoPainel`. */}
+                                  <span className="mt-1.5 block truncate text-xs text-muted-foreground">
+                                    {m.rubricas.slice(0, 5).join(", ")}
+                                    {m.rubricas.length > 5
+                                      ? ` e mais ${m.rubricas.length - 5}`
+                                      : ""}
+                                  </span>
+                                </button>
+                                <span className="flex shrink-0 items-center gap-3 pt-1">
+                                  <span
+                                    className={cn(
+                                      "w-14 text-right text-sm font-bold tabular-nums",
+                                      m.cobertura >= 50 ? "text-emerald-700" : "text-amber-600",
+                                    )}
+                                  >
+                                    {pct(m.cobertura)}
+                                  </span>
+                                  {m.rota && (
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="text-primary font-semibold"
+                                      onClick={() => navegar(`${m.rota}?${recorteDoEndereco()}`)}
+                                    >
+                                      Abrir →
+                                    </Button>
+                                  )}
+                                </span>
+                              </div>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                  </section>
 
-              {/*
-                A leitura que esta tela existe para dar: onde está a pendência,
-                por módulo. Clicar numa barra recorta a tabela abaixo — que é a
-                continuação da mesma pergunta, um nível mais fundo.
-              */}
-              <section className="superficie px-6 py-5">
-                <div className="flex items-baseline justify-between gap-3">
-                  <h2 className="text-lg font-bold">Cobertura por módulo</h2>
-                  <p className="text-xs text-muted-foreground">
-                    Justificar é trabalho de cada módulo — a barra diz a qual mandar a fila.
-                  </p>
+                  {graficoDeVigencias}
                 </div>
-                {modulos.length === 0 ? (
-                  <p className="text-sm text-muted-foreground mt-3">
-                    A cobertura por módulo não veio nesta resposta.
-                  </p>
-                ) : (
-                  <ul className="mt-4 space-y-3">
-                    {modulos.map((m) => (
-                      <li key={m.modulo}>
-                        <button
-                          type="button"
-                          onClick={() =>
+
+                <section className="superficie px-6 py-4">
+                  <div className="flex flex-wrap items-end gap-3">
+                    {/* Só na Visão Geral — ver `escopoDaConsulta`. */}
+                    {emVisaoGeral && unidades.length > 1 && (
+                      <label className="space-y-1">
+                        <span className="block text-xs uppercase tracking-wide text-muted-foreground">
+                          Unidade
+                        </span>
+                        <Select
+                          value={unidadeEscolhida ?? TODAS_AS_UNIDADES}
+                          onValueChange={(v) =>
                             trocar(() =>
-                              setModuloFiltrado(m.modulo === moduloFiltrado ? null : m.modulo),
+                              setUnidadeEscolhida(v === TODAS_AS_UNIDADES ? null : v),
                             )
                           }
-                          className={cn(
-                            "w-full text-left rounded-md px-2 py-1.5 hover:bg-muted/60 transition-colors",
-                            moduloFiltrado === m.modulo && "bg-muted",
-                          )}
-                          aria-pressed={moduloFiltrado === m.modulo}
                         >
-                          <span className="flex items-baseline justify-between gap-3 text-sm">
-                            <span className="font-medium">{m.rotulo}</span>
-                            <span className="tabular-nums text-muted-foreground">
-                              {m.pendentes.toLocaleString("pt-BR")} pendentes ·{" "}
-                              {m.justificadas.toLocaleString("pt-BR")} justificadas
-                            </span>
-                          </span>
-                          <span className="mt-1.5 flex items-center gap-2">
-                            <span className="block h-2.5 flex-1 rounded-full bg-muted overflow-hidden">
-                              <span
-                                className="block h-full rounded-full"
-                                style={{
-                                  width: `${m.cobertura}%`,
-                                  background: CORES.justificadas,
-                                }}
-                              />
-                            </span>
-                            <span className="w-14 shrink-0 text-right text-xs tabular-nums text-muted-foreground">
-                              {pct(m.cobertura)}
-                            </span>
-                          </span>
-                          <span className="mt-1 block text-xs text-muted-foreground">
-                            {m.rubricasPendentes > 0
-                              ? `${m.rubricasPendentes.toLocaleString("pt-BR")} ${
-                                  m.rubricasPendentes === 1 ? "rubrica" : "rubricas"
-                                } com pendência · ${m.descricao.toLowerCase()}`
-                              : m.descricao}
-                          </span>
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </section>
-            </div>
-
-            <section className="superficie px-6 py-4">
-              <div className="flex flex-wrap items-end gap-3">
-                {/* Só na Visão Geral — ver `escopoDaConsulta`. */}
-                {emVisaoGeral && unidades.length > 1 && (
-                  <label className="space-y-1">
-                    <span className="block text-xs uppercase tracking-wide text-muted-foreground">
-                      Unidade
-                    </span>
-                    <Select
-                      value={unidadeEscolhida ?? TODAS_AS_UNIDADES}
-                      onValueChange={(v) =>
-                        trocar(() =>
-                          setUnidadeEscolhida(v === TODAS_AS_UNIDADES ? null : v),
-                        )
-                      }
-                    >
-                      <SelectTrigger className="h-9 w-60 text-sm">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value={TODAS_AS_UNIDADES}>Todas as unidades</SelectItem>
-                        {unidades.map((u) => (
-                          <SelectItem key={u.scopeHash} value={u.scopeHash}>
-                            {u.nome}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </label>
-                )}
-
-                {/*
-                  Só na aba Geral. Na aba de tipo o eixo é a própria aba, e uma
-                  segunda caixa para ele deixaria a tela com dois controles do
-                  mesmo recorte — o caminho curto para ela discordar de si mesma
-                  sobre de quem está falando.
-                */}
-                {!porTipo && (
-                  <label className="space-y-1">
-                    <span className="block text-xs uppercase tracking-wide text-muted-foreground">
-                      Tipo de ativo
-                    </span>
-                    <Select
-                      value={tipo ?? TODOS_OS_TIPOS}
-                      onValueChange={(v) =>
-                        trocar(() => setTipoFiltrado(v === TODOS_OS_TIPOS ? null : v))
-                      }
-                    >
-                      <SelectTrigger className="h-9 w-44 text-sm">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value={TODOS_OS_TIPOS}>Todos</SelectItem>
-                        {barras.map((barra) => (
-                          <SelectItem key={barra.tipo} value={barra.tipo}>
-                            {barra.rotulo}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </label>
-                )}
-
-                {/* A mesma escolha das barras acima, por outra porta — as duas
-                    gravam o mesmo estado, como a tabela por vigência e o menu
-                    de vigências fazem. */}
-                <label className="space-y-1">
-                  <span className="block text-xs uppercase tracking-wide text-muted-foreground">
-                    Módulo
-                  </span>
-                  <Select
-                    value={moduloFiltrado ?? TODOS_OS_MODULOS}
-                    onValueChange={(v) =>
-                      trocar(() =>
-                        setModuloFiltrado(
-                          v === TODOS_OS_MODULOS ? null : (v as ChaveDeModulo),
-                        ),
-                      )
-                    }
-                    disabled={modulos.length === 0}
-                  >
-                    <SelectTrigger className="h-9 w-56 text-sm">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value={TODOS_OS_MODULOS}>Todos</SelectItem>
-                      {modulos.map((m) => (
-                        <SelectItem key={m.modulo} value={m.modulo}>
-                          {m.rotulo} ({m.pendentes.toLocaleString("pt-BR")} pendentes)
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </label>
-
-                {temFiltro && (
-                  <Button variant="ghost" size="sm" className="h-9" onClick={limparFiltros}>
-                    <RotateCcw className="w-4 h-4" />
-                    Limpar filtros
-                  </Button>
-                )}
-              </div>
-            </section>
-
-            {/*
-              A tabela que substituiu a lista por placa. Uma linha por rubrica, e
-              o botão leva à tela que grava — nunca a um diálogo daqui.
-            */}
-            <section className="superficie overflow-hidden">
-              <div className="px-6 py-4 flex flex-wrap items-baseline justify-between gap-2">
-                <h2 className="text-lg font-bold">Onde está a pendência</h2>
-                <p className="text-sm text-muted-foreground">
-                  Da rubrica mais pendente para a menos. Justificar é na tela da rubrica —
-                  o botão leva até ela.
-                </p>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="border-y bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
-                    <tr>
-                      <th className="px-4 py-2.5 text-left font-semibold">Módulo</th>
-                      <th className="px-3 py-2.5 text-left font-semibold">Rubrica</th>
-                      <th className="px-3 py-2.5 text-right font-semibold">Alterações</th>
-                      <th className="px-3 py-2.5 text-right font-semibold">Justificadas</th>
-                      <th className="px-3 py-2.5 text-right font-semibold">Falta</th>
-                      <th className="px-3 py-2.5 text-left font-semibold w-56">Cobertura</th>
-                      <th className="px-3 py-2.5 text-left font-semibold">
-                        Última justificativa
-                      </th>
-                      <th className="px-3 py-2.5 text-left font-semibold">Ações</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {linhasDeRubrica.length === 0 && (
-                      <tr>
-                        <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
-                          Nenhuma rubrica neste recorte.
-                        </td>
-                      </tr>
+                          <SelectTrigger className="h-9 w-60 text-sm">
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value={TODAS_AS_UNIDADES}>Todas as unidades</SelectItem>
+                            {unidades.map((u) => (
+                              <SelectItem key={u.scopeHash} value={u.scopeHash}>
+                                {u.nome}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </label>
                     )}
-                    {paginaDeRubricas.map((linha) => (
-                      <tr key={linha.chave} className="border-b last:border-0 hover:bg-muted/30">
-                        <td className="px-4 py-3 text-muted-foreground">{linha.moduloRotulo}</td>
-                        <td className="px-3 py-3 font-medium">{linha.rotulo}</td>
-                        <td className="px-3 py-3 text-right tabular-nums">
-                          {linha.alteracoes.toLocaleString("pt-BR")}
-                        </td>
-                        <td className="px-3 py-3 text-right tabular-nums text-emerald-700">
-                          {linha.justificadas.toLocaleString("pt-BR")}
-                        </td>
-                        <td className="px-3 py-3 text-right tabular-nums text-amber-700">
-                          {linha.pendentes.toLocaleString("pt-BR")}
-                        </td>
-                        <td className="px-3 py-3">
-                          <span className="flex items-center gap-2">
-                            <Progress value={linha.cobertura} className="h-2 flex-1" />
-                            <span className="text-xs tabular-nums text-muted-foreground w-14 text-right">
-                              {pct(linha.cobertura)}
-                            </span>
-                          </span>
-                        </td>
-                        <td className="px-3 py-3 text-muted-foreground">
-                          {linha.ultimaEm === null ? (
-                            /* Nunca justificada — e não "sem responsável": a
-                               rubrica não tem dono a quem cobrar, tem trabalho
-                               a fazer. */
-                            <span className="text-xs">Nenhuma ainda</span>
-                          ) : (
-                            <span className="flex items-center gap-1.5 text-xs">
-                              <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-muted text-[10px] font-semibold">
-                                {iniciaisDoResponsavel(linha.ultimoAutor ?? "")}
-                              </span>
-                              {linha.ultimoAutor} ·{" "}
-                              {new Date(linha.ultimaEm).toLocaleDateString("pt-BR")}
-                            </span>
-                          )}
-                        </td>
-                        <td className="px-3 py-3">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() =>
-                              navegar(
-                                /*
-                                  A tela da rubrica quando ela tem uma; a fila
-                                  quando não — e a fila justifica qualquer
-                                  alteração. Nenhum dos dois caminhos abre um
-                                  diálogo daqui: quem grava é a tela de destino.
-                                */
-                                `${linha.rota ?? "/justificativas"}?${recorteDoEndereco(
-                                  changeSetId ? { changeSetId } : {},
-                                )}`,
-                              )
-                            }
-                          >
-                            {linha.rota ? "Abrir módulo" : "Abrir na fila"}
-                          </Button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
 
-              {linhasDeRubrica.length > 0 && (
-                <Paginacao
-                  pagina={pagina}
-                  porPagina={porPagina}
-                  total={linhasDeRubrica.length}
-                  onPagina={setPagina}
-                  onPorPagina={(n) => {
-                    setPorPagina(n);
-                    setPagina(1);
-                  }}
-                  tamanhos={[10, 25, 50, 100]}
-                  unidade="rubricas"
-                />
-              )}
-            </section>
+                    <label className="space-y-1">
+                      <span className="block text-xs uppercase tracking-wide text-muted-foreground">
+                        Tipo de ativo
+                      </span>
+                      <Select
+                        value={tipo ?? TODOS_OS_TIPOS}
+                        onValueChange={(v) =>
+                          trocar(() => irPara({ tipo: v === TODOS_OS_TIPOS ? null : v }))
+                        }
+                      >
+                        <SelectTrigger className="h-9 w-44 text-sm">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={TODOS_OS_TIPOS}>Todos</SelectItem>
+                          {barras.map((barra) => (
+                            <SelectItem key={barra.tipo} value={barra.tipo}>
+                              {barra.rotulo}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </label>
 
-            <div className="grid gap-4 lg:grid-cols-2">
-              <section className="superficie px-6 py-5">
-                <div className="flex items-baseline justify-between gap-3">
-                  <h2 className="text-lg font-bold">Pendências por tipo de ativo</h2>
-                  <p className="text-xs text-muted-foreground">
-                    A barra diz a quem mandar a fila.
-                  </p>
-                </div>
-                <ul className="mt-4 space-y-3">
-                  {barras.map((barra) => (
-                    <li key={barra.tipo}>
-                      <button
-                        type="button"
-                        onClick={() =>
+                    {/* A mesma escolha das barras acima, por outra porta — as
+                        duas gravam o mesmo estado. */}
+                    <label className="space-y-1">
+                      <span className="block text-xs uppercase tracking-wide text-muted-foreground">
+                        Módulo
+                      </span>
+                      <Select
+                        value={moduloFiltrado ?? TODOS_OS_MODULOS}
+                        onValueChange={(v) =>
                           trocar(() =>
-                            porTipo
-                              ? // Numa aba de tipo não existe "nenhum tipo": a
-                                // barra leva para a aba daquele tipo.
-                                irPara({ tipo: barra.tipo })
-                              : setTipoFiltrado(barra.tipo === tipo ? null : barra.tipo),
+                            setModuloFiltrado(
+                              v === TODOS_OS_MODULOS ? null : (v as ChaveDeModulo),
+                            ),
                           )
                         }
-                        className={cn(
-                          "w-full text-left rounded-md px-2 py-1.5 hover:bg-muted/60 transition-colors",
-                          tipo === barra.tipo && "bg-muted",
-                        )}
+                        disabled={modulos.length === 0}
                       >
-                        <span className="flex items-baseline justify-between gap-3 text-sm">
-                          <span className="font-medium">{barra.rotulo}</span>
-                          <span className="tabular-nums text-muted-foreground">
-                            {barra.pendentes.toLocaleString("pt-BR")} pendentes ·{" "}
-                            {barra.justificadas.toLocaleString("pt-BR")} justificadas
-                          </span>
-                        </span>
-                        <span className="mt-1.5 block h-2.5 w-full rounded-full bg-muted overflow-hidden">
-                          <span
-                            className="block h-full rounded-full"
-                            style={{
-                              width: `${(barra.pendentes / maiorBarra) * 100}%`,
-                              background: CORES.pendentes,
-                            }}
-                          />
-                        </span>
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              </section>
+                        <SelectTrigger className="h-9 w-56 text-sm">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value={TODOS_OS_MODULOS}>Todos</SelectItem>
+                          {modulos.map((m) => (
+                            <SelectItem key={m.modulo} value={m.modulo}>
+                              {m.rotulo} ({m.pendentes.toLocaleString("pt-BR")} pendentes)
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </label>
 
-              <section className="superficie px-6 py-5">
-                <h2 className="text-lg font-bold">Quem justificou</h2>
+                    {temFiltro && (
+                      <Button variant="ghost" size="sm" className="h-9" onClick={limparFiltros}>
+                        <RotateCcw className="w-4 h-4" />
+                        Limpar filtros
+                      </Button>
+                    )}
+                  </div>
+                </section>
+
+                {tabelaDeRubricas}
+              </>
+            )}
+
+            {aba === "responsavel" && (
+              <section className="superficie overflow-hidden">
+                <div className="px-6 py-4">
+                  <h2 className="text-lg font-bold">Quem justificou</h2>
+                  <p className="text-sm text-muted-foreground">
+                    Quem escreveu o que já está escrito, no recorte aberto. A pendência não tem
+                    responsável: este produto não atribui alteração a ninguém — ela tem rubrica, e
+                    a rubrica tem tela.
+                  </p>
+                </div>
                 {responsaveis.length === 0 ? (
-                  <p className="text-sm text-muted-foreground mt-1">
+                  <p className="px-6 pb-6 text-sm text-muted-foreground">
                     Nenhuma justificativa escrita neste recorte ainda.
                   </p>
                 ) : (
-                  <ul className="mt-3 divide-y">
-                    {responsaveis.map((r) => (
-                      <li key={r.criadoPor} className="flex items-center justify-between gap-3 py-2">
-                        <span className="flex items-center gap-2 min-w-0">
-                          <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold">
-                            {iniciaisDoResponsavel(r.criadoPor)}
-                          </span>
-                          <span className="truncate">{r.criadoPor}</span>
-                        </span>
-                        <span className="shrink-0 text-sm text-muted-foreground tabular-nums">
-                          {r.justificadas.toLocaleString("pt-BR")}{" "}
-                          {r.justificadas === 1 ? "alteração" : "alterações"} · última em{" "}
-                          {new Date(r.ultimaEm).toLocaleDateString("pt-BR")}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="border-y bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
+                        <tr>
+                          <th className="px-4 py-2.5 text-left font-semibold">Responsável</th>
+                          <th className="px-3 py-2.5 text-right font-semibold">
+                            Alterações justificadas
+                          </th>
+                          <th className="px-3 py-2.5 text-left font-semibold w-64">
+                            Do que já está explicado
+                          </th>
+                          <th className="px-3 py-2.5 text-left font-semibold">Última</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {responsaveis.map((r) => {
+                          const parte =
+                            resumo.justificadas === 0
+                              ? 0
+                              : (r.justificadas / resumo.justificadas) * 100;
+                          return (
+                            <tr key={r.criadoPor} className="border-b last:border-0">
+                              <td className="px-4 py-3">
+                                <span className="flex items-center gap-2">
+                                  <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-bold">
+                                    {iniciaisDoResponsavel(r.criadoPor)}
+                                  </span>
+                                  <span className="truncate">{r.criadoPor}</span>
+                                </span>
+                              </td>
+                              <td className="px-3 py-3 text-right tabular-nums">
+                                {r.justificadas.toLocaleString("pt-BR")}
+                              </td>
+                              <td className="px-3 py-3">
+                                <span className="flex items-center gap-2">
+                                  <Progress value={parte} className="h-2 flex-1" />
+                                  <span className="w-14 text-right text-xs tabular-nums text-muted-foreground">
+                                    {pct(parte)}
+                                  </span>
+                                </span>
+                              </td>
+                              <td className="px-3 py-3 text-xs text-muted-foreground">
+                                {tempoRelativo(new Date(r.ultimaEm))}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
                 )}
               </section>
-            </div>
+            )}
 
-            <section className="superficie overflow-hidden">
-              <div className="px-6 py-4">
-                <h2 className="text-lg font-bold">Cobertura por vigência</h2>
-                <p className="text-sm text-muted-foreground">
-                  Da mais pendente para a menos — é a linha com pendência que se abre.
-                </p>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="border-y bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
-                    <tr>
-                      <th className="px-4 py-2.5 text-left font-semibold">Vigência</th>
-                      <th className="px-3 py-2.5 text-right font-semibold">Alterações</th>
-                      <th className="px-3 py-2.5 text-right font-semibold">Justificadas</th>
-                      <th className="px-3 py-2.5 text-right font-semibold">Falta</th>
-                      <th className="px-3 py-2.5 text-left font-semibold w-56">Cobertura</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {porVigencia.map((v) => (
-                      <tr
-                        key={v.changeSetId}
-                        className={cn(
-                          "border-b last:border-0 cursor-pointer hover:bg-muted/30",
-                          changeSetId === v.changeSetId && "bg-muted/50",
-                        )}
-                        onClick={() =>
-                          trocar(() =>
-                            setVigenciaEscolhida(changeSetId === v.changeSetId ? null : v.changeSetId),
-                          )
-                        }
-                      >
-                        <td className="px-4 py-3">
-                          {nomeDaVigencia.get(v.changeSetId) ?? v.changeSetId}
-                        </td>
-                        <td className="px-3 py-3 text-right tabular-nums">
-                          {v.alteracoes.toLocaleString("pt-BR")}
-                        </td>
-                        <td className="px-3 py-3 text-right tabular-nums text-emerald-700">
-                          {v.justificadas.toLocaleString("pt-BR")}
-                        </td>
-                        <td className="px-3 py-3 text-right tabular-nums text-amber-700">
-                          {v.pendentes.toLocaleString("pt-BR")}
-                        </td>
-                        <td className="px-3 py-3">
-                          <span className="flex items-center gap-2">
-                            <Progress value={v.cobertura} className="h-2 flex-1" />
-                            <span className="text-xs tabular-nums text-muted-foreground w-14 text-right">
-                              {pct(v.cobertura)}
+            {aba === "vigencia" && (
+              <>
+                {graficoDeVigencias}
+
+                <section className="superficie overflow-hidden">
+                  <div className="px-6 py-4">
+                    <h2 className="text-lg font-bold">Vigência a vigência</h2>
+                    <p className="text-sm text-muted-foreground">
+                      Da mais pendente para a menos — é a linha com pendência que se abre.
+                    </p>
+                  </div>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="border-y bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
+                        <tr>
+                          <th className="px-4 py-2.5 text-left font-semibold">Vigência</th>
+                          <th className="px-3 py-2.5 text-right font-semibold">Alterações</th>
+                          <th className="px-3 py-2.5 text-right font-semibold">Justificadas</th>
+                          <th className="px-3 py-2.5 text-right font-semibold">Falta</th>
+                          <th className="px-3 py-2.5 text-left font-semibold w-64">Cobertura</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {porVigencia.map((v) => (
+                          <tr
+                            key={v.changeSetId}
+                            className={cn(
+                              "border-b last:border-0 cursor-pointer hover:bg-muted/30",
+                              changeSetId === v.changeSetId && "bg-muted/50",
+                            )}
+                            onClick={() =>
+                              trocar(() =>
+                                setVigenciaEscolhida(
+                                  changeSetId === v.changeSetId ? null : v.changeSetId,
+                                ),
+                              )
+                            }
+                          >
+                            <td className="px-4 py-3">
+                              {nomeDaVigencia.get(v.changeSetId) ?? v.changeSetId}
+                            </td>
+                            <td className="px-3 py-3 text-right tabular-nums">
+                              {v.alteracoes.toLocaleString("pt-BR")}
+                            </td>
+                            <td className="px-3 py-3 text-right tabular-nums text-emerald-700">
+                              {v.justificadas.toLocaleString("pt-BR")}
+                            </td>
+                            <td className="px-3 py-3 text-right tabular-nums text-amber-700">
+                              {v.pendentes.toLocaleString("pt-BR")}
+                            </td>
+                            <td className="px-3 py-3">
+                              <BarraDaCobertura cobertura={v.cobertura} />
+                              <span className="mt-1.5 block text-xs text-muted-foreground tabular-nums">
+                                {pct(v.cobertura)} explicado
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </section>
+              </>
+            )}
+
+            {aba === "tipo" && (
+              <>
+                <div className="grid gap-4 lg:grid-cols-[minmax(0,1.3fr)_minmax(0,1fr)]">
+                  <section className="superficie px-6 py-5">
+                    <div className="flex items-baseline justify-between gap-3">
+                      <h2 className="text-lg font-bold">Pendências por tipo de ativo</h2>
+                      <p className="text-xs text-muted-foreground">
+                        Clique para recortar a leitura inteira.
+                      </p>
+                    </div>
+                    <ul className="mt-4 space-y-3">
+                      {barras.map((barra) => (
+                        <li key={barra.tipo}>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              trocar(() =>
+                                irPara({ tipo: barra.tipo === tipo ? null : barra.tipo }),
+                              )
+                            }
+                            className={cn(
+                              "w-full text-left rounded-md px-2 py-1.5 hover:bg-muted/60 transition-colors",
+                              tipo === barra.tipo && "bg-muted",
+                            )}
+                          >
+                            <span className="flex items-baseline justify-between gap-3 text-sm">
+                              <span className="font-medium">{barra.rotulo}</span>
+                              <span className="tabular-nums text-muted-foreground">
+                                {barra.pendentes.toLocaleString("pt-BR")} pendentes ·{" "}
+                                {barra.justificadas.toLocaleString("pt-BR")} justificadas
+                              </span>
                             </span>
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </section>
+                            <span className="mt-1.5 block h-2.5 w-full rounded-full bg-muted overflow-hidden">
+                              <span
+                                className="block h-full rounded-full"
+                                style={{
+                                  width: `${(barra.pendentes / maiorBarra) * 100}%`,
+                                  background: CORES.pendentes,
+                                }}
+                              />
+                            </span>
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="mt-4 text-xs text-muted-foreground">
+                      {/* O QLP não tem placa, e por isso não tem barra aqui —
+                          dizer isso é o que impede a leitura de ser lida como a
+                          cobertura inteira. */}
+                      O quadro de pessoal não aparece nesta leitura: ele não é ativo com placa. A
+                      cobertura dele está na aba Por módulo.
+                    </p>
+                  </section>
+
+                  <section className="superficie px-6 py-5">
+                    <h2 className="text-lg font-bold">Placas do recorte</h2>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      Placas não se somam entre vigências: a mesma placa que mudou em duas
+                      comparações é uma placa. Os números abaixo são os da vigência que mais tem.
+                    </p>
+                    <div className="mt-5 flex items-end gap-8">
+                      <span>
+                        <span className="block text-3xl font-bold tabular-nums text-sky-700">
+                          {resumo.placasPendentes.toLocaleString("pt-BR")}
+                        </span>
+                        <span className="text-xs text-muted-foreground">com pendência</span>
+                      </span>
+                      <span>
+                        <span className="block text-3xl font-bold tabular-nums">
+                          {resumo.placas.toLocaleString("pt-BR")}
+                        </span>
+                        <span className="text-xs text-muted-foreground">alteradas</span>
+                      </span>
+                      <span className="ml-auto">
+                        <Truck className="h-8 w-8 text-muted-foreground/40" />
+                      </span>
+                    </div>
+                    <div className="mt-6 flex items-center gap-4">
+                      <div className="relative shrink-0">
+                        <ResponsiveContainer width={110} height={110}>
+                          <PieChart>
+                            <Pie
+                              data={rosca}
+                              cx="50%"
+                              cy="50%"
+                              innerRadius={34}
+                              outerRadius={52}
+                              dataKey="value"
+                              stroke="none"
+                              isAnimationActive={false}
+                            >
+                              {rosca.map((fatia) => (
+                                <Cell key={fatia.name} fill={fatia.cor} />
+                              ))}
+                            </Pie>
+                          </PieChart>
+                        </ResponsiveContainer>
+                      </div>
+                      <dl className="space-y-2 text-sm">
+                        <div>
+                          <dt className="flex items-center gap-2 font-medium">
+                            <span
+                              className="w-2.5 h-2.5 rounded-full"
+                              style={{ background: CORES.justificadas }}
+                            />
+                            Justificadas
+                          </dt>
+                          <dd className="text-muted-foreground tabular-nums ml-[18px]">
+                            {resumo.justificadas.toLocaleString("pt-BR")} ({pct(resumo.cobertura)})
+                          </dd>
+                        </div>
+                        <div>
+                          <dt className="flex items-center gap-2 font-medium">
+                            <span
+                              className="w-2.5 h-2.5 rounded-full"
+                              style={{ background: CORES.pendentes }}
+                            />
+                            Pendentes
+                          </dt>
+                          <dd className="text-muted-foreground tabular-nums ml-[18px]">
+                            {resumo.pendentes.toLocaleString("pt-BR")} (
+                            {pct(100 - resumo.cobertura)})
+                          </dd>
+                        </div>
+                      </dl>
+                    </div>
+                  </section>
+                </div>
+
+                {tabelaDeRubricas}
+              </>
+            )}
           </>
         )}
       </div>

@@ -150,6 +150,21 @@ const RUBRICAS = [
   },
 ];
 
+const AUTORES = [
+  {
+    changeSetId: "cs-julho",
+    criadoPor: "marina@ambev.com",
+    justificadas: 80,
+    ultimaEm: "2026-08-20T12:00:00.000Z",
+  },
+  {
+    changeSetId: "cs-agosto",
+    criadoPor: "joao@ambev.com",
+    justificadas: 30,
+    ultimaEm: "2026-08-19T09:00:00.000Z",
+  },
+];
+
 const CHANGE_SETS = [
   {
     id: "cs-julho",
@@ -177,7 +192,7 @@ function servidor(cobertura: typeof COBERTURA = COBERTURA) {
       pedidos.push(url);
       if (url.includes("/change-sets")) return resposta(CHANGE_SETS);
       if (url.includes("/justificativas/painel"))
-        return resposta({ cobertura, autores: [], rubricas: RUBRICAS });
+        return resposta({ cobertura, autores: AUTORES, rubricas: RUBRICAS });
       if (url.includes("/justificativas/pendencias"))
         return resposta({ total: 0, linhas: [] });
       return resposta({});
@@ -351,7 +366,7 @@ describe("a leitura por módulo", () => {
 
     const tabela = (await screen.findByText("Onde está a pendência")).closest("section")!;
     const doFiname = within(tabela).getByText("Finame").closest("tr")!;
-    fireEvent.click(within(doFiname).getByRole("button", { name: "Abrir módulo" }));
+    fireEvent.click(within(doFiname).getByRole("button", { name: /Abrir em Custo Fixo/ }));
     await waitFor(() => expect(window.location.pathname).toBe("/custo-fixo-finame"));
   });
 
@@ -361,7 +376,7 @@ describe("a leitura por módulo", () => {
 
     const tabela = (await screen.findByText("Onde está a pendência")).closest("section")!;
     const semTela = within(tabela).getByText("Frota emprestada").closest("tr")!;
-    fireEvent.click(within(semTela).getByRole("button", { name: "Abrir na fila" }));
+    fireEvent.click(within(semTela).getByRole("button", { name: /Abrir na fila/ }));
     await waitFor(() => expect(window.location.pathname).toBe("/justificativas"));
   });
 
@@ -395,5 +410,62 @@ describe("a tabela por rubrica", () => {
     const antes = pedidos.length;
     expect(screen.getByText(/3 rubricas/)).toBeTruthy();
     expect(pedidos.length).toBe(antes);
+  });
+});
+
+describe("as quatro leituras", () => {
+  it("abre pela leitura por módulo, sem escrever a aba no endereço", async () => {
+    servidor();
+    montar();
+
+    await screen.findByText("Cobertura por módulo");
+    expect(window.location.search).not.toContain("aba=");
+  });
+
+  it("troca de leitura pelo endereço, que é o que se cola num chat", async () => {
+    servidor();
+    montar();
+
+    fireEvent.click(await screen.findByRole("tab", { name: /Por vigência/ }));
+    await waitFor(() => expect(window.location.search).toContain("aba=vigencia"));
+    expect(screen.getByText("Vigência a vigência")).toBeTruthy();
+    /* Cada aba é uma leitura: a tabela por rubrica é da aba por módulo. */
+    expect(screen.queryByText("Onde está a pendência")).toBeNull();
+  });
+
+  it("lista quem justificou na aba por responsável, sem prometer dono da pendência", async () => {
+    servidor();
+    montar();
+
+    fireEvent.click(await screen.findByRole("tab", { name: /Por responsável/ }));
+    const secao = (await screen.findByText("Quem justificou")).closest("section")!;
+    expect(within(secao).getByText("marina@ambev.com")).toBeTruthy();
+    expect(within(secao).getByText(/não atribui alteração a ninguém/)).toBeTruthy();
+  });
+
+  it("diz na aba por tipo de ativo que o QLP não tem lugar nela", async () => {
+    /* Ele não é ativo com placa — e uma leitura por tipo que o omitisse em
+       silêncio seria lida como a cobertura inteira. */
+    servidor();
+    montar();
+
+    fireEvent.click(await screen.findByRole("tab", { name: /Por tipo de ativo/ }));
+    expect(await screen.findByText(/não é ativo com placa/)).toBeTruthy();
+    expect(screen.getByText("Placas do recorte")).toBeTruthy();
+  });
+
+  it("aceita o ?tipo= antigo como filtro, e não como aba", async () => {
+    /*
+      O tipo era a aba; hoje é filtro. Um link colado meses atrás continua
+      abrindo o recorte que prometia — agora na leitura por módulo.
+    */
+    servidor();
+    window.history.replaceState({}, "", "/painel-de-justificativas?tipo=CARRETA");
+    montar();
+
+    await screen.findByText("Cobertura por módulo");
+    expect(screen.getByText(/fala só das carretas/)).toBeTruthy();
+    /* 60 alterações da carreta de julho, e não as 500 do acervo. */
+    expect(within(cartao("Alterações no recorte")).getByText("60")).toBeTruthy();
   });
 });

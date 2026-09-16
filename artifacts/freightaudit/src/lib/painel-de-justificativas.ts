@@ -384,6 +384,10 @@ export interface ModuloDoPainel {
   modulo: ChaveDeModulo;
   rotulo: string;
   descricao: string;
+  /** A tela do módulo inteiro; `null` quando ele não tem uma. */
+  rota: string | null;
+  /** As rubricas do módulo neste recorte, da maior para a menor. */
+  rubricas: string[];
   alteracoes: number;
   justificadas: number;
   pendentes: number;
@@ -447,6 +451,11 @@ export function modulosDoPainel(
       modulo: m.chave,
       rotulo: m.rotulo,
       descricao: m.descricao,
+      rota: m.rota,
+      /* Os nomes que a tela escreve sob o do módulo — as rubricas **deste
+         recorte**, e não uma lista fixa: escrita à mão, ela prometeria "Finame,
+         IPVA, Seguro" numa unidade em que só o Finame mudou. */
+      rubricas: rubricasDoPainel(linhas, changeSetId, tipo, m.chave).map((r) => r.rotulo),
       alteracoes: t.alteracoes,
       justificadas: t.justificadas,
       pendentes: t.alteracoes - t.justificadas,

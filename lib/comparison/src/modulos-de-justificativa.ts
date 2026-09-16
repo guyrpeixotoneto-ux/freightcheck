@@ -75,6 +75,15 @@ export interface ModuloDeJustificativa {
   rotulo: string;
   /** O que este módulo reúne — a frase que a tela escreve sob o nome. */
   descricao: string;
+  /**
+   * A tela que abre o módulo inteiro — `null` quando ele não tem uma.
+   *
+   * O Custo Fixo tem o Monitor, que consolida as rubricas dele; o QLP tem o
+   * quadro. O Custo Variável não tem tela de conjunto, e apontar para uma das
+   * rubricas dele prometeria o módulo e entregaria uma parte — quem quer uma
+   * rubrica clica na linha dela, logo abaixo.
+   */
+  rota: string | null;
 }
 
 export const MODULOS_DE_JUSTIFICATIVA: readonly ModuloDeJustificativa[] = [
@@ -82,21 +91,25 @@ export const MODULOS_DE_JUSTIFICATIVA: readonly ModuloDeJustificativa[] = [
     chave: "CUSTO_FIXO",
     rotulo: "Custo Fixo",
     descricao: "O que se paga por ter o ativo, esteja ele rodando ou parado",
+    rota: "/monitor-custo-fixo",
   },
   {
     chave: "CUSTO_VARIAVEL",
     rotulo: "Custo Variável",
     descricao: "O que só existe porque o ativo rodou",
+    rota: null,
   },
   {
     chave: "QLP",
     rotulo: "QLP",
     descricao: "O quadro de pessoal — operacional e administrativo",
+    rota: "/qlp-operacional",
   },
   {
     chave: "SEM_CLASSE",
     rotulo: "Sem classe de custo",
     descricao: "Alterações que a curadoria ainda não classificou como fixa ou variável",
+    rota: null,
   },
 ];
 
