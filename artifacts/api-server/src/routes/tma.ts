@@ -10,11 +10,15 @@ import {
   locaisDoTma,
   operacaoDoSnapshot,
   resumoPorVigencia,
+  SEM_IMPACTO_DE_TMA,
   TIPO_DA_FONTE_DO_TMA,
   trechosDoTma,
+  variaveisAlteradasDeTma,
   type ValorDeTma,
 } from "@workspace/comparison";
+import { candidatasDoPar, TETO_DE_CANDIDATAS_MS } from "../lib/candidatas-do-par";
 import { classificarFalha } from "../lib/classificar-falha";
+import { comTetoDeRota } from "../lib/timeout-de-rota";
 import { exigirOperacaoDoRecurso, operacaoDaConsulta } from "../lib/operacao";
 import { contextoDoPar } from "../lib/recorte-do-par";
 
@@ -136,6 +140,72 @@ router.get("/tma/comparacao", async (req, res): Promise<void> => {
     evolucaoDosLocais: evolucaoDosLocais(locais),
     evolucaoDosTrechos: evolucaoDosTrechos(trechos),
   });
+});
+
+/**
+ * O que cada candidata a "De" produz contra o "Para" escolhido, no TMA.
+ *
+ * `GET /tma/candidatos?para=<snapshotId>`
+ *
+ * ---------------------------------------------------------------------------
+ * Por que esta tela tem menu com número se a comparação dela não tem change set
+ * ---------------------------------------------------------------------------
+ * São duas perguntas diferentes, e só a segunda precisa do grão de local. O que
+ * a tela mostra depois do clique é agregado — o tempo de porta de um local é a
+ * média das linhas de trecho, e local não é entidade do acervo, daí a leitura
+ * direta das duas pontas. O que o menu responde é anterior a isso: *vale a pena
+ * abrir este par?* — e essa é exatamente a pergunta que o change set responde,
+ * no grão em que o motor pareia, a coluna de cada trecho.
+ *
+ * Sem ela, esta era a única auditoria cujo seletor abria mudo: sete telas
+ * escrevendo o que cada vigência produz, e uma lista de datas sem nada ao lado —
+ * e coluna em branco, no seletor desta casa, quer dizer *ainda não calculei*.
+ *
+ * O número é de coluna movida, e não de dinheiro: `semImpacto` carrega a frase
+ * do porquê (`SEM_IMPACTO_DE_TMA`), como no QLP. Minuto não vira real aqui.
+ */
+router.get("/tma/candidatos", async (req, res, next): Promise<void> => {
+  const para = typeof req.query.para === "string" ? req.query.para : "";
+  if (!para) {
+    res.status(400).json({ error: "Informe a vigência de destino." });
+    return;
+  }
+  await exigirOperacaoDoRecurso(req, "vigência", para, () => operacaoDoSnapshot(db, para));
+  const operacao = operacaoDaConsulta(req.query as Record<string, unknown>);
+
+  try {
+    /* A resposta sai **fora** do teto, pela razão que `/finame/candidatos`
+       documenta: quando ela chega, a conexão já voltou inteira ao pool. */
+    const resposta = await comTetoDeRota(TETO_DE_CANDIDATAS_MS, (dbComTeto) =>
+      candidatasDoPar(
+        dbComTeto,
+        para,
+        {
+          attributeCodes: CODIGOS_LIDOS_DO_TMA,
+          numeros: (rows) => ({
+            alteracoes: variaveisAlteradasDeTma(rows),
+            impacto: { baldes: [] },
+            semImpacto: SEM_IMPACTO_DE_TMA,
+          }),
+        },
+        { operacao, computedBy: "api:tma-candidatos" },
+      ),
+    );
+
+    if ("naoEncontrada" in resposta) {
+      res.status(404).json({ error: "Essa vigência não existe." });
+      return;
+    }
+    res.json(resposta);
+  } catch (err) {
+    const desfecho = classificarFalha(err);
+    if (desfecho.tipo !== "REGRA") {
+      next(err);
+      return;
+    }
+    req.log.warn({ err }, "Candidatas de TMA recusadas");
+    res.status(422).json({ error: desfecho.mensagem });
+  }
 });
 
 /**

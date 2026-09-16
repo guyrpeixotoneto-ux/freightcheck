@@ -307,6 +307,10 @@ export default function AuditoriaDeKmRodado() {
             carregando={comparacao.isFetching}
             idPrefixo="km-rodado"
             candidatos={candidatos.data}
+            carregandoCandidatos={candidatos.isFetching}
+            erroDosCandidatos={
+              candidatos.error instanceof Error ? candidatos.error.message : null
+            }
           />
         )}
 
