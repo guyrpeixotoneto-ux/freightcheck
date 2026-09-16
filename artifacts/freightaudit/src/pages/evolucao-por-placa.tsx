@@ -7,6 +7,7 @@ import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import { ApiErrorNotice } from "@/components/api-error";
 import { AbaBotao } from "@/components/changes/cartoes";
 import { classeDeAtualizacao } from "@/components/ui/em-atualizacao";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import {
   Select,
   SelectContent,
@@ -131,6 +132,10 @@ export default function EvolucaoPorPlacaPage() {
     que envelheceria na próxima importação.
   */
   const [insight, setInsight] = useState<InsightDaEvolucao | null>(null);
+  /* De onde veio o clique: o nome da placa pede o histórico, a linha pede o
+     resumo. Não vai para o endereço junto com `placa` — é a profundidade de uma
+     abertura, e não um estado que mereça ser compartilhado por link. */
+  const [comHistorico, setComHistorico] = useState(false);
   const recorte = useMemo(
     () =>
       insight && evolucao?.insights.some((i) => i.chave === insight.chave)
@@ -333,46 +338,68 @@ export default function EvolucaoPorPlacaPage() {
             </div>
 
             {/*
-              Sem placa escolhida, a matriz ocupa a largura inteira.
+              A matriz ocupa a largura inteira, e o detalhe desliza por cima.
 
-              A coluna de 22rem reservada para o painel custava duas vigências
-              de largura na matriz — e reservá-la para um convite de três linhas
-              é pagar o componente mais importante da tela pelo menos importante.
-              Escolhida uma placa, a grade abre em duas colunas e a matriz aperta
-              o necessário.
+              A coluna de 22rem custava duas vigências de largura na matriz — e
+              a grade condicional, que só a abria com placa escolhida, apenas
+              mudava o momento da conta: escolher uma placa continuava
+              encolhendo a tabela de onde ela tinha acabado de ser escolhida.
+              Como gaveta, o painel não tira largura de ninguém.
             */}
-            <div
-              className={cn(
-                "grid gap-5",
-                aberta && "lg:grid-cols-[minmax(0,1fr)_22rem]",
-              )}
-            >
-              <MatrizDaEvolucao
-                evolucao={evolucao}
-                filtro={filtro}
-                ordem={ordem}
-                busca={busca}
-                insight={recorte}
-                selecionada={placaAberta}
-                onFiltro={(valor) => trocarPara({ filtro: valor === "todos" ? null : valor })}
-                onOrdem={(valor) =>
-                  trocarPara({ ordem: valor === "prioridade" ? null : valor })
-                }
-                onBusca={(valor) => trocarPara({ busca: valor })}
-                onLimparInsight={() => setInsight(null)}
-                onEscolherPlaca={(entityId) =>
-                  trocarPara({ placa: entityId === placaAberta ? null : entityId })
-                }
-              />
+            <MatrizDaEvolucao
+              evolucao={evolucao}
+              filtro={filtro}
+              ordem={ordem}
+              busca={busca}
+              insight={recorte}
+              selecionada={placaAberta}
+              onFiltro={(valor) => trocarPara({ filtro: valor === "todos" ? null : valor })}
+              onOrdem={(valor) =>
+                trocarPara({ ordem: valor === "prioridade" ? null : valor })
+              }
+              onBusca={(valor) => trocarPara({ busca: valor })}
+              onLimparInsight={() => setInsight(null)}
+              onEscolherPlaca={(entityId, opcoes) => {
+                const historico = opcoes?.historico === true;
+                setComHistorico(historico);
+                /* No nome da placa não há alternância: pedir o histórico de uma
+                   placa já aberta no resumo tem de **abrir o histórico**, e não
+                   fechar a gaveta. */
+                trocarPara({
+                  placa: !historico && entityId === placaAberta ? null : entityId,
+                });
+              }}
+            />
 
-              {aberta && (
-                <PainelDaPlaca
-                  ativo={aberta}
-                  evolucao={evolucao}
-                  onFechar={() => trocarPara({ placa: null })}
-                />
-              )}
-            </div>
+            <Sheet
+              open={aberta !== null}
+              onOpenChange={(abertoNaGaveta) => {
+                if (!abertoNaGaveta) trocarPara({ placa: null });
+              }}
+            >
+              <SheetContent className="w-full overflow-y-auto p-0 sm:max-w-xl">
+                {aberta && (
+                  <>
+                    {/* O título da gaveta é o da placa, que o painel já desenha
+                        — este existe para o leitor de tela, que precisa de um. */}
+                    <SheetTitle className="sr-only">
+                      Detalhe de {aberta.rotulo}
+                    </SheetTitle>
+                    <PainelDaPlaca
+                      /* Remonta a cada abertura: `historicoInicial` é estado
+                         inicial, e sem trocar a chave a segunda abertura
+                         herdaria o histórico que a primeira deixou aberto. */
+                      key={`${aberta.entityId}:${comHistorico}`}
+                      ativo={aberta}
+                      evolucao={evolucao}
+                      historicoInicial={comHistorico}
+                      /* A gaveta já é a casca, e já tem o seu × no canto. */
+                      className="rounded-none border-0 bg-transparent p-6 shadow-none lg:static"
+                    />
+                  </>
+                )}
+              </SheetContent>
+            </Sheet>
 
             <div className="grid gap-5 lg:grid-cols-2">
               <div className="hidden lg:block">

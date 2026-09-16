@@ -87,7 +87,15 @@ export function MatrizDaEvolucao({
   onOrdem: (ordem: OrdemDaEvolucao) => void;
   onBusca: (busca: string) => void;
   onLimparInsight: () => void;
-  onEscolherPlaca: (entityId: string) => void;
+  /**
+   * Abrir o detalhe de um ativo — e **de onde** o clique veio.
+   *
+   * `historico` chega verdadeiro quando o clique foi no nome da placa, que é o
+   * atalho para a história do período: quem clica no código do veículo está
+   * perguntando "o que mudou nele?", e não "qual é o resumo dele?". O clique em
+   * qualquer outro ponto da linha continua abrindo no resumo.
+   */
+  onEscolherPlaca: (entityId: string, opcoes?: { historico?: boolean }) => void;
   /**
    * Como a rubrica se chama e para que lado ela é boa — ver {@link LeituraDaMatriz}.
    *
@@ -252,7 +260,7 @@ export function MatrizDaEvolucao({
                   maior={maior}
                   sufixo={sufixo}
                   selecionada={selecionada === ativo.entityId}
-                  onEscolher={() => onEscolherPlaca(ativo.entityId)}
+                  onEscolher={(opcoes) => onEscolherPlaca(ativo.entityId, opcoes)}
                   leitura={leitura}
                 />
               ))}
@@ -330,14 +338,14 @@ function LinhaDaPlaca({
   maior: number;
   sufixo: string;
   selecionada: boolean;
-  onEscolher: () => void;
+  onEscolher: (opcoes?: { historico?: boolean }) => void;
   leitura?: LeituraDaMatriz;
 }) {
   const porPeriodo = new Map(ativo.celulas.map((c) => [c.period, c]));
 
   return (
     <tr
-      onClick={onEscolher}
+      onClick={() => onEscolher()}
       className={cn(
         "cursor-pointer border-t hover:bg-muted/40",
         selecionada && "bg-primary/5",
@@ -355,13 +363,21 @@ function LinhaDaPlaca({
           responde ao mouse, mas quem navega por teclado precisa de um alvo
           focável — e o nome do ativo é o alvo certo, porque é ele que diz o que
           vai abrir.
+
+          E ele abre mais fundo do que a linha: no nome do veículo, o detalhe
+          abre já no histórico do período — vigência a vigência, com as rubricas
+          —, enquanto a linha abre no resumo. São as duas perguntas que a matriz
+          provoca ("o que mudou neste veículo?" e "quanto deu, no todo?"), e
+          agora cada uma tem o seu alvo, sem que nenhuma das duas custe um
+          segundo clique dentro da gaveta.
         */}
         <button
           onClick={(evento) => {
             evento.stopPropagation();
-            onEscolher();
+            onEscolher({ historico: true });
           }}
           aria-expanded={selecionada}
+          title={`Ver o que mudou em ${ativo.rotulo}, vigência a vigência`}
           className="rounded-sm text-left outline-none focus-visible:ring-2 focus-visible:ring-ring hover:underline"
         >
           {ativo.componentes ? (
