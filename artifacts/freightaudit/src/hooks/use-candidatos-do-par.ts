@@ -3,8 +3,21 @@ import { useQuery } from "@tanstack/react-query";
 import { fetchJson } from "@/lib/api";
 import type { CandidatosDoPar } from "@/lib/candidatos";
 
-/** As rubricas que têm rota de candidatas — o prefixo é o nome dela. */
-export type RubricaComCandidatas = "finame" | "ipva" | "lucro-fixo";
+/**
+ * As telas que têm rota de candidatas — o prefixo é o caminho dela.
+ *
+ * Eram três, e chamavam-se `RubricaComCandidatas` porque as três eram rubricas.
+ * O Monitor Custo Fixo não é uma: ele lê os quatro módulos de uma vez, e a rota
+ * dele aceita os filtros da tela junto (`opcoes.filtros`). O nome mudou com o
+ * conjunto — um tipo chamado "rubrica" com o Monitor dentro obrigaria quem lê a
+ * lembrar que a palavra não vale para um dos membros.
+ */
+export type TelaComCandidatas =
+  | "finame"
+  | "ipva"
+  | "lucro-fixo"
+  | "impostos"
+  | "monitor-custo-fixo";
 
 /**
  * Quanto se espera entre uma rodada e a seguinte enquanto ainda há pendente.
@@ -64,9 +77,19 @@ export const RODADAS_SEM_ANDAR = 3;
  * nenhum para sempre, que é o estado em que o menu mente por omissão.
  */
 export function useCandidatosDoPar(
-  rubrica: RubricaComCandidatas,
+  tela: TelaComCandidatas,
   para: string,
   escopo: string | null,
+  /**
+   * O recorte que a tela está mostrando, já em `querystring` — hoje só o
+   * Monitor manda algum.
+   *
+   * Vai na chave da consulta pela razão que a rota documenta: o número do menu
+   * tem de ser o número que o clique entrega. Com filtro ligado e sem isto, o
+   * menu prometeria "457 alterações" ao lado de uma vigência que, escolhida,
+   * mostraria zero — e a tela teria duas réguas para a mesma pergunta.
+   */
+  filtros = "",
 ) {
   /**
    * A régua do progresso — por resposta, e não por renderização.
@@ -86,10 +109,13 @@ export function useCandidatosDoPar(
   } | null>(null);
 
   return useQuery({
-    queryKey: [rubrica, "candidatos", escopo, para],
+    queryKey: [tela, "candidatos", escopo, para, filtros],
     enabled: Boolean(para),
     staleTime: 5 * 60_000,
-    queryFn: () => fetchJson<CandidatosDoPar>(`/${rubrica}/candidatos?para=${para}`),
+    queryFn: () =>
+      fetchJson<CandidatosDoPar>(
+        `/${tela}/candidatos?para=${para}${filtros ? `&${filtros}` : ""}`,
+      ),
     refetchInterval: (query) => {
       const dados = query.state.data;
       if (!dados || dados.pendentes === 0) {

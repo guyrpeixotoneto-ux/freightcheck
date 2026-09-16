@@ -68,7 +68,11 @@ const ROTULOS = new Map([
 
 const comNumeros = (id: string, valor: number, alteracoes: number) => ({
   id,
-  numeros: { alteracoes, impacto: { porPeriodicidade: { MENSAL: valor } } },
+  numeros: {
+    alteracoes,
+    /* Natureza nula: é uma rubrica, e a linha sai sem prefixo. */
+    impacto: { baldes: [{ periodicidade: "MENSAL", natureza: null, valor }] },
+  },
 });
 
 /** A tela como a auditoria a monta: o hook alimentando o seletor, e nada mais. */

@@ -27,7 +27,11 @@ import { classificarFalha } from "../lib/classificar-falha";
 import { exigirOperacaoDoRecurso, operacaoDaConsulta } from "../lib/operacao";
 import { contextoDoPar } from "../lib/recorte-do-par";
 import { comTetoDeRota } from "../lib/timeout-de-rota";
-import { candidatasDoPar, TETO_DE_CANDIDATAS_MS } from "../lib/candidatas-do-par";
+import {
+  baldesDeUmaNatureza,
+  candidatasDoPar,
+  TETO_DE_CANDIDATAS_MS,
+} from "../lib/candidatas-do-par";
 
 /**
  * AUDITORIA DE LUCRO FIXO — o recorte da remuneração entre duas vigências.
@@ -381,7 +385,12 @@ router.get("/lucro-fixo/candidatos", async (req, res, next): Promise<void> => {
               novos: 0,
               ausentes: 0,
             });
-            return { alteracoes: variaveisAlteradas, impacto };
+            /* Uma natureza só — a linha do menu sai sem prefixo, como
+               sempre saiu. Ver `BaldeDoImpacto`. */
+            return {
+              alteracoes: variaveisAlteradas,
+              impacto: { baldes: baldesDeUmaNatureza(impacto.porPeriodicidade) },
+            };
           },
         },
         { operacao, computedBy: "api:lucro-fixo-candidatos" },

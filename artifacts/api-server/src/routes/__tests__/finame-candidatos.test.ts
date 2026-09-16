@@ -201,8 +201,12 @@ describe("GET /finame/candidatos", () => {
     );
 
     expect(comNumero.numeros.alteracoes).toBe(comparacao.resumo.variaveisAlteradas);
-    expect(comNumero.numeros.impacto.porPeriodicidade).toEqual(
-      comparacao.resumo.impacto.porPeriodicidade,
+    /* Os mesmos baldes, e com natureza nula: é uma rubrica de uma natureza só,
+       e a linha do menu sai sem prefixo. */
+    expect(comNumero.numeros.impacto.baldes).toEqual(
+      Object.entries(comparacao.resumo.impacto.porPeriodicidade).map(
+        ([periodicidade, valor]) => ({ periodicidade, natureza: null, valor }),
+      ),
     );
   }, 300_000);
 
@@ -219,7 +223,7 @@ describe("GET /finame/candidatos", () => {
       expect(candidato).toHaveProperty("numeros");
       if (candidato.numeros === null) continue;
       expect(typeof candidato.numeros.alteracoes).toBe("number");
-      expect(candidato.numeros.impacto).toHaveProperty("porPeriodicidade");
+      expect(Array.isArray(candidato.numeros.impacto.baldes)).toBe(true);
     }
 
     /* `pendentes` conta exatamente as que voltaram sem número — o cliente lê

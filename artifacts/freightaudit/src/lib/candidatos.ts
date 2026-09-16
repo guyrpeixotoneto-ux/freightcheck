@@ -1,4 +1,8 @@
 import { periodicitySuffix } from "@workspace/comparison/labels";
+import {
+  ROTULO_DA_NATUREZA,
+  type NaturezaEconomica,
+} from "@workspace/comparison/monitor-custo-fixo";
 import { formatBrl, formatNumber } from "@/lib/format";
 
 /**
@@ -18,6 +22,25 @@ import { formatBrl, formatNumber } from "@/lib/format";
  * mesma forma entra sem tocar em nada.
  */
 
+/**
+ * Um balde de dinheiro de um par — a periodicidade, a natureza e o líquido.
+ *
+ * `natureza` é `null` no recorte de uma rubrica só, e a linha sai como sempre
+ * saiu: `+R$ 7.238,85/mês`, sem prefixo. Numa tela cujo nome já é o da rubrica,
+ * dizer "Custo" ao lado do número é repetir o que a tela inteira diz.
+ *
+ * Ela vem preenchida do único recorte que mistura as duas naturezas — o Monitor
+ * Custo Fixo —, e ali o prefixo é obrigatório: um número só, com o custo que
+ * subiu somado à receita que subiu, é o "impacto líquido" que os cartões
+ * daquela tela recusam publicar em letra grande. O espelho do tipo que a rota
+ * publica (`api-server/src/lib/candidatas-do-par.ts`).
+ */
+export interface BaldeDoImpacto {
+  periodicidade: string;
+  natureza: NaturezaEconomica | null;
+  valor: number;
+}
+
 /** O que uma rota de candidatas devolve. */
 export interface CandidatosDoPar {
   para: string;
@@ -26,7 +49,7 @@ export interface CandidatosDoPar {
     numeros: {
       alteracoes: number;
       /*
-        Só `porPeriodicidade`, e é o que a linha precisa.
+        Só os baldes, e é o que a linha precisa.
 
         A primeira versão deste tipo copiou o impacto do FINAME inteiro, com
         `cobertasPorParcelas` junto — e o IPVA, que chama o mesmo campo de
@@ -34,7 +57,7 @@ export interface CandidatosDoPar {
         que se lê é o que torna esta forma comum de verdade: cada rubrica
         acrescenta o que quiser no resto, e nada disso chega ao menu.
       */
-      impacto: { porPeriodicidade: Record<string, number> };
+      impacto: { baldes: BaldeDoImpacto[] };
     } | null;
   }[];
   /** Quantas candidatas não couberam no orçamento desta chamada. */
@@ -92,14 +115,27 @@ export function numerosDaLinha(
 ): NumerosDaLinha | null {
   if (!numeros) return null;
 
-  const valores = Object.entries(numeros.impacto.porPeriodicidade)
-    .filter(([, valor]) => valor !== 0)
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([periodicidade, valor]) => ({
-      texto: `${valor > 0 ? "+" : "−"}${formatBrl(Math.abs(valor))}${periodicitySuffix(
-        periodicidade,
-      )}`,
-      bruto: valor,
+  const valores = numeros.impacto.baldes
+    .filter((b) => b.valor !== 0)
+    .sort(
+      (a, b) =>
+        a.periodicidade.localeCompare(b.periodicidade) ||
+        /* Custo antes de receita, a ordem dos quadros do Monitor. */
+        (a.natureza ?? "").localeCompare(b.natureza ?? ""),
+    )
+    .map((b) => ({
+      /*
+        O prefixo da natureza, e **só** quando há duas em jogo.
+
+        Sem ele, `+R$ 7.238,85/mês` e `−R$ 1.000,00/mês` empilhados no Monitor
+        seriam dois números sem dono, e a leitura natural — somar — é
+        exatamente a que a tela recusa. Com ele, cada linha diz de qual lado da
+        DRE está falando, que é o mínimo para que não se somem.
+      */
+      texto: `${b.natureza ? `${ROTULO_DA_NATUREZA[b.natureza]} ` : ""}${
+        b.valor > 0 ? "+" : "−"
+      }${formatBrl(Math.abs(b.valor))}${periodicitySuffix(b.periodicidade)}`,
+      bruto: b.valor,
     }));
 
   /*

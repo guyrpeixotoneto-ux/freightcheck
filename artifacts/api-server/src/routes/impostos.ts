@@ -24,8 +24,14 @@ import {
   type RequestedContext,
 } from "@workspace/comparison";
 import { classificarFalha } from "../lib/classificar-falha";
+import {
+  baldesDeUmaNatureza,
+  candidatasDoPar,
+  TETO_DE_CANDIDATAS_MS,
+} from "../lib/candidatas-do-par";
 import { exigirOperacaoDoRecurso, operacaoDaConsulta } from "../lib/operacao";
 import { contextoDoPar } from "../lib/recorte-do-par";
+import { comTetoDeRota } from "../lib/timeout-de-rota";
 
 /**
  * AUDITORIA DE IMPOSTOS — o tributo da compra do ativo entre duas vigências.
@@ -367,5 +373,76 @@ function comoNumero(bruto: string | null): number | null {
   const n = Number(bruto);
   return Number.isFinite(n) ? n : null;
 }
+
+/**
+ * O que cada candidata a "De" produz contra o "Para" escolhido, nos Impostos.
+ *
+ * `GET /impostos/candidatos?para=<snapshotId>`
+ *
+ * A quarta irmã de `/finame/candidatos`, e a que faltava. Esta tela oferecia as
+ * mesmas vigências que as outras três e era a única que as oferecia **mudas**:
+ * a coluna da direita — o dinheiro e a contagem que fazem escolher — só existia
+ * em FINAME, IPVA e Lucro Fixo. Escolher às cegas aqui e com os números lá, na
+ * mesma família de dados e no mesmo gesto, é a diferença que ninguém sabe
+ * explicar olhando a tela.
+ *
+ * Nenhuma regra própria: o orçamento, o reaproveitamento do que já foi
+ * comparado e o recorte por unidade e cobertura moram em
+ * `lib/candidatas-do-par.ts`. O que entra aqui é o recorte dos Impostos — quais
+ * atributos ler, e como contar o que mudou neles.
+ */
+router.get("/impostos/candidatos", async (req, res, next): Promise<void> => {
+  const para = typeof req.query.para === "string" ? req.query.para : "";
+  if (!para) {
+    res.status(400).json({ error: "Informe a vigência de destino." });
+    return;
+  }
+  await exigirOperacaoDoRecurso(req, "vigência", para, () => operacaoDoSnapshot(db, para));
+  const operacao = operacaoDaConsulta(req.query as Record<string, unknown>);
+
+  try {
+    await comTetoDeRota(TETO_DE_CANDIDATAS_MS, async (dbComTeto) => {
+      const resposta = await candidatasDoPar(
+        dbComTeto,
+        para,
+        {
+          attributeCodes: CODIGOS_DO_DETALHE_DE_IMPOSTOS,
+          numeros: (rows) => {
+            const linhas = linhasDeImpostos(rows);
+            /* A frota entra zerada: esta rota não publica "veículos
+               comparados", só o que se moveu. Derivar a frota de um zero seria
+               inventar um denominador que ninguém pediu. */
+            const { variaveisAlteradas, impacto } = resumirImpostos(linhas, {
+              comparados: 0,
+              novos: 0,
+              ausentes: 0,
+            });
+            /* Uma natureza só — a linha do menu sai sem prefixo, como as das
+               outras três. Ver `BaldeDoImpacto`. */
+            return {
+              alteracoes: variaveisAlteradas,
+              impacto: { baldes: baldesDeUmaNatureza(impacto.porPeriodicidade) },
+            };
+          },
+        },
+        { operacao, computedBy: "api:impostos-candidatos" },
+      );
+
+      if ("naoEncontrada" in resposta) {
+        res.status(404).json({ error: "Essa vigência não existe." });
+        return;
+      }
+      res.json(resposta);
+    });
+  } catch (err) {
+    const desfecho = classificarFalha(err);
+    if (desfecho.tipo !== "REGRA") {
+      next(err);
+      return;
+    }
+    req.log.warn({ err }, "Candidatas de Impostos recusadas");
+    res.status(422).json({ error: desfecho.mensagem });
+  }
+});
 
 export default router;

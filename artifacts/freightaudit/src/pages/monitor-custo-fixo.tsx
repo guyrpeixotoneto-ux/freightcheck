@@ -25,12 +25,14 @@ import { TabelaDoMonitor } from "@/components/monitor/tabela";
 import { DetalheDaAlteracao } from "@/components/monitor/detalhe";
 import { FiltrosDoMonitorGlobais } from "@/components/monitor/filtros";
 import { fetchJson } from "@/lib/api";
+import { useCandidatosDoPar } from "@/hooks/use-candidatos-do-par";
 import { avisoDoParImpossivel } from "@/lib/par-de-vigencias";
 import { lerRecorte } from "@/lib/recorte";
 import { contextoAberto, unidadeDe, useContextosDaCasca } from "@/lib/contextos";
 import {
   enderecoDaAuditoria,
   escreverFiltros,
+  escreverRecorte,
   lerFiltros,
   ordenar,
   paginar,
@@ -153,6 +155,30 @@ export default function MonitorCustoFixo() {
     }
   }, [vigencias.data, daUnidade, unidadeResolvida, filtros.base, filtros.comparada]);
 
+  /**
+   * Os números de cada candidata a "De", contra o "Para" aberto — **sob os
+   * filtros que estão ligados**.
+   *
+   * A coluna existe nas quatro auditorias desde sempre, e faltava justamente na
+   * tela que consolida as quatro: aqui o menu oferecia dez vigências mudas, e
+   * um recorte que devolve zero não tinha como dizer qual outro par teria
+   * devolvido alguma coisa. Era escolher às cegas na única tela cujo trabalho é
+   * dizer o que se moveu.
+   *
+   * O recorte vai junto (`escreverRecorte`) porque a pergunta do menu é a
+   * pergunta da tela: com "IPVA" e "Aumentos" ligados, o número ao lado de cada
+   * vigência é o que aquele par mostraria **com eles ligados**. Sem isso, o
+   * menu prometeria um número que o clique não entrega — a mesma contradição
+   * entre cartão e tabela que esta tela evita pedindo o recorte ao servidor em
+   * vez de recortar no navegador.
+   */
+  const candidatos = useCandidatosDoPar(
+    "monitor-custo-fixo",
+    filtros.comparada,
+    escopoAberto,
+    escreverRecorte(filtros),
+  );
+
   const semPar = useMemo(() => motivoSemPar(daUnidade), [daUnidade]);
   const aviso = semPar ? avisoDoParImpossivel(semPar) : null;
 
@@ -216,6 +242,11 @@ export default function MonitorCustoFixo() {
             onComparada={(comparada) => aplicar({ ...filtros, comparada })}
             onInverter={() =>
               aplicar({ ...filtros, base: filtros.comparada, comparada: filtros.base })
+            }
+            candidatos={candidatos.data}
+            carregandoCandidatos={candidatos.isFetching}
+            erroDosCandidatos={
+              candidatos.error instanceof Error ? candidatos.error.message : null
             }
             carregando={vigencias.isLoading}
             idPrefixo="monitor"

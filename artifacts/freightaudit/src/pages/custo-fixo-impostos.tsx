@@ -64,6 +64,7 @@ import {
 } from "@/lib/impostos";
 import { lerRecorte } from "@/lib/recorte";
 import { contextoAberto, unidadeDe, useContextosDaCasca } from "@/lib/contextos";
+import { useCandidatosDoPar } from "@/hooks/use-candidatos-do-par";
 import { cn } from "@/lib/utils";
 
 /**
@@ -197,6 +198,19 @@ export default function AuditoriaDeImpostos() {
    * o CSV já respeitavam; o que mudou é quem o comanda e o quanto ele alcança.
    */
   const recorteDeTipo = (filtros.tipo === "TODOS" ? "TODOS" : filtros.tipo) as RecorteDeTipo;
+
+  /**
+   * Os números de cada candidata a "De", contra o "Para" aberto.
+   *
+   * A pergunta, a chave e a cadência moram em `useCandidatosDoPar`, com as
+   * outras auditorias: a pergunta é a mesma, e telas irmãs respondendo com
+   * fôlegos diferentes seria diferença sem motivo. O que esta tela decide é só
+   * o que é dela — a rubrica, o "Para" aberto e a unidade do recorte.
+   *
+   * Esta era a única das quatro sem a coluna, e a ausência não tinha razão: as
+   * mesmas vigências, o mesmo gesto, e aqui a escolha era às cegas.
+   */
+  const candidatos = useCandidatosDoPar("impostos", comparada, escopoAberto);
 
   /**
    * As vigências de equipamento da unidade — **antes** da aba.
@@ -468,6 +482,11 @@ export default function AuditoriaDeImpostos() {
             <SeletorDoPar
               vigencias={daUnidade}
               foco={recorteDeTipo === "TODOS" ? null : recorteDeTipo}
+              candidatos={candidatos.data}
+              carregandoCandidatos={candidatos.isFetching}
+              erroDosCandidatos={
+                candidatos.error instanceof Error ? candidatos.error.message : null
+              }
               base={base}
               comparada={comparada}
               onBase={setBase}

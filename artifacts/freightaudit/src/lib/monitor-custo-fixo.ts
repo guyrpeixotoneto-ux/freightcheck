@@ -112,6 +112,22 @@ export function escreverFiltros(f: FiltrosDoMonitor): string {
 }
 
 /**
+ * Só o recorte — os filtros sem o par.
+ *
+ * É o que `/monitor-custo-fixo/candidatos` recebe além do "Para": ali a
+ * pergunta é *quanto cada candidata a "De" produziria*, então mandar o par
+ * escolhido junto seria mandar a resposta junto com a pergunta.
+ *
+ * Escrito sobre {@link escreverFiltros} de propósito. Uma segunda serialização
+ * dos mesmos cinco filtros divergiria da primeira no dia em que um sexto
+ * entrasse — e a divergência apareceria como um menu respondendo por um recorte
+ * e a tela por outro, que é exatamente o que mandar os filtros pretende evitar.
+ */
+export function escreverRecorte(f: FiltrosDoMonitor): string {
+  return escreverFiltros({ ...f, base: "", comparada: "" });
+}
+
+/**
  * O endereço da auditoria de origem, com o contexto que ela sabe honrar.
  *
  * `base` e `comparada` vão porque as quatro telas passaram a lê-los

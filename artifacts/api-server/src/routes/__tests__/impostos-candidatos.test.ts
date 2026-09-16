@@ -18,7 +18,13 @@ import { createDb, encerrarPoolDoProcesso } from "@workspace/db";
 import { listComparableSnapshots } from "@workspace/comparison";
 
 /**
- * `GET /lucro-fixo/candidatos` — o que cada candidata a "De" produz contra o "Para".
+ * `GET /impostos/candidatos` — o que cada candidata a "De" produz contra o "Para".
+ *
+ * A quarta das quatro, e a que faltava. Esta tela oferecia as mesmas vigências
+ * das outras três e era a única que as oferecia **mudas**: a coluna da direita
+ * — o dinheiro e a contagem que fazem escolher — só existia em FINAME, IPVA e
+ * Lucro Fixo. Nada aqui é regra nova: é o arquivo de `finame-candidatos` sobre
+ * outro recorte, e é de propósito que seja, porque a rota também é.
  *
  * Montagem igual à de `impacto.test.ts`: o router sobe num socket de verdade,
  * sobre o export real, e usa o `db` do processo — que é como ele roda.
@@ -54,7 +60,7 @@ async function vigencias() {
 }
 
 beforeAll(async () => {
-  ctx = await createTestDatabase("api_lucro_candidatos");
+  ctx = await createTestDatabase("api_impostos_candidatos");
   process.env.DATABASE_URL = ctx.url;
   nomeDoBanco = ctx.url.replace(/^.*\//, "").replace(/\?.*$/, "");
 
@@ -67,7 +73,7 @@ beforeAll(async () => {
   await applyConfirmations(ctx.db);
   await backfillSemantics(ctx.db);
 
-  const { default: lucroRouter } = await import("../lucro-fixo");
+  const { default: impostosRouter } = await import("../impostos");
   const app = express();
   app.use((req, _res, next) => {
     (req as unknown as { log: unknown }).log = {
@@ -77,7 +83,7 @@ beforeAll(async () => {
     };
     next();
   });
-  app.use(lucroRouter);
+  app.use(impostosRouter);
   app.use(erroEmJson);
 
   servidor = await new Promise<Server>((resolve) => {
@@ -109,9 +115,9 @@ afterAll(async () => {
   await admin.pool.end();
 }, 60_000);
 
-describe("GET /lucro-fixo/candidatos", () => {
+describe("GET /impostos/candidatos", () => {
   it("exige a vigência de destino", async () => {
-    const res = await get("/lucro-fixo/candidatos");
+    const res = await get("/impostos/candidatos");
     expect(res.status).toBe(400);
   });
 
@@ -122,7 +128,7 @@ describe("GET /lucro-fixo/candidatos", () => {
   it("só oferece candidatas da mesma unidade e da mesma cobertura", async () => {
     const lista = await vigencias();
     const destino = lista[0];
-    const { status, body } = await get(`/lucro-fixo/candidatos?para=${destino.id}`);
+    const { status, body } = await get(`/impostos/candidatos?para=${destino.id}`);
 
     expect(status).toBe(200);
     expect(body.candidatos.length).toBeGreaterThan(0);
@@ -137,56 +143,65 @@ describe("GET /lucro-fixo/candidatos", () => {
   });
 
   /**
-   * O requisito 1: o número é do par, e não da vigência.
+   * O requisito 1, na forma que **este** recorte sustenta: o número de cada
+   * candidata é o da comparação daquele par, e não da vigência sozinha.
    *
-   * A régua é a mesma que o teste do IPVA teve de aprender: varrer os destinos e
-   * exigir que **em algum par o número mude**. Comparar só os dois destinos mais
-   * recentes seria frágil aqui pelo mesmo motivo — o lucro fixo de um ativo não
-   * se move toda quinzena, e duas vigências vizinhas repetirem o valor é o
-   * comportamento esperado, não o defeito. Um número que fosse da vigência
-   * sozinha seria igual em todos os destinos.
+   * As outras três rotas provam isso trocando o "Para" e exigindo números
+   * diferentes. Aqui não dá, e a razão é um fato do acervo de teste, não uma
+   * folga da rota: nele **nenhum par move imposto** — os dois workbooks têm a
+   * mesma base de compra, as mesmas alíquotas e os mesmos montantes do começo
+   * ao fim. Exigir diferença entre dois zeros seria exigir que a rota
+   * inventasse movimento onde a fonte não teve nenhum, que é o oposto do que
+   * esta tela promete.
+   *
+   * O que se exige então é o mais forte que o dado permite, e é o que importa:
+   * **toda** candidata calculada bate, campo a campo, com o que
+   * `/impostos/comparacao` responde para aquele par exato. Um número tirado da
+   * vigência sozinha romperia essa identidade na primeira candidata cujo par
+   * tivesse outro resultado.
    */
-  it("responde números diferentes quando o Para muda", async () => {
+  it("cada candidata calculada bate com a comparação daquele par", async () => {
     const lista = await vigencias();
-    const serie = lista.filter(
-      (v) =>
-        v.scopeHash === lista[0].scopeHash && v.entityTypeSet === lista[0].entityTypeSet,
+    const destino = lista[0];
+    const { body } = await get(`/impostos/candidatos?para=${destino.id}`);
+
+    const calculadas = body.candidatos.filter(
+      (c: { numeros: unknown }) => c.numeros !== null,
     );
-    const candidata = serie[serie.length - 1];
+    expect(calculadas.length).toBeGreaterThan(0);
 
-    const numeros: string[] = [];
-    for (const destino of serie.slice(0, serie.length - 1)) {
-      const { body } = await get(`/lucro-fixo/candidatos?para=${destino.id}`);
-      const achado = body.candidatos.find(
-        (c: { id: string }) => c.id === candidata.id,
+    for (const candidata of calculadas) {
+      const { body: comparacao } = await get(
+        `/impostos/comparacao?base=${candidata.id}&comparada=${destino.id}`,
       );
-      if (achado?.numeros) numeros.push(JSON.stringify(achado.numeros));
+      expect(candidata.numeros.alteracoes).toBe(comparacao.resumo.variaveisAlteradas);
+      expect(candidata.numeros.impacto.baldes).toEqual(
+        Object.entries(comparacao.resumo.impacto.porPeriodicidade).map(
+          ([periodicidade, valor]) => ({ periodicidade, natureza: null, valor }),
+        ),
+      );
     }
-
-    expect(numeros.length).toBeGreaterThan(1);
-    expect(new Set(numeros).size).toBeGreaterThan(1);
   }, 300_000);
 
   /**
    * E o número é **o mesmo** que a tela publica depois do clique.
    *
-   * Esta é a prova direta de que o menu não inventa uma segunda régua: o que
-   * aparece ao lado da vigência tem de bater, campo a campo, com o que
-   * `/lucro-fixo/comparacao` responde para aquele par exato. Se um dia as duas
-   * divergirem, quem escolhe pelo menu escolhe por um número que a tela não
-   * confirma.
+   * A prova direta de que o menu não inventa uma segunda régua: o que aparece
+   * ao lado da vigência bate, campo a campo, com o que `/impostos/comparacao`
+   * responde para aquele par exato. Se as duas divergirem, quem escolhe pelo
+   * menu escolhe por um número que a tela não confirma.
    */
-  it("o número do menu é o mesmo de /lucro-fixo/comparacao para aquele par", async () => {
+  it("o número do menu é o mesmo de /impostos/comparacao para aquele par", async () => {
     const lista = await vigencias();
     const destino = lista[0];
-    const { body } = await get(`/lucro-fixo/candidatos?para=${destino.id}`);
+    const { body } = await get(`/impostos/candidatos?para=${destino.id}`);
     const comNumero = body.candidatos.find(
       (c: { numeros: unknown }) => c.numeros !== null,
     );
     expect(comNumero).toBeDefined();
 
     const { body: comparacao } = await get(
-      `/lucro-fixo/comparacao?base=${comNumero.id}&comparada=${destino.id}`,
+      `/impostos/comparacao?base=${comNumero.id}&comparada=${destino.id}`,
     );
 
     expect(comNumero.numeros.alteracoes).toBe(comparacao.resumo.variaveisAlteradas);
@@ -206,7 +221,7 @@ describe("GET /lucro-fixo/candidatos", () => {
    */
   it("ausência de cálculo é null, e nunca um zero inventado", async () => {
     const lista = await vigencias();
-    const { body } = await get(`/lucro-fixo/candidatos?para=${lista[0].id}`);
+    const { body } = await get(`/impostos/candidatos?para=${lista[0].id}`);
 
     for (const candidato of body.candidatos) {
       expect(candidato).toHaveProperty("numeros");
@@ -233,7 +248,7 @@ describe("GET /lucro-fixo/candidatos", () => {
    */
   it("recusa a vigência de outra operação", async () => {
     const lista = await vigencias();
-    const res = await get(`/lucro-fixo/candidatos?para=${lista[0].id}&operacao=ROTA`);
+    const res = await get(`/impostos/candidatos?para=${lista[0].id}&operacao=ROTA`);
     expect(res.status).toBe(404);
   });
 });
