@@ -465,15 +465,15 @@ describe("a quinzena que ainda não existe", () => {
     expect(aberto!.resumo.informadas).toBe(0);
 
     /*
-      A quinzena criada entra na lista de vigências, e é por isso que ela entra:
-      o rótulo sai do que existe naquele mês. Sem ela na lista, a de 1º de
-      agosto continuaria se chamando "agosto/2026" e as duas apareceriam com
-      textos que não se distinguem no mesmo seletor.
+      A quinzena criada entra na lista de vigências, e as duas se distinguem
+      pela metade do mês em que cada uma começa — hoje a marca sai do dia, e não
+      de quem mais está na lista. A lista continua importando para o desempate
+      pelo dia, que só entra quando duas entregas caem na mesma metade.
     */
     const doMes = aberto!.vigencias.filter((v) => v.effectiveDate.startsWith("2026-08"));
     expect(doMes).toEqual([
-      { effectiveDate: VIGENCIA, periodLabel: "1ª quinzena de agosto/2026" },
-      { effectiveDate: SEGUNDA, periodLabel: "2ª quinzena de agosto/2026" },
+      { effectiveDate: VIGENCIA, periodLabel: "agosto/2026 · 1ª quinzena" },
+      { effectiveDate: SEGUNDA, periodLabel: "agosto/2026 · 2ª quinzena" },
     ]);
   });
 

@@ -33,9 +33,11 @@ import { listContexts, resolveContext } from "../series";
  *
  * - o Resumo executivo volta a abrir na vigência do equipamento — a casca não
  *   disputa mais "mais recente" com ela;
- * - agosto volta a ter **um** rótulo — "agosto/2026" —, porque só há uma
- *   entrega própria nesse mês; a desambiguação por quinzena/dia continua de
- *   pé para quando duas entregas *de verdade* caem no mesmo mês.
+ * - agosto volta a ter **um** rótulo — "agosto/2026 · 1ª quinzena" —, porque só
+ *   há uma entrega própria nesse mês. A quinzena vem da data da própria
+ *   entrega; o que a casca disputava, e não disputa mais, é o desempate por
+ *   **dia**, que só aparece quando duas entregas *de verdade* caem na mesma
+ *   metade do mês.
  *
  * **O que não muda:** o trecho continua no banco, com os mesmos três fatos, na
  * mesma vigência 2026-08-16, na mesma família de dataset. `composicaoDaVigencia`
@@ -238,16 +240,18 @@ describe("a casca de trecho sozinho não conta como vigência de navegação", (
   });
 
   /**
-   * Agosto volta a ter **um** rótulo — a desambiguação por quinzena/dia só
-   * aparece quando duas entregas de verdade caem no mesmo mês, e agora só há
-   * uma.
+   * Agosto volta a ter **um** rótulo. A quinzena sai da data da entrega e está
+   * sempre lá; o desempate por **dia** é que só aparece quando duas entregas de
+   * verdade caem na mesma metade do mês — e agora só há uma entrega.
    */
   it("devolve agosto a um rótulo só, sem a casca ao lado", async () => {
     const view = await getGroupedView(ctx.db);
     const rotulos = view!.periods.map((p) => p.label);
 
     expect(rotulos).not.toContain(SO_TRECHO);
-    expect(view!.periods.find((p) => p.date === EQUIPAMENTO)!.label).toBe("agosto/2026");
+    expect(view!.periods.find((p) => p.date === EQUIPAMENTO)!.label).toBe(
+      "agosto/2026 · 1ª quinzena",
+    );
     expect(new Set(rotulos).size).toBe(rotulos.length);
   });
 
@@ -301,7 +305,7 @@ describe("a composição de uma vigência continua correta, mesmo para a casca",
     expect(cavalo.entidades).toBe(0);
     expect(cavalo.ultimaVigenciaComDado).toEqual({
       date: EQUIPAMENTO,
-      label: "agosto/2026",
+      label: "agosto/2026 · 1ª quinzena",
       entidades: 62,
     });
   });
