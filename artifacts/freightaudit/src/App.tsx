@@ -63,6 +63,7 @@ import Frota360 from '@/pages/frota-360';
 import RadarTrechos from '@/pages/radar-trechos';
 import QlpAdministrativo from '@/pages/qlp-administrativo';
 import QlpOperacional from '@/pages/qlp-operacional';
+import QlpModulo from '@/pages/qlp-modulo';
 import MonitorCustoFixo from '@/pages/monitor-custo-fixo';
 import AuditoriaDeFiname from '@/pages/custo-fixo-finame';
 import AuditoriaDeIpva from '@/pages/custo-fixo-ipva';
@@ -609,6 +610,20 @@ function RotasDaAuditoria() {
         menu não mudou uma vírgula, como manda o catálogo.
       */}
       <Route path="/qlp-operacional" component={QlpOperacional} />
+      {/*
+        A seção QLP — a mesma comparação, recortada por **assunto**.
+
+        As duas rotas acima são por quadro: cada uma mostra o quadro inteiro de
+        uma população. Esta é por rubrica, com as duas populações em abas — o
+        desenho de Cavalo e Carreta das auditorias de equipamento, com o ativo
+        trocado pela altura do quadro.
+
+        Uma rota só para todos os módulos, e não uma por módulo, porque os
+        módulos saem do catálogo (`modulosDoQlp`): escrever uma `<Route>` por
+        rubrica seria a lista à mão que o menu deixou de ter, e ela discordaria
+        do catálogo no primeiro export que trouxesse uma coluna nova.
+      */}
+      <Route path="/qlp/:modulo" component={QlpModulo} />
       <Route path="/importacoes" component={Importacoes} />
       <Route path="/integracoes" component={Integracoes} />
       <Route path="/composicao" component={Composicao} />

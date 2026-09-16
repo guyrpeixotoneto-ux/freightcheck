@@ -243,6 +243,88 @@ export function rubricasDoQuadro(quadro: QuadroDeQlp): string[] {
   return vistas;
 }
 
+/**
+ * OS MÓDULOS DO QLP — as rubricas lidas como seção, e de onde elas saem.
+ *
+ * ---------------------------------------------------------------------------
+ * Por que eles são derivados, e não uma lista escrita à mão
+ * ---------------------------------------------------------------------------
+ * Um menu com "Plano de Saúde", "Refeição", "Salário" e "Vale-transporte"
+ * escrito à mão concorda com o catálogo no dia em que é escrito. No dia em que
+ * a Ambev mandar o export administrativo decomposto — a pergunta que hoje está
+ * aberta —, a lista escrita continuaria dizendo que saúde só existe no
+ * operacional, e alguém teria de lembrar de vir aqui. Derivada, a seção acende
+ * a aba sozinha: o que decide é a coluna estar no catálogo daquele quadro.
+ *
+ * O inverso também vale, e é o que importa hoje: o administrativo traz
+ * benefício **numa coluna só** e o operacional o decompõe em nove. Um módulo
+ * que existe num quadro e não no outro não é defeito da tela — é o que o
+ * arquivo diz —, e a leitura derivada é a única que sabe disso sem ninguém
+ * declarar.
+ *
+ * O **rótulo** não mora aqui: nomear "saude" de "Plano de saúde" é decisão de
+ * apresentação, e este pacote não fala com a tela. Ver `ROTULO_DA_RUBRICA`, no
+ * cliente.
+ */
+export interface ModuloDoQlp {
+  /** A rubrica, como o catálogo a escreve: `salario`, `transporte`, `saude`. */
+  chave: string;
+  /**
+   * Os quadros em que este módulo tem coluna — um, ou os dois.
+   *
+   * Na ordem do catálogo (administrativo antes de operacional), que é a mesma
+   * ordem em que as abas se leem.
+   */
+  quadros: QuadroDeQlp[];
+}
+
+/**
+ * Uma rubrica é módulo quando ela tem ao menos uma coluna que **mede** algo.
+ *
+ * Duas ficam de fora, e as duas pelo mesmo motivo: não são assunto de custo,
+ * são eixo de leitura. `subtotais` são montantes que já contêm outros, e
+ * `benchmark` é a régua da auditoria bimestral — régua, e não custo. Um menu
+ * com "Subtotais" ao lado de "Plano de saúde" ofereceria como assunto o que é
+ * a forma de ler os assuntos.
+ *
+ * **O critério é o papel, e não `foraDaSoma`**, e a diferença decide um módulo
+ * inteiro: o vale-transporte do administrativo está fora de toda soma enquanto
+ * a Ambev não disser se ele já está dentro da despesa de benefício — e isso é
+ * uma regra sobre **somar**, não sobre **comparar**. Esta leitura não soma
+ * nada: ela põe os dois lados de cada coluna lado a lado. Gatilhar o módulo em
+ * `foraDaSoma` apagaria do menu justamente a coluna sobre a qual há uma
+ * pergunta aberta.
+ *
+ * A regra é derivada, e não uma lista de exceções: uma rubrica nova aparece no
+ * menu no dia em que a primeira coluna dela entrar no catálogo.
+ */
+function ehModulo(quadro: QuadroDeQlp, rubrica: string): boolean {
+  return VARIAVEIS_DO_QUADRO[quadro].some(
+    (v) =>
+      v.rubrica === rubrica &&
+      (v.papel === "MONTANTE" || v.papel === "PARAMETRO" || v.papel === "QUANTIDADE"),
+  );
+}
+
+/** Os módulos que o catálogo sustenta hoje, na ordem em que as rubricas aparecem. */
+export function modulosDoQlp(): ModuloDoQlp[] {
+  const porChave = new Map<string, ModuloDoQlp>();
+  for (const quadro of ["ADMINISTRATIVO", "OPERACIONAL"] as const) {
+    for (const rubrica of rubricasDoQuadro(quadro)) {
+      if (!ehModulo(quadro, rubrica)) continue;
+      const modulo = porChave.get(rubrica);
+      if (modulo) modulo.quadros.push(quadro);
+      else porChave.set(rubrica, { chave: rubrica, quadros: [quadro] });
+    }
+  }
+  return [...porChave.values()];
+}
+
+/** Um módulo pelo nome. `undefined` quando nenhum quadro tem essa rubrica. */
+export function moduloDoQlp(chave: string): ModuloDoQlp | undefined {
+  return modulosDoQlp().find((m) => m.chave === chave);
+}
+
 /** Os códigos de uma rubrica dentro de um quadro. Vazio quando ela não existe. */
 export function codigosDaRubrica(quadro: QuadroDeQlp, rubrica: string): string[] {
   return VARIAVEIS_DO_QUADRO[quadro]

@@ -880,11 +880,17 @@ describe("a superfície do QLP Administrativo, na ordem em que a vida acontece",
     const { agosto, setembro } = await parDaUnidadeMaior();
     const par = `base=${agosto.id}&comparada=${setembro.id}`;
 
+    /*
+      A rubrica do trio de ordenados chama-se `salario`, que é o nome que o
+      operacional usa: é a mesma pergunta nas duas alturas do quadro, e um
+      recorte por assunto que mudasse de nome conforme o quadro obrigaria quem
+      lê a traduzir entre os dois. A **conta** continua sendo "Ordenados".
+    */
     const ordenados = await get(
-      `/qlp/comparacao?quadro=ADMINISTRATIVO&rubrica=ordenados&${par}`,
+      `/qlp/comparacao?quadro=ADMINISTRATIVO&rubrica=salario&${par}`,
     );
     expect(ordenados.status).toBe(200);
-    expect(ordenados.body.rubrica).toBe("ordenados");
+    expect(ordenados.body.rubrica).toBe("salario");
     /*
       As linhas de atributo são todas da rubrica pedida. As de **cargo** — quem
       entrou e quem saiu — não citam atributo e não têm rubrica: elas vêm em
@@ -894,11 +900,11 @@ describe("a superfície do QLP Administrativo, na ordem em que a vida acontece",
     */
     expect(
       ordenados.body.linhas.every(
-        (l: any) => l.rubrica === "ordenados" || l.variavel === "cargo",
+        (l: any) => l.rubrica === "salario" || l.variavel === "cargo",
       ),
     ).toBe(true);
     expect(
-      ordenados.body.linhas.some((l: any) => l.rubrica === "ordenados"),
+      ordenados.body.linhas.some((l: any) => l.rubrica === "salario"),
     ).toBe(true);
 
     const inexistente = await get(

@@ -92,9 +92,19 @@ export function ComparacaoDoQuadro({
   quadro,
   /** Os parâmetros de contexto da tela — unidade, canal, operação. */
   query,
+  /**
+   * A rubrica fixada de fora — o que uma tela de **módulo** passa.
+   *
+   * Ausente, a comparação é do quadro inteiro e o filtro de rubrica fica à
+   * vista, como nas abas dos dois quadros. Presente, ela é da rubrica e o
+   * filtro some: numa tela que já se chama "Plano de saúde", uma caixa
+   * oferecendo trocar de assunto é a que faz o título deixar de valer.
+   */
+  rubrica: rubricaFixa,
 }: {
   quadro: QuadroDeQlp;
   query: URLSearchParams;
+  rubrica?: string;
 }) {
   /*
     O par que o endereço traz, quando traz.
@@ -109,7 +119,8 @@ export function ComparacaoDoQuadro({
     comparada: query.get("comparada") ?? "",
   }));
   const [filtros, setFiltros] = useState<FiltrosDeComparacaoDeQlp>(FILTROS_VAZIOS);
-  const [rubrica, setRubrica] = useState("TODAS");
+  const [rubricaEscolhida, setRubrica] = useState("TODAS");
+  const rubrica = rubricaFixa ?? rubricaEscolhida;
   const [comSemAlteracao, setComSemAlteracao] = useState(false);
   const [pagina, setPagina] = useState(1);
   const [porPagina, setPorPagina] = useState(50);
@@ -312,19 +323,21 @@ export function ComparacaoDoQuadro({
               />
             </div>
 
-            <Select value={rubrica} onValueChange={setRubrica}>
-              <SelectTrigger className="w-[13rem]" aria-label="Rubrica">
-                <SelectValue placeholder="Todas as rubricas" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="TODAS">Todas as rubricas</SelectItem>
-                {dados.rubricasDoQuadro.map((r) => (
-                  <SelectItem key={r} value={r}>
-                    {escreverRubrica(r)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {rubricaFixa === undefined && (
+              <Select value={rubrica} onValueChange={setRubrica}>
+                <SelectTrigger className="w-[13rem]" aria-label="Rubrica">
+                  <SelectValue placeholder="Todas as rubricas" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="TODAS">Todas as rubricas</SelectItem>
+                  {dados.rubricasDoQuadro.map((r) => (
+                    <SelectItem key={r} value={r}>
+                      {escreverRubrica(r)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
 
             <Select
               value={filtros.variavel}

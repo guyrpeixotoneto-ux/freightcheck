@@ -3,6 +3,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { GRUPO_ADMINISTRACAO } from "../nav-administracao";
 import { navGroupsAuditoria } from "../nav-auditoria";
+import { modulosDoQlp } from "@workspace/comparison/qlp-comparacao";
 import { navGroupsFechamento } from "../nav-fechamento";
 import { barraMobile } from "../nav-mobile";
 import { etapasDoFechamento } from "@/pages/fechamento/etapas";
@@ -154,6 +155,27 @@ function rotasRegistradas(): Set<string> {
 }
 
 /**
+ * As rotas que o roteador atende **por padrão**, e não por literal.
+ *
+ * Nasceu com a seção QLP, a primeira em que os itens do menu são derivados de
+ * um catálogo: são dezesseis endereços — `/qlp/salario`, `/qlp/saude`… — que
+ * `App.tsx` atende com uma `<Route path="/qlp/:modulo">` só. Escrever dezesseis
+ * rotas para satisfazer a leitura literal deste teste seria a lista à mão que o
+ * menu deixou de ter, e ela discordaria do catálogo no primeiro export que
+ * trouxesse uma coluna nova.
+ *
+ * O que o teste guarda continua sendo o mesmo: nenhum item leva a lugar nenhum.
+ * O que muda é que um item pode ser atendido por um padrão — e o padrão é lido
+ * do roteador, como os literais, e não escrito aqui.
+ */
+function rotasComParametro(): RegExp[] {
+  const app = fonte("App.tsx");
+  return [...app.matchAll(/<Route\s+path="([^"]*:[^"]+)"/g)].map(
+    (m) => new RegExp(`^${m[1].replace(/:[^/]+/g, "[^/]+")}$`),
+  );
+}
+
+/**
  * As rotas que `rotasDoFechamento`, em `App.tsx`, monta sobre a base.
  *
  * Elas são escritas como `path={base}` e `` path={`${base}/...`} `` — o
@@ -175,14 +197,45 @@ function rotasDoFechamentoNoRoteador(): string[] {
 describe("a lateral", () => {
   it("não oferece nenhum item que o roteador não atenda", () => {
     const rotas = rotasRegistradas();
+    const padroes = rotasComParametro();
     const daAuditoria = Object.keys(BASES_DE_AUDITORIA).flatMap((ambiente) =>
       hrefsDoMenu(ambiente as AmbienteDeAuditoria),
     );
     const orfaos = [...daAuditoria, ...hrefsDoMenuDoFechamento()].filter(
-      (href) => !rotas.has(href),
+      (href) => !rotas.has(href) && !padroes.some((padrao) => padrao.test(href)),
     );
 
     expect(orfaos).toEqual([]);
+  });
+
+  /*
+    A seção QLP é a primeira derivada de um catálogo, e é isso que este caso
+    prende: os itens dela **são** os módulos que as rubricas dos dois quadros
+    sustentam, nem um a mais nem um a menos.
+
+    Escrita à mão, a lista concordaria com o catálogo no dia em que fosse
+    escrita — e no dia em que a Ambev mandar o export administrativo
+    decomposto, continuaria dizendo que plano de saúde só existe no operacional.
+    Derivada, ela acende sozinha; este teste é o que impede alguém de voltar a
+    escrevê-la.
+  */
+  it("lista na seção QLP exatamente os módulos que o catálogo sustenta", () => {
+    const secao = navGroupsAuditoria("auditoria").find((g) => g.id === "modulos-do-qlp");
+    expect(secao, "a seção QLP precisa existir na lateral").toBeTruthy();
+
+    expect(secao!.itens.map((i) => i.href)).toEqual(
+      modulosDoQlp().map((m) => `/qlp/${m.chave}`),
+    );
+
+    /* E os três que o usuário procura estão entre eles, com nome de gente. */
+    const porHref = new Map(secao!.itens.map((i) => [i.href, i.label]));
+    expect(porHref.get("/qlp/salario")).toBe("Salário");
+    expect(porHref.get("/qlp/transporte")).toBe("Vale-transporte");
+    expect(porHref.get("/qlp/saude")).toBe("Plano de saúde");
+
+    /* Subtotal e benchmark não são assunto: são eixo de leitura. */
+    expect(porHref.has("/qlp/subtotais")).toBe(false);
+    expect(porHref.has("/qlp/benchmark")).toBe(false);
   });
 
   it("não oferece, na barra do celular, endereço que o roteador não atenda", () => {
@@ -372,7 +425,7 @@ describe("a lateral", () => {
     expect(secoesDaAuditoria()).not.toContain("Justificativas");
   });
 
-  it("mantém as dez seções do desenho, na ordem", () => {
+  it("mantém as onze seções do desenho, na ordem", () => {
     expect(secoesDaAuditoria()).toEqual([
       /*
         A Visão executiva abre a lista, e é a leitura executiva inteira: o que
@@ -405,14 +458,26 @@ describe("a lateral", () => {
         elas.
       */
       /*
-        **O QLP não é mais seção.** As duas telas dele — Operacional e
-        Administrativo — são hoje as duas últimas linhas de Custo Fixo, porque
-        estrutura de pessoal responde à mesma pergunta das rubricas do ativo: o
-        que se paga independente do quanto se rodou. Ver `nav-auditoria.ts`,
-        onde a mudança está escrita por extenso, inclusive o que ela custa —
-        a chave de seção `#qlp` deixou de existir.
+        **As duas telas de quadro do QLP são linhas de Custo Fixo**, e não
+        seção: elas respondem à mesma pergunta das rubricas do ativo — o que se
+        paga independente do quanto se rodou. Ver `nav-auditoria.ts`.
       */
       "Custo Fixo",
+      /*
+        **E o QLP volta a ser seção, por outra pergunta.** As duas linhas acima
+        são por **quadro**: cada uma mostra a população inteira de uma altura do
+        quadro de pessoal. Esta seção é por **assunto** — o que mudou no
+        vale-transporte, no plano de saúde —, com as duas populações em abas
+        dentro de cada módulo.
+
+        Os itens dela saem do catálogo (`modulosDoQlp`), e não de uma lista
+        escrita: é o que faz um módulo acender no quadro em que a coluna existe
+        e dizer por que não existe no outro. A chave da seção é
+        `modulos-do-qlp`, e não o `#qlp` de antes — aquela chave guarda a
+        decisão de quem desligou **a outra** seção, e reaproveitá-la
+        ressuscitaria em silêncio uma escolha feita sobre outra coisa.
+      */
+      "QLP",
       /*
         E o Custo Variável logo abaixo dele, porque é a outra metade da mesma
         conta: ali o que se paga por ter o ativo, aqui o que se paga por rodar
