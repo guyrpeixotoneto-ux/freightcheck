@@ -230,7 +230,7 @@ export function Sidebar({ open }: { open: boolean }) {
         <nav className="px-3 pb-4">
           {grupos.map((grupo, indice) => {
             const aberto = !recolhido(grupo.titulo);
-            const contemAtivo = grupo.itens.some((item) => estaAtivo(location, item.href));
+            const contemAtivo = grupo.itens.some((item) => estaAtivo(location, item.href, item.tambemAceso));
             const escondido = aberto
               ? 0
               : grupo.itens.reduce(
@@ -325,7 +325,7 @@ export function Sidebar({ open }: { open: boolean }) {
                           endereço que o link leva agora carrega a unidade, e
                           `estaAtivo` compara caminho com caminho.
                         */
-                        ativo={estaAtivo(location, item.href)}
+                        ativo={estaAtivo(location, item.href, item.tambemAceso)}
                         contagem={item.contador ? contadores[item.contador] : 0}
                       />
                     ))}
@@ -407,7 +407,7 @@ function FaixaDeIcones({
                 href={enderecoDoItem(item.href)}
                 key={item.href}
                 item={item}
-                ativo={estaAtivo(location, item.href)}
+                ativo={estaAtivo(location, item.href, item.tambemAceso)}
                 contagem={item.contador ? contadores[item.contador] : 0}
               />
             ))}
@@ -562,7 +562,13 @@ function normalizar(texto: string): string {
  * de menu: ela custa uma comparação e é o que impede a lateral inteira de
  * acender no dia em que alguém reaproveitar "/" como href de algum item.
  */
-export function estaAtivo(location: string, href: string): boolean {
+export function estaAtivo(location: string, href: string, tambemAceso?: string[]): boolean {
+  /*
+    Um item pode abrir um módulo com mais de uma rota dentro — o QLP, cujas duas
+    populações são abas na tela e rotas no endereço (ver `tambemAceso`, em
+    `nav.ts`). Qualquer uma delas acende o item, pela mesma regra do `href`.
+  */
+  if (tambemAceso?.some((outro) => estaAtivo(location, outro))) return true;
   /*
     O `~` é a marca de endereço absoluto do wouter, e é só isso: ele diz ao
     `Link` para não resolver o endereço sobre a base do roteador aberto (ver

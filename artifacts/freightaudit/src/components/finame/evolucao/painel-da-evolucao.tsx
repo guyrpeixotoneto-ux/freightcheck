@@ -21,7 +21,6 @@ import { MatrizDaEvolucao } from "@/components/evolucao-por-placa/matriz";
 import { PainelDaPlaca } from "@/components/evolucao-por-placa/painel-da-placa";
 import { CartoesDaEvolucaoDeFiname } from "@/components/finame/evolucao/cartoes";
 import {
-  LEITURA_DE_CUSTO,
   opcoesDaEvolucao,
   type FiltroDaEvolucao,
   type LeituraDaMatriz,
@@ -73,25 +72,24 @@ import { periodicityAdjective } from "@/lib/format";
  * colunas, e vigência sem comparação vira lacuna nomeada.
  */
 /**
- * Como esta tela lê os números — o FINAME é **custo**, e não remuneração.
+ * Como esta tela lê os números — o FINAME é **rubrica da tabela de frete**.
  *
- * A matriz nasceu na Evolução por Placa, onde o eixo é a remuneração do
- * transportador: ali, negativo é menos dinheiro entrando, e "Perda" em vermelho
- * é a palavra certa. Aqui o eixo é o financiamento, e o sinal quer dizer o
- * contrário: medido na base real, `cavalo.finame_cavalo` indo de R$ 10.578,03
- * para R$ 0 — um financiamento **quitado** — grava impacto −10.578,03.
+ * Tudo que o FreightCheck mede é o que a transportadora recebe, e o FINAME é
+ * uma linha dessa tabela como qualquer outra: quando `cavalo.finame_cavalo` cai
+ * de R$ 10.578,03 para R$ 0, o impacto gravado é −10.578,03 porque é isso que
+ * deixa de entrar. Negativo é perda, em vermelho; positivo é ganho, em verde —
+ * a mesma régua da Evolução por Placa, de onde a matriz veio.
  *
- * Com o vocabulário de origem, a tela pintava de vermelho, sob a palavra
- * "Perda", exatamente a parcela que deixou de ser paga — e o cartão logo acima
- * pintava o mesmo número de verde. Dois idiomas na mesma tela, sobre o mesmo
- * dado.
+ * Houve aqui uma leitura "de custo" que invertia a cor desta tela, tratando o
+ * FINAME como despesa da casa. Era a hipótese errada sobre o dado, e foi
+ * removida: o produto tem um idioma só.
  *
- * O que muda é nome e cor. Nenhum número é invertido: `net`, `acumulado`,
+ * O que a leitura ainda faz é nome, e só nome — "Variação do FINAME no ano" no
+ * lugar de "Impacto acumulado". Nenhum número é tocado: `net`, `acumulado`,
  * `ganho` e `perda` saem daqui com o mesmo valor e o mesmo sinal com que
  * chegaram do servidor.
  */
 const LEITURA_DO_FINAME: LeituraDaMatriz = {
-  ...LEITURA_DE_CUSTO,
   titulo: "Variação do FINAME por veículo ao longo do ano",
   acumulado: "Variação no ano",
 };

@@ -82,6 +82,20 @@ export interface BaldeDoImpacto {
 export interface NumerosDoPar {
   alteracoes: number;
   impacto: { baldes: BaldeDoImpacto[] };
+  /**
+   * Por que este recorte **não publica dinheiro** — e não "publicou zero".
+   *
+   * Nasceu com o QLP, onde a recusa é do domínio: as colunas do quadro chegam
+   * sem semântica confirmada, e somar o que a curadoria não confirmou seria
+   * adivinhação (`SEM_IMPACTO_FINANCEIRO`). Sem este campo, `baldes: []` desceria
+   * para a tela e viraria `R$ 0,00` na linha do menu — a tela afirmando que
+   * nada mudou de dinheiro numa comparação que nunca mediu dinheiro. É
+   * exatamente a mentira por omissão que `numeros: null` evita do outro lado.
+   *
+   * Ausente, o recorte publica dinheiro e `baldes` vazio quer dizer o que sempre
+   * quis: calculei, e deu zero.
+   */
+  semImpacto?: string;
 }
 
 /**
@@ -122,6 +136,24 @@ export interface RecorteDaRubrica {
   /** Os atributos que a rubrica lê — `CODIGOS_DO_DETALHE` da rubrica. */
   attributeCodes: readonly string[];
   /**
+   * A família de dados de onde saem as candidatas — o acervo de frete, por
+   * omissão.
+   *
+   * Entrou com o QLP, cujas vigências são de outra família
+   * (`DATASET_FAMILY_QUADRO_DE_PESSOAL`). Sem isto, a lista viria do acervo de
+   * frete e nenhuma candidata formaria par com o "Para" do quadro — um menu
+   * vazio onde a tela mostra oito vigências.
+   */
+  datasetFamily?: string;
+  /**
+   * O tipo de entidade que este recorte lê — todos, por omissão.
+   *
+   * Também do QLP: uma vigência do quadro traz o administrativo e o operacional
+   * na mesma revisão, e contar sem separar diria que o operacional comparou 47
+   * cargos onde ele tem 6. É o mesmo `entityType` que `/qlp/comparacao` passa.
+   */
+  entityType?: string;
+  /**
    * As linhas e os números daquele recorte, a partir do que o motor devolveu.
    *
    * Recebe as linhas cruas e responde o que a tela publica. Quem implementa
@@ -147,7 +179,10 @@ export async function candidatasDoPar(
   recorte: RecorteDaRubrica,
   opts: { operacao?: Operacao | null; computedBy: string } = { computedBy: "api" },
 ): Promise<CandidatasDoPar | { naoEncontrada: true }> {
-  const vigencias = await listComparableSnapshots(db, { operacao: opts.operacao ?? null });
+  const vigencias = await listComparableSnapshots(db, {
+    operacao: opts.operacao ?? null,
+    ...(recorte.datasetFamily ? { datasetFamily: recorte.datasetFamily } : {}),
+  });
   const destino = vigencias.find((v) => v.id === para);
   if (!destino) return { naoEncontrada: true };
 
@@ -183,6 +218,7 @@ export async function candidatasDoPar(
 
     const { rows } = await listChanges(db, resumo.id, {
       attributeCodes: [...recorte.attributeCodes],
+      ...(recorte.entityType ? { entityType: recorte.entityType } : {}),
       limit: 5000,
     });
     candidatos.push({

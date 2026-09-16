@@ -3,6 +3,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { GRUPO_ADMINISTRACAO } from "../nav-administracao";
 import { navGroupsAuditoria } from "../nav-auditoria";
+import { estaAtivo } from "../sidebar";
 import { modulosDoQlp } from "@workspace/comparison/qlp-comparacao";
 import { navGroupsFechamento } from "../nav-fechamento";
 import { barraMobile } from "../nav-mobile";
@@ -219,13 +220,19 @@ describe("a lateral", () => {
     Derivada, ela acende sozinha; este teste é o que impede alguém de voltar a
     escrevê-la.
 
-    O Monitor Equipe abre a seção, e as duas telas de quadro vêm logo depois:
-    ele é a leitura de quem chega — os dois quadros e todos os assuntos numa
-    tabela —, e elas são a descida ao quadro inteiro. Os três são escritos à
-    mão, porque não saem de catálogo nenhum, e por isso entram aqui **antes**
-    dos módulos: o consolidado primeiro, o quadro depois, o assunto por último.
+    O Monitor Equipe abre a seção, e o quadro de lotação vem logo depois: ele é
+    a leitura de quem chega — os dois quadros e todos os assuntos numa tabela —,
+    e o item abaixo é a descida ao quadro inteiro. Os dois são escritos à mão,
+    porque não saem de catálogo nenhum, e por isso entram aqui **antes** dos
+    módulos: o consolidado primeiro, o quadro depois, o assunto por último.
+
+    O quadro é **um** item, e não dois: Operacional e Administrativo são a mesma
+    leitura sobre as duas populações, e a troca virou aba dentro da tela
+    (`components/qlp/seletor-de-quadro.tsx`). As duas rotas continuam existindo,
+    e a de Administrativo acende este item pelo `tambemAceso` — é isso que o caso
+    abaixo prende, junto com a lista.
   */
-  it("abre a seção Equipe pelo Monitor e pelos dois quadros, e lista os módulos do catálogo", () => {
+  it("abre a seção Equipe pelo Monitor e pelo QLP, e lista os módulos do catálogo", () => {
     const secao = navGroupsAuditoria("auditoria").find((g) => g.id === "modulos-do-qlp");
     expect(secao, "a seção Equipe precisa existir na lateral").toBeTruthy();
     expect(secao!.titulo).toBe("Equipe");
@@ -233,9 +240,20 @@ describe("a lateral", () => {
     expect(secao!.itens.map((i) => i.href)).toEqual([
       "/monitor-equipe",
       "/qlp-operacional",
-      "/qlp-administrativo",
       ...modulosDoQlp().map((m) => `/qlp/${m.chave}`),
     ]);
+
+    /*
+      O item é um só, chama-se QLP, e acende nas duas populações — inclusive na
+      que não é o `href` dele. Sem isso, abrir a aba Administrativo apagaria o
+      item do menu enquanto o usuário está exatamente dentro dele.
+    */
+    const qlp = secao!.itens[1];
+    expect(qlp.label).toBe("QLP");
+    expect(qlp.tambemAceso).toEqual(["/qlp-administrativo"]);
+    expect(estaAtivo("/qlp-operacional", qlp.href, qlp.tambemAceso)).toBe(true);
+    expect(estaAtivo("/qlp-administrativo", qlp.href, qlp.tambemAceso)).toBe(true);
+    expect(estaAtivo("/qlp/salario", qlp.href, qlp.tambemAceso)).toBe(false);
 
     /*
       E o ícone de cada módulo é do assunto dele: dezesseis iguais viravam um

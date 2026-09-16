@@ -25,6 +25,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { SeletorDoPar, type VigenciaEscolhivel } from "@/components/comparacao/seletor-do-par";
+import { useCandidatosDoPar } from "@/hooks/use-candidatos-do-par";
 import {
   motivoSemPar,
   parReconciliado,
@@ -131,6 +132,16 @@ export default function AuditoriaDeVelocidadeMedia() {
   }, [contextos]);
 
   const escopoAberto = contextoAberto(contextos, recorte.scopeHash)?.scopeHash ?? null;
+
+  /**
+   * Os números de cada candidata a "De", contra o "Para" aberto.
+   *
+   * A pergunta, a chave e a cadência moram em `useCandidatosDoPar`, com as
+   * rubricas de custo fixo: a pergunta é a mesma, e telas irmãs respondendo com
+   * fôlegos diferentes seria diferença sem motivo. O que esta tela decide é só
+   * o que é dela — o módulo, o "Para" aberto e a unidade do recorte.
+   */
+  const candidatos = useCandidatosDoPar("velocidade-media", comparada, escopoAberto);
   const unidadeResolvida = recorte.scopeHash !== null || !contextosCarregando;
 
   /**
@@ -292,6 +303,7 @@ export default function AuditoriaDeVelocidadeMedia() {
             rotulos={rotulos}
             carregando={comparacao.isFetching}
             idPrefixo="velocidade-media"
+            candidatos={candidatos.data}
           />
         )}
 

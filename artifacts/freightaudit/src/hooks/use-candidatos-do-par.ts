@@ -60,13 +60,21 @@ export function useTextoAdiado(texto: string, espera = ESPERA_DA_BUSCA_MS) {
  * dele aceita os filtros da tela junto (`opcoes.filtros`). O nome mudou com o
  * conjunto — um tipo chamado "rubrica" com o Monitor dentro obrigaria quem lê a
  * lembrar que a palavra não vale para um dos membros.
+ *
+ * KM Rodado e Velocidade Média entraram depois, e o grão delas é **trecho** e
+ * não veículo. Para esta lista isso não muda nada: o que a define é ter rota de
+ * candidatas, e as duas têm — a contagem e o impacto saem das mesmas funções
+ * que a tela chama depois do clique.
  */
 export type TelaComCandidatas =
   | "finame"
   | "ipva"
   | "lucro-fixo"
   | "impostos"
-  | "monitor-custo-fixo";
+  | "monitor-custo-fixo"
+  | "km-rodado"
+  | "velocidade-media"
+  | "qlp";
 
 /**
  * Quanto se espera entre uma rodada e a seguinte enquanto ainda há pendente.
@@ -130,8 +138,11 @@ export function useCandidatosDoPar(
   para: string,
   escopo: string | null,
   /**
-   * O recorte que a tela está mostrando, já em `querystring` — hoje só o
-   * Monitor manda algum.
+   * O recorte que a tela está mostrando, já em `querystring`.
+   *
+   * O Monitor manda os filtros da tela; o QLP manda o quadro (obrigatório, é o
+   * que separa administrativo de operacional) e a rubrica aberta, quando há
+   * uma.
    *
    * Vai na chave da consulta pela razão que a rota documenta: o número do menu
    * tem de ser o número que o clique entrega. Com filtro ligado e sem isto, o

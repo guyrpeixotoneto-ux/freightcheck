@@ -60,7 +60,7 @@ export function PainelDaPlaca({
    */
   onFechar?: () => void;
   /**
-   * Como a rubrica se chama e para que lado ela é boa — ver `LeituraDaMatriz`.
+   * Como a seção e a coluna do acumulado se chamam — ver `LeituraDaMatriz`.
    *
    * O painel mostra o **mesmo número** que a célula da matriz. Sem isto, os dois
    * ficavam de cores opostas na mesma tela assim que a matriz aprendeu a ler
@@ -132,9 +132,7 @@ export function PainelDaPlaca({
             "text-2xl font-bold tabular-nums leading-none mt-1",
             ativo.acumulado === null
               ? "text-amber-700"
-              : (leitura?.subirEhRuim === true
-                    ? ativo.acumulado > 0
-                    : ativo.acumulado < 0)
+              : ativo.acumulado < 0
                 ? "text-red-700"
                 : "text-emerald-700",
           )}

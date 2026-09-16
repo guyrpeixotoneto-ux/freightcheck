@@ -170,8 +170,8 @@ describe("os números do menu De", () => {
     expect(await screen.findByText("7 alterações")).toBeTruthy();
     expect(screen.getByText("1 alteração")).toBeTruthy();
     /* Positivo é ganho, negativo é perda — a palavra no lugar do sinal. */
-    expect(screen.getByText("Ganho R$ 7.238,85/mês")).toBeTruthy();
-    expect(screen.getByText("Perda R$ 1.200,00/mês")).toBeTruthy();
+    expect(screen.getByText("+R$ 7.238,85/mês")).toBeTruthy();
+    expect(screen.getByText("−R$ 1.200,00/mês")).toBeTruthy();
     expect(esqueletos().length).toBe(0);
     // E abrir não fez pergunta nenhuma.
     expect(pedidos.length).toBe(2);
