@@ -215,9 +215,16 @@ describe("os dois quadros", () => {
       A diária e a PLR são a parte que ninguém adivinharia: elas somam em
       benefício, e não em remuneração. Trocá-las de lugar faria a conta parar de
       fechar sem nada na tela explicando por quê.
+
+      A rubrica delas é `outros_beneficios`, e não `saude` nem `refeicao`: a
+      rubrica é o eixo da leitura por assunto e a conta é o eixo da soma. As
+      duas coisas são separadas de propósito — elas entram na conta do subtotal
+      sem serem alimentação nem saúde.
     */
     for (const slug of ["diaria", "plr"]) {
-      expect(variavelDoQuadroDoCodigo("OPERACIONAL", OPER(slug))!.rubrica).toBe("beneficios");
+      expect(variavelDoQuadroDoCodigo("OPERACIONAL", OPER(slug))!.rubrica).toBe(
+        "outros_beneficios",
+      );
       expect(conta.parcelas).toContain(OPER(slug));
     }
 

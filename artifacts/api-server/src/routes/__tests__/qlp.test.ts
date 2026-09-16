@@ -326,6 +326,31 @@ afterAll(async () => {
   await admin.pool.end();
 }, 60_000);
 
+/**
+ * O par de agosto e setembro **da mesma unidade** — a que as fixtures povoaram.
+ *
+ * `/snapshots` responde pela família inteira, e um arquivo com duas unidades
+ * produz duas vigências por data, com o mesmo rótulo e a mesma cobertura. Pegar
+ * a primeira de cada data casaria CAMAÇARI com a outra unidade, que é o par que
+ * o motor recusa por construção — e, pior, o par que o teste passaria a fazer
+ * sem dizer. A unidade escolhida é a do quadro maior: é ela que as fixtures
+ * enchem de cargos, e é sobre ela que as afirmações abaixo falam.
+ */
+async function parDaUnidadeMaior(): Promise<{ agosto: any; setembro: any }> {
+  const { body } = await get("/snapshots?datasetFamily=QUADRO_DE_PESSOAL");
+  const doQuadro = body.filter((v: any) => v.entityTypeSet === "QLP_ADMINISTRATIVO");
+  const maior = (data: string) =>
+    doQuadro
+      .filter((v: any) => v.effectiveDate === data)
+      .sort((a: any, b: any) => b.entityCount - a.entityCount)[0];
+  const agosto = maior("2026-08-01");
+  const setembro = doQuadro.find(
+    (v: any) => v.effectiveDate === "2026-09-01" && v.scopeHash === agosto?.scopeHash,
+  );
+  expect(agosto && setembro).toBeTruthy();
+  return { agosto, setembro };
+}
+
 describe("a superfície do QLP Administrativo, na ordem em que a vida acontece", () => {
   let entityIdDoAnalista = "";
   let changeSetId = "";
@@ -778,6 +803,109 @@ describe("a superfície do QLP Administrativo, na ordem em que a vida acontece",
     expect(body.total).toBe(1);
     expect(body.pendencias[0].vigenciaLabel).toBe("EMPURRADA_1_10_2026");
     expect(body.pendencias[0].registros[0].chave).toContain("COORDENADOR ADM");
+  });
+
+  /*
+    A comparação por cargo — o recorte de rubrica aplicado ao quadro.
+
+    Ela substituiu a aba de Alterações, que mostrava o diff genérico do motor.
+    A comparação é a mesma — mesmo `change_set` — e o que muda é o grão: uma
+    linha por cargo e variável, com o estado de cada uma. O par usado aqui é o
+    que as fixtures já descrevem: entre a 1ª de agosto e a 1ª de setembro, o
+    AUXILIAR sai da unidade A, um AUXILIAR entra na B, e o ANALISTA da A perde
+    efetivo (3→2) e despesa (13.800→9.200).
+  */
+  it("a comparação por cargo lê o par do quadro, com o efetivo e sem impacto em reais", async () => {
+    const { agosto, setembro } = await parDaUnidadeMaior();
+
+    const { status, body } = await get(
+      `/qlp/comparacao?quadro=ADMINISTRATIVO&base=${agosto.id}&comparada=${setembro.id}`,
+    );
+    expect(status).toBe(200);
+
+    // O grão: uma linha por cargo e variável, e o cargo legível no dicionário.
+    const doAnalista = body.linhas.filter((l: any) =>
+      (body.rotulos[l.entityLabel] ?? "").includes("ANALISTA ADM"),
+    );
+    const efetivo = doAnalista.find(
+      (l: any) => l.attributeCode === "qlp_administrativo.quantidade_ordenados",
+    );
+    expect(efetivo.base).toBe("3");
+    expect(efetivo.comparada).toBe("2");
+    expect(efetivo.estado).toBe("ALTERADO");
+    expect(efetivo.papel).toBe("QUANTIDADE");
+
+    const despesa = doAnalista.find(
+      (l: any) => l.attributeCode === "qlp_administrativo.despesa_ordenados",
+    );
+    expect(despesa.diferenca).toBe(-4600);
+    expect(despesa.medida).toBe("DINHEIRO");
+
+    /*
+      Quem entrou e quem saiu, contado do acervo e não da lista — e contado
+      **desta** unidade. O AUXILIAR que entrou entrou na outra, que forma par
+      próprio: uma comparação é de uma unidade só, e somar as duas aqui seria
+      responder por um escopo que este par não abriu.
+    */
+    expect(body.resumo.novosNaVigencia).toBe(0);
+    expect(body.resumo.ausentesNaComparada).toBe(1);
+
+    /*
+      A única soma é a do efetivo, e ela fecha: −1 do ANALISTA (3→2) e −4 do
+      AUXILIAR que saiu do quadro desta unidade.
+    */
+    expect(body.resumo.efetivo.diferenca).toBe(-5);
+
+    // E o cartão que as outras seis mostram em reais aqui é uma frase.
+    expect(body.resumo).not.toHaveProperty("impacto");
+    expect(body.resumo.semImpactoFinanceiro).toMatch(/curadoria/i);
+
+    // As fatias da rosca somam os cargos comparados, nunca mais do que eles.
+    const soma = body.distribuicaoPorEstado.reduce(
+      (total: number, f: any) => total + f.cargos,
+      0,
+    );
+    expect(soma).toBe(body.resumo.cargosComparados);
+  });
+
+  /*
+    O recorte por rubrica — o que sustenta uma leitura por assunto.
+
+    O administrativo traz benefício numa coluna só e o operacional o decompõe em
+    saúde, refeição, transporte e o resto: pedir "saúde" no administrativo é
+    pergunta sem resposta, e a recusa escrita é o que impede uma tela vazia de
+    parecer "nada mudou".
+  */
+  it("recorta a comparação por rubrica, e recusa por escrito a que o quadro não tem", async () => {
+    const { agosto, setembro } = await parDaUnidadeMaior();
+    const par = `base=${agosto.id}&comparada=${setembro.id}`;
+
+    const ordenados = await get(
+      `/qlp/comparacao?quadro=ADMINISTRATIVO&rubrica=ordenados&${par}`,
+    );
+    expect(ordenados.status).toBe(200);
+    expect(ordenados.body.rubrica).toBe("ordenados");
+    /*
+      As linhas de atributo são todas da rubrica pedida. As de **cargo** — quem
+      entrou e quem saiu — não citam atributo e não têm rubrica: elas vêm em
+      qualquer recorte de propósito, porque um cargo que entrou entra com o
+      assunto todo, e é o mesmo que as seis auditorias de rubrica fazem com o
+      ativo que chega.
+    */
+    expect(
+      ordenados.body.linhas.every(
+        (l: any) => l.rubrica === "ordenados" || l.variavel === "cargo",
+      ),
+    ).toBe(true);
+    expect(
+      ordenados.body.linhas.some((l: any) => l.rubrica === "ordenados"),
+    ).toBe(true);
+
+    const inexistente = await get(
+      `/qlp/comparacao?quadro=ADMINISTRATIVO&rubrica=saude&${par}`,
+    );
+    expect(inexistente.status).toBe(404);
+    expect(inexistente.body.error).toMatch(/não tem a rubrica/);
   });
 
   /*

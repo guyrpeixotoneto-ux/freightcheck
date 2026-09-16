@@ -18,6 +18,7 @@
     "./km-rodado": "./src/km-rodado.ts",
     "./velocidade-media": "./src/velocidade-media.ts",
     "./qlp": "./src/qlp.ts",
+    "./qlp-comparacao": "./src/qlp-comparacao.ts",
     "./tma": "./src/tma.ts",
     "./ipva": "./src/ipva.ts",
     "./lucro-fixo": "./src/lucro-fixo.ts",

@@ -506,6 +506,17 @@ export const VARIAVEIS_OPERACIONAL: readonly VariavelDoQuadro[] = [
   /*
     As nove parcelas que compõem os benefícios fixos.
 
+    **Elas não são uma rubrica só.** A rubrica é o eixo por onde se lê a tabela
+    por assunto — quem pergunta "o que mudou no vale-transporte" não quer as
+    outras oito no caminho —, então saúde, refeição, transporte e o resto se
+    separam. A conta do subtotal continua somando as nove, porque somar é outro
+    eixo: a rubrica diz de que assunto a coluna fala, e a conta diz o que ela
+    compõe.
+    
+    `transporte` é de propósito o mesmo nome da rubrica do administrativo: é a
+    mesma pergunta nos dois quadros, e um recorte por assunto que mudasse de
+    nome conforme o quadro obrigaria quem lê a traduzir entre os dois.
+
     Elas chegam em toda linha do export desde o primeiro arquivo, e ficavam fora
     do catálogo — os valores entravam no acervo e não apareciam em tela nenhuma,
     porque a do operacional é só a auditoria e a auditoria só mostra o que uma
@@ -523,7 +534,7 @@ export const VARIAVEIS_OPERACIONAL: readonly VariavelDoQuadro[] = [
     medida: "DINHEIRO",
     papel: "MONTANTE",
     codigo: OPER("assistencia_medica"),
-    rubrica: "beneficios",
+    rubrica: "saude",
   },
   {
     chave: "cafe_da_manha",
@@ -531,7 +542,7 @@ export const VARIAVEIS_OPERACIONAL: readonly VariavelDoQuadro[] = [
     medida: "DINHEIRO",
     papel: "MONTANTE",
     codigo: OPER("cafe_da_manha"),
-    rubrica: "beneficios",
+    rubrica: "refeicao",
   },
   {
     chave: "cesta_basica",
@@ -539,7 +550,7 @@ export const VARIAVEIS_OPERACIONAL: readonly VariavelDoQuadro[] = [
     medida: "DINHEIRO",
     papel: "MONTANTE",
     codigo: OPER("cesta_basica"),
-    rubrica: "beneficios",
+    rubrica: "refeicao",
   },
   {
     chave: "ticket_refeicao_liquido",
@@ -547,7 +558,7 @@ export const VARIAVEIS_OPERACIONAL: readonly VariavelDoQuadro[] = [
     medida: "DINHEIRO",
     papel: "MONTANTE",
     codigo: OPER("ticket_refeicao_liquido"),
-    rubrica: "beneficios",
+    rubrica: "refeicao",
     ajuda:
       "Líquido: já descontada a parte que o empregado paga. É o custo do empregador, " +
       "que é o que o subtotal de benefícios soma.",
@@ -558,7 +569,7 @@ export const VARIAVEIS_OPERACIONAL: readonly VariavelDoQuadro[] = [
     medida: "DINHEIRO",
     papel: "MONTANTE",
     codigo: OPER("vale_transporte_liquido"),
-    rubrica: "beneficios",
+    rubrica: "transporte",
     ajuda:
       "Líquido da coparticipação legal do empregado. **Não é o mesmo caso do " +
       "vale-transporte do quadro administrativo**, onde a dúvida é se ele já está " +
@@ -579,7 +590,7 @@ export const VARIAVEIS_OPERACIONAL: readonly VariavelDoQuadro[] = [
     medida: "DINHEIRO",
     papel: "MONTANTE",
     codigo: OPER("pcmso_por_mes"),
-    rubrica: "beneficios",
+    rubrica: "saude",
     ajuda:
       "O Programa de Controle Médico de Saúde Ocupacional — exames admissional, " +
       "periódico e demissional — rateado no custo mensal do cargo. É obrigação de " +
@@ -591,7 +602,7 @@ export const VARIAVEIS_OPERACIONAL: readonly VariavelDoQuadro[] = [
     medida: "DINHEIRO",
     papel: "MONTANTE",
     codigo: OPER("diaria"),
-    rubrica: "beneficios",
+    rubrica: "outros_beneficios",
     ajuda:
       "O que o cargo recebe por dia fora da base. Ela varia com o turno — o mesmo " +
       "motorista custa diárias diferentes em 8x16 e em 12x36 —, e **entra no subtotal " +
@@ -603,7 +614,7 @@ export const VARIAVEIS_OPERACIONAL: readonly VariavelDoQuadro[] = [
     medida: "DINHEIRO",
     papel: "MONTANTE",
     codigo: OPER("plr"),
-    rubrica: "beneficios",
+    rubrica: "outros_beneficios",
     ajuda:
       "A participação nos lucros e resultados, rateada no mês. Sem natureza salarial, " +
       "e — como a diária — dentro do subtotal de benefícios, não da remuneração.",

@@ -1,17 +1,35 @@
 import { Router, type IRouter } from "express";
+import { sql } from "drizzle-orm";
 import { db } from "@workspace/db";
 import {
+  alteracoesPorVariavelDeQlp,
+  codigoDoEfetivo,
+  codigosDaRubrica,
   codigosDoQuadro,
+  computeChangeSet,
   conferirAbono,
   conferirBenchmark,
   conferirLinha,
+  distribuicaoPorEstadoDeQlp,
+  frotaPorTipo,
+  getChangeSetForPair,
+  linhaDeQlpSemAlteracao,
+  linhasDeQlpComparado,
+  listChanges,
+  listComparableSnapshots,
+  operacaoDoSnapshot,
+  resumirComparacaoDeQlp,
   resumirQuadro,
+  rubricasDoQuadro,
+  somarEfetivo,
   resumoDasContas,
   TIPO_DO_QUADRO,
+  type LinhaDeQlpComparado,
   type LinhaDoQuadro,
   type QuadroDeQlp,
   type RequestedContext,
 } from "@workspace/comparison";
+import { DATASET_FAMILY_QUADRO_DE_PESSOAL } from "@workspace/ingest/tipos";
 import {
   lerQuadroParaAuditoria,
   getDetalheDoCargo,
@@ -22,6 +40,8 @@ import {
 } from "@workspace/qlp";
 
 import { parseContext as parseContextoDaConsulta } from "../lib/contexto";
+import { classificarFalha } from "../lib/classificar-falha";
+import { exigirOperacaoDoRecurso, operacaoDaConsulta } from "../lib/operacao";
 /**
  * QLP Administrativo — o quadro de pessoal da estrutura administrativa.
  *
@@ -269,6 +289,292 @@ function comoNumero(bruto: string | null): number | null {
   if (bruto === null || bruto.trim() === "") return null;
   const n = Number(bruto);
   return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * A COMPARAÇÃO DO QUADRO — o recorte de rubrica, por cargo.
+ *
+ * `GET /qlp/comparacao?quadro=ADMINISTRATIVO|OPERACIONAL&base=<id>&comparada=<id>`
+ *
+ * ---------------------------------------------------------------------------
+ * Por que esta rota é curta, e por que ela não soma dinheiro
+ * ---------------------------------------------------------------------------
+ * Curta porque não compara nada: `computeChangeSet` compara, `listChanges` lê e
+ * `qlp-comparacao.ts` traduz — a mesma costura das seis auditorias de rubrica, e
+ * igual a elas de propósito. Uma rota que fizesse conta própria seria a sétima
+ * régua da mesma pergunta.
+ *
+ * E não soma dinheiro porque as colunas do QLP chegam sem semântica confirmada:
+ * é o mesmo portão que trava efetivo total e custo da estrutura na aba do
+ * Quadro. O único agregado monetário que as outras seis publicam — o impacto em
+ * reais — aqui é uma frase que diz por que ele não existe. A soma que sobra é a
+ * do efetivo, que é de gente.
+ *
+ * Substituiu a aba de Alterações, que mostrava o diff genérico do motor: mesma
+ * comparação, mesmo `change_set`, e o grão que faltava — uma linha por cargo e
+ * variável em vez de uma lista de atributos soltos.
+ */
+router.get("/qlp/comparacao", async (req, res, next): Promise<void> => {
+  const query = req.query as Record<string, unknown>;
+  const pedido = typeof query.quadro === "string" ? query.quadro.toUpperCase() : "";
+  if (pedido !== "ADMINISTRATIVO" && pedido !== "OPERACIONAL") {
+    res.status(400).json({ error: "Informe quadro=ADMINISTRATIVO ou quadro=OPERACIONAL." });
+    return;
+  }
+  const quadro = pedido as QuadroDeQlp;
+
+  const base = typeof query.base === "string" ? query.base : "";
+  const comparada = typeof query.comparada === "string" ? query.comparada : "";
+  if (!base || !comparada) {
+    res.status(400).json({ error: "Informe base e comparada." });
+    return;
+  }
+  for (const id of [base, comparada]) {
+    await exigirOperacaoDoRecurso(req, "vigência", id, () => operacaoDoSnapshot(db, id));
+  }
+
+  const comSemAlteracao = query.semAlteracao === "true";
+  const tipo = TIPO_DO_QUADRO[quadro];
+
+  /*
+    O recorte por rubrica — opcional, e o que sustenta uma tela por assunto.
+
+    Ausente, a comparação é do quadro inteiro. Presente, ela é da rubrica: os
+    códigos pedidos ao motor encolhem, e os agregados saem sobre o que sobrou.
+    Uma rubrica que este quadro não tem é recusa escrita, e não uma tela vazia —
+    o operacional decompõe benefício em nove colunas e o administrativo não,
+    então pedir "refeição" no administrativo é uma pergunta sem resposta, não
+    uma resposta zero.
+  */
+  const rubrica = typeof query.rubrica === "string" && query.rubrica !== ""
+    ? query.rubrica
+    : null;
+  const codigos = rubrica === null
+    ? codigosDoQuadro(quadro)
+    : codigosDaRubrica(quadro, rubrica);
+  if (rubrica !== null && codigos.length === 0) {
+    res.status(404).json({
+      error:
+        `O quadro ${quadro === "ADMINISTRATIVO" ? "administrativo" : "operacional"} não ` +
+        `tem a rubrica "${rubrica}". Disponíveis: ${rubricasDoQuadro(quadro).join(", ")}.`,
+    });
+    return;
+  }
+
+  try {
+    const changeSet =
+      (await getChangeSetForPair(db, base, comparada)) ??
+      (await computeChangeSet(db, base, comparada, { computedBy: "api:qlp-comparacao" }));
+
+    const { rows } = await listChanges(db, changeSet.id, {
+      attributeCodes: codigos,
+      entityType: tipo,
+      limit: 5000,
+    });
+
+    const linhas = linhasDeQlpComparado(rows, quadro);
+
+    /*
+      Os cargos de cada lado saem do acervo, e por tipo.
+
+      `changeSet.entityCount` conta a vigência inteira, e uma vigência de QLP
+      traz os dois quadros — o administrativo e o operacional entram na mesma
+      família e viram revisões da mesma data. Contar por ali diria que o
+      operacional comparou 47 cargos onde ele tem 6.
+    */
+    const porTipo = await frotaPorTipo(db, changeSet.id, comparada);
+    const quadroDoPar = porTipo[tipo] ?? { comparados: 0, novos: 0, ausentes: 0 };
+
+    const vigencias = await listComparableSnapshots(db, {
+      datasetFamily: DATASET_FAMILY_QUADRO_DE_PESSOAL,
+      operacao: operacaoDaConsulta(query),
+    });
+    const rotulos = await rotulosDosCargos(tipo);
+    const snapshotA = vigencias.find((v) => v.id === base);
+    const snapshotB = vigencias.find((v) => v.id === comparada);
+
+    /*
+      O efetivo das **duas pontas**, e não o que a lista de alterações registra.
+
+      Um cargo que sai do quadro é uma linha só no motor — a entidade removida,
+      sem atributo —, então o efetivo dele não aparece em alteração nenhuma.
+      Sem esta leitura, o cartão mostrava −1 num par em que o quadro perdeu
+      cinco posições. São duas consultas de uma coluna só, pela mesma leitura
+      que a aba de Auditoria já faz.
+    */
+    const efetivo = await efetivoDasPontas(quadro, base, comparada);
+
+    let todas = linhas;
+    if (comSemAlteracao && snapshotA && snapshotB) {
+      const jaListadas = new Set(
+        linhas.map((l) => `${l.entityLabel}${l.attributeCode}`),
+      );
+      todas = [
+        ...linhas,
+        ...(await linhasIguaisDoQuadro(quadro, codigos, snapshotA, snapshotB, jaListadas, query)),
+      ];
+    }
+
+    res.json({
+      quadro,
+      rubrica,
+      rubricasDoQuadro: rubricasDoQuadro(quadro),
+      changeSetId: changeSet.id,
+      base: {
+        id: base,
+        sourceLabel: snapshotA?.sourceLabel ?? null,
+        effectiveDate: snapshotA?.effectiveDate ?? null,
+      },
+      comparada: {
+        id: comparada,
+        sourceLabel: snapshotB?.sourceLabel ?? null,
+        effectiveDate: snapshotB?.effectiveDate ?? null,
+      },
+      /* O resumo é sempre das alterações, com ou sem o alternador ligado: as
+         linhas iguais não mudam indicador nenhum — elas só preenchem a tabela. */
+      resumo: resumirComparacaoDeQlp(linhas, quadro, quadroDoPar, efetivo),
+      alteracoesPorVariavel: alteracoesPorVariavelDeQlp(linhas, quadro),
+      distribuicaoPorEstado: distribuicaoPorEstadoDeQlp(linhas, quadroDoPar),
+      /*
+        O dicionário dos rótulos, e não um rótulo por linha.
+
+        O motor grava em `change.entity_label` a chave **normalizada** do cargo
+        (`07526557001505CARGOGERENTE…`) — dívida registrada em
+        `lib/qlp/src/index.ts`, e que vale para todas as séries, não só para
+        esta. A forma legível existe no acervo, em
+        `entity_identifier.identifier_value_raw`, e vem daqui como mapa: são 41
+        cargos e 50 linhas na comparação medida, e repetir o rótulo em cada
+        linha seria mandar a mesma frase várias vezes. A tela cai na chave
+        quando o mapa não tem a entrada — menos bonita e igualmente verdadeira.
+      */
+      rotulos,
+      linhas: todas,
+    });
+  } catch (err) {
+    const desfecho = classificarFalha(err);
+    if (desfecho.tipo !== "REGRA") {
+      next(err);
+      return;
+    }
+    req.log.warn({ err }, "Comparação de QLP recusada");
+    res.status(422).json({ error: desfecho.mensagem });
+  }
+});
+
+/**
+ * O efetivo somado de cada ponta do par — **por snapshot**, e não pelo quadro.
+ *
+ * A leitura do quadro é consolidada por desenho: uma planilha de QLP traz
+ * várias unidades, e a aba do Quadro responde por todas as autorizadas. Uma
+ * **comparação** não: o motor compara duas vigências de um escopo só, e um par
+ * entre escopos diferentes é o que ele recusa por construção. Medir o efetivo
+ * pela leitura consolidada dava a diferença de todas as unidades ao lado de uma
+ * lista de alterações de uma — o quadro perdia cinco posições e o cartão dizia
+ * quatro, porque a outra unidade tinha ganhado uma.
+ *
+ * Então a ponta é o snapshot, que é exatamente o que o par escolheu. Ponta que
+ * não trouxe a coluna volta nula, e nulo não é zero: o cartão diz que não sabe
+ * em vez de dizer que não mudou.
+ */
+async function efetivoDasPontas(
+  quadro: QuadroDeQlp,
+  base: string,
+  comparada: string,
+): Promise<{ base: number | null; comparada: number | null }> {
+  const codigo = codigoDoEfetivo(quadro);
+  const ler = async (snapshotId: string) => {
+    const { rows } = await db.execute<{ valor: string | null }>(sql`
+      SELECT CASE WHEN f.is_null THEN NULL ELSE f.value_numeric::text END AS valor
+        FROM fato_visivel f
+        JOIN attribute a ON a.id = f.attribute_id
+       WHERE f.snapshot_id = ${snapshotId}::uuid
+         AND a.code = ${codigo}
+    `);
+    return somarEfetivo(rows.map((linha) => linha.valor));
+  };
+  const [doBase, doComparada] = await Promise.all([ler(base), ler(comparada)]);
+  return { base: doBase, comparada: doComparada };
+}
+
+/**
+ * Os cargos deste quadro, da chave normalizada para a forma legível.
+ *
+ * Uma consulta só, e não uma por linha: a tabela repete o mesmo cargo em várias
+ * variáveis, e resolver o rótulo linha a linha faria a mesma leitura dezenas de
+ * vezes.
+ */
+async function rotulosDosCargos(entityType: string): Promise<Record<string, string>> {
+  const { rows } = await db.execute<{ valor: string; legivel: string | null }>(sql`
+    SELECT ei.identifier_value AS valor,
+           ei.identifier_value_raw AS legivel
+      FROM entity_identifier ei
+      JOIN entity e ON e.id = ei.entity_id
+     WHERE ei.identifier_type = 'PLACA'
+       AND ei.is_current
+       AND e.entity_type = ${entityType}
+  `);
+  const rotulos: Record<string, string> = {};
+  for (const linha of rows) {
+    if (linha.legivel !== null && linha.legivel !== linha.valor) {
+      rotulos[linha.valor] = linha.legivel;
+    }
+  }
+  return rotulos;
+}
+
+/**
+ * As linhas "sem alteração" — a leitura completa que o alternador liga.
+ *
+ * Desligada por padrão, e não por economia de bytes: a pergunta da tela é o que
+ * mudou, e o `change_set` só guarda isso. Quando alguém quer o quadro inteiro,
+ * as duas pontas são lidas pelo mesmo `lerQuadroParaAuditoria` que a aba de
+ * Auditoria usa — e não por uma segunda leitura escrita aqui, que seria a
+ * segunda régua do mesmo quadro.
+ */
+async function linhasIguaisDoQuadro(
+  quadro: QuadroDeQlp,
+  codigos: string[],
+  snapshotA: { effectiveDate: string },
+  snapshotB: { effectiveDate: string },
+  jaListadas: Set<string>,
+  query: Record<string, unknown>,
+): Promise<LinhaDeQlpComparado[]> {
+  const contexto = parseContext(query);
+  const [a, b] = await Promise.all([
+    lerQuadroParaAuditoria(db, TIPO_DO_QUADRO[quadro], codigos, {
+      period: snapshotA.effectiveDate,
+      ...(contexto !== undefined ? { context: contexto } : {}),
+    }),
+    lerQuadroParaAuditoria(db, TIPO_DO_QUADRO[quadro], codigos, {
+      period: snapshotB.effectiveDate,
+      ...(contexto !== undefined ? { context: contexto } : {}),
+    }),
+  ]);
+  if (!a || !b) return [];
+
+  const naBase = new Map(a.linhas.map((l) => [l.chave, l.valores]));
+  const linhas: LinhaDeQlpComparado[] = [];
+  for (const linha of b.linhas) {
+    const anterior = naBase.get(linha.chave);
+    if (!anterior) continue;
+    for (const code of codigos) {
+      const antes = anterior[code] ?? null;
+      const depois = linha.valores[code] ?? null;
+      if (antes !== depois) continue;
+      // Os dois lados ausentes não são "sem alteração": são ausência nas duas
+      // pontas, e o motor já não escreveu linha para eles.
+      if (antes === null) continue;
+      if (jaListadas.has(`${linha.chave}${code}`)) continue;
+      const semAlteracao = linhaDeQlpSemAlteracao({
+        entityLabel: linha.chave,
+        quadro,
+        attributeCode: code,
+        valor: antes,
+      });
+      if (semAlteracao) linhas.push(semAlteracao);
+    }
+  }
+  return linhas;
 }
 
 export default router;
