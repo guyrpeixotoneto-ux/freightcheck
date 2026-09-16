@@ -74,6 +74,7 @@ export type TelaComCandidatas =
   | "seguro"
   | "manutencao"
   | "monitor-custo-fixo"
+  | "monitor-equipe"
   | "km-rodado"
   | "velocidade-media"
   | "tma"
