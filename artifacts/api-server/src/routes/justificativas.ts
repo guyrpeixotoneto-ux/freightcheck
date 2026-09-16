@@ -4,6 +4,7 @@ import { db, changeTable, justificativaTable } from "@workspace/db";
 import {
   autoresDeJustificativas,
   coberturaDeJustificativas,
+  coberturaPorRubrica,
   gravarJustificativasDerivadas,
   linhasDoPainel,
   listChangeSets,
@@ -142,7 +143,22 @@ router.get("/justificativas/painel", async (req, res): Promise<void> => {
   const autores = await autoresDeJustificativas(db, ids);
   faseAutores.fim({ linhas: autores.length });
 
-  res.json({ cobertura, autores });
+  /*
+    A terceira leitura: a cobertura por rubrica, que é a que o Monitor cobra —
+    em que módulo está a pendência, e em que rubrica dentro dele. Ela vem na
+    mesma resposta das outras duas pelo motivo do cabeçalho desta rota: a tela
+    precisa das três para se montar, e uma chamada por leitura daria três idas
+    para responder uma pergunta só.
+
+    Ela é agrupada no banco por atributo e dobrada em rubrica em memória — ver
+    `coberturaPorRubrica`. São algumas centenas de linhas no fio, e não as
+    milhares que o grão do banco teria.
+  */
+  const faseRubricas = iniciarFase(req, "db.rubricas");
+  const rubricas = await coberturaPorRubrica(db, ids);
+  faseRubricas.fim({ linhas: rubricas.length });
+
+  res.json({ cobertura, autores, rubricas });
 });
 
 /**

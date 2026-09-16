@@ -72,6 +72,21 @@ import { rotuloDeListaDaVigencia } from "./labels";
  * `DINHEIRO` porque no QLP as duas convivem na mesma linha — quantidade, valor
  * unitário e despesa —, e escrever "R$ 3,00" onde a fonte disse três uniformes
  * é o erro que a tabela inteira convida a cometer.
+ *
+ * `RENDIMENTO` entrou com a Auditoria de Consumo, quando a Manutenção deixou de
+ * responder por três assuntos ao mesmo tempo. É km/l — razão, como
+ * `REAIS_POR_KM` e `VELOCIDADE`, e nenhuma das duas serve: `REAIS_POR_KM`
+ * escreveria "2,4000 R$/km" onde a fonte disse 2,4 km por litro, e `VELOCIDADE`
+ * escreveria "2,4 km/h". E o sentido dela é o **inverso** do de um custo — um
+ * rendimento que sobe é dinheiro que desce —, o que só se pode pintar na tela se
+ * a medida disser qual dos dois é.
+ *
+ * O preço do litro, que aquela tela também mostra, **não** entrou nesta lista, e
+ * é preciso dizer por quê: ele não é a medida de coluna nenhuma. Não existe
+ * atributo de preço de combustível no acervo — o número é `R$/km × km/l`, obtido
+ * por conta, e quem o escreve é uma função própria (`escreverPrecoDoLitro`). Uma
+ * medida aqui seria um rótulo que nenhuma variável pode carregar, e um convite a
+ * declarar como coluna o que é derivado.
  */
 export type MedidaDaVariavel =
   | "DINHEIRO"
@@ -87,7 +102,8 @@ export type MedidaDaVariavel =
   | "MINUTOS"
   | "VELOCIDADE"
   | "FATOR"
-  | "QUANTIDADE";
+  | "QUANTIDADE"
+  | "RENDIMENTO";
 
 // ---------------------------------------------------------------------------
 // Os seis estados

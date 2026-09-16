@@ -1,4 +1,5 @@
 import {
+  Wrench,
   ArrowRightLeft,
   BadgeCheck,
   Banknote,
@@ -11,6 +12,7 @@ import {
   ChartColumn,
   ChartNoAxesCombined,
   CircleDollarSign,
+  CircleDot,
   CircleHelp,
   ClipboardCheck,
   ClipboardList,
@@ -25,6 +27,7 @@ import {
   FileText,
   FolderTree,
   Forklift,
+  Fuel,
   Gauge,
   Gift,
   GitCompareArrows,
@@ -402,14 +405,22 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
         },
         { href: "/justificativas", label: "Justificativas", icon: FileCheck2 },
         /*
-          O painel vem **depois** da fila, e não antes: a fila é onde se
-          trabalha, o painel é onde se confere. Quem abre a seção todo dia vem
+          O monitor vem **depois** da fila, e não antes: a fila é onde se
+          trabalha, o monitor é onde se confere. Quem abre a seção todo dia vem
           justificar; quem vem cobrar o que falta é quem desce um item.
+
+          **O rótulo mudou, e o `href` não.** A tela deixou de justificar quando
+          cada módulo passou a justificar as próprias alterações, e "Painel"
+          prometia um lugar de trabalho que ela não é mais. O endereço é a chave
+          de permissão e é o que está colado em conversa de três meses atrás:
+          trocá-lo junto com o nome apagaria a decisão de quem desligou este item
+          e quebraria todo link salvo. Chave é identidade, rótulo é nome — a
+          mesma régua da seção Equipe.
         */
         {
           href: "/painel-de-justificativas",
-          label: "Painel de Justificativas",
-          icon: ClipboardList,
+          label: "Monitor de Justificativas",
+          icon: Radar,
         },
       ],
     },
@@ -499,6 +510,7 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
         { href: "/custo-fixo-ipva", label: "IPVA", icon: Receipt },
         { href: "/custo-fixo-lucro-fixo", label: "Lucro Fixo", icon: TrendingUp },
         { href: "/custo-fixo-impostos", label: "Impostos", icon: Landmark },
+        { href: "/custo-fixo-seguro", label: "Seguro e Aparato", icon: ShieldCheck },
       ],
     },
     {
@@ -601,12 +613,22 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
         mesma conta: ali, o que se paga por **ter** o ativo; aqui, o que se paga
         por **rodar** com ele.
 
-        **São cinco módulos**: Km Rodado e Velocidade Média — o quanto se rodou
-        e como se rodou —, TMA, Salário Variável e Lucro Variável. Como os do
-        Custo Fixo,
-        eles entram hoje só com o nome, e abrem telas em preparo: cada verbete em
-        `pages/telas-em-preparo.ts` diz o que falta no banco para a rubrica virar
-        número e para onde ir enquanto isso.
+        **A ordem da seção é a ordem em que o custo do quilômetro se monta**, e
+        não a ordem em que as telas nasceram: Manutenção, Pneu e Consumo são as
+        três parcelas que o desgaste e o combustível produzem; Km Rodado e
+        Velocidade Média são o quanto se rodou e como se rodou; TMA é o tempo
+        parado; e Salário e Lucro Variável fecham com o que a produção remunera.
+
+        **Manutenção e Pneu eram um item só**, e deixaram de ser porque eram dois
+        assuntos em dois grãos: o contrato de manutenção é de um cavalo, e o pneu
+        com dado deste acervo é do trecho — sete colunas da tabela de frete que
+        nenhuma tela mostrava. Consumo entrou junto, pelo mesmo motivo e no mesmo
+        grão: o diesel é a maior parcela do preço do quilômetro, e era a única que
+        este produto exibia sem dizer de onde vinha.
+
+        As duas últimas entram ainda só com o nome, e abrem telas em preparo: cada
+        verbete em `pages/telas-em-preparo.ts` diz o que falta no banco para a
+        rubrica virar número e para onde ir enquanto isso.
       */
       id: "custo-variavel",
       titulo: "Custo Variável",
@@ -614,6 +636,9 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
       icon: ChartNoAxesCombined,
       cor: "text-nav-custo-variavel",
       itens: [
+        { href: "/custo-variavel-manutencao", label: "Manutenção", icon: Wrench },
+        { href: "/custo-variavel-pneu", label: "Pneu", icon: CircleDot },
+        { href: "/custo-variavel-consumo", label: "Consumo", icon: Fuel },
         { href: "/custo-variavel-km-rodado", label: "Km Rodado", icon: Route },
         { href: "/custo-variavel-velocidade-media", label: "Velocidade Média", icon: Gauge },
         { href: "/custo-variavel-tma", label: "TMA", icon: Timer },

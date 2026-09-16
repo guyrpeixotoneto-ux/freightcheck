@@ -255,7 +255,7 @@ export async function computeChangeSet(
   const semanticsB = await loadAttributeClassificationsAt(db, b.effectiveDate);
   const classifications = semanticsB;
 
-  return db.transaction(async (tx) => {
+  const gravar = () => db.transaction(async (tx) => {
     if (existing.length > 0) {
       // Derived data: replaced wholesale rather than patched.
       await tx.delete(changeSetTable).where(eq(changeSetTable.id, existing[0].id));
@@ -467,6 +467,58 @@ export async function computeChangeSet(
 
     return toSummary(updated, a.sourceLabel, b.sourceLabel);
   });
+
+  /*
+    DOIS LEITORES PEDINDO O MESMO PAR AO MESMO TEMPO É O CASO NORMAL — NÃO UM
+    ERRO.
+
+    A tela de par faz duas perguntas ao abrir: a comparação do par escolhido e,
+    para o menu, o que cada candidata a "De" produziria contra o mesmo "Para" —
+    e uma das candidatas é justamente o "De" já escolhido. As duas chegam
+    juntas, as duas não acham comparação gravada, as duas calculam, e a segunda
+    a inserir esbarra em `change_set_pair_uq`. O par é o mesmo, então o
+    resultado é o mesmo: o que a segunda tem a fazer é ler o que a primeira
+    gravou, e não devolver 500 a quem só abriu a tela.
+
+    A recusa continua inteira para tudo o que **não** é esta corrida: se a linha
+    que venceu não está `DONE`, o erro sobe como sempre subiu. Perder a corrida
+    é motivo para reler; não é motivo para inventar um resultado.
+  */
+  try {
+    return await gravar();
+  } catch (err) {
+    if (!ehParJaGravado(err)) throw err;
+    const [vencedora] = await db
+      .select()
+      .from(changeSetTable)
+      .where(
+        and(
+          eq(changeSetTable.snapshotAId, snapshotAId),
+          eq(changeSetTable.snapshotBId, snapshotBId),
+        ),
+      );
+    if (vencedora?.status !== "DONE") throw err;
+    return toSummary(vencedora, a.sourceLabel, b.sourceLabel);
+  }
+}
+
+/**
+ * Foi a corrida pelo mesmo par — e não outra violação qualquer.
+ *
+ * O código `23505` sozinho não bastaria: qualquer chave única do banco o
+ * devolve, e engolir uma delas aqui esconderia um defeito de verdade atrás de
+ * uma releitura. O nome da restrição é o que diz que a linha que falta já
+ * existe **para este par**. O Postgres o entrega em `constraint`, e o drizzle
+ * embrulha o erro em camadas de `cause` — daí a descida.
+ */
+function ehParJaGravado(err: unknown): boolean {
+  let atual: unknown = err;
+  for (let i = 0; atual !== null && atual !== undefined && i < 10; i++) {
+    const como = atual as { code?: unknown; constraint?: unknown; cause?: unknown };
+    if (como.code === "23505" && como.constraint === "change_set_pair_uq") return true;
+    atual = como.cause;
+  }
+  return false;
 }
 
 /**

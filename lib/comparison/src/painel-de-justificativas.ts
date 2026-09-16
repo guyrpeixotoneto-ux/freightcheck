@@ -3,6 +3,10 @@ import type { Database } from "@workspace/db";
 
 import { TIPOS_FORA_DO_PAINEL_DE_JUSTIFICATIVAS } from "./painel-de-justificativas-escopo";
 import {
+  rubricaDaAlteracao,
+  type ChaveDeModulo,
+} from "./modulos-de-justificativa";
+import {
   ALTERACAO_DE_ORIGEM_VISIVEL,
   changeTable,
   justificativaTable,
@@ -224,6 +228,11 @@ export interface LinhaDoPainel {
   entityType: string | null;
   attributeCode: string | null;
   attributeName: string | null;
+  /* A classe de custo instantânea da alteração — é ela que diz de que módulo a
+     linha é, pela régua de `modulos-de-justificativa.ts`. Viaja com a linha
+     porque o CSV do Monitor escreve módulo e rubrica em cada uma, e recalculá-la
+     no cliente a partir de outra fonte faria o arquivo discordar da tela. */
+  costClass: string | null;
   valueBefore: string | null;
   valueAfter: string | null;
   /** O delta apurado — é o sinal dele que dá a direção do impacto. */
@@ -332,6 +341,7 @@ export async function linhasDoPainel(
       entityType: changeTable.entityType,
       attributeCode: changeTable.attributeCode,
       attributeName: changeTable.attributeName,
+      costClass: changeTable.costClass,
       valueBefore: changeTable.valueBefore,
       valueAfter: changeTable.valueAfter,
       deltaAbsolute: sql<number | null>`${changeTable.deltaAbsolute}`.mapWith(
@@ -373,4 +383,161 @@ export async function linhasDoPainel(
     total,
     linhas: linhas.map((l) => ({ ...l, entityLabel: l.entityLabel ?? "" })),
   };
+}
+
+/**
+ * A cobertura quebrada por **rubrica** — a leitura que o Monitor cobra.
+ *
+ * A cobertura por tipo de ativo responde a quem mandar a fila; esta responde
+ * *para onde mandar*: cada linha é uma rubrica, e a rubrica tem tela — é lá que
+ * a justificativa se escreve desde que cada módulo passou a justificar as
+ * próprias alterações. Quem sabe em que rubrica cada atributo entra é
+ * `modulos-de-justificativa.ts`, e é de propósito que ele não esteja no SQL: o
+ * mapa é o mesmo que a tela lê para escrever o nome e montar o link, e uma
+ * segunda régua escrita em `CASE WHEN` discordaria dela no primeiro catálogo
+ * que crescesse.
+ *
+ * O banco agrupa por **atributo**, que é o grão que ele tem; a dobra em rubrica
+ * acontece aqui, em memória, sobre algumas centenas de linhas. É a mesma
+ * divisão de trabalho de `contagemPorTipo`: contar é do Postgres, nomear é do
+ * mapa.
+ *
+ * `ultimaEm` e `ultimoAutor` são da justificativa **mais recente** da rubrica —
+ * o "última justificativa" da tabela. Eles não dizem de quem é a pendência:
+ * este produto não atribui responsável a alteração nenhuma, e escrever um nome
+ * ao lado de uma pendência afirmaria uma atribuição que não existe. Dizem quem
+ * esteve ali por último, que é o que o dado sustenta.
+ */
+export interface CoberturaDeRubrica {
+  changeSetId: string;
+  /** Cru, como a linha o gravou — quem normaliza é quem monta as abas. */
+  entityType: string | null;
+  modulo: ChaveDeModulo;
+  /** A chave da rubrica em `modulos-de-justificativa.ts`. */
+  rubrica: string;
+  alteracoes: number;
+  justificadas: number;
+  ultimaEm: Date | null;
+  ultimoAutor: string | null;
+}
+
+export async function coberturaPorRubrica(
+  db: Database,
+  changeSetIds: string[],
+): Promise<CoberturaDeRubrica[]> {
+  if (changeSetIds.length === 0) return [];
+
+  /* A mais recente de cada alteração, pela régua de `linhasDoPainel`:
+     reescrever grava linha nova, e a que vale é a última. */
+  const ultimas = db
+    .select({
+      changeId: justificativaTable.changeId,
+      criadoPor: justificativaTable.criadoPor,
+      criadoEm: justificativaTable.criadoEm,
+      ordem: sql<number>`row_number() OVER (
+        PARTITION BY ${justificativaTable.changeId}
+        ORDER BY ${justificativaTable.criadoEm} DESC, ${justificativaTable.id} DESC
+      )`.as("ordem"),
+    })
+    .from(justificativaTable)
+    .where(inArray(justificativaTable.changeSetId, changeSetIds))
+    .as("ultimas");
+
+  const linhas = await db
+    .select({
+      changeSetId: changeTable.changeSetId,
+      entityType: changeTable.entityType,
+      attributeCode: changeTable.attributeCode,
+      costClass: changeTable.costClass,
+      alteracoes: sql<number>`count(*)`.mapWith(Number),
+      justificadas: sql<number>`count(${ultimas.changeId})`.mapWith(Number),
+      /* Convertida aqui: o driver devolve o `max` de um timestamp como texto, e
+         a dobra em rubrica compara datas entre si para achar a mais recente —
+         comparar texto com `Date` acertaria por acaso enquanto os dois viessem
+         no mesmo formato. */
+      ultimaEm: sql<Date | null>`max(${ultimas.criadoEm})`.mapWith((v) =>
+        v === null ? null : new Date(v),
+      ),
+      /* O autor da justificativa mais recente do grupo. `array_agg` ordenado é
+         o que devolve um valor de *outra* coluna da linha que o `max` escolheu
+         — um segundo `max(criado_por)` traria o maior nome em ordem alfabética,
+         que não é quem escreveu por último. */
+      ultimoAutor: sql<string | null>`(array_agg(
+        ${ultimas.criadoPor} ORDER BY ${ultimas.criadoEm} DESC NULLS LAST
+      ) FILTER (WHERE ${ultimas.criadoPor} IS NOT NULL))[1]`,
+    })
+    .from(changeTable)
+    .leftJoin(
+      ultimas,
+      and(eq(ultimas.changeId, changeTable.id), eq(ultimas.ordem, sql`1`))!,
+    )
+    .where(alteracoesDoPainel(changeSetIds))
+    .groupBy(
+      changeTable.changeSetId,
+      changeTable.entityType,
+      changeTable.attributeCode,
+      changeTable.costClass,
+    );
+
+  return dobrarEmRubricas(linhas);
+}
+
+/** Uma linha do banco, antes de saber em que rubrica ela entra. */
+export interface ContagemPorAtributo {
+  changeSetId: string;
+  entityType: string | null;
+  attributeCode: string | null;
+  costClass: string | null;
+  alteracoes: number;
+  justificadas: number;
+  ultimaEm: Date | null;
+  ultimoAutor: string | null;
+}
+
+/**
+ * A dobra de atributo em rubrica — separada da consulta para poder ser testada
+ * sem um Postgres de pé, como todo o resto do pacote.
+ */
+export function dobrarEmRubricas(
+  linhas: readonly ContagemPorAtributo[],
+): CoberturaDeRubrica[] {
+  const porChave = new Map<string, CoberturaDeRubrica>();
+
+  for (const linha of linhas) {
+    const rubrica = rubricaDaAlteracao(linha);
+    /* JSON, e não uma concatenação com separador: um `entity_type` que
+       contivesse o separador faria dois grupos virarem um em silêncio. */
+    const chave = JSON.stringify([
+      linha.changeSetId,
+      linha.entityType,
+      rubrica.chave,
+    ]);
+    const atual = porChave.get(chave);
+    if (!atual) {
+      porChave.set(chave, {
+        changeSetId: linha.changeSetId,
+        entityType: linha.entityType,
+        modulo: rubrica.modulo,
+        rubrica: rubrica.chave,
+        alteracoes: linha.alteracoes,
+        justificadas: linha.justificadas,
+        ultimaEm: linha.ultimaEm,
+        ultimoAutor: linha.ultimoAutor,
+      });
+      continue;
+    }
+    atual.alteracoes += linha.alteracoes;
+    atual.justificadas += linha.justificadas;
+    /* A mais recente entre os atributos da rubrica — e o autor **dela**, e não
+       o de outro atributo com data mais antiga. */
+    if (
+      linha.ultimaEm !== null &&
+      (atual.ultimaEm === null || linha.ultimaEm > atual.ultimaEm)
+    ) {
+      atual.ultimaEm = linha.ultimaEm;
+      atual.ultimoAutor = linha.ultimoAutor;
+    }
+  }
+
+  return [...porChave.values()];
 }

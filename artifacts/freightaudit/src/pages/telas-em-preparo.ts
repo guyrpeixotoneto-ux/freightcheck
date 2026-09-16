@@ -255,6 +255,34 @@ export const TELAS_EM_PREPARO: TelaEmPreparo[] = [
     ainda não traz — o mesmo que já falta ao Impacto, e pela mesma razão.
   */
   /*
+    `/custo-variavel-pneu` e `/custo-variavel-consumo` **nunca estiveram neste
+    catálogo**, e é preciso dizer por quê: elas não nasceram de um verbete
+    atendido, nasceram de uma tela dividida.
+
+    O pneu era a última linha da Auditoria de Manutenção e Pneu, e era a que não
+    tinha número: `cavalo.valor_pneu` e `carreta.valor_pneus` são zero em 100%
+    das linhas do acervo. Com essas colunas, pneu não pedia tela — pedia
+    ressalva, e tinha uma. O que ninguém tinha olhado é que **o pneu com dado
+    deste acervo não está no equipamento: está no trecho** — sete colunas da
+    tabela de frete (quantidade, valor do pneu novo, recapagem, carcaça, as duas
+    vidas úteis e o R$/km que sai delas) que nenhuma tela mostrava.
+
+    O consumo é o caso oposto e mais incômodo: o diesel é a **maior** das nove
+    parcelas que a Auditoria de Km Rodado soma, e este produto o exibia por um
+    número só — o R$/km — sem dizer de onde vinha. Vinha do rendimento do trecho,
+    declarado em duas colunas que nenhuma tela lia, e de um preço do litro que
+    **nenhuma coluna declara**. Esse preço é recuperável (`R$/km × km/l`), e
+    comparado entre trechos da mesma vigência ele acusa o percurso precificado
+    sobre outra premissa de combustível — coisa que nenhum delta entre vigências
+    enxerga.
+
+    **O realizado continua faltando às duas, e pelo mesmo motivo de sempre.**
+    Elas dizem o que o contrato supõe — quanto o pneu custa por quilômetro
+    contratado, quanto rendimento o modelo reconhece —, e não o que a operação
+    trocou de carcaça ou queimou de diesel na quinzena. As duas escrevem isso por
+    extenso, no cartão de impacto e na gaveta de cada trecho.
+  */
+  /*
     `/custo-variavel-km-rodado` saiu deste catálogo, e é a primeira das quatro de
     custo variável a sair — pelo caminho das quatro de custo fixo, e com a mesma
     honestidade sobre a metade que não foi atendida.

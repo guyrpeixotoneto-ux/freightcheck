@@ -12,8 +12,11 @@ import {
   emCaixaDeTitulo,
   gravarColunasDaRelacao,
   lerColunasDaRelacao,
+  avisosPorDizer,
   situacaoDoPrazo,
+  taxaDeAprovacao,
   type DiaDaRegua,
+  type SituacoesNoEnvio,
   type ResumoDoDia,
   type Serie,
 } from "@/lib/monitoramento-de-chamados";
@@ -502,5 +505,95 @@ describe("as colunas da relação — preferência de quem olha", () => {
     expect(lidas).not.toContain("unidade");
     expect(lidas).toContain("status");
     expect(lidas).toEqual(todas.filter((c) => lidas.includes(c)));
+  });
+});
+
+
+describe("taxaDeAprovacao — a barra não arredonda a favor do dia", () => {
+  const situacoes = (
+    aprovados: number,
+    total: number,
+  ): SituacoesNoEnvio => ({
+    aprovados,
+    emAnalise: total - aprovados,
+    reprovados: 0,
+    outras: 0,
+    total,
+    detalheDeOutras: [],
+  });
+
+  it("não há taxa antes de haver envio — nem 0%", () => {
+    expect(taxaDeAprovacao(null)).toBe(null);
+    expect(taxaDeAprovacao(situacoes(0, 0))).toBe(null);
+  });
+
+  it("o envio todo aprovado é 100%", () => {
+    expect(taxaDeAprovacao(situacoes(3400, 3400))).toBe(100);
+  });
+
+  it("um chamado que falta não vira 100% — ele é justamente o que se procura", () => {
+    expect(taxaDeAprovacao(situacoes(3399, 3400))).toBe(99);
+  });
+
+  it("um chamado aprovado não vira 0% — ele existe", () => {
+    expect(taxaDeAprovacao(situacoes(1, 3400))).toBe(1);
+  });
+
+  it("nenhum aprovado é 0%", () => {
+    expect(taxaDeAprovacao(situacoes(0, 3400))).toBe(0);
+  });
+
+  it("o denominador é o envio inteiro, e não a soma dos três desfechos", () => {
+    // Metade aprovada, e o resto em situações que não são desfecho nenhum:
+    // fechar a fração nos três desfechos daria 100% sobre um envio pela metade.
+    const comCancelados: SituacoesNoEnvio = {
+      aprovados: 50,
+      emAnalise: 0,
+      reprovados: 0,
+      outras: 50,
+      total: 100,
+      detalheDeOutras: [{ statusBucket: "CANCELADO", total: 50 }],
+    };
+    expect(taxaDeAprovacao(comCancelados)).toBe(50);
+  });
+});
+
+
+describe("avisosPorDizer — o mesmo parágrafo não aparece duas vezes", () => {
+  const primeiraCarga: ResumoDoDia = {
+    ...RESUMO,
+    estado: "PRIMEIRA_CARGA",
+    avisos: [
+      {
+        tipo: "BASELINE",
+        texto:
+          "Primeira importação desta série: 3400 chamados registrados como estado inicial.",
+      },
+    ],
+  };
+
+  it("o aviso que a frase do dia cita não volta na faixa", () => {
+    // A frase da primeira carga é o próprio texto do aviso BASELINE.
+    expect(fraseDoDia(primeiraCarga)?.detalhe).toBe(
+      primeiraCarga.avisos[0]!.texto,
+    );
+    expect(avisosPorDizer(primeiraCarga)).toEqual([]);
+  });
+
+  it("o aviso que a frase não diz continua aparecendo", () => {
+    const comFalha: ResumoDoDia = {
+      ...primeiraCarga,
+      avisos: [
+        ...primeiraCarga.avisos,
+        { tipo: "IMPORTACAO_COM_FALHA", texto: "Uma importação deste dia falhou." },
+      ],
+    };
+    expect(avisosPorDizer(comFalha).map((a) => a.tipo)).toEqual([
+      "IMPORTACAO_COM_FALHA",
+    ]);
+  });
+
+  it("sem resumo não há aviso — e nem exceção", () => {
+    expect(avisosPorDizer(null)).toEqual([]);
   });
 });

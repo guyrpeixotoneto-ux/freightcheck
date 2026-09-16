@@ -38,6 +38,7 @@ import { listPeriods } from "./consolidated";
 import {
   channelSql,
   contextFilter,
+  direcaoDoHistorico,
   listContexts,
   operacaoFilter,
   resolveContext,
@@ -1099,6 +1100,30 @@ export async function getGroupedViewComDados(
   period?: string,
   requestedContext?: RequestedContext,
   preloadedContexts?: ContextInfo[],
+  /**
+   * A ponta **De** do par, quando quem pergunta escolheu uma — a data do
+   * snapshot A, contra o `period`, que é sempre o snapshot B.
+   *
+   * Sem ela, esta leitura é a de sempre: *as* comparações que terminam nesta
+   * vigência, uma por série, cada uma contra a anterior daquela série. É a
+   * pergunta que o Dashboard, o Impacto Apurado e o Resumo executivo fazem, e
+   * ela não muda.
+   *
+   * Com ela, a leitura é **do par**: só as comparações cujo lado A é aquela
+   * data. É o que permite ao Panorama Executivo ler o par invertido — setembro
+   * × agosto, com agosto no `period` e setembro aqui —, que é uma comparação
+   * que existe no banco (o motor a calcula sob demanda) e que a régua da data
+   * sozinha nunca alcançaria.
+   *
+   * **E é ela que fecha um vazamento.** Sem ponta pedida, a leitura passou a
+   * exigir `sa.effective_date < sb.effective_date`. Não é redundância com o
+   * `findPreviousSnapshot` que grava as comparações da importação: quem inverte
+   * o par na Auditoria de FINAME — e agora aqui — faz o motor gravar uma
+   * comparação em que o lado B é a vigência **mais antiga**, e ela casava com
+   * este `WHERE` como se fosse mais uma série de agosto. O total da vigência
+   * passava a depender de alguém ter clicado em Inverter noutra tela.
+   */
+  de?: string,
 ): Promise<LeituraAgrupada | null> {
   /*
     A lista carrega o recorte de operação de quem perguntou — e não é detalhe de
@@ -1123,6 +1148,17 @@ export async function getGroupedViewComDados(
     (c) => !(c.scopeHash === context.scopeHash && c.channel === context.channel),
   );
 
+  /*
+    Qual lado A vale — ver `de`. A cláusula é a mesma nas duas consultas de
+    comparação abaixo, e por isso é escrita uma vez: as duas contam o mesmo par
+    (uma por conjunto, outra por componente), e uma delas com outra régua faria
+    a frota de um grupo ser a de uma comparação que a outra não enxergou.
+  */
+  const ladoA =
+    de !== undefined
+      ? sql`AND sa.effective_date = ${de}::date`
+      : sql`AND ${direcaoDoHistorico()}`;
+
   // As comparações que terminam nesta vigência, uma por série.
   const { rows: sets } = await db.execute<{
     change_set_id: string;
@@ -1145,6 +1181,7 @@ export async function getGroupedViewComDados(
       JOIN snapshot sb ON sb.id = cs.snapshot_b_id
       JOIN snapshot sa ON sa.id = cs.snapshot_a_id
      WHERE sb.effective_date = ${target.effective_date}::date
+       ${ladoA}
        AND sb.status <> 'SUPERSEDED'
        AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = sb.import_run_id AND import_run.hidden_at IS NOT NULL)
        -- Sem este filtro, duas unidades que entregam na mesma data caem no
@@ -1202,6 +1239,7 @@ export async function getGroupedViewComDados(
       JOIN snapshot sa ON sa.id = cs.snapshot_a_id
       CROSS JOIN LATERAL unnest(string_to_array(sb.entity_type_set, '+')) AS t
      WHERE sb.effective_date = ${target.effective_date}::date
+       ${ladoA}
        AND sb.status <> 'SUPERSEDED'
        AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = sb.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND ${contextFilter("sb", context)}
@@ -1434,18 +1472,31 @@ export async function getAccumulatedImpact(
   // que mantém o número comparável com o de antes de CAVALO e CARRETA passarem
   // a dividir um snapshot. Os ids saem distintos para `loadChanges`, senão cada
   // alteração seria carregada — e somada — duas vezes.
+  /*
+    Só as comparações que andam **para a frente** — ver `DIRECAO_DO_HISTORICO`.
+
+    O acumulado é o histórico da unidade, e histórico tem direção: uma volta
+    calculada sob demanda (Inverter, no Panorama e nas auditorias de rubrica)
+    tem o lado B na vigência mais antiga e entraria aqui como se fosse mais um
+    passo — somando ao acumulado o desfazimento de um passo que já está somado.
+  */
   const { rows: sets } = await db.execute<{ id: string; entity_type: string }>(sql`
     SELECT cs.id, t AS entity_type
       FROM change_set cs
       JOIN snapshot sb ON sb.id = cs.snapshot_b_id
+      JOIN snapshot sa ON sa.id = cs.snapshot_a_id
       CROSS JOIN LATERAL unnest(string_to_array(sb.entity_type_set, '+')) AS t
      WHERE ${contextFilter("sb", context)}
+       AND ${direcaoDoHistorico()}
        AND t <> 'TRECHO'
   `);
   const { rows: span } = await db.execute<{ from: string | null; to: string | null }>(sql`
     SELECT min(sb.effective_date)::text AS from, max(sb.effective_date)::text AS to
-      FROM change_set cs JOIN snapshot sb ON sb.id = cs.snapshot_b_id
+      FROM change_set cs
+      JOIN snapshot sb ON sb.id = cs.snapshot_b_id
+      JOIN snapshot sa ON sa.id = cs.snapshot_a_id
      WHERE ${contextFilter("sb", context)}
+       AND ${direcaoDoHistorico()}
   `);
   const ids = [...new Set(sets.map((s) => s.id))];
   const rows = await loadChanges(db, ids);

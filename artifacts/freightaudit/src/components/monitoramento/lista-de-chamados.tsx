@@ -640,7 +640,7 @@ function BarraDeSelecao({
         <Button
           size="sm"
           variant="outline"
-          onClick={() => baixarCsv(chamados, dia, procedencia)}
+          onClick={() => baixarCsvDaRelacao(chamados, dia, procedencia)}
         >
           <Download className="h-4 w-4" />
           Baixar CSV
@@ -655,7 +655,12 @@ function BarraDeSelecao({
 }
 
 /**
- * O CSV do que está marcado.
+ * O CSV de um conjunto de chamados — o que está marcado, ou a relação inteira.
+ *
+ * Duas portas, um arquivo só: a barra de seleção manda as linhas marcadas, e o
+ * botão Exportar da tela manda a fila inteira do recorte (ver
+ * `buscarRelacaoInteira`). Escrever as colunas duas vezes faria os dois
+ * arquivos divergirem no primeiro campo novo.
  *
  * Leva **todas** as colunas, e não as que a engrenagem deixou à vista: esconder
  * uma coluna é preferência de leitura na tela, e um arquivo que obedecesse a
@@ -663,7 +668,7 @@ function BarraDeSelecao({
  * que a linha mostra (`campo SET 4 → 7`), porque uma linha por parâmetro faria
  * o arquivo ter mais linhas do que a seleção tinha chamados.
  */
-function baixarCsv(
+export function baixarCsvDaRelacao(
   chamados: ChamadoNaFila[],
   dia: string,
   procedencia: string,

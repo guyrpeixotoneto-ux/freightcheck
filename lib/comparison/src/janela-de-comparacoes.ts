@@ -8,6 +8,7 @@ import type { TipoDaLinhaDoTempo } from "./tipos";
 import {
   anteriorDoSnapshot,
   contextFilter,
+  direcaoDoHistorico,
   listContexts,
   resolveContext,
   type ContextInfo,
@@ -169,11 +170,17 @@ export async function abrirJanelaDeComparacoes(
            cs.snapshot_a_id::text AS snapshot_a_id
       FROM change_set cs
       JOIN snapshot sb ON sb.id = cs.snapshot_b_id
+      JOIN snapshot sa ON sa.id = cs.snapshot_a_id
      WHERE sb.effective_date > ${inicio}::date
        AND sb.effective_date <= ${fim}::date
        AND sb.status <> 'SUPERSEDED'
        AND NOT EXISTS (SELECT 1 FROM import_run WHERE import_run.id = sb.import_run_id AND import_run.hidden_at IS NOT NULL)
        AND ${contextFilter("sb", context)}
+       -- O intervalo é percorrido para a frente: uma volta calculada sob
+       -- demanda (Inverter) tem o lado B na vigência mais antiga e somaria, à
+       -- série, o desfazimento de um passo que já está nela. Ver
+       -- direcaoDoHistorico, em series.ts.
+       AND ${direcaoDoHistorico()}
        -- Trecho só existe no Trecho 360 e na aba de tipo da Linha do Tempo, que
        -- o pede pelo nome. Sem recorte ele fica de fora. Ver a mesma nota em
        -- loadChanges.

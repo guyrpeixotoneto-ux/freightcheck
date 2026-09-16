@@ -121,6 +121,34 @@ export function escreverFiltros(f: FiltrosDoMonitorDeEquipe): string {
   return q.toString();
 }
 
+/**
+ * O RECORTE QUE O MENU DE VIGÊNCIAS PERGUNTA — e o que ele deliberadamente não
+ * manda.
+ *
+ * `/monitor-equipe/candidatos` conta, por candidata a "De", as alterações que
+ * **aquele** recorte produziria. Então vai o quadro da aba e vão os três
+ * filtros que recortam linhas (módulo, situação, busca): o número do menu tem
+ * de ser o número que o clique entrega, e um menu que contasse o quadro inteiro
+ * com "salário" ligado prometeria alterações que a tabela não mostraria.
+ *
+ * **O par não vai.** As duas pontas do endereço são o que o menu está ajudando
+ * a trocar: mandá-las junto só faria a consulta refazer-se a cada escolha, e
+ * quem responde pelo "Para" é o parâmetro `para` da própria rota. A busca chega
+ * aqui já adiada por quem chama (`useTextoAdiado`), e não a cada tecla.
+ */
+export function escreverRecorteDoMenuDeEquipe(
+  f: FiltrosDoMonitorDeEquipe,
+  quadro: QuadroDeQlp,
+  busca = f.busca,
+): string {
+  const q = new URLSearchParams();
+  q.set("quadro", quadro);
+  if (f.modulos.length > 0) q.set("modulo", f.modulos.join(","));
+  if (f.situacoes.length > 0) q.set("situacao", f.situacoes.join(","));
+  if (busca.trim() !== "") q.set("busca", busca.trim());
+  return q.toString();
+}
+
 /** O endereço do Monitor com o estado inteiro — o "voltar" que não zera a tela. */
 export function enderecoDoMonitorDeEquipe(f: FiltrosDoMonitorDeEquipe): string {
   const query = escreverFiltros(f);

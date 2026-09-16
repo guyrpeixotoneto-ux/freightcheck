@@ -70,13 +70,17 @@ import AuditoriaDeFiname from '@/pages/custo-fixo-finame';
 import AuditoriaDeIpva from '@/pages/custo-fixo-ipva';
 import AuditoriaDeLucroFixo from '@/pages/custo-fixo-lucro-fixo';
 import AuditoriaDeImpostos from '@/pages/custo-fixo-impostos';
+import AuditoriaDeSeguro from '@/pages/custo-fixo-seguro';
+import AuditoriaDeManutencao from '@/pages/custo-variavel-manutencao';
 import AuditoriaDeKmRodado from '@/pages/custo-variavel-km-rodado';
+import AuditoriaDePneu from '@/pages/custo-variavel-pneu';
+import AuditoriaDeConsumo from '@/pages/custo-variavel-consumo';
 import AuditoriaDeVelocidadeMedia from '@/pages/custo-variavel-velocidade-media';
 import AuditoriaDeTma from '@/pages/custo-variavel-tma';
 import Remunerado from '@/pages/remunerado';
 import Justificativas from '@/pages/justificativas';
 import JustificativasPlaca from '@/pages/justificativas-placa';
-import PainelDeJustificativas from '@/pages/painel-de-justificativas';
+import MonitorDeJustificativas from '@/pages/monitor-de-justificativas';
 import MonitoramentoDeChamados from '@/pages/monitoramento-de-chamados';
 import ConciliacaoDeChamados from '@/pages/conciliacao-de-chamados';
 import { EmPreparo } from '@/pages/em-preparo';
@@ -419,7 +423,7 @@ function RotasDaAuditoria() {
       <Route path="/monitoramento-de-chamados" component={MonitoramentoDeChamados} />
       <Route path="/conciliacao-de-chamados" component={ConciliacaoDeChamados} />
       <Route path="/justificativas" component={Justificativas} />
-      <Route path="/painel-de-justificativas" component={PainelDeJustificativas} />
+      <Route path="/painel-de-justificativas" component={MonitorDeJustificativas} />
       <Route path="/justificativas/placa/:placa" component={JustificativasPlaca} />
       <Route path="/book-operador" component={BookOperador} />
       <Route path="/assistente" component={Assistente} />
@@ -553,6 +557,8 @@ function RotasDaAuditoria() {
         não mudou uma vírgula, como manda o catálogo.
       */}
       <Route path="/custo-fixo-impostos" component={AuditoriaDeImpostos} />
+      <Route path="/custo-fixo-seguro" component={AuditoriaDeSeguro} />
+      <Route path="/custo-variavel-manutencao" component={AuditoriaDeManutencao} />
       {/*
         Km Rodado sai de `TELAS_EM_PREPARO` e é a **primeira tela de custo
         variável** — e a primeira de grão trecho. As quatro de custo fixo são por
@@ -570,6 +576,8 @@ function RotasDaAuditoria() {
         vírgula, como manda o catálogo.
       */}
       <Route path="/custo-variavel-km-rodado" component={AuditoriaDeKmRodado} />
+      <Route path="/custo-variavel-pneu" component={AuditoriaDePneu} />
+      <Route path="/custo-variavel-consumo" component={AuditoriaDeConsumo} />
       {/*
         Velocidade Média sai de `TELAS_EM_PREPARO` e é a segunda de custo
         variável, no mesmo grão da primeira: o trecho.
