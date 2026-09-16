@@ -1,4 +1,4 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import type { Database } from "./index";
 import {
   attributeSemanticsTable,
@@ -908,11 +908,77 @@ export async function aplicarConfirmacoesCanonicas(
   const divergentes: string[] = [];
   const incoerentes: string[] = [];
 
+  /*
+    As três leituras do laço, feitas uma vez para o registro inteiro.
+
+    Eram três consultas de uma linha **por entrada** — o atributo pelo código, o
+    significado pelo código, o nó da taxonomia pelo código —, e esta função roda
+    dentro da transação de toda promoção. Medido numa importação real: 60 idas
+    ao banco que não dependem do tamanho do arquivo, e que num banco a 25 ms de
+    distância são um segundo e meio de aprovação gasto perguntando, em série, o
+    que cabe em três perguntas. O registro é uma lista fixa e curta, então as
+    três respostas cabem inteiras na memória.
+
+    O que cada mapa devolve é o que o `SELECT` de antes devolvia, inclusive a
+    ausência: código que não está na base simplesmente não está no mapa.
+
+    A foto é tirada antes do laço, e o laço escreve — então um código repetido
+    no registro leria, na segunda vez, o atributo como ele era antes da
+    primeira. Hoje não há repetido; para que isso continue sendo verdade sem
+    depender de ninguém lembrar, o código já escrito é relido do banco em vez
+    de sair da foto.
+  */
+  const codigos = [...new Set(registry.map((e) => e.code))];
+  const atributoPorCodigo = new Map(
+    (codigos.length === 0
+      ? []
+      : await db.select().from(attributeTable).where(inArray(attributeTable.code, codigos))
+    ).map((a) => [a.code, a]),
+  );
+
+  const codigosDeSignificado = [
+    ...new Set(registry.map((e) => e.meaningCode).filter((c): c is string => !!c)),
+  ];
+  const significadoPorCodigo = new Map(
+    (codigosDeSignificado.length === 0
+      ? []
+      : await db
+          .select({ id: semanticMeaningTable.id, code: semanticMeaningTable.code })
+          .from(semanticMeaningTable)
+          .where(
+            and(
+              eq(semanticMeaningTable.scopeType, "GLOBAL"),
+              eq(semanticMeaningTable.scopeCode, "*"),
+              inArray(semanticMeaningTable.code, codigosDeSignificado),
+            ),
+          )
+    ).map((m) => [m.code, m.id]),
+  );
+
+  const codigosDeTaxonomia = [
+    ...new Set(registry.map((e) => e.taxonomyCode).filter((c): c is string => !!c)),
+  ];
+  const noPorCodigo = new Map(
+    (codigosDeTaxonomia.length === 0
+      ? []
+      : await db
+          .select({ id: taxonomyNodeTable.id, code: taxonomyNodeTable.code })
+          .from(taxonomyNodeTable)
+          .where(inArray(taxonomyNodeTable.code, codigosDeTaxonomia))
+    ).map((n) => [n.code, n.id]),
+  );
+
+  const jaEscritos = new Set<string>();
+
   for (const entry of registry) {
-    const [attribute] = await db
-      .select()
-      .from(attributeTable)
-      .where(eq(attributeTable.code, entry.code));
+    const attribute = jaEscritos.has(entry.code)
+      ? (
+          await db
+            .select()
+            .from(attributeTable)
+            .where(eq(attributeTable.code, entry.code))
+        )[0]
+      : atributoPorCodigo.get(entry.code);
 
     if (!attribute) {
       missing.push(entry.code);
@@ -940,27 +1006,15 @@ export async function aplicarConfirmacoesCanonicas(
     */
     let meaningId = attribute.meaningId;
     if (entry.meaningCode && podeCompletar(attribute.meaningId)) {
-      const [significado] = await db
-        .select({ id: semanticMeaningTable.id })
-        .from(semanticMeaningTable)
-        .where(
-          and(
-            eq(semanticMeaningTable.scopeType, "GLOBAL"),
-            eq(semanticMeaningTable.scopeCode, "*"),
-            eq(semanticMeaningTable.code, entry.meaningCode),
-          ),
-        );
-      if (significado) meaningId = significado.id;
+      const significado = significadoPorCodigo.get(entry.meaningCode);
+      if (significado) meaningId = significado;
     }
 
     let taxonomyNodeId = attribute.taxonomyNodeId;
     if (entry.taxonomyCode && podeCompletar(attribute.taxonomyNodeId)) {
-      const [node] = await db
-        .select({ id: taxonomyNodeTable.id })
-        .from(taxonomyNodeTable)
-        .where(eq(taxonomyNodeTable.code, entry.taxonomyCode));
       // Sem árvore semeada, o nó não existe ainda — ver o doc acima.
-      if (node) taxonomyNodeId = node.id;
+      const node = noPorCodigo.get(entry.taxonomyCode);
+      if (node) taxonomyNodeId = node;
     }
 
     const mesmaSemantica =
@@ -1046,6 +1100,7 @@ export async function aplicarConfirmacoesCanonicas(
       },
       autoria,
     );
+    jaEscritos.add(entry.code);
     applied.push(entry.code);
   }
 
