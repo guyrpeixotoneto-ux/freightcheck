@@ -5,6 +5,7 @@ import { Layout } from "@/components/layout/layout";
 import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import { AuditoriaDoQuadro } from "@/components/qlp-auditoria/auditoria";
 import { ComparacaoDoQuadro } from "@/components/qlp-comparacao/comparacao";
+import { SeletorDeQuadro } from "@/components/qlp/seletor-de-quadro";
 import { GRAO_DO_QUADRO } from "@workspace/comparison/qlp";
 import { cn } from "@/lib/utils";
 
@@ -103,6 +104,14 @@ export default function QlpOperacional() {
       />
 
       <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-4 px-4 pb-10 sm:px-8">
+        {/*
+          O seletor de população vem **antes** das abas de leitura, e a ordem é a
+          da pergunta: primeiro de quem é o quadro, depois o que se lê nele. Ver
+          `components/qlp/seletor-de-quadro.tsx` — a lateral tem um item só, e a
+          troca de quadro mora aqui.
+        */}
+        <SeletorDeQuadro quadro="OPERACIONAL" />
+
         <div className="flex flex-wrap items-center gap-x-5 gap-y-1 border-b" role="tablist">
           {ABAS.map((item) => {
             const q = new URLSearchParams(search);

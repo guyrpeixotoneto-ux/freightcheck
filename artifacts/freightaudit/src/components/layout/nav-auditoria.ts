@@ -3,7 +3,6 @@ import {
   BadgeCheck,
   Banknote,
   Bot,
-  Briefcase,
   BusFront,
   Calculator,
   CalendarCheck,
@@ -29,7 +28,6 @@ import {
   Gauge,
   Gift,
   GitCompareArrows,
-  HardHat,
   Headset,
   HeartPulse,
   History,
@@ -452,13 +450,13 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
         **São quatro módulos, e todos são do ativo**: Finame — o principal do
         financiamento —, IPVA, Lucro Fixo e Impostos.
 
-        **As duas telas de gente moraram aqui, e foram para Equipe.** QLP
-        Operacional e QLP Administrativo entraram nesta seção quando o critério
-        foi a conta: quadro de pessoal é custo que se paga esteja o equipamento
-        parado ou não, exatamente como as quatro acima. O critério agora é a
-        população. Equipe reúne tudo o que se lê sobre gente — o quadro inteiro
-        e a rubrica por assunto —, e quem procura o quadro de lotação procura
-        por gente, não pela rubrica fixa ao lado do Finame e do IPVA.
+        **O quadro de pessoal morou aqui, e foi para Equipe.** QLP Operacional e
+        QLP Administrativo entraram nesta seção quando o critério foi a conta:
+        quadro de pessoal é custo que se paga esteja o equipamento parado ou
+        não, exatamente como as quatro acima. O critério agora é a população.
+        Equipe reúne tudo o que se lê sobre gente — o quadro inteiro e a rubrica
+        por assunto —, e quem procura o quadro de lotação procura por gente, não
+        pela rubrica fixa ao lado do Finame e do IPVA.
 
         **Uma consequência a registrar**: enquanto estiveram aqui, as duas
         telas responderam em Permissões à chave desta seção, e agora respondem
@@ -466,7 +464,7 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
         continua sem as quatro rubricas do ativo e volta a enxergar o quadro de
         pessoal. As chaves **por item** (`/qlp-operacional`,
         `/qlp-administrativo`) continuam valendo, porque são o `href`, e o
-        `href` não mudou.
+        `href` não mudou — nem quando as duas viraram um item só, abaixo.
 
         **O Monitor Custo Fixo abre a seção, e é a única tela dela que não é uma
         auditoria.** As quatro abaixo são especializadas: cada uma desce a fundo
@@ -476,8 +474,8 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
         a auditoria de origem assim que a resposta exige profundidade. Quem abre
         o dia começa nele; quem investiga um número termina numa das quatro.
 
-        Ele consolida **as quatro**, e nunca consolidou as duas de gente — nem
-        no tempo em que elas eram linhas desta seção: QLP Operacional e
+        Ele consolida **as quatro**, e nunca consolidou o quadro de gente — nem
+        no tempo em que ele era linha desta seção: QLP Operacional e
         Administrativo conferem a aritmética dentro de uma vigência, não
         comparam duas, e o quadro de pessoal chega sem semântica confirmada — no
         Monitor eles seriam linhas sem valoração, que é ruído e não vigilância.
@@ -508,19 +506,33 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
         EQUIPE — gente. Tudo o que se lê sobre o quadro de pessoal mora aqui, e
         se lê em duas alturas.
 
-        **Primeiro por quadro**: QLP Operacional e QLP Administrativo, cada uma
-        com a população inteira de uma das duas alturas em que o Freightech
-        publica o quadro de lotação. As duas moraram em Custo Fixo, porque
-        quadro de pessoal é custo que se paga esteja o equipamento parado ou
-        não — e vieram para cá porque quem as procura procura por **gente**, e
-        não pela rubrica fixa ao lado do Finame e do IPVA. Estar junto dos
-        módulos por assunto é o que faz a seção responder o quadro inteiro e o
-        detalhe dele sem trocar de cartão.
+        **Primeiro por quadro**: QLP — um item só, e dentro dele as duas
+        populações em que o Freightech publica o quadro de lotação, Operacional
+        e Administrativo. Eram **dois itens** aqui, um embaixo do outro, e
+        viraram um: são a mesma leitura sobre recortes diferentes, e quem lê o
+        quadro trocava de população voltando ao menu. A troca desceu para onde
+        ela é feita, que é com o quadro aberto na frente
+        (`components/qlp/seletor-de-quadro.tsx`), e o menu ficou com a altura da
+        pergunta — *quero ver o quadro de pessoal*.
+
+        **As duas rotas continuam sendo duas**: `/qlp-operacional` e
+        `/qlp-administrativo`. Uni-las num endereço só apagaria a chave por item
+        de quem tivesse desligado uma das populações em Permissões e quebraria
+        todo link salvo — preço alto para uma mudança que é de menu, e não de
+        conteúdo. O item aponta para o operacional e acende também no
+        administrativo, pelo `tambemAceso` (`nav.ts`): sem isso a lateral se
+        apagaria justamente enquanto o usuário está dentro dela.
+
+        O quadro morou em Custo Fixo, porque quadro de pessoal é custo que se
+        paga esteja o equipamento parado ou não — e veio para cá porque quem o
+        procura procura por **gente**, e não pela rubrica fixa ao lado do Finame
+        e do IPVA. Estar junto dos módulos por assunto é o que faz a seção
+        responder o quadro inteiro e o detalhe dele sem trocar de cartão.
 
         **Depois por assunto**: os módulos — o que mudou no vale-transporte, o
         que mudou no plano de saúde —, o mesmo assunto nas duas populações,
-        lado a lado. É a pergunta que nenhuma das duas telas de quadro
-        responde, porque cada uma delas é de uma população só.
+        lado a lado. É a pergunta que nenhuma das duas abas do quadro responde,
+        porque cada uma delas é de uma população só.
 
         **Os itens do segundo bloco saem do catálogo, não desta lista.**
         `modulosDoQlp()` (`@workspace/comparison/qlp-comparacao`) deriva um
@@ -555,8 +567,12 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
       icon: Users,
       cor: "text-nav-custo-fixo",
       itens: [
-        { href: "/qlp-operacional", label: "QLP Operacional", icon: HardHat },
-        { href: "/qlp-administrativo", label: "QLP Administrativo", icon: Briefcase },
+        {
+          href: "/qlp-operacional",
+          label: "QLP",
+          icon: ClipboardList,
+          tambemAceso: ["/qlp-administrativo"],
+        },
         ...modulosDoQlp().map((modulo) => ({
           href: `/qlp/${modulo.chave}`,
           label: ROTULO_DO_MODULO[modulo.chave] ?? modulo.chave.replace(/_/g, " "),

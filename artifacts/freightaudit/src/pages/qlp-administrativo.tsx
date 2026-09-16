@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
 import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
+import { SeletorDeQuadro } from "@/components/qlp/seletor-de-quadro";
 import { ApiErrorNotice } from "@/components/api-error";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -237,6 +238,15 @@ export default function QlpAdministrativo() {
           ) : undefined
         }
         rodape={
+          <div className="flex flex-col gap-3">
+          {/*
+            O seletor de população vem **antes** das abas de leitura, e a ordem é
+            a da pergunta: primeiro de quem é o quadro, depois o que se lê nele.
+            Ver `components/qlp/seletor-de-quadro.tsx` — a lateral tem um item
+            só, e a troca de quadro mora aqui.
+          */}
+          <SeletorDeQuadro quadro="ADMINISTRATIVO" />
+
           <nav className="flex items-end gap-1 border-b [&>button]:-mb-px" aria-label="Leituras do quadro">
           {ABAS.map((item) => (
             <button
@@ -259,6 +269,7 @@ export default function QlpAdministrativo() {
             </button>
           ))}
           </nav>
+          </div>
         }
       />
 

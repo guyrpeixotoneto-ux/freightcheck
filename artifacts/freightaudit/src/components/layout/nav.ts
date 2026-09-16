@@ -20,6 +20,21 @@ export interface NavItem {
   icon: LucideIcon;
   /** O número à direita, quando há um para mostrar. */
   contador?: "alteracoes" | "importacoes" | "curadoria";
+  /**
+   * Outras rotas que acendem **este** item.
+   *
+   * Existe para o caso em que um item de menu abre um módulo com mais de uma
+   * rota dentro — hoje, o QLP: a lateral tem um item só, e as duas populações
+   * (`/qlp-operacional` e `/qlp-administrativo`) são abas trocadas dentro da
+   * tela, cada uma na rota que sempre teve. Sem isto, abrir a aba
+   * Administrativo apagaria o item do menu, e a lateral diria que o usuário
+   * está fora do QLP justamente enquanto ele o lê.
+   *
+   * Não é atalho para agrupar telas parecidas: são rotas do mesmo item, e o
+   * `href` continua sendo a chave por item em Permissões (`lib/permissoes.ts`)
+   * e o endereço que o clique abre.
+   */
+  tambemAceso?: string[];
 }
 
 export interface NavGroup {
