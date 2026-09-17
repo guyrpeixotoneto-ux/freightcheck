@@ -125,6 +125,30 @@ export const TELAS_QUE_HONRAM_ESCOPO = new Set<string>([
   "/justificativas",
   "/painel-de-justificativas",
   /*
+    As Importações. O histórico listava os envios de **todas** as unidades
+    enquanto a caixa "Unidade atual" nomeava uma — o desencontro da Cobertura de
+    dados outra vez, e o que o torna urgente é o acervo crescer: com a segunda
+    unidade importada, dois cartões idênticos na lista passam a ser de operações
+    diferentes, e nada na tela diz qual é qual.
+
+    Ela cumpre a promessa por onde pode cumpri-la: cada importação carrega as
+    unidades das vigências que promoveu (`unidades`, em
+    `lib/ingest/src/history.ts`, lido de `snapshot_scope`), e a tela recorta o
+    histórico por elas — inclusive as contagens ao lado de cada aba, que contam
+    o que o clique abre. A importação que ainda não promoveu aparece em todas as
+    unidades, pela mesma razão que a faz aparecer em todas as operações: até a
+    aprovação não há de quem ela seja, e escondê-la faria quem acabou de enviar
+    o arquivo achar que o envio se perdeu.
+
+    **A unidade não virou aba, e é deliberado.** As duas fileiras da tela são
+    declaração — enviar por elas diz o que o arquivo traz, e a importação
+    confere a declaração contra o conteúdo —, e a unidade não se declara: ela
+    nasce do conteúdo, e um export consolidado traz várias. Uma aba por unidade
+    poria o mesmo arquivo em cinco abas ao mesmo tempo. Recorte é o lugar certo
+    dela, e é este.
+  */
+  "/importacoes",
+  /*
     O Monitoramento de Chamados. Ele entra pela mesma porta das duas de cima e
     pela mesma reclamação, dita de novo: "eu mudo de PERNAMBUCO para CAMAÇARI e
     muda o módulo, mas eu quero ver justamente os chamados que importei de
@@ -337,6 +361,13 @@ export const TELAS_QUE_HONRAM_VISAO_GERAL = new Set<string>([
   DASHBOARD,
   GESTAO_A_VISTA,
   "/parametros",
+  /*
+    As Importações, pela mesma porta da Cobertura logo abaixo: "todas as
+    unidades" aqui não é tela nova nem conta nova — é a mesma lista sem o
+    recorte, que é exatamente o que ela mostrava antes de passar a honrar
+    escopo. Estar aqui é ler `visaoGeral=1` de verdade, e é o que ela faz.
+  */
+  "/importacoes",
   /*
     A Cobertura de dados entra pelas duas portas, e aqui pelo motivo que esta
     lista exige: a soma de todas as unidades é o que `visaoDaCobertura` já

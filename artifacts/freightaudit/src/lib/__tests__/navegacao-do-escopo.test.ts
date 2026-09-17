@@ -73,8 +73,21 @@ describe("escolher uma unidade", () => {
     expect(consulta(destino)).toEqual({ scopeHash: "scope-x" });
   });
 
+  /*
+    O exemplo era `/importacoes`, e deixou de servir no commit em que ela passou
+    a ler o par: estar naquela lista é uma promessa, e trocar o exemplo aqui é o
+    preço de a promessa ter sido cumprida. O detalhe de um ativo continua fora
+    dela pelo motivo escrito lá — o ativo do endereço é de outra unidade, e
+    preservar o caminho levaria a um 404 ou a uma ficha errada.
+  */
   it("desvia para Parâmetros nas telas que não sabem ler o escopo", () => {
-    expect(tela(enderecoDe(CAMACARI, "/importacoes", ""))).toBe("/parametros");
+    expect(tela(enderecoDe(CAMACARI, "/composicao/abc-123", ""))).toBe(
+      "/parametros",
+    );
+  });
+
+  it("Importações lê o par, então trocar de unidade nela não troca de tela", () => {
+    expect(tela(enderecoDe(CAMACARI, "/importacoes", ""))).toBe("/importacoes");
   });
 
   /*
@@ -376,9 +389,20 @@ describe("clicar num item do menu", () => {
     endereço que ninguém lá lê é o filtro prometido e não aplicado.
   */
   it("não escreve escopo nas telas que não sabem lê-lo", () => {
-    expect(enderecoDoMenu("/importacoes", "/parametros", COM_CAMACARI)).toBe(
-      "/importacoes",
+    expect(enderecoDoMenu("/composicao/abc-123", "/parametros", COM_CAMACARI)).toBe(
+      "/composicao/abc-123",
     );
+  });
+
+  /* E leva, agora que Importações lê o par — o menu não tira a unidade aberta. */
+  it("leva a unidade aberta para as Importações", () => {
+    const destino = enderecoDoMenu("/importacoes", "/parametros", COM_CAMACARI);
+
+    expect(tela(destino)).toBe("/importacoes");
+    expect(consulta(destino)).toEqual({
+      scopeHash: "scope-camacari",
+      canal: "EMPURRADA",
+    });
   });
 
   /* Sem unidade no endereço não há o que levar — a tela abre como sempre abriu. */

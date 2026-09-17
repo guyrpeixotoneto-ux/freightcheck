@@ -121,6 +121,33 @@ export interface ImportRunSummary {
    * Sai de `source_file`, não da lista da tela: o detalhe de uma importação
    * precisa saber que não está sozinho mesmo carregando um run só.
    */
+  /**
+   * De que unidade(s) é esta importação — o escopo `UNIDADE` das vigências que
+   * ela promoveu, sem repetição.
+   *
+   * **É lista, e não um campo só, porque o arquivo é que manda.** O export
+   * consolidado da Ambev traz cinco unidades na mesma aba (ver
+   * `__tests__/multi-unidade.test.ts`), e a promoção abre um snapshot por
+   * unidade a partir dele: uma importação dessas é de cinco, e dizer "de uma"
+   * seria escolher a que ordenasse primeiro e calar as outras quatro — que foi
+   * exatamente o defeito que aquele arquivo de teste encerrou, um nível abaixo.
+   *
+   * Por isso também é que a unidade **não** é aba desta tela nem declaração do
+   * envio: ela nasce do conteúdo (`REQUIRED_SCOPE_TYPES`, em
+   * `canonical-identity.ts`), a importação não a escolhe, e um recorte que a
+   * tratasse como partição poria a mesma importação em cinco abas ao mesmo
+   * tempo. Aqui ela é o que é — procedência, lida da vigência que entrou.
+   *
+   * `code` é o CNPJ como a planilha o escreveu e `name` o nome ao lado dele,
+   * os dois vindos da mesma linha de `scope` que `/contexts` lê — é o que
+   * permite casar esta lista com a unidade aberta na lateral por código, e não
+   * por grafia (`CAMAÇARI`, `Camaçari`, `camacari ` são a mesma unidade e três
+   * palavras diferentes; ver `normalizarUnidade`, em `@workspace/comparison`).
+   *
+   * Vazia na importação que ainda não promoveu nada, e nesse caso é a resposta
+   * honesta: enquanto não há vigência, não há unidade de que ela seja.
+   */
+  unidades: { code: string; name: string | null }[];
   leiturasDoArquivo: number;
   /**
    * Quando não-nulo, este run está oculto: fora do dashboard, do comparativo,
@@ -226,6 +253,33 @@ function selectRunSummary(db: Database) {
              ORDER BY r.started_at
           ),
           '{}'
+        )`,
+      /*
+        As unidades saem de `snapshot_scope`, que é onde a promoção as gravou —
+        e não de `canonical_scope`, que guarda o código já normalizado (CNPJ só
+        com dígitos) e não guarda o nome. O cartão precisa escrever CAMAÇARI, e
+        o recorte precisa comparar o mesmo código que `/contexts` devolve: os
+        dois saem desta linha de `scope`, que é uma só por (tipo, código).
+
+        Um `array()` correlacionado, como os campos acima, e pela mesma razão:
+        um JOIN multiplicaria a linha do cartão por unidade, e o consolidado de
+        cinco unidades viraria cinco importações na lista.
+      */
+      unidades: sql<{ code: string; name: string | null }[]>`
+        coalesce(
+          (SELECT jsonb_agg(
+                    jsonb_build_object('code', u.code, 'name', u.name)
+                    ORDER BY coalesce(u.name, u.code) COLLATE "C", u.code COLLATE "C"
+                  )
+             FROM (
+               SELECT DISTINCT sc.code, sc.name
+                 FROM snapshot s
+                 JOIN snapshot_scope ss ON ss.snapshot_id = s.id
+                 JOIN scope sc ON sc.id = ss.scope_id
+                WHERE s.import_run_id = ${importRunTable.id}
+                  AND sc.scope_type = 'UNIDADE'
+             ) u),
+          '[]'::jsonb
         )`,
       leiturasDoArquivo: sql<number>`
         (SELECT count(*)::int FROM import_run r

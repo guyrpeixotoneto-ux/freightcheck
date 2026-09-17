@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   acervoDaImportacao,
+  importacaoDaUnidade,
   tiposHerdados,
   tiposVindosDoArquivo,
   type TiposDaImportacao,
+  vigenciasDoCartao,
+  type UnidadeDaImportacao,
 } from "../importacoes";
 import {
   DATASET_FAMILY_FINANCIAMENTO_REAL,
@@ -144,5 +147,68 @@ describe("o acervo é da família declarada, não do tipo", () => {
     // Quase toda a base está assim, e não é palpite: quando essas importações
     // entraram não havia o que declarar.
     expect(acervoDaImportacao({ declaredFamily: null })).toBe("REMUNERADO");
+  });
+});
+
+/**
+ * O RECORTE POR UNIDADE — o eixo que **não** é aba.
+ *
+ * A pergunta que originou isto: "não seria melhor uma aba por unidade?". A
+ * resposta está nos dois primeiros casos abaixo. A unidade não é declaração
+ * (as abas são), e uma importação pode ser de várias ao mesmo tempo — o export
+ * consolidado da Ambev é o caso real. Como aba, ela poria o mesmo arquivo em
+ * cinco lugares e faria as contagens deixarem de somar; como recorte, ela é o
+ * que sempre foi: de onde veio o que entrou.
+ */
+const CAMACARI = "07.526.557/0015-05";
+const MANAUS = "03.134.910/0002-36";
+
+const comUnidades = (...codes: string[]): { unidades: UnidadeDaImportacao[] } => ({
+  unidades: codes.map((code) => ({ code, name: null })),
+});
+
+describe("o recorte por unidade", () => {
+  it("o consolidado de duas unidades entra no recorte das duas", () => {
+    const consolidado = comUnidades(CAMACARI, MANAUS);
+
+    expect(importacaoDaUnidade(consolidado, CAMACARI)).toBe(true);
+    expect(importacaoDaUnidade(consolidado, MANAUS)).toBe(true);
+  });
+
+  it("o arquivo de uma unidade fica fora do recorte da outra", () => {
+    expect(importacaoDaUnidade(comUnidades(CAMACARI), MANAUS)).toBe(false);
+  });
+
+  it("a importação que ainda não promoveu aparece em todas as unidades", () => {
+    // Enquanto o rótulo não virou vigência não há de quem ela seja, e escondê-la
+    // faria quem acabou de enviar o arquivo achar que o envio se perdeu.
+    expect(importacaoDaUnidade(comUnidades(), CAMACARI)).toBe(true);
+  });
+
+  it("sem unidade aberta não há recorte — a visão geral mostra tudo", () => {
+    expect(importacaoDaUnidade(comUnidades(CAMACARI), null)).toBe(true);
+    expect(importacaoDaUnidade(comUnidades(), null)).toBe(true);
+  });
+
+  it("o espaço em volta do código não separa uma unidade de si mesma", () => {
+    expect(importacaoDaUnidade(comUnidades(` ${CAMACARI} `), CAMACARI)).toBe(true);
+  });
+});
+
+describe("as vigências no cartão", () => {
+  it("o consolidado agrupa o rótulo repetido, e diz quantas vezes", () => {
+    // Uma vigência por unidade, as duas chamadas pela mesma quinzena.
+    expect(vigenciasDoCartao(["EMPURRADA_1_8_2044", "EMPURRADA_1_8_2044"])).toEqual([
+      { label: "EMPURRADA_1_8_2044", vezes: 2 },
+    ]);
+  });
+
+  it("rótulos distintos ficam como estão, na ordem em que chegaram", () => {
+    expect(
+      vigenciasDoCartao(["EMPURRADA_2_12_2025", "EMPURRADA_1_1_2026"]),
+    ).toEqual([
+      { label: "EMPURRADA_2_12_2025", vezes: 1 },
+      { label: "EMPURRADA_1_1_2026", vezes: 1 },
+    ]);
   });
 });
