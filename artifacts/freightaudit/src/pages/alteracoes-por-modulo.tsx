@@ -11,6 +11,7 @@ import {
   vigenciasDaUnidade,
   vigenciasQueCobrem,
 } from "@workspace/comparison/recorte-de-rubrica";
+import { rotuloDaVigencia } from "@workspace/comparison/labels";
 import { TIPO_DO_CONSUMO } from "@workspace/comparison/consumo";
 import { TIPO_DO_QUADRO } from "@workspace/comparison/qlp";
 import { Layout } from "@/components/layout/layout";
@@ -20,6 +21,8 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Superficie } from "@/components/ui/superficie";
 import { SeletorDoPar, type VigenciaEscolhivel } from "@/components/comparacao/seletor-do-par";
 import { CatalogoDeAlteracoes } from "@/components/alteracoes-por-modulo/catalogo";
+import { SeletorMestre } from "@/components/alteracoes-por-modulo/seletor-mestre";
+import { fraseSemPar } from "@/lib/par-de-vigencias";
 import { fetchJson } from "@/lib/api";
 import { lerRecorte } from "@/lib/recorte";
 import { contextoAberto, unidadeDe, useContextosDaCasca } from "@/lib/contextos";
@@ -30,6 +33,16 @@ import {
   lerPares,
   type ParesDoCatalogo,
 } from "@/lib/alteracoes-por-modulo";
+import {
+  aplicarMestre,
+  datasDoAcervo,
+  inverterMestre,
+  mestreDePartida,
+  mestreDosPares,
+  reancorarMestre,
+  situacaoDasCoberturas,
+  type ParMestre,
+} from "@/lib/seletor-mestre";
 
 /**
  * ALTERAÇÕES POR MÓDULO — o catálogo inteiro do produto, numa tela.
@@ -48,18 +61,34 @@ import {
  * clique, **com o par junto** — ver `enderecoDoCartao`.
  *
  * ---------------------------------------------------------------------------
- * Quatro seletores, porque são quatro coberturas
+ * Um seletor à frente de quatro
  * ---------------------------------------------------------------------------
  * O motor recusa um par entre coberturas diferentes, e esta leitura atravessa
- * quatro delas: equipamento, trecho e os dois quadros do QLP. Um seletor só
+ * quatro delas: equipamento, trecho e os dois quadros do QLP. Um seletor **só**
  * ofereceria, numa lista, vigências que não formam par entre si — a recusa do
  * motor chegando depois do clique, que é o defeito que o Monitor Equipe já
- * evitava com uma aba por quadro.
+ * evitava com uma aba por quadro. Por isso os quatro seletores continuam
+ * existindo, e continuam sendo a única coisa que escreve par no endereço.
  *
- * Aqui não há abas: as três famílias se leem na mesma sentada, que é o ponto da
- * tela. Então os seletores ficam juntos no topo, um por cobertura, e cada cartão
- * diz no pé contra que par **ele** foi apurado. A cobertura sem vigência
- * importada não ganha seletor — e os cartões dela dizem por quê.
+ * O que eles deixaram de ser é o gesto normal. Empilhados no topo, eles pediam
+ * quatro vezes a pergunta que esta tela faz uma vez — *o que mudou desde a
+ * última vigência?* — e, por `parDePartida` rodar uma vez por lista, abriam em
+ * quatro pares **diferentes**, sem nada em tela dizendo por que diferem. No
+ * celular isso empurrava o primeiro cartão do catálogo para fora da primeira
+ * tela, que é o conteúdo.
+ *
+ * Em cima fica o par mestre (`lib/seletor-mestre.ts`): uma escolha só, aplicada
+ * a toda cobertura que a aceita — casada por **data**, porque equipamento e
+ * trecho vêm de `/snapshots` e os dois quadros de outra consulta, com outros
+ * ids nas mesmas quinzenas. A cobertura que não forma o par do mestre fica com
+ * o par dela e é **nomeada** ali mesmo; os quatro seletores esperam na gaveta
+ * "Ajustar por cobertura". E cada cartão continua dizendo no pé contra que par
+ * **ele** foi apurado, que é o que torna a divergência legível no catálogo.
+ *
+ * O mestre não é um quinto estado: ele é lido dos quatro pares e escrito de
+ * volta neles. O endereço continua sendo `baseEquipamento`, `comparadaTrecho` e
+ * os outros seis, e um link antigo com quatro pares divergentes abre
+ * exatamente como abria — com a tela dizendo quais divergem.
  *
  * ---------------------------------------------------------------------------
  * Nenhuma conta mora neste arquivo
@@ -149,25 +178,62 @@ export default function AlteracoesPorModulo() {
     sobreviver: as duas listas chegam depois da primeira renderização, e sem ela
     o efeito rodaria contra listas vazias e limparia as pontas de um link que as
     nomeava. É a mesma reconciliação do Monitor Equipe, agora quatro vezes.
+
+    O passo novo é o último, e só acontece para quem chega **sem par nenhum no
+    endereço** — pelo menu, por um favorito: as quatro coberturas são alinhadas
+    no par que serve a mais delas (`mestreDePartida`). Era exatamente aqui que a
+    tela abria em quatro pares diferentes, cada `parDePartida` decidindo sozinho
+    contra a lista dele. Quem chega por um link que nomeia par não passa por
+    isso: o endereço é a escolha de alguém, e alinhar por cima dela seria
+    reescrever o que o link dizia.
   */
   useEffect(() => {
     if (!daFrota.data || !doQuadro.data || !unidadeResolvida) return;
-    const proximos = { ...pares };
-    let mudou = false;
+    const doEndereco = COBERTURAS.some((c) => pares[c].base || pares[c].comparada);
+    let proximos = { ...pares };
     for (const cobertura of COBERTURAS) {
       const lista = listas[cobertura];
       if (lista.length === 0) continue;
-      const par = parReconciliado(lista, pares[cobertura]);
-      if (
-        par.base !== pares[cobertura].base ||
-        par.comparada !== pares[cobertura].comparada
-      ) {
-        proximos[cobertura] = par;
-        mudou = true;
-      }
+      proximos[cobertura] = parReconciliado(lista, pares[cobertura]);
     }
+    if (!doEndereco) proximos = aplicarMestre(mestreDePartida(listas), listas, proximos);
+    const mudou = COBERTURAS.some(
+      (c) =>
+        proximos[c].base !== pares[c].base ||
+        proximos[c].comparada !== pares[c].comparada,
+    );
     if (mudou) aplicar(proximos);
   }, [daFrota.data, doQuadro.data, unidadeResolvida, listas, search]);
+
+  /*
+    O mestre, lido dos quatro pares — e não guardado ao lado deles.
+
+    Ele é derivado de propósito: com uma cópia própria, um link que nomeia
+    quatro pares abriria com o mestre dizendo um par que nenhum cartão usou, e
+    haveria dois estados para manter de acordo. Lido, ele não pode divergir do
+    que está em tela.
+  */
+  const datas = useMemo(() => datasDoAcervo(listas), [listas]);
+  const rotuloDaData = (data: string) => rotuloDaVigencia(data, datas);
+  const mestre = useMemo(() => mestreDosPares(pares, listas), [pares, listas]);
+  const situacoes = useMemo(
+    () => situacaoDasCoberturas(mestre, pares, listas),
+    [mestre, pares, listas],
+  );
+
+  /*
+    Mexer no mestre: reancorar, aplicar, escrever no endereço.
+
+    `reancorarMestre` é o mesmo cuidado que o `SeletorDoPar` tem um nível
+    abaixo — a ponta que a escolha invalidou vai para a mais próxima que ainda
+    serve a alguma cobertura, em vez de deixar em tela um par que não aplica
+    nada. `aplicarMestre` só escreve onde o motor aceita; o resto fica como
+    está, e a frase do painel diz quem ficou.
+  */
+  const trocarMestre = (proposto: ParMestre, ancora: "de" | "para") => {
+    const novo = reancorarMestre(proposto, listas, ancora);
+    aplicar(aplicarMestre(novo, listas, pares));
+  };
 
   const consulta = useQuery({
     queryKey: ["alteracoes-por-modulo", pares, recorte.scopeHash, recorte.canal],
@@ -204,20 +270,56 @@ export default function AlteracoesPorModulo() {
           <div>
             <h2 className="text-sm font-semibold">Vigências comparadas</h2>
             <p className="text-xs text-muted-foreground">
-              Um par por cobertura do acervo: o motor não compara vigências de
-              coberturas diferentes, e cada cartão diz contra qual par ele foi
-              apurado.
+              Um par, aplicado a toda cobertura que o aceita — o motor não compara
+              vigências de coberturas diferentes, e cada cartão diz contra qual par
+              ele foi apurado.
             </p>
           </div>
 
-          <div className="grid gap-4 xl:grid-cols-2">
-            {COBERTURAS.map((cobertura) => {
+          <SeletorMestre
+            datas={datas}
+            rotuloDaData={rotuloDaData}
+            mestre={mestre}
+            situacoes={situacoes}
+            rotulos={rotulos}
+            onDe={(de) => trocarMestre({ ...mestre, de }, "de")}
+            onPara={(para) => trocarMestre({ ...mestre, para }, "para")}
+            onInverter={() => aplicar(aplicarMestre(inverterMestre(mestre), listas, pares))}
+            carregando={carregandoVigencias}
+          >
+            {/*
+              A gaveta mostra as quatro coberturas, inclusive as que não formam
+              par. Elas sumiam da tela quando a lista vinha vazia, e sumir é a
+              pior resposta possível para "e o quadro administrativo?": a linha
+              morta diz o motivo, que o domínio já sabe (`motivoSemPar`).
+            */}
+            {situacoes.map((situacao) => {
+              const cobertura = situacao.cobertura;
               const lista = listas[cobertura];
-              if (lista.length === 0 && !carregandoVigencias) return null;
+              if (situacao.estado === "SEM_PAR" && !carregandoVigencias) {
+                return (
+                  <div
+                    key={cobertura}
+                    className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-dashed px-3 py-2.5"
+                  >
+                    <span className="text-xs font-semibold text-muted-foreground">
+                      {ROTULO_DA_COBERTURA[cobertura]}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {situacao.motivo ? fraseSemPar(situacao.motivo) : "sem par"}
+                    </span>
+                  </div>
+                );
+              }
               return (
                 <div key={cobertura} className="flex flex-col gap-2">
-                  <h3 className="text-xs font-semibold text-muted-foreground">
+                  <h3 className="flex items-center gap-2 text-xs font-semibold text-muted-foreground">
                     {ROTULO_DA_COBERTURA[cobertura]}
+                    {situacao.estado === "PROPRIO" && (
+                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[0.65rem] font-semibold text-amber-900 dark:bg-amber-950/60 dark:text-amber-200">
+                        par próprio
+                      </span>
+                    )}
                   </h3>
                   <SeletorDoPar
                     vigencias={lista}
@@ -251,7 +353,7 @@ export default function AlteracoesPorModulo() {
                 </div>
               );
             })}
-          </div>
+          </SeletorMestre>
         </Superficie>
 
         {consulta.isLoading && (
