@@ -604,6 +604,153 @@ function classificar(
 }
 
 // ---------------------------------------------------------------------------
+// Dobra 2 — o que puxou a janela
+// ---------------------------------------------------------------------------
+
+/**
+ * O que vem puxando o resultado ao longo da janela do gráfico.
+ *
+ * **A pergunta é outra, e é a diferença que justifica o cartão.** "Onde o
+ * dinheiro se mexeu" (dobra 3) responde pela **competência aberta**; isto
+ * responde pelas **últimas vigências** — quem empurra o resultado ao longo do
+ * tempo, e se foi um solavanco de uma vigência só ou uma pressão que volta toda
+ * quinzena. As duas leituras discordarem é o normal: o parâmetro que dominou
+ * esta competência pode ser estreante, e o que sangra há seis vigências pode
+ * não ter se mexido nesta.
+ *
+ * **O dado já estava na resposta do gráfico.** `Movimentos.byParameter`
+ * (`/changes/range`) soma cada parâmetro ao longo do intervalo, e o campo que
+ * torna a leitura interessante é `periods`: em quantas das vigências da janela
+ * aquele parâmetro se mexeu. Nenhuma requisição nova — ver
+ * `lib/serie-de-impacto.ts`, que passou a devolver a resposta crua por isso.
+ *
+ * **Só na leitura de unidade.** `/changes/range/overview` soma unidade a
+ * unidade e por isso não tem rollup de parâmetro para oferecer — é a mesma
+ * assimetria do mapa, e aqui ela vira ausência declarada: sem janela, a página
+ * não desenha o cartão.
+ */
+export interface JanelaDoImpacto {
+  /** "julho/2026 · 2ªq → agosto/2026 · 1ªq" — o intervalo, escrito. */
+  rotulo: string;
+  /** Quantas vigências a janela cobre — o denominador do "em N de". */
+  vigencias: number;
+  /** A periodicidade em que a janela foi lida. `null` quando não há líquido. */
+  periodicity: string | null;
+  linhas: LinhaDoRanking[];
+}
+
+/**
+ * A janela em linhas — a mesma forma das outras listas da tela.
+ *
+ * Ordena pelo **módulo do líquido da janela**, que é o que o gráfico ao lado
+ * desenha. Parâmetro sem líquido apurado na periodicidade lida não entra: ele
+ * não é um parâmetro de R$ 0 na janela, é um parâmetro que a janela não sabe
+ * valorar — e a contagem dele já está no "sem impacto calculável" da manchete.
+ */
+export function janelaDoImpacto(
+  movimentos: MovimentosDaJanela | null,
+  /** A periodicidade da manchete — a mesma régua do resto da tela. */
+  periodicidade: string | null,
+  limite: number,
+): JanelaDoImpacto | null {
+  if (movimentos === null) return null;
+
+  /*
+    A periodicidade da manchete quando ela existe; a dominante da janela quando
+    não. Uma vigência sem valor apurado ainda pode ter janela com valor — e ler
+    a janela numa grandeza e o gráfico noutra seria a divergência calada que
+    este módulo existe para não ter, então quem manda é a mesma escolha que o
+    gráfico faz.
+  */
+  const balde =
+    periodicidade !== null && movimentos.impact.byPeriodicity[periodicidade] !== undefined
+      ? periodicidade
+      : (Object.entries(movimentos.impact.byPeriodicity).sort(
+          (a, b) => Math.abs(b[1]) - Math.abs(a[1]),
+        )[0]?.[0] ?? null);
+
+  const vigencias = movimentos.periods.filter(
+    (p) => p.date >= movimentos.from && p.date <= movimentos.to,
+  ).length;
+
+  const rotulo = `${movimentos.fromLabel} → ${movimentos.toLabel}`;
+
+  if (balde === null) {
+    return { rotulo, vigencias, periodicity: null, linhas: [] };
+  }
+
+  const comValor = (movimentos.byParameter ?? []).filter(
+    (p) => p.impact.byPeriodicity[balde] !== undefined && p.impact.byPeriodicity[balde] !== 0,
+  );
+
+  const ordenados = [...comValor]
+    .sort(
+      (a, b) =>
+        Math.abs(b.impact.byPeriodicity[balde]!) - Math.abs(a.impact.byPeriodicity[balde]!),
+    )
+    .slice(0, limite);
+
+  const teto = ordenados.reduce(
+    (maior, p) => Math.max(maior, Math.abs(p.impact.byPeriodicity[balde]!)),
+    0,
+  );
+
+  return {
+    rotulo,
+    vigencias,
+    periodicity: balde,
+    linhas: ordenados.map((p) => {
+      const valor = p.impact.byPeriodicity[balde]!;
+      return {
+        chave: p.parameterKey,
+        nome: p.parameterName,
+        /*
+          "em N de M vigências" é o que esta lista tem e as outras não: ele
+          separa o solavanco de uma quinzena da pressão que volta sempre, que é
+          a razão de o cartão existir.
+        */
+        contexto: [
+          p.familyName,
+          `em ${p.periods.toLocaleString("pt-BR")} de ${vigencias.toLocaleString("pt-BR")} ${vigencias === 1 ? "vigência" : "vigências"}`,
+          `${p.changes.toLocaleString("pt-BR")} ${p.changes === 1 ? "alteração" : "alterações"}`,
+        ].join(" · "),
+        classificacao: valor < 0 ? "perda" : "ganho",
+        valor,
+        /* O número de cima **é** o líquido da janela: não há parcela a pôr
+           embaixo, e repeti-lo diria duas vezes o mesmo. */
+        liquido: null,
+        proporcao: teto === 0 ? 0 : Math.abs(valor) / teto,
+      };
+    }),
+  };
+}
+
+/**
+ * O que esta leitura precisa de `/changes/range` — e nada além.
+ *
+ * Tipar pelo mínimo, e não por `Movimentos` inteiro, é o que mantém a função
+ * testável com um objeto de seis campos em vez de uma resposta de servidor
+ * inteira, e o que impede este módulo de passar a depender, sem querer, de um
+ * campo que a Visão Geral do intervalo não tem.
+ */
+export interface MovimentosDaJanela {
+  from: string;
+  to: string;
+  fromLabel: string;
+  toLabel: string;
+  periods: { date: string; label: string }[];
+  impact: { byPeriodicity: Record<string, number> };
+  byParameter?: {
+    parameterKey: string;
+    parameterName: string;
+    familyName: string;
+    changes: number;
+    periods: number;
+    impact: { byPeriodicity: Record<string, number> };
+  }[];
+}
+
+// ---------------------------------------------------------------------------
 // Dobra 3 — o mapa: onde aconteceu
 // ---------------------------------------------------------------------------
 
@@ -799,17 +946,18 @@ function contextoDoTipo(parametros: number, frota: number | null): string {
 }
 
 /**
- * Se o mapa tem o que desenhar.
+ * Se o mapa tem o que desenhar — os dois vazios, numa regra só.
  *
- * O cartão já se apagava sozinho nos dois vazios — nenhuma unidade no ranking,
- * ou uma frota que não se moveu e não tem nada a contar. O que mudou é que ele
- * passou a dividir uma dobra de duas colunas com o gráfico da trajetória, e um
- * cartão que se apaga por dentro deixa **a coluna** dele em branco: o gráfico
- * fica com metade da faixa e a outra metade fica vazia. Quem decide a grade é a
- * página, e para decidir ela precisa saber disto antes de desenhar.
+ * Nenhuma unidade no ranking, ou uma frota que não se moveu e não tem nada a
+ * contar: nos dois o cartão não aparece, em vez de publicar zeros.
  *
- * A regra é uma só, aqui, e o componente lê a mesma — dois `if` com a mesma
- * condição em dois arquivos é onde a grade e o cartão passariam a discordar.
+ * Ela nasceu quando o cartão dividia uma dobra de duas colunas com o gráfico —
+ * ali um cartão que se apaga por dentro deixava **a coluna** dele em branco, e
+ * a página precisava saber antes de montar a grade. O cartão desde então passou
+ * para uma faixa de largura inteira (o lugar ao lado do gráfico é de quem lê a
+ * mesma janela que ele), e nessa forma apagar-se não deixa buraco nenhum: a
+ * função continua aqui porque a decisão é de leitura, e é o componente quem a
+ * consulta.
  */
 export function mapaVazio(mapa: MapaDoPanorama): boolean {
   if (mapa.eixo === "unidades") return mapa.linhas.length === 0;

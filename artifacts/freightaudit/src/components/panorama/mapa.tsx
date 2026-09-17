@@ -36,6 +36,14 @@ import { mapaVazio, type MapaDoPanorama, type MovimentoDaFrota } from "@/lib/pan
  * - e quatro caixas com borda dentro de um cartão com borda são moldura dentro
  *   de moldura, esticadas para acompanhar a altura do gráfico ao lado.
  *
+ * **Ele também mudou de lugar.** Pareava com o gráfico da trajetória por ser
+ * curto, não por responder a mesma pergunta — o gráfico fala da janela de
+ * vigências e este cartão fala da competência aberta. Aquele lugar é de quem lê
+ * a mesma janela (`components/panorama/o-que-puxou.tsx`), e este desceu para uma
+ * faixa de largura inteira depois da decomposição, junto das outras leituras da
+ * competência. Na faixa inteira as duas a quatro linhas param de apertar o nome
+ * do tipo contra a contagem.
+ *
  * Agora o corpo é o ranking dos tipos — na mesma forma de linha das listas da
  * dobra 2 (`components/panorama/linha-de-lista.tsx`) — e a movimentação da
  * frota é uma linha de rodapé, com os rótulos certos e sem o `+0 / −0` em corpo
@@ -49,7 +57,7 @@ export function Mapa({
   /** Abre uma unidade no próprio Panorama — `null` quando não há para onde ir. */
   onAbrirUnidade: ((chave: string) => void) | null;
 }) {
-  /* A mesma regra que a página usa para montar a grade — ver `mapaVazio`. */
+  /* Os dois vazios, na regra que mora na leitura — ver `mapaVazio`. */
   if (mapaVazio(mapa)) return null;
 
   if (mapa.eixo === "unidades") {

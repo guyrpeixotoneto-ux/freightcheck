@@ -235,6 +235,105 @@ const PROCEDENCIA = {
 */
 const SEM_QLP = () => resposta({ error: "Nenhuma vigência de QLP importada ainda." }, 404);
 
+/**
+ * O intervalo como `/changes/range` o entrega — com o rollup por parâmetro.
+ *
+ * É a mesma resposta que o gráfico da dobra 2 desenha, e é dela que sai o
+ * cartão "O que puxou a janela": `byParameter` soma cada parâmetro ao longo das
+ * vigências lidas, e `periods` diz em quantas delas ele se mexeu.
+ */
+const INTERVALO = {
+  from: "2026-07-01",
+  to: "2026-08-01",
+  fromLabel: "julho/2026",
+  toLabel: "agosto/2026",
+  periods: [
+    { date: "2026-07-01", label: "julho/2026" },
+    { date: "2026-08-01", label: "agosto/2026" },
+  ],
+  movements: [],
+  gaps: [],
+  impact: { byPeriodicity: { MENSAL: 21931 }, notCalculable: 95 },
+  lossesByPeriodicity: { MENSAL: -4652 },
+  gainsByPeriodicity: { MENSAL: 26583 },
+  totals: { changes: 102, vehiclesTouched: 80, comparisons: 2 },
+  byParameter: [
+    {
+      parameterKey: "financiamento",
+      parameterName: "Financiamento",
+      family: "AQUISICAO",
+      familyName: "Aquisição e financiamento",
+      changes: 12,
+      vehicles: 10,
+      impact: { byPeriodicity: { MENSAL: 14939 }, notCalculable: 0 },
+      periods: 2,
+      notCalculable: 0,
+    },
+    {
+      parameterKey: "depreciacao",
+      parameterName: "Depreciação",
+      family: "AQUISICAO",
+      familyName: "Aquisição e financiamento",
+      changes: 1,
+      vehicles: 1,
+      impact: { byPeriodicity: { MENSAL: -7700 }, notCalculable: 0 },
+      periods: 1,
+      notCalculable: 0,
+    },
+  ],
+  /*
+    As entradas do intervalo — sem elas não há periodicidade na série, e sem
+    periodicidade o gráfico não tem ponto nenhum a desenhar. O cartão da janela
+    lê o recorte **desenhado**, então uma série vazia desligaria a consulta
+    dele: é este par de linhas que faz a dobra 2 existir no teste como existe na
+    tela.
+  */
+  entries: [
+    {
+      key: "e1",
+      period: "2026-07-01",
+      periodLabel: "julho/2026",
+      parameterKey: "financiamento",
+      parameterName: "Financiamento",
+      family: "AQUISICAO",
+      attributeCode: "financiamento",
+      title: "Financiamento",
+      equipment: "Cavalo",
+      entityType: "CAVALO",
+      vehicles: 10,
+      unit: null,
+      amount: 14939,
+      periodicity: "MENSAL",
+      confidence: "CALCULATED",
+      reason: null,
+      badge: "DINHEIRO",
+      badgeLabel: "dinheiro",
+      group: {},
+    },
+    {
+      key: "e2",
+      period: "2026-08-01",
+      periodLabel: "agosto/2026",
+      parameterKey: "depreciacao",
+      parameterName: "Depreciação",
+      family: "AQUISICAO",
+      attributeCode: "depreciacao",
+      title: "Depreciação",
+      equipment: "Cavalo",
+      entityType: "CAVALO",
+      vehicles: 1,
+      unit: null,
+      amount: -7700,
+      periodicity: "MENSAL",
+      confidence: "CALCULATED",
+      reason: null,
+      badge: "DINHEIRO",
+      badgeLabel: "dinheiro",
+      group: {},
+    },
+  ],
+};
+
 /** Todo endpoint que a página toca, com a resposta que o servidor daria. */
 const servidor = () =>
   vi.fn(async (entrada: RequestInfo | URL) => {
@@ -243,8 +342,9 @@ const servidor = () =>
     if (url.includes("/changes/grouped")) return resposta(VIGENCIA);
     if (url.includes("/qlp/auditoria")) return SEM_QLP();
     if (url.includes("/balance/recorte")) return resposta(PROCEDENCIA);
-    /* A série do gráfico — o intervalo, que a tela pede depois. */
-    return resposta({ from: "2026-07-01", to: "2026-08-01", periods: [], entries: [] });
+    /* A série do gráfico — o intervalo, que a tela pede depois. Ele traz o
+       rollup por parâmetro, que é o que o cartão da janela lê. */
+    return resposta(INTERVALO);
   });
 
 /** O quadro de pessoal como a rota o entrega — com a vigência **dele**. */
@@ -278,7 +378,7 @@ const servidorComQuadro = () =>
     if (url.includes("/changes/families")) return resposta(VIGENCIA);
     if (url.includes("/changes/grouped")) return resposta(VIGENCIA);
     if (url.includes("/balance/recorte")) return resposta(PROCEDENCIA);
-    return resposta({ from: "2026-07-01", to: "2026-08-01", periods: [], entries: [] });
+    return resposta(INTERVALO);
   });
 
 function montar(Tela: () => React.ReactElement = Panorama) {
@@ -351,14 +451,26 @@ describe("a página do Panorama", () => {
     // e a confiança, na terceira
     expect(screen.getByText(/apenas 7 de 102 alterações/)).toBeTruthy();
 
-    // 2 — quando e onde: a trajetória e o mapa, lado a lado
+    // 2 — a janela: o gráfico e quem a puxou, lado a lado
     expect(screen.getByText("Impacto das alterações por vigência")).toBeTruthy();
     expect(screen.getByText("abra a Linha do Tempo")).toBeTruthy();
-    expect(screen.getByText("Onde aconteceu")).toBeTruthy();
+    expect(screen.getByText("O que puxou a janela")).toBeTruthy();
+    /*
+      A leitura da janela é por parâmetro e diz em quantas vigências ele se
+      mexeu — é o que a separa do ranking da competência, duas dobras abaixo.
+    */
+    await waitFor(() => expect(screen.getByText("Financiamento")).toBeTruthy());
+    expect(screen.getByText(/em 2 de 2 vigências/)).toBeTruthy();
+    /* E o intervalo vem escrito, para o número não ser lido como desta
+       competência. */
+    expect(screen.getByText(/julho\/2026 → agosto\/2026/)).toBeTruthy();
 
     // 3 — de onde vem: a ponte e o ranking, lado a lado
     expect(screen.getByText("Composição do impacto líquido")).toBeTruthy();
     expect(screen.getByText("Onde o dinheiro se mexeu")).toBeTruthy();
+
+    // e a faixa dos tipos de ativo, depois da decomposição
+    expect(screen.getByText("Onde aconteceu")).toBeTruthy();
     /*
       O ranking dos tipos, e não quatro tiles. O de baixo tem a frota maior e
       aparece depois — a ordem é por alteração, que é a pergunta do andar.
@@ -457,7 +569,7 @@ describe("a página do Panorama", () => {
     é o degrau em que se para de ler e se começa a investigar, e ela não vem
     antes de quem lê saber se a vigência é fora do normal.
   */
-  it("desce em ordem: a resposta, a trajetória, de onde vem", async () => {
+  it("desce em ordem: a resposta, a janela, de onde vem, os tipos", async () => {
     vi.stubGlobal("fetch", servidor());
     montar();
 
@@ -466,9 +578,10 @@ describe("a página do Panorama", () => {
     const ordem = [
       "Impacto líquido apurado",
       "Impacto das alterações por vigência",
-      "Onde aconteceu",
+      "O que puxou a janela",
       "Composição do impacto líquido",
       "Onde o dinheiro se mexeu",
+      "Onde aconteceu",
     ].map((titulo) => screen.getByText(titulo));
 
     for (let i = 1; i < ordem.length; i += 1) {
@@ -592,7 +705,7 @@ describe("a procedência, quando ela não tem o que publicar", () => {
       if (url.includes("/changes/grouped")) return resposta(VIGENCIA);
       if (url.includes("/qlp/auditoria")) return SEM_QLP();
       if (url.includes("/balance/recorte")) return recorte();
-      return resposta({ from: "2026-07-01", to: "2026-08-01", periods: [], entries: [] });
+      return resposta(INTERVALO);
     });
 
   const caiu = () => resposta({ error: "indisponível" }, 503);
@@ -700,7 +813,7 @@ describe("o par do Panorama", () => {
       if (url.includes("/changes/grouped")) return resposta(VIGENCIA);
       if (url.includes("/qlp/auditoria")) return SEM_QLP();
       if (url.includes("/balance/recorte")) return resposta(PROCEDENCIA);
-      return resposta({ from: "2026-07-01", to: "2026-08-01", periods: [], entries: [] });
+      return resposta(INTERVALO);
     });
 
   /* A volta, como o servidor a devolveria: o mesmo corpo, com a chegada em

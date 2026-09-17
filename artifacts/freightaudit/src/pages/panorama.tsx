@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
 import { BarChart3, Clock, FileSearch, History } from "lucide-react";
@@ -19,7 +19,13 @@ import { consultaDoRecorte, opcoesDaVigencia } from "@/lib/leitura-da-vigencia";
 import { LEITURA_DE_APURACAO } from "@/lib/frescor-das-leituras";
 import { contextoAberto, useContextosDaCasca } from "@/lib/contextos";
 import { useFamiliesOverviewQuery } from "@/lib/families-overview";
-import { useSerieDeImpacto, useSerieDeImpactoGeral } from "@/lib/serie-de-impacto";
+import {
+  useJanelaDesenhada,
+  useSerieDeImpacto,
+  useSerieDeImpactoGeral,
+} from "@/lib/serie-de-impacto";
+import { JANELA_PADRAO, type Janela } from "@/lib/janela-de-vigencias";
+import { recorteDaJanela } from "@/components/dashboard/grafico-de-impacto";
 import { lerRecorte, nomeDaUnidade, type Recorte } from "@/lib/recorte";
 import { travessiaDoQuadro, type LinhaDaTravessia } from "@/lib/travessia-do-quadro";
 import type { AuditoriaDoQuadro } from "@/lib/qlp-auditoria";
@@ -39,7 +45,7 @@ import {
 import {
   estadoDaProcedencia,
   graoValido,
-  mapaVazio,
+  janelaDoImpacto,
   procedenciaDoPanorama,
   leituraDaUnidade,
   leituraDaVisaoGeral,
@@ -50,6 +56,7 @@ import {
   vereditoDoPanorama,
   type EstadoDaProcedencia,
   type GraoDoRanking,
+  type JanelaDoImpacto,
   type LeituraDoPanorama,
   type Veredito as DadosDoVeredito,
 } from "@/lib/panorama";
@@ -63,6 +70,7 @@ import {
 } from "@/components/vigencia/seletor-de-vigencia";
 import { SeletorDoParDoPanorama } from "@/components/panorama/seletor-do-par";
 import { TravessiaDoQuadro } from "@/components/panorama/travessia-do-quadro";
+import { OQuePuxou } from "@/components/panorama/o-que-puxou";
 import { motivoSemNumeros, useResumoPorVigencia } from "@/hooks/use-resumo-por-vigencia";
 import {
   aoEscolherDe,
@@ -787,7 +795,41 @@ function Corpo({
     perdas: doGrao("perdas", Infinity).length,
   };
 
-  const semMapa = mapaVazio(mapa);
+
+  /*
+    A janela do gráfico — **uma, para os dois cartões da dobra 2.**
+
+    O seletor (3 · 6 · 12 vigências ou meses) era estado do gráfico, e agora é
+    da página: o cartão ao lado lê o mesmo intervalo por parâmetro, e um seletor
+    que mudasse só o desenho deixaria os dois falando de janelas diferentes lado
+    a lado — seis vigências no gráfico e nove no cartão, sem nada acusando. Foi
+    exatamente o que aconteceu na primeira versão desta dobra.
+  */
+  const [janelaAberta, setJanelaAberta] = useState<Janela>(JANELA_PADRAO);
+  const desenhados = useMemo(() => recorteDaJanela(pontos, janelaAberta), [pontos, janelaAberta]);
+  /*
+    O rollup por parâmetro é somado **pelo servidor** sobre o intervalo pedido,
+    e não se corta no navegador: `byParameter` traz o total de cada parâmetro na
+    janela, não a fatia dele por vigência. Então o cartão pede o recorte que o
+    gráfico desenha — e quando o desenhado é o carregado (quem tem menos
+    vigências que o teto da série), a chave é a mesma e nada sai para a rede.
+    Ver `opcoesDoIntervalo`.
+  */
+  const intervalo = useJanelaDesenhada(
+    consulta,
+    desenhados[0]?.periodo ?? null,
+    vigenciaAberta,
+    /* Na Visão Geral não há rollup a pedir: `/changes/range/overview` soma
+       unidade a unidade e não traz parâmetro. */
+    view !== null && desenhados.length > 0,
+  );
+  const janela = janelaDoImpacto(intervalo.movimentos, periodicidade, LINHAS_DO_RANKING);
+  /*
+    A coluna da direita existe onde a leitura **tem** janela — na unidade, sempre
+    (mesmo carregando, e aí o cartão desenha o esqueleto); na Visão Geral, nunca.
+    Metade de uma faixa em fundo de página se lê como cartão que não carregou.
+  */
+  const comJanela = view !== null;
   const detalheFamilia = detalheDaFamilia(leitura.resumo, familiaAberta, periodicidade);
   const detalheImpacto = detalheDoImpacto(view, impactoAberto, periodicidade);
 
@@ -833,13 +875,15 @@ function Corpo({
         <FaixaSemAlteracao temAnterior={view ? view.cockpit.baseline.hasBaseline : true} />
       )}
 
-      {/* ---- Dobra 2 · quando, e onde ---- */}
+      {/* ---- Dobra 2 · a janela ---- */}
       {/*
-        A trajetória e o mapa dividem a faixa, meio a meio: os dois são
-        contexto do número da dobra 1 — "como chegamos aqui" e "onde isso
-        aconteceu" —, e nenhum dos dois é a resposta. Empilhados de largura
-        inteira eles custavam duas telas de rolagem para publicar um gráfico de
-        seis pontos e quatro contagens de frota.
+        **A dobra da janela: as duas metades falam das mesmas vigências.** À
+        esquerda o gráfico — ganhos e perdas por vigência, "esta competência é
+        fora do normal?" —, e à direita quem vem puxando esse movimento, por
+        parâmetro, no mesmo intervalo. Antes o lado direito era o cartão dos
+        tipos de ativo, que pareava por ser curto e não por responder a mesma
+        pergunta: ele fala da competência aberta, e desceu para a faixa depois
+        da dobra 3, junto das outras leituras dela.
 
         **Ela vem antes da composição, e a ordem é de leitura.** As duas dobras
         já foram na ordem inversa: a composição — de onde vem o número — subia
@@ -849,11 +893,8 @@ function Corpo({
         diz nada sozinho, e dito ao lado de seis vigências passa a dizer se é
         um mês comum ou o maior movimento do semestre. A decomposição é o
         degrau seguinte — e continua a um rolar de distância, na dobra 3.
-
-        Sem mapa a desenhar a faixa vira uma coluna só (`mapaVazio`): metade de
-        uma dobra em branco se lê como cartão que não carregou.
       */}
-      <div className={cn("grid gap-5 items-start", !semMapa && "xl:grid-cols-2")}>
+      <div className={cn("grid gap-5 items-start", comJanela && "xl:grid-cols-2")}>
         <Superficie className="px-6 py-5 min-w-0">
           {/*
             Barras divergentes, e não a linha do líquido sozinha.
@@ -883,6 +924,8 @@ function Corpo({
             carregando={serieCarregando}
             vigenciaAtiva={vigenciaAberta}
             onEscolherVigencia={(periodo) => onTrocar({ period: periodo })}
+            janela={janelaAberta}
+            onJanela={setJanelaAberta}
           />
           {/*
             A leitura por tipo de ativo — cavalo, carreta, trecho — **não** é um
@@ -911,12 +954,20 @@ function Corpo({
           </p>
         </Superficie>
 
-        <Mapa
-          mapa={mapa}
-          onAbrirUnidade={
-            overview ? (chave) => onTrocar({ visaoGeral: null, scopeHash: chave }) : null
-          }
-        />
+        {/*
+          À direita do gráfico, a leitura da **mesma** janela — e não a da
+          competência aberta, que mora na dobra 3. As duas podem discordar, e é
+          bom que discordem: o parâmetro que dominou esta quinzena pode ser
+          estreante, e o que sangra há seis vigências pode não ter se mexido
+          nesta. Ver `components/panorama/o-que-puxou.tsx`.
+
+          Sem janela a faixa vira uma coluna só: é o caso da Visão Geral, onde o
+          intervalo soma unidade a unidade e não tem rollup de parâmetro para
+          oferecer.
+        */}
+        {comJanela && (
+          <OQuePuxou janela={janela} carregando={serieCarregando || intervalo.carregando} />
+        )}
       </div>
       {/* ---- Dobra 3 · de onde vem ---- */}
       {/*
@@ -1008,6 +1059,28 @@ function Corpo({
           nota={view ? undefined : NOTA_DA_VISAO_GERAL[grao]}
         />
       </div>
+      {/* ---- A faixa dos tipos de ativo ---- */}
+      {/*
+        "Onde aconteceu" em largura inteira, e não mais ao lado do gráfico.
+
+        Ele pareava com a trajetória por ser curto, não por responder a mesma
+        pergunta: a trajetória fala da janela de vigências e ele fala da
+        competência aberta. Com o cartão da janela ocupando aquele lugar — a
+        leitura da mesma população do gráfico —, este desce para depois da
+        decomposição, junto das outras leituras da competência, e ganha a faixa
+        inteira: são duas a quatro linhas com um rodapé de frota, que numa
+        coluna estreita deixavam o nome do tipo apertado contra a contagem.
+
+        Na Visão Geral é o ranking de unidades que desenha aqui — o mesmo cartão,
+        o outro eixo (`mapaDoPanorama`).
+      */}
+      <Mapa
+        mapa={mapa}
+        onAbrirUnidade={
+          overview ? (chave) => onTrocar({ visaoGeral: null, scopeHash: chave }) : null
+        }
+      />
+
       {/* ---- O rodapé · a procedência ---- */}
       {/*
         Dentro de uma unidade o cartão desenha nos seis desfechos — é justamente o

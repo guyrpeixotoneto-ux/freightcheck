@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   estadoDaProcedencia,
   graoValido,
+  janelaDoImpacto,
   leituraDaUnidade,
   leituraDaVisaoGeral,
   mapaDoPanorama,
@@ -681,6 +682,159 @@ describe("as duas leituras", () => {
 // ---------------------------------------------------------------------------
 // 4. O mapa — o único andar que troca de eixo
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// 4b. A janela — o que vem puxando o resultado
+// ---------------------------------------------------------------------------
+
+/*
+  A janela responde por **várias vigências**, e é a única leitura da tela que
+  faz isso. O risco dela é o de sempre neste módulo — ser lida como se falasse
+  da competência aberta —, e o que estes testes prendem é o que impede isso: o
+  intervalo escrito, o denominador "em N de M vigências", e a grandeza sendo a
+  mesma que a manchete publica.
+*/
+describe("a janela do gráfico", () => {
+  const parametro = (
+    nome: string,
+    mensal: number | null,
+    over: { periods?: number; changes?: number; familyName?: string } = {},
+  ) => ({
+    parameterKey: nome.toLowerCase(),
+    parameterName: nome,
+    familyName: over.familyName ?? "Aquisição e financiamento",
+    changes: over.changes ?? 4,
+    periods: over.periods ?? 1,
+    impact: { byPeriodicity: mensal === null ? {} : { MENSAL: mensal } },
+  });
+
+  const movimentos = (
+    byParameter: ReturnType<typeof parametro>[],
+    impact: Record<string, number> = { MENSAL: 11917 },
+  ) => ({
+    from: "2026-05-16",
+    to: "2026-08-01",
+    fromLabel: "maio/2026 · 2ªq",
+    toLabel: "agosto/2026 · 1ªq",
+    periods: [
+      { date: "2026-04-16", label: "abril/2026 · 2ªq" },
+      { date: "2026-05-16", label: "maio/2026 · 2ªq" },
+      { date: "2026-06-16", label: "junho/2026 · 2ªq" },
+      { date: "2026-07-16", label: "julho/2026 · 2ªq" },
+      { date: "2026-08-01", label: "agosto/2026 · 1ªq" },
+    ],
+    impact: { byPeriodicity: impact },
+    byParameter,
+  });
+
+  it("escreve o intervalo e conta só as vigências dentro dele", () => {
+    /*
+      `periods` lista o histórico inteiro que o servidor conhece; a janela lida
+      é `from`→`to`. Contar tudo faria o denominador de "em N de M" falar de
+      vigências que o gráfico ao lado não desenha.
+    */
+    const janela = janelaDoImpacto(movimentos([parametro("Financiamento", 14939)]), "MENSAL", 6)!;
+
+    expect(janela.rotulo).toBe("maio/2026 · 2ªq → agosto/2026 · 1ªq");
+    expect(janela.vigencias).toBe(4);
+    expect(janela.linhas[0].contexto).toContain("em 1 de 4 vigências");
+  });
+
+  it("ordena pelo módulo do líquido da janela — a perda grande vem antes do ganho pequeno", () => {
+    const janela = janelaDoImpacto(
+      movimentos([
+        parametro("Lucro fixo", 4678),
+        parametro("Depreciação", -7700),
+        parametro("Financiamento", 14939),
+      ]),
+      "MENSAL",
+      6,
+    )!;
+
+    expect(janela.linhas.map((l) => l.nome)).toEqual([
+      "Financiamento",
+      "Depreciação",
+      "Lucro fixo",
+    ]);
+    expect(janela.linhas[1].classificacao).toBe("perda");
+    /* O número de cima é o líquido da janela: não há parcela a pôr embaixo. */
+    expect(janela.linhas[1].liquido).toBeNull();
+    expect(janela.linhas[1].proporcao).toBeCloseTo(7700 / 14939, 5);
+  });
+
+  it("lê na periodicidade da manchete — e nunca mistura duas grandezas", () => {
+    /*
+      A janela pode ter R$/ano e R$/mês. Lida numa grandeza e desenhada noutra,
+      o cartão diria um número que o gráfico ao lado não desenha — a divergência
+      calada que este módulo existe para não ter.
+    */
+    const mistura = movimentos(
+      [
+        { ...parametro("Financiamento", 14939), impact: { byPeriodicity: { MENSAL: 14939 } } },
+        { ...parametro("IPVA", null), impact: { byPeriodicity: { ANUAL: 90000 } } },
+      ],
+      { MENSAL: 11917, ANUAL: 90000 },
+    );
+
+    const janela = janelaDoImpacto(mistura, "MENSAL", 6)!;
+    expect(janela.periodicity).toBe("MENSAL");
+    expect(janela.linhas.map((l) => l.nome)).toEqual(["Financiamento"]);
+  });
+
+  it("sem periodicidade na manchete, cai na dominante da janela", () => {
+    /* Uma vigência sem valor apurado ainda pode ter janela com valor — e aí a
+       grandeza é a que mais pesa no intervalo, que é a que o gráfico usa. */
+    const janela = janelaDoImpacto(
+      movimentos([parametro("Financiamento", 14939)], { MENSAL: 11917 }),
+      null,
+      6,
+    )!;
+    expect(janela.periodicity).toBe("MENSAL");
+    expect(janela.linhas).toHaveLength(1);
+  });
+
+  it("parâmetro sem líquido apurado na janela não entra na lista", () => {
+    /*
+      Ele não é um parâmetro de R$ 0 no intervalo: é um parâmetro que o
+      intervalo não sabe valorar, e a contagem dele já está no "sem impacto
+      calculável" da manchete.
+    */
+    const janela = janelaDoImpacto(
+      movimentos([parametro("Financiamento", 14939), parametro("Manutenção", null)]),
+      "MENSAL",
+      6,
+    )!;
+    expect(janela.linhas.map((l) => l.nome)).toEqual(["Financiamento"]);
+  });
+
+  it("sem intervalo lido não há janela — e é diferente de janela vazia", () => {
+    /*
+      `null` é "não há comparação no intervalo" (a primeira vigência de um
+      histórico, ou a Visão Geral, que não tem rollup de parâmetro). Janela sem
+      líquido é outra coisa: ela existe, e o cartão diz que não há o que
+      ranquear.
+    */
+    expect(janelaDoImpacto(null, "MENSAL", 6)).toBeNull();
+
+    const semValor = janelaDoImpacto(movimentos([], {}), "MENSAL", 6)!;
+    expect(semValor.periodicity).toBeNull();
+    expect(semValor.linhas).toEqual([]);
+    expect(semValor.rotulo).toBe("maio/2026 · 2ªq → agosto/2026 · 1ªq");
+  });
+
+  it("o limite é do chamador", () => {
+    const janela = janelaDoImpacto(
+      movimentos([
+        parametro("A", 100),
+        parametro("B", 90),
+        parametro("C", 80),
+      ]),
+      "MENSAL",
+      2,
+    )!;
+    expect(janela.linhas).toHaveLength(2);
+  });
+});
 
 describe("o mapa", () => {
   const comTipos = (baldes: { equipment: string; entityType: string | null; changes: number; groups?: number; fleet?: number | null }[]) =>
