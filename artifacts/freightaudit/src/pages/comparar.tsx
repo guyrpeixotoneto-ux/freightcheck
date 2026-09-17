@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useParNaUrl } from "@/lib/par-de-vigencias";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { GitCompareArrows } from "lucide-react";
 import {
@@ -70,8 +71,10 @@ interface ChangeSet {
 }
 
 export default function Comparar() {
-  const [aId, setAId] = useState("");
-  const [bId, setBId] = useState("");
+  /* As duas pontas moram no endereço, como nas dezesseis auditorias de rubrica
+     — ver `useParNaUrl`. Eram `useState`, e o par não cabia num link. */
+  const [aId, setAId] = useParNaUrl("base");
+  const [bId, setBId] = useParNaUrl("comparada");
   const [filters, setFilters] = useState<Filters>(emptyFilters);
   const [set, setSet] = useState<ChangeSet | null>(null);
   const [error, setError] = useState<string | null>(null);

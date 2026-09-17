@@ -1,3 +1,78 @@
+import { useCallback } from "react";
+import { useLocation, useSearch } from "wouter";
+import { trocarNoEndereco } from "@/lib/modo-da-auditoria";
+
+/**
+ * O PAR NO ENDEREÇO — uma ponta por gesto, e o link que descreve o que se vê.
+ *
+ * ---------------------------------------------------------------------------
+ * O que este hook resolve
+ * ---------------------------------------------------------------------------
+ * As dezesseis telas de rubrica guardavam o par em `useState`. Sete delas liam
+ * `?base=&comparada=` **na montagem** e nunca mais escreviam; as outras nove não
+ * liam nem escreviam. O efeito prático, medido na auditoria de 17/09/2026:
+ *
+ * - o link que alguém manda abre no par de quem mandou, mas o link de quem
+ *   trocou o par não carrega a troca — copiar o endereço depois de comparar
+ *   junho com setembro manda o outro para o par de partida;
+ * - o botão "voltar" do navegador não desfaz uma troca de par;
+ * - recarregar a página perde a comparação.
+ *
+ * Nada disso é sutil para quem opera, e nenhuma das telas decidiu ser assim:
+ * cada uma nasceu com o `useState` da anterior.
+ *
+ * ---------------------------------------------------------------------------
+ * Por que ele substitui `useState` sem mudar a forma
+ * ---------------------------------------------------------------------------
+ * Ele devolve exatamente `[valor, setValor]`, e por isso entra no lugar do
+ * `useState` de cada tela sem tocar em mais nada — as páginas continuam
+ * passando `onBase={setBase}` ao seletor. O que muda é onde o valor mora.
+ *
+ * ---------------------------------------------------------------------------
+ * `replace`, e não `push`
+ * ---------------------------------------------------------------------------
+ * Porque o mesmo setter serve dois chamadores: o clique da pessoa e o efeito de
+ * reconciliação que ajusta o par quando a lista de vigências chega ou a unidade
+ * troca (`parReconciliado`). Empilhando os dois, o "voltar" precisaria de duas
+ * ou três batidas para desfazer uma escolha — e a tela, ao voltar, cairia num
+ * par que o efeito reescreveria na frente de quem olha. Com `replace`, o
+ * endereço descreve sempre o que está em tela, que é a promessa que ele existe
+ * para cumprir.
+ *
+ * As outras chaves do endereço atravessam intocadas: quem escreve é
+ * `trocarNoEndereco`, a mesma função que a troca de unidade e a de modo já
+ * usam, e é ela que garante que entrar na Evolução e voltar devolva a
+ * comparação como estava.
+ *
+ * ---------------------------------------------------------------------------
+ * A rota sai do próprio endereço
+ * ---------------------------------------------------------------------------
+ * Ele não recebe a rota por parâmetro, e a razão é a tela de comparação do QLP:
+ * ela é montada de três lugares — `/qlp-operacional`, `/qlp-administrativo` e
+ * `/qlp/:modulo`, que é dinâmica —, e uma constante passada de fora estaria
+ * errada em dois deles no dia em que alguém esquecesse de atualizá-la. Lida do
+ * `useLocation`, ela é sempre a rota em que a pessoa está.
+ */
+export function useParNaUrl(
+  chave: "base" | "comparada",
+): [string, (valor: string) => void] {
+  const busca = useSearch();
+  const [rota, navegar] = useLocation();
+  const valor = new URLSearchParams(busca).get(chave) ?? "";
+
+  const definir = useCallback(
+    (proximo: string) => {
+      /* Escrever o mesmo valor empilharia uma navegação sem troca — e o efeito
+         de reconciliação chama o setter a cada rodada em que a lista muda. */
+      if (proximo === valor) return;
+      navegar(trocarNoEndereco(rota, busca, { [chave]: proximo }), { replace: true });
+    },
+    [busca, chave, navegar, rota, valor],
+  );
+
+  return [valor, definir];
+}
+
 import type { MotivoSemPar } from "@workspace/comparison/recorte-de-rubrica";
 
 /**

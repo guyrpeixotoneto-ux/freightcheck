@@ -7,7 +7,8 @@ import {
   Truck,
 } from "lucide-react";
 import { CartaoDeIndicador } from "@/components/ui/cartao-de-indicador";
-import { formatNumber } from "@/lib/format";
+import { leituraDoImpacto } from "@workspace/comparison/politica-do-impacto";
+import { formatBrl, formatNumber } from "@/lib/format";
 import { escreverImpacto, type ComparacaoDeImpostos } from "@/lib/impostos";
 
 /**
@@ -38,6 +39,10 @@ export function CartoesDeImpostos({
   const impacto = escreverImpacto(resumo.impacto.porPeriodicidade);
   const principal = impacto[0];
   const aliquotas = resumo.impacto.aliquotasAlteradas;
+  const leitura = leituraDoImpacto(
+    resumo.impacto.porPeriodicidade,
+    resumo.impacto.naoCalculavel,
+  );
   const fracaoSemAlteracao =
     resumo.veiculosComparados === 0
       ? null
@@ -97,7 +102,20 @@ export function CartoesDeImpostos({
       <CartaoDeIndicador
         destaque
         rotulo="Impacto financeiro"
-        valor={principal ? principal.valor : "Sem impacto precificável"}
+        /*
+          Os três estados da política do domínio (`politica-do-impacto`), a
+          mesma que o menu do par aplica desde 17/09/2026 e que esta tela
+          decidia sozinha: `R$ 0,00` quando a conta aconteceu e deu zero, e
+          "Sem impacto precificável" só quando houve movimento monetário que o
+          motor não pôde precificar.
+        */
+        valor={
+          principal
+            ? principal.valor
+            : leitura.estado === "ZERO"
+              ? formatBrl(0)
+              : "Sem impacto precificável"
+        }
         corDoValor={
           principal ? (principal.bruto > 0 ? "text-success" : "text-destructive") : undefined
         }
@@ -123,12 +141,22 @@ export function CartoesDeImpostos({
                 </>
               )}
             </span>
+          ) : leitura.estado === "NAO_PRECIFICAVEL" ? (
+            `${formatNumber(leitura.naoPrecificadas, 0)} ${
+              leitura.naoPrecificadas === 1 ? "alteração monetária" : "alterações monetárias"
+            } sem valor confirmado${
+              aliquotas > 0
+                ? `, e ${formatNumber(aliquotas, 0)} ${
+                    aliquotas === 1 ? "alíquota declarada mudou" : "alíquotas declaradas mudaram"
+                  }`
+                : ""
+            }`
           ) : aliquotas > 0 ? (
             `nenhum montante se moveu, e ${formatNumber(aliquotas, 0)} ${
               aliquotas === 1 ? "alíquota declarada mudou" : "alíquotas declaradas mudaram"
             }`
           ) : (
-            "nenhuma rubrica monetária confirmada se moveu"
+            "nenhuma rubrica monetária se moveu"
           )
         }
         ajuda={

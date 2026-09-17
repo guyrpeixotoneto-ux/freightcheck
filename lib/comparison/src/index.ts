@@ -18,6 +18,7 @@ export * from "./realizado-de-finame";
 export * from "./ipva";
 export * from "./aquisicao";
 export * from "./aluguel";
+export * from "./politica-do-impacto";
 export * from "./impostos";
 export * from "./km-rodado";
 export * from "./velocidade-media";

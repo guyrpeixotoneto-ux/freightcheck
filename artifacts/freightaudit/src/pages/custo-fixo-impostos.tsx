@@ -1,8 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useSearch } from "wouter";
 import { useQuery } from "@tanstack/react-query";
-import { Download, Landmark, ListChecks, Search, SlidersHorizontal } from "lucide-react";
+import { Download, Info, Landmark, ListChecks, Search, SlidersHorizontal } from "lucide-react";
 import type { LinhaDeImpostos } from "@workspace/comparison/impostos";
+import {
+  leituraDoImpacto,
+  VALOR_DECLARADO_SEM_CONFIRMACAO,
+} from "@workspace/comparison/politica-do-impacto";
 import {
   agruparPorVeiculoDeImpostos,
   VARIAVEIS_DE_DETALHE_DE_IMPOSTOS,
@@ -37,7 +41,7 @@ import {
   vigenciasDaUnidade,
   vigenciasQueCobrem,
 } from "@workspace/comparison/recorte-de-rubrica";
-import { avisoDoParImpossivel, parDaUrl } from "@/lib/par-de-vigencias";
+import { avisoDoParImpossivel, useParNaUrl } from "@/lib/par-de-vigencias";
 import { CartoesDeImpostos } from "@/components/impostos/cartoes";
 import {
   AlteracoesPorVariavel,
@@ -147,11 +151,18 @@ export default function AuditoriaDeImpostos() {
    * É só o valor inicial: `parReconciliado`, abaixo, continua mandando, e um
    * par que não pertença à unidade aberta é descartado como qualquer outro.
    * Sem os parâmetros no endereço, as duas pontas nascem vazias — o estado que
-   * esta tela sempre teve. Ver `parDaUrl`, em `lib/par-de-vigencias.ts`.
+   * esta tela sempre teve. Ver `useParNaUrl`, em `lib/par-de-vigencias.ts`.
    */
-  const parInicial = parDaUrl(useSearch());
-  const [base, setBase] = useState(parInicial.base);
-  const [comparada, setComparada] = useState(parInicial.comparada);
+  /*
+    As duas pontas moram no endereço — ver `useParNaUrl`.
+
+    Eram `useState`, e o par não sobrevivia a um recarregamento nem cabia num
+    link: copiar o endereço depois de comparar junho com setembro mandava o
+    outro para o par de partida desta tela. O hook entra no lugar do `useState`
+    sem mudar mais nada — o seletor continua recebendo os mesmos dois setters.
+  */
+  const [base, setBase] = useParNaUrl("base");
+  const [comparada, setComparada] = useParNaUrl("comparada");
   const [filtros, setFiltros] = useState<FiltrosDeImpostos>(FILTROS_VAZIOS);
   const [comSemAlteracao, setComSemAlteracao] = useState(false);
   const [pagina, setPagina] = useState(1);
@@ -424,6 +435,20 @@ export default function AuditoriaDeImpostos() {
     recorteDeTipo === "TODOS"
       ? comparacao.data
       : comparacao.data?.porTipo?.[recorteDeTipo];
+
+  /*
+    A política do impacto, lida uma vez para a tela inteira.
+
+    O cartão, a tabela e o painel de evolução respondiam pela mesma comparação
+    e decidiam sozinhos: o cartão dizia "Sem impacto precificável" enquanto a
+    tabela, logo abaixo, publicava reais sem ressalva. A decisão passa a ser uma
+    (`politica-do-impacto`), sobre o **recorte aberto**, que é o mesmo de que
+    saem os números dos três.
+  */
+  const impactoDoRecorte = (agregados ?? comparacao.data)?.resumo.impacto;
+  const leituraDoImpactoEmTela = impactoDoRecorte
+    ? leituraDoImpacto(impactoDoRecorte.porPeriodicidade, impactoDoRecorte.naoCalculavel)
+    : null;
 
   /**
    * Quantos veículos cada recorte tem — o número ao lado de cada aba.
@@ -762,6 +787,9 @@ export default function AuditoriaDeImpostos() {
               totais={totaisDoRecorte}
               rotuloBase={rotuloBase}
               rotuloComparada={rotuloComparada}
+              /* A mesma política do cartão e do menu do par — ver
+                 `politica-do-impacto`. */
+              leitura={leituraDoImpactoEmTela}
             />
 
             <div className="flex flex-wrap items-center gap-x-5 gap-y-1 border-b">
@@ -955,6 +983,25 @@ export default function AuditoriaDeImpostos() {
               )
             ) : (
               <>
+                {/*
+                  A ressalva da política, sobre as colunas de dinheiro da tabela.
+
+                  Ela publica o valor declarado de cada ponta, e no estado
+                  `NAO_PRECIFICAVEL` esse valor é movimento que o motor não pôde
+                  precificar — o mesmo movimento que o cartão, acima, chama de
+                  "Sem impacto precificável". Os dois números sempre estiveram
+                  certos; o que faltava era a tela dizer que respondem a
+                  perguntas diferentes. Ver `politica-do-impacto`.
+                */}
+                {leituraDoImpactoEmTela?.declaradoSemConfirmacao && (
+                  <p
+                    role="status"
+                    className="mb-3 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-200"
+                  >
+                    <Info className="mt-0.5 h-3.5 w-3.5 flex-none" aria-hidden="true" />
+                    <span>{VALOR_DECLARADO_SEM_CONFIRMACAO}</span>
+                  </p>
+                )}
                 <TabelaDeImpostos
                   veiculos={naPagina}
                   justificadaPor={justificar.justificadaPor}
