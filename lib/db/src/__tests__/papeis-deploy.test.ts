@@ -635,6 +635,20 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
         */
         "import_run.declared_family",
         /*
+          A `0101`: a quinzena que o envio declarou. Ela fecha a terceira
+          declaração da tela de Importações — a aba diz o tipo, o acervo diz a
+          família, e a linha da quinzena diz a quinzena —, e o que ela compra é
+          a recusa de um engano que entrava calado: o arquivo da 1ª quinzena
+          enviado pela 2ª é da vigência que o rótulo dele diz, então nada no
+          pipeline reclamava, e o mês ficava com uma quinzena lida duas vezes e
+          outra que nunca chegou.
+
+          Aditiva e nula, pela mesma razão das de cima: `NULL` é a verdade sobre
+          todo envio que não declara quinzena — e sem declaração a conferência
+          simplesmente não acontece, como não acontecia antes dela.
+        */
+        "import_run.declared_period",
+        /*
           A coluna que a `0046` acrescentou a `fechamento_competencia` **não**
           entra aqui, e a ausência é a informação: o diff a reporta pela tabela,
           não pela coluna, porque Production não tem nenhuma das treze do
