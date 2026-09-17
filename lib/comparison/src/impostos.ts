@@ -604,6 +604,113 @@ export function impactoDeImpostos(
 }
 
 // ---------------------------------------------------------------------------
+// O movimento da alíquota — a grandeza que esta rubrica tem quando não tem dinheiro
+// ---------------------------------------------------------------------------
+
+/**
+ * Quanto uma alíquota declarada andou entre duas vigências, por tributo.
+ *
+ * Existe porque nesta rubrica a coluna de dinheiro do seletor é a menos
+ * informativa das duas: o montante de ICMS é zero nas 1.215 linhas do acervo
+ * (ver `foraDaSoma` em {@link VARIAVEIS_DE_IMPOSTOS}) e o PIS/COFINS de
+ * aquisição é fórmula sobre a nota — então `R$ 0,00` é o que o menu escreve em
+ * toda linha, mudando a alíquota ou não. Num módulo de imposto a pergunta é
+ * **em quantos pontos a taxa andou**, e era exatamente ela que a linha não
+ * respondia.
+ *
+ * Três recusas, e as três são as mesmas do impacto logo acima:
+ *
+ * **Não soma pontos.** Setenta carretas que sobem 2 p.p. cada não somam 140
+ * p.p. — soma de alíquota é o mesmo número que não é de nada que
+ * {@link impactoDeImpostos} recusa. O que sai é o **maior** movimento e quantas
+ * linhas se moveram, que é a forma em que a confusão não cabe.
+ *
+ * **Não mistura tributos.** ICMS e PIS/COFINS são taxas de regimes diferentes;
+ * um "movimento de alíquota" único juntaria as duas sob um número que nenhuma
+ * das duas reconhece. Um balde por tributo, como nos totais.
+ *
+ * **Não inventa direção.** Quando uma alíquota sobe num ativo e cai noutro, o
+ * maior movimento sozinho diria que a frota inteira andou para aquele lado —
+ * daí `ambasDirecoes`, e o sinal que a tela omite quando ele é verdadeiro.
+ *
+ * O ponto vem de `diferenca` (o `deltaAbsolute` do motor), e nunca de
+ * `variacao`: a segunda é a variação **relativa** — de 10% para 12% ela diz
+ * +20%, que numa coluna de imposto se lê como vinte pontos de alíquota.
+ */
+export interface MovimentoDeAliquota {
+  tributo: Tributo;
+  /** Quantas linhas de alíquota daquele tributo se moveram no par. */
+  alteradas: number;
+  /**
+   * O maior movimento do tributo, em pontos percentuais, com sinal.
+   *
+   * `null` quando nenhuma das linhas alteradas trouxe medida — o motor recusa
+   * o delta quando os dois lados não são comparáveis (semântica que derivou,
+   * valor que virou texto). A tela escreve a contagem e diz que o movimento não
+   * foi medido; escrever `0,000 p.p.` ali afirmaria uma medição que não houve.
+   */
+  maior: number | null;
+  /** Subiu num ativo e caiu noutro — `maior` sozinho mentiria sobre a direção. */
+  ambasDirecoes: boolean;
+}
+
+/**
+ * A ordem em que os tributos saem — fixa, e não a de aparição nas linhas.
+ *
+ * Duas candidatas do mesmo menu têm de listar os tributos na mesma ordem, ou a
+ * coluna da direita troca de assunto de linha para linha e quem compara duas
+ * vigências passa a comparar ICMS com PIS/COFINS.
+ */
+const ORDEM_DOS_TRIBUTOS: readonly Tributo[] = ["ICMS", "PIS_COFINS"];
+
+/**
+ * O movimento das alíquotas de um par, um balde por tributo que se moveu.
+ *
+ * Tributo que não moveu nenhuma alíquota **não produz balde** — a lista vazia é
+ * a resposta "nenhuma alíquota andou", e é ela que a tela escreve por extenso.
+ */
+export function movimentoDeAliquotas(
+  linhas: readonly LinhaDeImpostos[],
+): MovimentoDeAliquota[] {
+  const porTributo = new Map<
+    Tributo,
+    { alteradas: number; maior: number | null; subiu: boolean; caiu: boolean }
+  >();
+
+  for (const l of linhas) {
+    if (l.papel !== "ALIQUOTA" || l.estado !== "ALTERADO" || l.tributo === null) continue;
+
+    const balde = porTributo.get(l.tributo) ?? {
+      alteradas: 0,
+      maior: null,
+      subiu: false,
+      caiu: false,
+    };
+    balde.alteradas++;
+
+    if (l.diferenca !== null && l.diferenca !== 0) {
+      if (l.diferenca > 0) balde.subiu = true;
+      else balde.caiu = true;
+      if (balde.maior === null || Math.abs(l.diferenca) > Math.abs(balde.maior)) {
+        balde.maior = Number(l.diferenca.toFixed(6));
+      }
+    }
+
+    porTributo.set(l.tributo, balde);
+  }
+
+  return ORDEM_DOS_TRIBUTOS.filter((t) => porTributo.has(t)).map((tributo) => {
+    const balde = porTributo.get(tributo)!;
+    return {
+      tributo,
+      alteradas: balde.alteradas,
+      maior: balde.maior,
+      ambasDirecoes: balde.subiu && balde.caiu,
+    };
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Os indicadores e as séries
 // ---------------------------------------------------------------------------
 

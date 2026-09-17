@@ -350,6 +350,25 @@ export function SeletorDoPar({
                 {valor.texto}
               </span>
             ))}
+            {/*
+              O movimento da alíquota, quando o recorte o audita.
+
+              Fica entre o dinheiro e a contagem porque é isso que ele é: uma
+              segunda grandeza do mesmo par, e não um detalhe da contagem. Nos
+              Impostos ele é a grandeza que manda — ali o `R$ 0,00` de cima é
+              estrutural (o montante de ICMS nunca foi preenchido no acervo) e
+              seria a única coisa escrita em toda linha do menu.
+
+              Sem cor, e de propósito: verde e vermelho são a direção do
+              dinheiro. Uma alíquota que sobe não é perda nem ganho enquanto o
+              regime tributário do ativo não estiver no acervo — ver
+              `percentuaisDaLinha`.
+            */}
+            {n.percentuais.map((texto) => (
+              <span key={texto} className="tabular-nums text-muted-foreground">
+                {texto}
+              </span>
+            ))}
             <span className="text-muted-foreground">{n.alteracoes}</span>
           </span>
         ) : comNumeros && faltamNumeros ? (

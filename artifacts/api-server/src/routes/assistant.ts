@@ -30,6 +30,7 @@ import {
 } from "@workspace/assistant";
 
 import { operacaoDaConsulta } from "../lib/operacao";
+import { tetoDoAssistente } from "../middlewares/teto-do-assistente";
 /**
  * Assistente — a superfície HTTP, e o portão do dono.
  *
@@ -220,7 +221,14 @@ router.post(
 
 // ── Perguntar ───────────────────────────────────────────────────────────────
 
-router.post("/assistant/ask", async (req, res): Promise<void> => {
+/*
+  O teto vem antes do corpo da rota, e só nesta.
+
+  É a única rota do produto com custo marginal por chamada — cada pergunta é uma
+  ida ao modelo. Ver `middlewares/teto-do-assistente.ts` para os dois limites e
+  por que eles são dois.
+*/
+router.post("/assistant/ask", tetoDoAssistente, async (req, res): Promise<void> => {
   try {
     const { pergunta, conversationId, scopeHash, canal, period, semIa } =
       (req.body ?? {}) as Record<string, unknown>;
@@ -313,6 +321,20 @@ router.post("/assistant/ask", async (req, res): Promise<void> => {
       */
       agente: agenteParaUsuario(req.user?.id),
       recorte: {
+        /*
+          O `scopeHash` do corpo é **pedido**, e não concessão.
+
+          `req.escopo` é o escopo efetivo desta sessão, calculado a partir dela
+          e de mais nada (`lib/escopo-efetivo.ts`), e é o mesmo objeto que as
+          rotas normais recebem — é isso que garante que o Assistente não tem
+          caminho paralelo. A superfície que agrega é a que menos pode ter
+          regra própria: aqui um vazamento não é uma linha de tabela, é o
+          acervo resumido numa frase.
+
+          Enquanto o corte está em observação, o pedido segue como sempre
+          seguiu e o middleware registra o veredito. Quando ele ligar, a recusa
+          entra aqui, lendo `req.escopo` — num lugar só, e no mesmo objeto.
+        */
         ...(typeof scopeHash === "string" ? { scopeHash } : {}),
         ...(typeof canal === "string" ? { channel: canal } : {}),
         ...(typeof period === "string" ? { period } : {}),

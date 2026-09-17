@@ -662,9 +662,24 @@ export function distribuicaoPorEstadoDeQlp(
 // Exportação
 // ---------------------------------------------------------------------------
 
+/**
+ * O cargo já desmembrado, como a tela o mostra — uma coluna por fato.
+ *
+ * A fonte do quadro operacional escreve `Cargo: X | Classificação: Y` numa
+ * célula só; o arquivo que sai daqui não repete isso, porque quem o abre numa
+ * planilha vai querer filtrar por classificação sem ter de fatiar texto.
+ */
+export interface IdentificacaoDoCargo {
+  unidade: string;
+  cargo: string;
+  classificacao: string | null;
+}
+
 /** O cabeçalho do CSV — a ordem das colunas da tela. */
 export const COLUNAS_DO_CSV_DE_QLP_COMPARADO = [
+  "Unidade",
   "Cargo",
+  "Classificação",
   "Quadro",
   "Variável",
   "Papel",
@@ -690,12 +705,14 @@ export const COLUNAS_DO_CSV_DE_QLP_COMPARADO = [
  */
 export function celulasDoCsvDeQlpComparado(
   linha: LinhaDeQlpComparado,
-  rotuloDoCargo: string,
+  cargo: IdentificacaoDoCargo,
   rotuloDoEstado: string,
   justificativa: string | null = null,
 ): (string | number | null)[] {
   return [
-    rotuloDoCargo,
+    cargo.unidade === "" ? null : cargo.unidade,
+    cargo.cargo,
+    cargo.classificacao,
     linha.quadro,
     linha.rotuloDaVariavel,
     linha.papel,

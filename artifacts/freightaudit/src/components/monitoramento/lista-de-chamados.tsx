@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/popover";
 import { Skeleton } from "@/components/ui/skeleton";
 import { STATUS_LABELS, STATUS_STYLES } from "@/components/changes/ticket-table";
+import { camposDoTexto, type CampoLegivel } from "@workspace/ingest/identidade-legivel";
 import { csvComoBlob, paraNomeDeArquivo } from "@/lib/csv";
 import { cn } from "@/lib/utils";
 import {
@@ -676,6 +677,35 @@ export function baixarCsvDaRelacao(
   const dataDoArquivo = (iso: string | null) =>
     iso ? diaLegivel(diaDaOperacaoDe(iso)) : "";
 
+  /*
+    O `Item` vira uma coluna por fato, e as colunas saem do próprio recorte.
+
+    A fonte empacota dois ou três fatos naquela célula — `Placa: … | Placa
+    Carreta: …` num chamado de veículo, `Cargo: … | Classificação: …` num de mão
+    de obra —, e cada um já vem rotulado por ela. Uma lista fixa de rótulos aqui
+    envelheceria no dia em que o export trouxesse o quarto; lendo os rótulos que
+    o recorte traz, o arquivo acompanha a fonte sem adivinhar. O que não vem
+    rotulado continua sob "Item", que é o nome que a fonte deu à caixa.
+  */
+  const rotulosDoItem: string[] = [];
+  const camposPorChamado = new Map<string, CampoLegivel[]>();
+  for (const c of chamados) {
+    const campos = camposDoTexto(c.item ?? "");
+    const abertos = campos.length > 0 ? campos : [{ rotulo: "Item", valor: c.item ?? "" }];
+    camposPorChamado.set(c.id, abertos);
+    for (const campo of abertos) {
+      const rotulo = campo.rotulo === "" ? "Item" : campo.rotulo;
+      if (!rotulosDoItem.includes(rotulo)) rotulosDoItem.push(rotulo);
+    }
+  }
+  const celulasDoItem = (c: ChamadoNaFila): string[] =>
+    rotulosDoItem.map(
+      (rotulo) =>
+        (camposPorChamado.get(c.id) ?? []).find(
+          (campo) => (campo.rotulo === "" ? "Item" : campo.rotulo) === rotulo,
+        )?.valor ?? "",
+    );
+
   const cabecalho = [
     "Chamado",
     "Status",
@@ -693,7 +723,7 @@ export function baixarCsvDaRelacao(
     "Encerrado em",
     "Vigência",
     "Categoria",
-    "Item",
+    ...rotulosDoItem,
     "Linha do arquivo",
     "Parâmetros",
     "Movimentou no dia",
@@ -716,7 +746,7 @@ export function baixarCsvDaRelacao(
     dataDoArquivo(c.encerradoEm),
     c.vigencia ?? "",
     c.categoria ?? "",
-    c.item ?? "",
+    ...celulasDoItem(c),
     String(c.linhaDoArquivo),
     (c.alteracoes ?? []).map(textoDaAlteracao).join(" | "),
     c.movimentou ? "sim" : "não",
@@ -762,7 +792,7 @@ function DetalheDoChamado({ chamado }: { chamado: ChamadoNaFila }) {
         <Campo rotulo="Vigência" valor={chamado.vigencia} />
         <Campo rotulo="Linha do arquivo" valor={`Linha ${chamado.linhaDoArquivo}`} />
         <Campo rotulo="Categoria" valor={chamado.categoria} />
-        <Campo rotulo="Item" valor={chamado.item ?? chamado.entidade} largo />
+        <CamposDoItem item={chamado.item ?? chamado.entidade} />
         <div className="col-span-3">
           <Rotulo>
             {alteracoes.length === 1 ? "Campo alterado" : "Campos alterados"}
@@ -807,6 +837,37 @@ function Rotulo({ children }: { children: ReactNode }) {
 }
 
 /** Um campo do detalhe. Campo sem valor mostra o traço, e não some. */
+/**
+ * O `Item` do export, aberto nos fatos que ele empacota.
+ *
+ * A coluna `Item` da fonte não é um fato: é uma caixa. Num chamado de veículo
+ * ela vem `Placa: QYW2D78 | Placa Carreta: QYW4C69`, e num de mão de obra
+ * `Cargo: Manobrista | Classificação: …` — dois ou três fatos numa célula, cada
+ * um já rotulado pela própria fonte. Repassá-la inteira num campo chamado
+ * "Item" obriga quem confere a ler a frase para achar a placa da carreta, que é
+ * justamente o que a leitura já sabe onde está.
+ *
+ * Sem rótulo nenhum dentro — um item que é só texto —, ela continua sendo um
+ * campo "Item" só, porque aí a caixa é o fato. Ver "Uma coluna, um fato" em
+ * `docs/LINGUAGEM-VISUAL.md`.
+ */
+function CamposDoItem({ item }: { item: string | null }) {
+  const campos = item === null ? [] : camposDoTexto(item);
+  if (campos.length === 0) return <Campo rotulo="Item" valor={item} largo />;
+  return (
+    <>
+      {campos.map((campo, i) => (
+        <Campo
+          key={`${campo.rotulo}-${i}`}
+          rotulo={campo.rotulo === "" ? "Item" : campo.rotulo}
+          valor={campo.valor}
+          largo
+        />
+      ))}
+    </>
+  );
+}
+
 function Campo({
   rotulo,
   valor,

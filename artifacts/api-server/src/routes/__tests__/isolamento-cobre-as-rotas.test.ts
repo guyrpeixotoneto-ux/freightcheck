@@ -70,6 +70,17 @@ const SEM_ACERVO: Record<string, string> = {
   "cadastro.ts":
     "cargo, departamento e negócio — a casa, como o cadastro de unidades: o organograma da empresa é o mesmo nas quatro operações, e recortá-lo por canal daria quatro empresas.",
   "health.ts": "saúde do processo.",
+  /*
+    `escopo.ts` é a janela do escopo por **unidade**, que é o outro eixo — e o
+    que ela mostra é a própria sessão, nunca acervo. Recortá-la por
+    `?operacao=` diria a quem pergunta "o que eu alcanço?" uma resposta
+    diferente conforme a auditoria aberta, quando o alcance de uma conta é o
+    mesmo nas quatro. O isolamento dela é mais estreito, e não mais largo: as
+    duas leituras respondem sobre `req.user`, então não há acervo alheio a
+    vazar por aqui — ver `lib/escopo-efetivo.ts`.
+  */
+  "escopo.ts":
+    "o escopo da própria sessão — não lê acervo, e o eixo dela é unidade, não operação.",
   "index.ts": "o índice das rotas.",
   "curation.ts": "vocabulário: atributo e significado são globais por código.",
   "versions.ts": "histórico de semântica — o mesmo vocabulário.",

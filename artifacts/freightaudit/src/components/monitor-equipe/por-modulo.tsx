@@ -2,6 +2,7 @@ import { ExternalLink } from "lucide-react";
 import { Link } from "wouter";
 import type { ResumoDoModuloDeEquipe } from "@workspace/comparison/monitor-equipe";
 import { ROTULO_DO_QUADRO } from "@workspace/comparison/monitor-equipe";
+import { notasDaEquipe } from "@workspace/comparison/alteracoes-por-modulo";
 import { Superficie } from "@/components/ui/superficie";
 import { Button } from "@/components/ui/button";
 import { formatNumber } from "@/lib/format";
@@ -141,27 +142,21 @@ function QuadrosDoModulo({ resumo }: { resumo: ResumoDoModuloDeEquipe }) {
  * A lista some inteira quando não há movimento a relatar, em vez de escrever
  * "0 cargos entraram". Zero é uma medição, e escrevê-la em quatro linhas por
  * cartão faria o cartão inteiro parecer um formulário em branco.
+ *
+ * Quem decide o que é movimento é `notasDaEquipe`, no domínio — as mesmas
+ * frases saem aqui e no catálogo da Visão executiva, pela razão que
+ * `notasDoCustoFixo` dá do outro lado. O milhar em português continua sendo da
+ * tela.
  */
 function MovimentosDoModulo({ resumo }: { resumo: ResumoDoModuloDeEquipe }) {
-  const avisos: string[] = [];
-  if (resumo.cargosQueEntraram > 0) {
-    avisos.push(`${formatNumber(resumo.cargosQueEntraram, 0)} cargos entraram no quadro`);
-  }
-  if (resumo.cargosQueSairam > 0) {
-    avisos.push(`${formatNumber(resumo.cargosQueSairam, 0)} cargos saíram do quadro`);
-  }
-  if (resumo.quantidadesQueSubiram > 0) {
-    avisos.push(`${formatNumber(resumo.quantidadesQueSubiram, 0)} quantidades subiram`);
-  }
-  if (resumo.quantidadesQueDesceram > 0) {
-    avisos.push(`${formatNumber(resumo.quantidadesQueDesceram, 0)} quantidades desceram`);
-  }
-
+  const avisos = notasDaEquipe(resumo);
   if (avisos.length === 0) return null;
   return (
     <ul className="flex flex-col gap-0.5 border-t pt-2 text-[0.7rem] text-muted-foreground">
       {avisos.map((a) => (
-        <li key={a}>{a}</li>
+        <li key={a.frase}>
+          {formatNumber(a.quantidade, 0)} {a.frase}
+        </li>
       ))}
     </ul>
   );

@@ -33,6 +33,24 @@ export interface BaldeDoImpacto {
   valor: number;
 }
 
+/**
+ * O movimento de um percentual declarado no par — o espelho de
+ * `MovimentoDePercentual` (`api-server/src/lib/candidatas-do-par.ts`).
+ *
+ * Pontos percentuais, nunca dinheiro: o `maior` é o maior movimento do tributo,
+ * com sinal, e não a soma dos movimentos — somar alíquota é o que o servidor se
+ * recusa a fazer, e repetir a recusa aqui é o que impede a tela de desfazê-la.
+ */
+export interface MovimentoDePercentual {
+  /** Como a linha chama este percentual — "ICMS", "PIS/COFINS". */
+  rotulo: string;
+  alteradas: number;
+  /** `null` quando nenhuma das alteradas trouxe medida do motor. */
+  maior: number | null;
+  /** Subiu num ativo e caiu noutro: o sinal de `maior` não descreve o conjunto. */
+  ambasDirecoes: boolean;
+}
+
 /** O que uma rota de candidatas devolve. */
 export interface CandidatosDoPar {
   para: string;
@@ -61,6 +79,16 @@ export interface CandidatosDoPar {
        * zero.
        */
       semImpacto?: string;
+      /**
+       * O movimento dos percentuais declarados — o espelho de
+       * `MovimentoDePercentual` (`api-server/src/lib/candidatas-do-par.ts`).
+       *
+       * Opcional, e a distinção importa: **ausente** é o recorte que não audita
+       * percentual (as outras quatro rubricas, cuja linha segue como era),
+       * **vazio** é o que audita e não viu nenhum se mover — que numa tela de
+       * imposto é notícia, e por isso sai escrito.
+       */
+      percentuais?: MovimentoDePercentual[];
     } | null;
   }[];
   /** Quantas candidatas não couberam no orçamento desta chamada. */
@@ -100,6 +128,16 @@ export interface NumerosDaLinha {
   valores: { texto: string; bruto: number; leitura: LeituraDoValor }[];
   /** "457 alterações", "1 alteração", "0 alterações". */
   alteracoes: string;
+  /**
+   * O movimento das alíquotas, já escrito — uma linha por tributo que andou.
+   *
+   * Vazia nos recortes que não auditam percentual, que é como as outras quatro
+   * rubricas seguem sem linha nova. Nos que auditam, ela nunca fica vazia:
+   * quando nenhuma alíquota se moveu, a frase é "sem movimento de alíquota" —
+   * a mesma régua do `R$ 0,00` logo acima, onde a conta que deu zero se escreve
+   * em vez de deixar a casa em branco.
+   */
+  percentuais: string[];
 }
 
 /**
@@ -203,5 +241,64 @@ export function numerosDaLinha(
     numeros.alteracoes === 1 ? "alteração" : "alterações"
   }`;
 
-  return { valores, alteracoes };
+  return {
+    valores,
+    alteracoes,
+    percentuais: percentuaisDaLinha(numeros.percentuais),
+  };
+}
+
+/** `2` vira `2,000` — três casas, as mesmas da alíquota na tela de impostos. */
+function pontos(valor: number): string {
+  return Math.abs(valor).toLocaleString("pt-BR", {
+    minimumFractionDigits: 3,
+    maximumFractionDigits: 3,
+  });
+}
+
+/**
+ * O movimento das alíquotas virando as linhas de texto do menu.
+ *
+ * Quatro frases, e cada uma responde a um estado diferente do par:
+ *
+ * - **"sem movimento de alíquota"** — o recorte olhou e nenhuma andou. É o caso
+ *   mais comum neste acervo, e é informação: com o montante de ICMS vazio, uma
+ *   alíquota parada é a única coisa que sustenta o imposto declarado do mês.
+ * - **"ICMS +2,000 p.p."** — uma alíquota só se moveu, e o número é ela.
+ * - **"ICMS até +2,000 p.p. · 3 alíquotas"** — várias se moveram para o mesmo
+ *   lado. "Até" porque o que sai é o maior, e não uma soma: setenta carretas
+ *   que sobem 2 p.p. cada não somam 140 p.p.
+ * - **"ICMS até 2,000 p.p. nos dois sentidos · 3 alíquotas"** — uma subiu e
+ *   outra caiu. Aqui o sinal some de propósito: `+` afirmaria que a frota andou
+ *   para cima quando metade dela andou para baixo.
+ *
+ * E a quinta, que é a recusa: alterada sem medida vira "movimento não medido",
+ * nunca `0,000 p.p.` — zero é uma medição, e o motor não a fez.
+ *
+ * Nada aqui leva cor. Verde e vermelho são do dinheiro, onde o sinal diz ganho
+ * e perda; numa alíquota ele não diz: ICMS que sobe pode ser crédito maior ou
+ * custo maior conforme o regime do ativo — que é justamente o que o acervo
+ * ainda não tem (ver `docs/ACHADO-IMPOSTOS.md`). Pintar o ponto percentual de
+ * verde seria a tela respondendo uma pergunta que ela não pode responder.
+ */
+function percentuaisDaLinha(
+  percentuais: MovimentoDePercentual[] | undefined,
+): string[] {
+  if (!percentuais) return [];
+  if (percentuais.length === 0) return ["sem movimento de alíquota"];
+
+  return percentuais.map((p) => {
+    const quantas = `${formatNumber(p.alteradas, 0)} ${
+      p.alteradas === 1 ? "alíquota" : "alíquotas"
+    }`;
+    if (p.maior === null)
+      return `${p.rotulo} · ${quantas}, movimento não medido`;
+
+    const sinal = p.ambasDirecoes ? "" : p.maior < 0 ? "−" : "+";
+    const sentido = p.ambasDirecoes ? " nos dois sentidos" : "";
+    const movimento = `${sinal}${pontos(p.maior)} p.p.`;
+    return p.alteradas === 1
+      ? `${p.rotulo} ${movimento}`
+      : `${p.rotulo} até ${movimento}${sentido} · ${quantas}`;
+  });
 }

@@ -44,6 +44,7 @@ import {
   rotuloDaVigencia,
 } from "@/components/qlp/apresentacao";
 import {
+  CHAVE_DA_CLASSIFICACAO,
   CHAVE_DO_CARGO,
   chaveDoAtributo,
   mesmaChave,
@@ -562,6 +563,20 @@ function AbaQuadro({
                   onOrdenar={setOrdem}
                   alinhamento="esquerda"
                 />
+                {/*
+                  A classificação tem coluna porque é um fato: a fonte a escreve
+                  na mesma célula do cargo (`Cargo: Conferente | Classificação:
+                  …`), e junto dele ela não se ordena nem se compara entre dois
+                  cargos de mesmo nome. Ver "Uma coluna, um fato" em
+                  `docs/LINGUAGEM-VISUAL.md`.
+                */}
+                <CabecalhoDoQuadro
+                  chave={CHAVE_DA_CLASSIFICACAO}
+                  rotulo="Classificação"
+                  ordem={ordem}
+                  onOrdenar={setOrdem}
+                  alinhamento="esquerda"
+                />
                 {destacadas.map((code) => (
                   <CabecalhoDoQuadro
                     key={code}
@@ -586,6 +601,14 @@ function AbaQuadro({
                   className="border-b last:border-0 hover:bg-muted/40 transition-colors cursor-pointer"
                 >
                   <td className="px-4 py-2 font-medium">{cargo.cargo}</td>
+                  <td className="px-4 py-2 text-xs text-muted-foreground">
+                    {cargo.classificacao ?? "—"}
+                    {cargo.outros.map((campo) => (
+                      <div key={campo.rotulo}>
+                        {campo.rotulo}: {campo.valor}
+                      </div>
+                    ))}
+                  </td>
                   {destacadas.map((code) => (
                     <td key={code} className="px-4 py-2 text-right tabular-nums">
                       {formatarValor(cargo.valores[code] ?? null, atributosPorCode.get(code))}
@@ -765,6 +788,7 @@ function AbaEvolucao({
             <tr className="border-b bg-muted/40 text-[0.6875rem] uppercase tracking-wider text-muted-foreground">
               <th className="text-left px-4 py-2 font-medium">Unidade</th>
               <th className="text-left px-4 py-2 font-medium">Cargo</th>
+              <th className="text-left px-4 py-2 font-medium">Classificação</th>
               {view.vigencias.map((v) => (
                 <th key={v.effectiveDate} className="text-center px-3 py-2 font-medium">
                   {v.sourceLabels[0] ?? v.periodLabel}
@@ -779,6 +803,9 @@ function AbaEvolucao({
                   {linha.unidadeCnpjLegivel}
                 </td>
                 <td className="px-4 py-2 font-medium">{linha.cargo}</td>
+                <td className="px-4 py-2 text-xs text-muted-foreground">
+                  {linha.classificacao ?? "—"}
+                </td>
                 {linha.presencas.map((presente, i) => (
                   <td
                     key={view.vigencias[i].effectiveDate}
@@ -891,7 +918,24 @@ function DetalheDrawer({
             <div className="text-sm text-muted-foreground">
               {dados && (
                 <>
-                  <span className="font-mono">{dados.chaveLegivel}</span>
+                  {dados.classificacao && (
+                    <>
+                      <span>Classificação: {dados.classificacao}</span>
+                      <span> · </span>
+                    </>
+                  )}
+                  {dados.outros.map((campo) => (
+                    <span key={campo.rotulo}>
+                      {campo.rotulo}: {campo.valor} ·{" "}
+                    </span>
+                  ))}
+                  {/*
+                    A unidade, e não a chave legível inteira: a chave repete o
+                    cargo do título e a classificação da linha de cima — no
+                    arquivo real, com o prefixo duplicado e tudo. O que ela
+                    acrescentava aqui era a unidade, e é ela que fica.
+                  */}
+                  <span className="font-mono">{dados.unidadeCnpjLegivel}</span>
                   <span> · vigência {dados.vigencias.find((v) => v.effectiveDate === dados.effectiveDate)?.sourceLabels.join(" · ") ?? dados.periodLabel}</span>
                   {dados.vigenciasDoCargo.length > 0 && (
                     <span>

@@ -396,13 +396,15 @@ describe("a exportação", () => {
     const linha = linhaDeQlpDaAlteracao(alteracao(), "ADMINISTRATIVO")!;
     const celulas = celulasDoCsvDeQlpComparado(
       linha,
-      "07.526.557/0015-05 · ANALISTA",
+      { unidade: "07.526.557/0015-05", cargo: "ANALISTA", classificacao: null },
       "Alterado",
     );
-    expect(celulas[0]).toBe("07.526.557/0015-05 · ANALISTA");
-    expect(celulas[2]).toBe("Despesa de ordenados");
-    expect(celulas[7]).toBe(600);
-    expect(celulas[9]).toBe("Alterado");
+    expect(celulas[0]).toBe("07.526.557/0015-05");
+    expect(celulas[1]).toBe("ANALISTA");
+    expect(celulas[2]).toBeNull();
+    expect(celulas[4]).toBe("Despesa de ordenados");
+    expect(celulas[9]).toBe(600);
+    expect(celulas[11]).toBe("Alterado");
   });
 
   /*
@@ -420,11 +422,13 @@ describe("a exportação", () => {
     )!;
     const celulas = celulasDoCsvDeQlpComparado(
       subtotal,
-      "CAMAÇARI · MOTORISTA 28",
+      { unidade: "CAMAÇARI", cargo: "MOTORISTA 28", classificacao: "CARREGAMENTO" },
       "Alterado",
       "Reajuste da convenção coletiva.",
     );
-    expect(String(celulas[11])).toContain("Subtotal");
-    expect(celulas[12]).toBe("Reajuste da convenção coletiva.");
+    /* A classificação tem coluna própria: é por ela que a planilha filtra. */
+    expect(celulas[2]).toBe("CARREGAMENTO");
+    expect(String(celulas[13])).toContain("Subtotal");
+    expect(celulas[14]).toBe("Reajuste da convenção coletiva.");
   });
 });

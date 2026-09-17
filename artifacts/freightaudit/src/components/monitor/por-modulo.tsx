@@ -1,6 +1,7 @@
 import { ExternalLink } from "lucide-react";
 import { Link } from "wouter";
 import type { ResumoDoModulo } from "@workspace/comparison/monitor-custo-fixo";
+import { notasDoCustoFixo } from "@workspace/comparison/alteracoes-por-modulo";
 import { Superficie } from "@/components/ui/superficie";
 import { Button } from "@/components/ui/button";
 import { formatBrl, formatNumber } from "@/lib/format";
@@ -149,58 +150,24 @@ function ImpactoDoModulo({ resumo }: { resumo: ResumoDoModulo }) {
 /**
  * As situações especiais que **só aquele módulo** conhece.
  *
- * Elas vêm de `impactoDeOrigem`, que é o resumo nativo do módulo. O `switch`
- * existe para que um módulo novo no tipo não passe silenciosamente sem alguém
- * dizer que pendências dele merecem aparecer.
+ * Elas vêm de `impactoDeOrigem`, que é o resumo nativo do módulo. Quem decide
+ * quais pendências de cada rubrica merecem aparecer é `notasDoCustoFixo`, no
+ * domínio: as mesmas frases saem aqui e no catálogo da Visão executiva, e duas
+ * réguas divergiriam no dia em que uma rubrica ganhasse um indicador novo — a
+ * tela não atualizada passaria a esconder um achado sem nada quebrar.
+ *
+ * O número é formatado aqui, e é essa a divisão: a frase é do domínio, o milhar
+ * em português é da tela.
  */
 function PendenciasDoModulo({ resumo }: { resumo: ResumoDoModulo }) {
-  const avisos: string[] = [];
-  const o = resumo.impactoDeOrigem;
-
-  if (o.naoCalculavel > 0) {
-    avisos.push(
-      `${formatNumber(o.naoCalculavel, 0)} em coluna de dinheiro sem preço apurado`,
-    );
-  }
-  switch (o.modulo) {
-    case "FINAME":
-      if (o.cobertasPorParcelas > 0) {
-        avisos.push(
-          `${formatNumber(o.cobertasPorParcelas, 0)} já contadas nas parcelas do veículo`,
-        );
-      }
-      if (o.foraDaSoma > 0) {
-        avisos.push(`${formatNumber(o.foraDaSoma, 0)} de outra rubrica (base e tributos)`);
-      }
-      break;
-    case "IPVA":
-      if (o.foraDaSoma > 0) avisos.push(`${formatNumber(o.foraDaSoma, 0)} fora da soma`);
-      if (o.valoresNegativos > 0) {
-        avisos.push(
-          `${formatNumber(o.valoresNegativos, 0)} com uma das pontas negativa — estorno ou erro de cadastro`,
-        );
-      }
-      break;
-    case "IMPOSTOS":
-      if (o.foraDaSoma > 0) avisos.push(`${formatNumber(o.foraDaSoma, 0)} fora da soma`);
-      if (o.aliquotasAlteradas > 0) {
-        avisos.push(
-          `${formatNumber(o.aliquotasAlteradas, 0)} alíquotas se moveram — taxa não soma, mas pede explicação`,
-        );
-      }
-      break;
-    case "LUCRO_FIXO":
-      if (o.foraDaSoma > 0) {
-        avisos.push(`${formatNumber(o.foraDaSoma, 0)} da coluna do conjunto, fora da soma`);
-      }
-      break;
-  }
-
+  const avisos = notasDoCustoFixo(resumo.impactoDeOrigem);
   if (avisos.length === 0) return null;
   return (
     <ul className="flex flex-col gap-0.5 border-t pt-2 text-[0.7rem] text-muted-foreground">
       {avisos.map((a) => (
-        <li key={a}>{a}</li>
+        <li key={a.frase}>
+          {formatNumber(a.quantidade, 0)} {a.frase}
+        </li>
       ))}
     </ul>
   );

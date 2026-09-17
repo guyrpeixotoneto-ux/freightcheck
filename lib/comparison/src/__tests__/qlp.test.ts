@@ -428,25 +428,43 @@ describe("os indicadores do topo", () => {
 });
 
 describe("o CSV", () => {
+  /*
+    Uma coluna por fato também no arquivo: quem abre o CSV numa planilha filtra
+    por unidade e por classificação sem ter de fatiar texto. Sem identidade
+    desmembrada o cargo sai inteiro, como saía — é o contrato de quem chama.
+  */
+  it("abre a identidade em unidade, cargo e classificação", () => {
+    const linhas = celulasDoCsvDeQlp(conferirLinha(cargoAdm(), "ADMINISTRATIVO"), {
+      unidade: "07526557001505_CERV",
+      cargo: "Conferente",
+      classificacao: "CARREGAMENTO - ESTACIONÁRIA",
+    });
+    expect(linhas[0].slice(0, 3)).toEqual([
+      "07526557001505_CERV",
+      "Conferente",
+      "CARREGAMENTO - ESTACIONÁRIA",
+    ]);
+  });
+
   it("escreve uma linha por conta, e não uma por cargo", () => {
     const linhas = celulasDoCsvDeQlp(conferirLinha(cargoAdm(), "ADMINISTRATIVO"));
     expect(linhas).toHaveLength(6);
-    expect(linhas[0][0]).toContain("AUXILIAR ADM");
-    expect(linhas[0][7]).toBe("Fecha");
+    expect(linhas[0][1]).toContain("AUXILIAR ADM");
+    expect(linhas[0][9]).toBe("Fecha");
   });
 
   it("diz a forma da conta por extenso", () => {
     const adm = celulasDoCsvDeQlp(conferirLinha(cargoAdm(), "ADMINISTRATIVO"));
     const oper = celulasDoCsvDeQlp(conferirLinha(cargoOper(), "OPERACIONAL"));
-    expect(adm[0][3]).toBe("quantidade × valor");
-    expect(oper[0][3]).toBe("soma das parcelas");
+    expect(adm[0][5]).toBe("quantidade × valor");
+    expect(oper[0][5]).toBe("soma das parcelas");
   });
 
   it("marca a conta sem base, em vez de escrever zero", () => {
     const linhas = celulasDoCsvDeQlp(
       conferirLinha(cargoAdm({ [ADM("quantidade_ordenados")]: null }), "ADMINISTRATIVO"),
     );
-    expect(linhas[0][7]).toBe("Base insuficiente");
-    expect(linhas[0][4]).toBeNull();
+    expect(linhas[0][9]).toBe("Base insuficiente");
+    expect(linhas[0][6]).toBeNull();
   });
 });

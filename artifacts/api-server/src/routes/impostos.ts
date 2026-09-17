@@ -15,8 +15,10 @@ import {
   frotaDoEquipamento,
   frotaPorTipo,
   listComparableSnapshots,
+  movimentoDeAliquotas,
   operacaoDoSnapshot,
   resumirImpostos,
+  ROTULO_DO_TRIBUTO,
   totaisDeImpostosPorVigencia,
   variavelDeImpostosDoCodigo,
   VARIAVEIS_DE_IMPOSTOS,
@@ -431,6 +433,27 @@ router.get("/impostos/candidatos", async (req, res, next): Promise<void> => {
             return {
               alteracoes: variaveisAlteradas,
               impacto: { baldes: baldesDoImpacto(impacto.porPeriodicidade) },
+              /*
+                O movimento da alíquota, que nesta rubrica é a coluna que
+                responde.
+
+                A de dinheiro não responde, e não é por acaso: o montante de
+                ICMS é zero nas 1.215 linhas do acervo e o PIS/COFINS de
+                aquisição é 9,250% da nota em todas elas — então `R$ 0,00` é o
+                que o menu escreve tenha a taxa andado ou não. Aqui sai o que
+                de fato distingue uma candidata da outra num módulo de imposto:
+                quantas alíquotas se moveram e em quantos pontos.
+
+                Sai **sempre**, inclusive vazio: lista vazia é "olhei e nenhuma
+                andou", e é a frase que a linha escreve. Ausente seria dizer que
+                esta tela não olha alíquota, que é o contrário do que ela é.
+              */
+              percentuais: movimentoDeAliquotas(linhas).map((m) => ({
+                rotulo: ROTULO_DO_TRIBUTO[m.tributo],
+                alteradas: m.alteradas,
+                maior: m.maior,
+                ambasDirecoes: m.ambasDirecoes,
+              })),
             };
           },
         },

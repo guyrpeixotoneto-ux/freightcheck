@@ -9,6 +9,7 @@ import { navGroupsFechamento } from "../nav-fechamento";
 import { barraMobile } from "../nav-mobile";
 import { etapasDoFechamento } from "@/pages/fechamento/etapas";
 import {
+  ALTERACOES_POR_MODULO,
   ATIVOS_E_PARADOS,
   BASES_DE_AUDITORIA,
   BASES_DE_FECHAMENTO,
@@ -120,6 +121,7 @@ function atalhosDaBarra(ambiente: Parameters<typeof barraMobile>[0]): string[] {
 
 /** As constantes de endereço que o roteador usa no lugar do literal. */
 const CONSTANTES_DE_ROTA: Record<string, string> = {
+  ALTERACOES_POR_MODULO,
   ATIVOS_E_PARADOS,
   DASHBOARD,
   PANORAMA,
@@ -362,6 +364,7 @@ describe("a lateral", () => {
       expect(executiva.itens.map((item) => item.label)).toEqual([
         "Panorama Executivo",
         "Painel de Unidades",
+        "Alterações por Módulo",
         "Impacto Líquido",
         "Impacto Apurado",
         "Resumo executivo",
@@ -372,9 +375,10 @@ describe("a lateral", () => {
         "Composição",
         "DRE",
       ]);
-      expect(executiva.itens.slice(0, 7).map((item) => item.href)).toEqual([
+      expect(executiva.itens.slice(0, 8).map((item) => item.href)).toEqual([
         PANORAMA,
         ENTRADA_DA_AUDITORIA,
+        ALTERACOES_POR_MODULO,
         DASHBOARD,
         IMPACTO_APURADO,
         RESUMO_EXECUTIVO,
@@ -404,6 +408,7 @@ describe("a lateral", () => {
     const rotas = rotasRegistradas();
 
     expect(rotas.has(PANORAMA)).toBe(true);
+    expect(rotas.has(ALTERACOES_POR_MODULO)).toBe(true);
     expect(rotas.has(DASHBOARD)).toBe(true);
     expect(rotas.has(IMPACTO_APURADO)).toBe(true);
     expect(rotas.has(RESUMO_EXECUTIVO)).toBe(true);

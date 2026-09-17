@@ -255,6 +255,22 @@ export const ATIVOS_E_PARADOS = "/ativos-e-parados";
 export const PANORAMA = "/panorama";
 
 /**
+ * As Alterações por Módulo — o catálogo inteiro do produto, um cartão por módulo.
+ *
+ * Endereço próprio, e não uma aba do Panorama: a lateral acende o item cujo
+ * endereço está aberto, e uma aba dentro de outra tela acenderia o item errado —
+ * a mesma razão que o Impacto Apurado já dá acima.
+ *
+ * **É a leitura de cima dos dois Monitores, e não um terceiro deles.** O Monitor
+ * Custo Fixo quebra cinco rubricas por cartão e o Monitor Equipe quebra os
+ * assuntos do quadro; nenhum dos dois responde quais das **três** famílias de
+ * custo se moveram, que é a primeira pergunta de quem abre a Visão executiva.
+ * Esta tela responde isso e para aí: sem tabela, sem filtro, e com um clique por
+ * cartão que abre a auditoria daquele módulo com o par junto.
+ */
+export const ALTERACOES_POR_MODULO = "/alteracoes-por-modulo";
+
+/**
  * O Dashboard — a tela de vigilância de mudanças, Geral ou por unidade.
  *
  * É onde a pergunta "a Ambev mudou algo sem avisar?" tem resposta em um

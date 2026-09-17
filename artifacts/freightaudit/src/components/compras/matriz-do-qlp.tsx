@@ -59,7 +59,9 @@ export function TabelaDaMatrizQlp({ matriz }: { matriz: MatrizDoQlp }) {
     const alvo = busca.trim().toUpperCase();
     if (alvo === "") return matriz.linhas;
     return matriz.linhas.filter((l) =>
-      `${l.cargo} ${l.unidadeNome ?? l.unidadeCnpjLegivel}`.toUpperCase().includes(alvo),
+      `${l.cargo} ${l.classificacao ?? ""} ${l.unidadeNome ?? l.unidadeCnpjLegivel}`
+        .toUpperCase()
+        .includes(alvo),
     );
   }, [matriz.linhas, busca]);
 
@@ -194,6 +196,17 @@ export function TabelaDaMatrizQlp({ matriz }: { matriz: MatrizDoQlp }) {
               <tr key={linha.entityId} className="hover:bg-muted/30 transition-colors">
                 <td className="sticky left-0 z-10 bg-card px-4 py-2 border-b whitespace-nowrap">
                   <span className="font-medium">{linha.cargo}</span>
+                  {/*
+                    A classificação em linha própria, e não emendada no cargo: a
+                    fonte escreve as duas na mesma célula, e dois cargos de mesmo
+                    nome só se distinguem por ela. Ver "Uma coluna, um fato" em
+                    `docs/LINGUAGEM-VISUAL.md`.
+                  */}
+                  {linha.classificacao && (
+                    <span className="block text-[0.6875rem] text-muted-foreground">
+                      {linha.classificacao}
+                    </span>
+                  )}
                   <span className="block text-[0.6875rem] text-muted-foreground">
                     {linha.unidadeNome ?? linha.unidadeCnpjLegivel}
                   </span>
@@ -340,9 +353,10 @@ function exportar(matriz: MatrizDoQlp, papel: Papel, linhas: LinhaDaMatrizQlp[])
   const conteudo: string[][] = [
     [`Remunerado do QLP — ${ROTULO_DO_PAPEL[papel]}`, matriz.periodLabel, matriz.contextLabel],
     [],
-    ["Cargo", "Unidade", ...visiveis.map((c) => c.produto.rotulo)],
+    ["Cargo", "Classificação", "Unidade", ...visiveis.map((c) => c.produto.rotulo)],
     ...linhas.map((linha) => [
       linha.cargo,
+      linha.classificacao ?? "",
       linha.unidadeNome ?? linha.unidadeCnpjLegivel,
       ...visiveis.map((coluna) => {
         const celula = linha.celulas[matriz.colunas.indexOf(coluna)]!;

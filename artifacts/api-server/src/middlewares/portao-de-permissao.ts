@@ -2,6 +2,7 @@ import type { RequestHandler } from "express";
 import { db } from "@workspace/db";
 import {
   ambienteDaConsulta,
+  ambienteDoAcervo,
   escritaForaDoAmbiente,
   moduloDaEscrita,
   nivelDe,
@@ -32,12 +33,21 @@ import {
  *
  * **Dois eixos, uma consulta.** Desde que o ambiente de trabalho virou
  * permissão, uma escrita passa por duas perguntas: a pessoa edita neste
- * **ambiente** (a auditoria ou o fechamento de onde a chamada saiu, declarado
- * em `?ambiente=`) e neste **módulo**? As duas leem o mesmo mapa, lido uma vez
- * só. A do ambiente vem primeiro porque é a mais larga — e porque é a que
- * explica melhor o 403: "você não trabalha no Fechamento AS" é uma frase que
- * quem leu sabe o que fazer com, e "sem acesso a Competências" no meio de um
- * ambiente inteiro que não é seu manda procurar no lugar errado.
+ * **ambiente** (a auditoria ou o fechamento de onde a chamada saiu) e neste
+ * **módulo**? As duas leem o mesmo mapa, lido uma vez só. A do ambiente vem
+ * primeiro porque é a mais larga — e porque é a que explica melhor o 403: "você
+ * não trabalha no Fechamento AS" é uma frase que quem leu sabe o que fazer com,
+ * e "sem acesso a Competências" no meio de um ambiente inteiro que não é seu
+ * manda procurar no lugar errado.
+ *
+ * **E o ambiente são dois carimbos, não um.** `?ambiente=` diz de onde a pessoa
+ * fala; `?operacao=` diz que acervo ela quer. Enquanto só o primeiro era
+ * autorizado, trocar um pelo outro atravessava a restrição: uma conta recusada
+ * na Auditoria Empurrada recebia o acervo dela declarando `ambiente=
+ * auditoria-rota` e mantendo `operacao=EMPURRADA` — ou simplesmente omitindo o
+ * `?ambiente=`. Agora os dois são conferidos, e a requisição que a tela monta
+ * não sente diferença, porque nela os dois nascem do mesmo endereço. Ver
+ * `ambienteDoAcervo`, em `lib/permissoes.ts`, que é onde a correspondência mora.
  *
  * **A Administração fica de fora do eixo do ambiente**, e a lista das escritas
  * que ficam está em `lib/permissoes.ts`: contas, unidades, cadastro da casa e
@@ -46,12 +56,16 @@ import {
  * que sobra. Sem a lista, tirar a Auditoria Empurrada de alguém tiraria junto o
  * botão de trocar a própria senha.
  *
- * **Escrita sem ambiente declarado não é recusada por ambiente.** É a mesma
- * regra do caminho não reivindicado, e o mesmo limite: o que este portão promete
- * é que ninguém *muda* o que não pode pelos caminhos que o produto usa, e não
- * que a API seja inexpugnável a um endereço montado à mão. Quem garante que uma
- * auditoria não *lê* nem *soma* o acervo de outra continua sendo `?operacao=`,
- * em `lib/operacao.ts`, que recorta o dado e não depende de permissão nenhuma.
+ * **Escrita sem carimbo nenhum não é recusada por ambiente.** É a mesma regra
+ * do caminho não reivindicado: sem `?ambiente=` e sem `?operacao=` não há o que
+ * conferir, e adivinhar o dono recusaria trabalho legítimo. O que mudou é que
+ * **um** dos dois já basta — uma escrita que pede o acervo de uma operação é
+ * conferida contra o ambiente daquela operação mesmo que não declare ambiente
+ * nenhum, que era o outro jeito de atravessar isto.
+ *
+ * Quem *recorta* o dado continua sendo `?operacao=`, em `lib/operacao.ts`, e ele
+ * não depende de permissão — são duas garantias diferentes sobre o mesmo
+ * carimbo: uma diz de que acervo a resposta sai, a outra diz quem pode pedi-lo.
  *
  * **Uma consulta por escrita, e nenhuma por leitura.** As permissões são lidas
  * do banco na requisição que as usa. Leitura é a maioria esmagadora do tráfego
@@ -68,10 +82,22 @@ export const portaoDePermissao: RequestHandler = async (req, res, next) => {
   }
 
   const modulo = moduloDaEscrita(req.path);
-  const ambiente = escritaForaDoAmbiente(req.path)
-    ? null
-    : ambienteDaConsulta(req.query as Record<string, unknown>);
-  if (!modulo && !ambiente) {
+  const fora = escritaForaDoAmbiente(req.path);
+  const consulta = req.query as Record<string, unknown>;
+  const declarado = fora ? null : ambienteDaConsulta(consulta);
+  /*
+    O acervo pedido é o segundo ambiente a conferir, e ele não é o declarado.
+
+    Ver `ambienteDoAcervo`, em `lib/permissoes.ts`: os dois carimbos são do
+    cliente, e enquanto só o primeiro era autorizado, declarar um ambiente
+    permitido e pedir o acervo de outro atravessava a restrição inteira. Os dois
+    coincidem na requisição honesta — a tela carimba os dois a partir do mesmo
+    endereço —, e é justamente por isso que exigir os dois não custa nada a quem
+    está no lugar certo.
+  */
+  const doAcervo = fora ? null : ambienteDoAcervo(consulta);
+  const ambientes = [...new Set([declarado, doAcervo].filter((a) => a !== null))];
+  if (!modulo && ambientes.length === 0) {
     next();
     return;
   }
@@ -79,7 +105,7 @@ export const portaoDePermissao: RequestHandler = async (req, res, next) => {
   try {
     const permissoes = await permissoesDe(db, req.user.id);
 
-    if (ambiente) {
+    for (const ambiente of ambientes) {
       const nivel = nivelDoAmbiente(permissoes, ambiente);
       if (nivel !== "EDITAR") {
         res.status(403).json({
