@@ -19,6 +19,7 @@ import {
   encerrarComoCancelada,
   ensureImportStorageDir,
   exigirFamiliaDeclarada,
+  exigirQuinzenaDeclarada,
   exigirTipoDeclarado,
   getImportRun,
   getImportRunIssues,
@@ -81,6 +82,8 @@ export type DecodedUpload = {
   declaredType: string | null;
   /** O acervo que a aba da tela declarou, ou `null` quando não veio nenhum. */
   declaredFamily: string | null;
+  /** A quinzena que a linha da tela declarou, ou `null` quando não veio. */
+  declaredPeriod: string | null;
 };
 
 export type DecodeResult =
@@ -99,7 +102,7 @@ export function decodeUpload(body: unknown): DecodeResult {
   if (typeof body !== "object" || body === null) {
     return { ok: false, error: "Envie um JSON com filename e contentBase64." };
   }
-  const { filename, contentBase64, declaredType, declaredFamily } =
+  const { filename, contentBase64, declaredType, declaredFamily, declaredPeriod } =
     body as Record<string, unknown>;
 
   /*
@@ -164,6 +167,33 @@ export function decodeUpload(body: unknown): DecodeResult {
     }
   }
 
+  /*
+    A quinzena — a linha da tela — segue o contrato das outras duas declarações:
+    opcional aqui, porque o envio pelo campo de arquivo e a CLI continuam sem
+    ela, e conferida na mesma função do pipeline, `exigirQuinzenaDeclarada`, que
+    é onde a regra tem dono. Recusar aqui evita escrever em disco um .xlsx que
+    já se sabe que não vai entrar.
+  */
+  if (
+    declaredPeriod !== undefined &&
+    declaredPeriod !== null &&
+    typeof declaredPeriod !== "string"
+  ) {
+    return { ok: false, error: "declaredPeriod, quando enviado, precisa ser texto." };
+  }
+  const quinzenaDeclarada =
+    typeof declaredPeriod === "string" && declaredPeriod.trim() !== ""
+      ? declaredPeriod.trim()
+      : null;
+
+  if (quinzenaDeclarada !== null) {
+    try {
+      exigirQuinzenaDeclarada(quinzenaDeclarada);
+    } catch (err) {
+      return { ok: false, error: (err as Error).message };
+    }
+  }
+
   if (typeof filename !== "string" || filename.trim() === "") {
     return { ok: false, error: "filename é obrigatório." };
   }
@@ -204,6 +234,7 @@ export function decodeUpload(body: unknown): DecodeResult {
       bytes,
       declaredType: tipoDeclarado,
       declaredFamily: familiaDeclarada,
+      declaredPeriod: quinzenaDeclarada,
     },
   };
 }
@@ -573,7 +604,8 @@ router.post("/imports", async (req, res, next): Promise<void> => {
   }
 
   try {
-    const { filename, bytes, declaredType, declaredFamily } = decoded.value;
+    const { filename, bytes, declaredType, declaredFamily, declaredPeriod } =
+      decoded.value;
     // O nome em disco é o próprio sha256: dois envios do mesmo conteúdo
     // apontam para o mesmo arquivo, e nomes vindos do cliente nunca viram
     // caminho.
@@ -590,6 +622,7 @@ router.post("/imports", async (req, res, next): Promise<void> => {
       receivedBy: req.user?.email ?? DEFAULT_ACTOR,
       declaredType,
       declaredFamily,
+      declaredPeriod,
     });
 
     if (received.isDuplicate) {

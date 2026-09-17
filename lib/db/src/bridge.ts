@@ -408,6 +408,18 @@ export const ALLOWLIST: {
     tipo: "text",
     aindaPodeNaoExistir: true,
   },
+  /*
+    A da `0101`. A quinzena que o envio declarou — a terceira declaração da tela
+    de Importações, ao lado do tipo e do acervo, e a que faltava: sem ela,
+    mandar a 1ª quinzena achando que se manda a 2ª entra calado. Aditiva e nula,
+    como todas as daqui.
+  */
+  {
+    tabela: "import_run",
+    coluna: "declared_period",
+    tipo: "date",
+    aindaPodeNaoExistir: true,
+  },
 ];
 
 /**

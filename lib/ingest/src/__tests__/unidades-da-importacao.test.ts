@@ -47,6 +47,55 @@ afterAll(async () => {
   await ctx?.drop();
 });
 
+describe("as vigências de uma importação, uma a uma", () => {
+  it("cada vigência diz o rótulo, a data e o que este arquivo trouxe para ela", async () => {
+    const spec: PlanilhaSpec = {
+      vigencia: "EMPURRADA_1_10_2041",
+      unidadeNome: "CAMACARI",
+      abas: [{ nome: "cavalos", linhas: [{ placa: "VIG1A11" }] }],
+    };
+
+    const run = await getImportRun(ctx.db, await importar(ctx.db, escreverPlanilha(spec)));
+
+    expect(run?.vigencias).toEqual([
+      {
+        label: "EMPURRADA_1_10_2041",
+        effectiveDate: "2041-10-01",
+        tipos: ["CAVALO"],
+      },
+    ]);
+    // `labels` é derivado disto, e não de uma segunda consulta.
+    expect(run?.labels).toEqual(["EMPURRADA_1_10_2041"]);
+  });
+
+  it("o consolidado tem uma vigência por unidade, as duas com o mesmo rótulo", async () => {
+    const CAMACARI = "07.526.557/0015-05";
+    const MANAUS = "03.134.910/0002-36";
+    const spec: PlanilhaSpec = {
+      vigencia: "EMPURRADA_2_10_2041",
+      unidadeNome: "CAMACARI",
+      abas: [
+        {
+          nome: "cavalos",
+          linhas: [
+            { placa: "DUA1A11", unidadeCnpj: CAMACARI, unidadeNome: "CAMACARI" },
+            { placa: "DUA2A22", unidadeCnpj: MANAUS, unidadeNome: "MANAUS" },
+          ],
+        },
+      ],
+    };
+
+    const run = await getImportRun(ctx.db, await importar(ctx.db, escreverPlanilha(spec)));
+
+    expect(run?.vigencias).toHaveLength(2);
+    expect(run?.vigencias.map((v) => v.effectiveDate)).toEqual([
+      "2041-10-16",
+      "2041-10-16",
+    ]);
+    expect(run?.vigencias.every((v) => v.tipos.includes("CAVALO"))).toBe(true);
+  });
+});
+
 describe("a procedência de uma importação", () => {
   it("o arquivo de uma unidade é de uma; o consolidado é de todas as que traz", async () => {
     const CAMACARI = "07.526.557/0015-05";
