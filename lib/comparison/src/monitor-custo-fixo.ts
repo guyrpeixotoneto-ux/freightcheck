@@ -4,9 +4,9 @@
  * ---------------------------------------------------------------------------
  * O que este módulo é, e o que ele recusa ser
  * ---------------------------------------------------------------------------
- * Ele põe lado a lado os quatro recortes de rubrica do custo fixo — FINAME,
- * IPVA, Lucro Fixo e Impostos — para que alguém acompanhe o dia sem abrir
- * quatro telas. E é **só isso**: nenhuma soma, subtração, conversão ou
+ * Ele põe lado a lado os cinco recortes de rubrica do custo fixo — FINAME,
+ * Aluguel de Frota, IPVA, Lucro Fixo e Impostos — para que alguém acompanhe o
+ * dia sem abrir cinco telas. E é **só isso**: nenhuma soma, subtração, conversão ou
  * deduplicação financeira nasce aqui.
  *
  * As três recusas, que são o desenho inteiro:
@@ -37,6 +37,19 @@
  * `resultado`, que é a leitura de quem olha a DRE: `receita − custo`. Ele é
  * derivado à vista, com os dois componentes sempre ao lado, e não substitui
  * nenhum deles.
+ *
+ * ---------------------------------------------------------------------------
+ * Por que o Aluguel está aqui, e a Aquisição não
+ * ---------------------------------------------------------------------------
+ * O critério é um só, e é o do próprio Monitor: **o módulo tem dinheiro do
+ * período para compor?**
+ *
+ * O aluguel tem. Ele é BRL/MENSAL confirmado pela curadoria, este módulo é o
+ * dono da soma dele, e a dupla contagem com a parcela FINAME — que o contém nos
+ * implementos alugados — é impedida na origem, pela regra de parcelas do próprio
+ * FINAME (ver `docs/ACHADO-ALUGUEL.md`). Deixá-lo de fora faria o Monitor
+ * publicar um custo fixo que não inclui o que a frota paga para rodar com
+ * implemento alugado.
  *
  * ---------------------------------------------------------------------------
  * Por que a Aquisição não está aqui
@@ -83,6 +96,11 @@ import {
 } from "./finame";
 import { impactoDeIpva, type ImpactoDeIpva, type LinhaDeIpva } from "./ipva";
 import {
+  impactoDeAluguel,
+  type ImpactoDeAluguel,
+  type LinhaDeAluguel,
+} from "./aluguel";
+import {
   impactoDeImpostos,
   type ImpactoDeImpostos,
   type LinhaDeImpostos,
@@ -99,11 +117,25 @@ import type { EstadoDaLinha, MedidaDaVariavel } from "./recorte-de-rubrica";
 // Os módulos
 // ---------------------------------------------------------------------------
 
-/** Os módulos que o Monitor consolida hoje. Quatro — ver o cabeçalho. */
-export type ModuloDoMonitor = "FINAME" | "IPVA" | "LUCRO_FIXO" | "IMPOSTOS";
+/** Os módulos que o Monitor consolida hoje. Cinco — ver o cabeçalho. */
+export type ModuloDoMonitor =
+  | "FINAME"
+  | "ALUGUEL"
+  | "IPVA"
+  | "LUCRO_FIXO"
+  | "IMPOSTOS";
 
+/**
+ * O Aluguel vem logo depois do FINAME, e não no fim da lista.
+ *
+ * Porque é onde ele se lê: nos implementos alugados a parcela FINAME **é** o
+ * aluguel, e as duas linhas do Monitor falam do mesmo contrato visto de dois
+ * lados. Separá-las por dois módulos no meio faria alguém ler a queda de uma
+ * sem ver a subida da outra.
+ */
 export const MODULOS_DO_MONITOR: readonly ModuloDoMonitor[] = [
   "FINAME",
+  "ALUGUEL",
   "IPVA",
   "LUCRO_FIXO",
   "IMPOSTOS",
@@ -111,6 +143,7 @@ export const MODULOS_DO_MONITOR: readonly ModuloDoMonitor[] = [
 
 export const ROTULO_DO_MODULO: Record<ModuloDoMonitor, string> = {
   FINAME: "FINAME",
+  ALUGUEL: "Aluguel de Frota",
   IPVA: "IPVA",
   LUCRO_FIXO: "Lucro Fixo",
   IMPOSTOS: "Impostos",
@@ -125,6 +158,7 @@ export const ROTULO_DO_MODULO: Record<ModuloDoMonitor, string> = {
  */
 export const ROTA_DO_MODULO: Record<ModuloDoMonitor, string> = {
   FINAME: "/custo-fixo-finame",
+  ALUGUEL: "/custo-fixo-aluguel",
   IPVA: "/custo-fixo-ipva",
   LUCRO_FIXO: "/custo-fixo-lucro-fixo",
   IMPOSTOS: "/custo-fixo-impostos",
@@ -139,6 +173,9 @@ export type NaturezaEconomica = "CUSTO" | "RECEITA";
 
 export const NATUREZA_DO_MODULO: Record<ModuloDoMonitor, NaturezaEconomica> = {
   FINAME: "CUSTO",
+  /* O aluguel é o que a operação paga pelo implemento que não financiou — custo,
+     e não a remuneração que o lucro fixo é. */
+  ALUGUEL: "CUSTO",
   IPVA: "CUSTO",
   IMPOSTOS: "CUSTO",
   LUCRO_FIXO: "RECEITA",
@@ -347,6 +384,9 @@ export interface LinhaDoMonitor {
 const RUBRICA_PROPRIA: Partial<Record<ModuloDoMonitor, readonly string[]>> = {
   IPVA: ["ipva"],
   LUCRO_FIXO: ["lucro_fixo"],
+  /* A parcela FINAME está na tabela do Aluguel para conferir o aluguel — nos
+     alugados as duas são o mesmo dinheiro —, e quem a soma é o FINAME. */
+  ALUGUEL: ["aluguel"],
 };
 
 const MOTIVO_DE_OUTRA_RUBRICA =
@@ -536,6 +576,7 @@ export function normalizarLinhas(
 /** O impacto nativo de cada módulo, como cada um o declara. */
 export type ImpactoDoModulo =
   | ({ modulo: "FINAME" } & ImpactoDeFiname)
+  | ({ modulo: "ALUGUEL" } & ImpactoDeAluguel)
   | ({ modulo: "IPVA" } & ImpactoDeIpva)
   | ({ modulo: "IMPOSTOS" } & ImpactoDeImpostos)
   | ({ modulo: "LUCRO_FIXO" } & ImpactoDeLucroFixo);
@@ -554,6 +595,8 @@ export function impactoDoModulo(
   switch (modulo) {
     case "FINAME":
       return { modulo, ...impactoPorPeriodicidade(linhas as readonly LinhaDeFiname[]) };
+    case "ALUGUEL":
+      return { modulo, ...impactoDeAluguel(linhas as readonly LinhaDeAluguel[]) };
     case "IPVA":
       return { modulo, ...impactoDeIpva(linhas as readonly LinhaDeIpva[]) };
     case "IMPOSTOS":

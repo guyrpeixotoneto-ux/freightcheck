@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  CODIGOS_DO_DETALHE_DE_ALUGUEL,
+  impactoDeAluguel,
+  linhasDeAluguel,
+  variavelDeAluguelDoCodigo,
+} from "../aluguel";
+import {
   CODIGOS_DO_DETALHE_DE_AQUISICAO,
   impactoDeAquisicao,
   linhasDeAquisicao,
@@ -63,7 +69,7 @@ import type { AlteracaoDoMotor } from "../recorte-de-rubrica";
  * impedir.
  */
 
-type Modulo = "FINAME" | "IPVA" | "IMPOSTOS" | "LUCRO_FIXO" | "AQUISICAO";
+type Modulo = "FINAME" | "IPVA" | "IMPOSTOS" | "LUCRO_FIXO" | "AQUISICAO" | "ALUGUEL";
 
 /** Uma alteração precificada nesse código, no tipo de equipamento que o declara. */
 function alteracaoDe(codigo: string): AlteracaoDoMotor {
@@ -101,6 +107,14 @@ const SOMA: Record<Modulo, (a: AlteracaoDoMotor) => boolean> = {
   */
   AQUISICAO: (a) =>
     Object.keys(impactoDeAquisicao(linhasDeAquisicao([a])).porPeriodicidade).length > 0,
+  /*
+    O Aluguel **soma**, e é justamente por isso que ele precisa estar aqui: ele é
+    o dono de `custo_aluguel`, e a parcela FINAME que contém essa coluna nos
+    implementos alugados é somada pelo FINAME. Duas somas sobre o mesmo dinheiro
+    é o que este portão existe para pegar.
+  */
+  ALUGUEL: (a) =>
+    Object.keys(impactoDeAluguel(linhasDeAluguel([a])).porPeriodicidade).length > 0,
 };
 
 const CATALOGOS: Record<Modulo, readonly string[]> = {
@@ -109,6 +123,7 @@ const CATALOGOS: Record<Modulo, readonly string[]> = {
   IMPOSTOS: CODIGOS_DO_DETALHE_DE_IMPOSTOS,
   LUCRO_FIXO: CODIGOS_DO_DETALHE_DE_LUCRO_FIXO,
   AQUISICAO: CODIGOS_DO_DETALHE_DE_AQUISICAO,
+  ALUGUEL: CODIGOS_DO_DETALHE_DE_ALUGUEL,
 };
 
 const MODULOS = Object.keys(CATALOGOS) as Modulo[];
@@ -128,7 +143,8 @@ function ehCandidataADinheiro(codigo: string): boolean {
     variavelDeIpvaDoCodigo(codigo)?.medida === "DINHEIRO" ||
     variavelDeImpostosDoCodigo(codigo)?.medida === "DINHEIRO" ||
     variavelDeLucroFixoDoCodigo(codigo)?.medida === "DINHEIRO" ||
-    variavelDeAquisicaoDoCodigo(codigo)?.medida === "DINHEIRO"
+    variavelDeAquisicaoDoCodigo(codigo)?.medida === "DINHEIRO" ||
+    variavelDeAluguelDoCodigo(codigo)?.medida === "DINHEIRO"
   );
 }
 
@@ -168,6 +184,7 @@ describe("a posse da soma no custo fixo", () => {
       "carreta.ipva_licenciamento": "IPVA",
       "carreta.juros_finame_implemento": "FINAME",
       "carreta.lucro_fixomodelo_novo_ciclo_carreta": "LUCRO_FIXO",
+      "carreta.custo_aluguel": "ALUGUEL",
       "carreta.valor_pis_cofins": "IMPOSTOS",
       "cavalo.amortizacao_cavalo": "FINAME",
       "cavalo.finame_cavalo": "FINAME",
