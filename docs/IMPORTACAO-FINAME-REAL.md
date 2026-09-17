@@ -14,7 +14,7 @@
    **unidade** — esta última é obrigatória e não sai do arquivo (ver §4).
 3. Envie. A leitura acontece em segundo plano; o cartão mostra o progresso.
 4. Confira o resumo e **aprove**.
-5. A competência aparece em **Custo Fixo → Finame Real**.
+5. A competência aparece em **Custo Fixo → Finame**, com a fonte **Real** selecionada.
 
 Nada além disso. Não há planilha intermediária, não há "uma linha por placa e
 vigência" para preparar, e não há passo manual entre o ERP e a auditoria.
@@ -67,8 +67,8 @@ O terceiro caso não é decidido pelo software, e é por isso que ele aparece na
 tela com o valor em jogo à vista: somar cobraria duas vezes o mesmo pagamento;
 descartar perderia um pagamento que talvez exista.
 
-**Como se decide.** Na tela do Finame Real, cada duplicata retida traz as duas
-saídas — "é repetição do export" e "são dois pagamentos" — e um motivo
+**Como se decide.** Na Auditoria de FINAME, fonte Real, cada duplicata retida
+traz as duas saídas — "é repetição do export" e "são dois pagamentos" — e um motivo
 obrigatório. A decisão é **gravada, não aplicada**: o consolidado só muda quando
 aquele mês for reimportado, porque a apuração é função pura das linhas mais as
 decisões conhecidas. Aplicar no clique seria mexer numa vigência fechada sem
@@ -145,7 +145,28 @@ sabe, e reimportar o mês para o valor entrar.
 
 ---
 
-## 6. A comparação: mensal contra quinzenal, sem dupla contagem
+## 6. Onde este acervo é lido — e por quem
+
+O número não tem tela própria: ele entra pela **porta do realizado** que a
+Auditoria de FINAME declara (`realizado-de-finame.ts`), implementada pelo
+adaptador `fonte-real-do-acervo.ts`. A tela é uma só — Auditoria de FINAME, com
+o seletor de fonte —, e o confronto, os cartões, a tabela e os gráficos são os
+que já existiam.
+
+A fonte é **registrada** pelo servidor na partida (`app.ts`), e não importada
+por `@workspace/comparison`: aquela biblioteca é lida pelo navegador também, e
+um `import { db }` lá dentro arrastaria o `pg` para o bundle da tela. Onde
+ninguém registra, quem responde é `SEM_FONTE_DO_REALIZADO` — que diz a verdade
+sobre não existir.
+
+O adaptador lê o **fato**, e só o fato: somar os lançamentos de novo ali daria
+outro número (o consolidado é arredondado ao centavo por grupo), e um centavo de
+discordância entre duas telas sobre o mesmo mês é o defeito que este produto não
+admite. Quem precisa dos três e quatro decimais do razão abre o rastreio.
+
+---
+
+## 7. A comparação: mensal contra quinzenal, sem dupla contagem
 
 **As duas quinzenas do remunerado não são somadas.** Medido no acervo:
 agosto/2026, o único mês com as duas importadas — 64 de 64 cavalos e 47 de 47
@@ -179,7 +200,7 @@ desvio(mês)     = realizado − remunerado
 
 ---
 
-## 7. Mês parcial
+## 8. Mês parcial
 
 Uma competência é marcada como possivelmente parcial quando traz menos de 70% da
 mediana de lançamentos das demais, ou quando o mês ainda está em curso. A régua é
@@ -190,7 +211,7 @@ errado". O número continua visível e comparado.
 
 ---
 
-## 8. Reimportar
+## 9. Reimportar
 
 Três camadas, e cada uma responde antes da seguinte:
 
@@ -216,17 +237,17 @@ vigência ativa. É o que faz reler com um leitor melhor servir para alguma cois
 
 ---
 
-## 9. Onde as coisas moram
+## 10. Onde as coisas moram
 
 | O quê | Onde |
 |---|---|
 | Leitura do razão (pura) | `lib/ingest/src/financiamento-real/extrato.ts` |
 | Regra de agregação e dedup (pura) | `lib/ingest/src/financiamento-real/agregacao.ts` |
 | Estágio + conferências + vínculo | `lib/ingest/src/financiamento-real/estagio.ts` |
-| Comparação entre granularidades (pura) | `lib/comparison/src/finame-real.ts` |
-| Consultas da comparação | `lib/comparison/src/finame-real-query.ts` |
-| Rotas | `artifacts/api-server/src/routes/financiamento-real.ts` |
-| Tela | `artifacts/freightaudit/src/pages/custo-fixo-finame-real.tsx` |
+| A fonte do realizado (o adaptador) | `lib/comparison/src/fonte-real-do-acervo.ts` |
+| Pendências e rastreio | `lib/comparison/src/pendencias-do-real.ts` |
+| Rotas das pendências | `artifacts/api-server/src/routes/financiamento-real.ts` |
+| Tela | `artifacts/freightaudit/src/pages/custo-fixo-finame.tsx`, fonte Real |
 | Schema | `lib/db/src/schema/financiamento-real.ts`, migrations `0103` e `0104` |
 
 Os testes rodam sobre o **extrato real** (`attached_assets/Finames_Real_2026.xlsx`),
