@@ -12,6 +12,7 @@ import {
   linhaDeImpostosDaAlteracao,
   linhaDeImpostosSemAlteracao,
   linhasDeImpostos,
+  movimentoDeAliquotas,
   resumirImpostos,
   totaisDeImpostosPorVigencia,
   variavelDeImpostosDoCodigo,
@@ -276,6 +277,126 @@ describe("os indicadores", () => {
     expect(soma).toBe(65);
     expect(fatias.find((f) => f.estado === "CONFLITO")!.veiculos).toBe(1);
     expect(fatias.find((f) => f.estado === "ALTERADO")).toBeUndefined();
+  });
+});
+
+/**
+ * O MOVIMENTO DA ALÍQUOTA — a grandeza que o seletor dos Impostos passou a levar.
+ *
+ * Ele existe porque a coluna de dinheiro daquele menu é `R$ 0,00` por
+ * construção: o montante de ICMS é zero nas 1.215 linhas do acervo e o
+ * PIS/COFINS de aquisição é 9,250% da nota em todas elas. Num módulo de
+ * imposto a pergunta é em quantos pontos a taxa andou, e o que estes casos
+ * prendem são as três recusas que a resposta tem de manter — não somar pontos,
+ * não juntar tributos, não inventar direção — mais a distinção entre alterada
+ * sem medida e alterada em zero.
+ */
+describe("o movimento das alíquotas do par", () => {
+  const icms = (over: Partial<AlteracaoDoMotor> = {}) =>
+    alteracao({
+      attributeCode: "cavalo.percentual_icms",
+      valueBefore: "12",
+      valueAfter: "14",
+      deltaAbsolute: "2",
+      deltaPercent: "16.666667",
+      impactConfidence: "NOT_APPLICABLE",
+      impactAmount: null,
+      impactPeriodicity: null,
+      ...over,
+    });
+
+  it("não soma pontos — três carretas que sobem 2 p.p. cada não somam 6", () => {
+    const linhas = linhasDeImpostos([
+      icms(),
+      icms({ entityLabel: "QYQ7C21" }),
+      icms({ entityLabel: "QYQ8D32" }),
+    ]);
+
+    expect(movimentoDeAliquotas(linhas)).toEqual([
+      { tributo: "ICMS", alteradas: 3, maior: 2, ambasDirecoes: false },
+    ]);
+  });
+
+  it("publica o maior movimento, e não o último que passou", () => {
+    const linhas = linhasDeImpostos([
+      icms(),
+      icms({ entityLabel: "QYQ7C21", valueAfter: "18", deltaAbsolute: "6" }),
+      icms({ entityLabel: "QYQ8D32", valueAfter: "13", deltaAbsolute: "1" }),
+    ]);
+
+    expect(movimentoDeAliquotas(linhas)[0]!.maior).toBe(6);
+  });
+
+  it("nunca junta ICMS com PIS/COFINS, e sai sempre na mesma ordem", () => {
+    const linhas = linhasDeImpostos([
+      alteracao({
+        attributeCode: "carreta.pis_cofins",
+        entityType: "CARRETA",
+        valueBefore: "9.3",
+        valueAfter: "9.25",
+        deltaAbsolute: "-0.05",
+        impactConfidence: "NOT_APPLICABLE",
+        impactAmount: null,
+      }),
+      icms(),
+    ]);
+
+    expect(movimentoDeAliquotas(linhas).map((m) => m.tributo)).toEqual([
+      "ICMS",
+      "PIS_COFINS",
+    ]);
+    expect(movimentoDeAliquotas(linhas)[1]!.maior).toBe(-0.05);
+  });
+
+  /*
+    Uma sobe 2 p.p., outra cai 6: o maior em módulo é o −6, e um "−6,000 p.p."
+    sem ressalva diria que a frota inteira andou para baixo.
+  */
+  it("avisa quando o par andou para os dois lados", () => {
+    const linhas = linhasDeImpostos([
+      icms(),
+      icms({ entityLabel: "QYQ7C21", valueAfter: "6", deltaAbsolute: "-6" }),
+    ]);
+
+    expect(movimentoDeAliquotas(linhas)[0]).toMatchObject({
+      maior: -6,
+      ambasDirecoes: true,
+    });
+  });
+
+  /*
+    Alterada e comparável, e ainda assim sem delta: é o que o motor devolve
+    quando a coluna chega como texto ("12%" virando "14%") e a subtração não
+    existe. A linha conta como alíquota que andou — porque andou —, e o
+    movimento sai `null`: escrever `0,000 p.p.` ali afirmaria uma medição que
+    ninguém fez, que é a mesma recusa do montante de ICMS.
+  */
+  it("conta a alterada sem medida, e não a mede em zero", () => {
+    const linhas = linhasDeImpostos([
+      icms({ nature: "TEXT_CHANGED", deltaAbsolute: null, deltaPercent: null }),
+    ]);
+
+    expect(movimentoDeAliquotas(linhas)).toEqual([
+      { tributo: "ICMS", alteradas: 1, maior: null, ambasDirecoes: false },
+    ]);
+  });
+
+  it("não devolve balde para o tributo que não se moveu", () => {
+    /* Montante alterado, alíquota parada: o dinheiro é da outra coluna. */
+    expect(movimentoDeAliquotas(linhasDeImpostos([alteracao()]))).toEqual([]);
+  });
+
+  it("ignora a base — valor de nota não é alíquota de nada", () => {
+    const linhas = linhasDeImpostos([
+      alteracao({
+        attributeCode: "cavalo.valor_nf_compra",
+        valueBefore: "409630.16",
+        valueAfter: "412000",
+        deltaAbsolute: "2369.84",
+      }),
+    ]);
+
+    expect(movimentoDeAliquotas(linhas)).toEqual([]);
   });
 });
 

@@ -69,10 +69,52 @@ export interface BaldeDoImpacto {
   valor: number;
 }
 
+/**
+ * O movimento de um percentual declarado entre as duas vigências — pontos, e
+ * nunca dinheiro.
+ *
+ * Nasceu nos Impostos, e o motivo é do domínio: lá a coluna de dinheiro é `R$
+ * 0,00` em toda linha por construção — o montante de ICMS é coluna nunca
+ * preenchida e o PIS/COFINS de aquisição é fórmula sobre a nota —, de modo que
+ * o menu respondia "nada mudou" a quem pergunta por alíquota. A grandeza que
+ * aquela tela audita é o ponto percentual, e é ela que a linha passa a levar.
+ *
+ * É genérico de propósito, como todo o resto deste módulo: quem o preenche diz
+ * o `rotulo` ("ICMS", "PIS/COFINS") e o que ele significa; aqui não há tributo
+ * nenhum. A régua de agregação é do chamador, e a dos Impostos está em
+ * `movimentoDeAliquotas` — que não soma pontos, publica o maior.
+ */
+export interface MovimentoDePercentual {
+  /** Como a linha chama este percentual — "ICMS", "PIS/COFINS". */
+  rotulo: string;
+  /** Quantas linhas daquele percentual se moveram no par. */
+  alteradas: number;
+  /**
+   * O maior movimento, em pontos percentuais, com sinal — `null` quando
+   * nenhuma das alteradas trouxe medida do motor.
+   */
+  maior: number | null;
+  /** Subiu num item e caiu noutro: o sinal de `maior` não descreve o conjunto. */
+  ambasDirecoes: boolean;
+}
+
 /** Os números de um par, no recorte de quem perguntou. */
 export interface NumerosDoPar {
   alteracoes: number;
   impacto: { baldes: BaldeDoImpacto[] };
+  /**
+   * O movimento dos percentuais declarados — **presente e vazio** quando o
+   * recorte os audita e nenhum andou.
+   *
+   * A distinção entre ausente e vazio é a mesma que `semImpacto` faz do outro
+   * lado, e vale pela mesma razão. Ausente quer dizer *este recorte não olha
+   * percentual* — é o caso das outras quatro rubricas, cujas linhas do menu
+   * seguem exatamente como eram. Vazio quer dizer *olhei as alíquotas e nenhuma
+   * se moveu*, que é notícia numa tela de imposto e é escrita por extenso.
+   *
+   * Tributo que não moveu nada não vira balde: a lista traz só quem andou.
+   */
+  percentuais?: MovimentoDePercentual[];
   /**
    * Por que este recorte **não publica dinheiro** — e não "publicou zero".
    *

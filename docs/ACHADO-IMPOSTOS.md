@@ -62,6 +62,20 @@ não varia entre vigências, **a comparação vazia é o resultado esperado**. A
 conferência da alíquota continua valendo, porque ela não olha o que mudou — olha
 o que cada vigência declara.
 
+E uma sobre o **seletor de vigência** desta tela, que é onde a consequência
+dói: com o montante de ICMS zerado (§ 3) e o PIS/COFINS preso à fórmula, a
+coluna de dinheiro do menu escreve `R$ 0,00 · 0 alterações` em todas as
+vigências do histórico — a mesma linha nove vezes, que não ajuda ninguém a
+escolher qual par abrir. O menu passa a levar a grandeza que este módulo de
+fato audita: quantos **pontos percentuais** a alíquota andou entre a candidata
+e o "Para" (`movimentoDeAliquotas`, em `lib/comparison/src/impostos.ts`).
+
+As três recusas do impacto valem inteiras ali: não se somam pontos (o que sai é
+o **maior** movimento, com a contagem ao lado), não se juntam ICMS e PIS/COFINS
+num número só, e "alterada sem medida" nunca vira `0,000 p.p.`. E a linha não
+leva cor: verde e vermelho são a direção do dinheiro, e uma alíquota que sobe
+não é ganho nem perda enquanto faltar o regime tributário do ativo (§ 7).
+
 ---
 
 ## 3. `valor_icms` é coluna sem dado, não imposto zero
@@ -152,6 +166,7 @@ veículo, em vez de fingir a conta.
 | Declaração com uma casa decimal | tolerância de 0,05 p.p. — meia casa da última publicada |
 | Duas alíquotas de ICMS na carreta | `carreta.icms` só no detalhe, fora da conferência |
 | Imposto do frete em outra fonte | recusa escrita no rodapé da conferência e na gaveta |
+| As duas colunas do menu são `R$ 0,00` por construção | o seletor de par publica o **movimento da alíquota** ao lado do dinheiro (`movimentoDeAliquotas`) — o maior movimento em p.p. e quantas se moveram, um balde por tributo, sem cor |
 
 ---
 
