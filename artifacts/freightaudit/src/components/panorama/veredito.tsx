@@ -150,8 +150,15 @@ export function Veredito({
           </div>
         )}
 
+        {/*
+          A largura da coluna é a dos números que ela carrega, e não um valor
+          fixo. Com `w-[21rem]`, um par de sete dígitos — R$ 1,6 milhão de perda
+          — não cabia nas duas metades, e a parcela da direita saía por cima da
+          borda do cartão. Aqui a coluna cresce até o teto de `max-w` e o número
+          grande da esquerda fica com o resto.
+        */}
         {lados && (
-          <div className="border-t border-brand/15 pt-5 md:border-t-0 md:pt-0 md:border-l md:border-brand/15 md:pl-10 md:w-[21rem] md:shrink-0">
+          <div className="border-t border-brand/15 pt-5 md:border-t-0 md:pt-0 md:border-l md:border-brand/15 md:pl-10 md:w-auto md:min-w-[21rem] md:max-w-[28rem] md:shrink-0">
             <Rotulo>Composição</Rotulo>
 
             <div className="mt-3 grid grid-cols-2">
@@ -267,7 +274,13 @@ function Parcela({
 }) {
   return (
     <div className={className}>
-      <p className={cn("text-xl font-extrabold tabular-nums leading-none", tom)}>{valor}</p>
+      {/*
+        O número não quebra no meio: quem cede é a largura da coluna. "−R$ 1.605"
+        numa linha e ".504" na outra não é um valor.
+      */}
+      <p className={cn("text-xl font-extrabold tabular-nums leading-none whitespace-nowrap", tom)}>
+        {valor}
+      </p>
       <p className="text-3xs uppercase tracking-[0.1em] font-semibold text-muted-foreground mt-1.5">
         {rotulo}
       </p>
