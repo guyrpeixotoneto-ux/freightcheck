@@ -55,10 +55,12 @@
 
 import {
   chaveDoVeiculo,
+  ehEntradaOuSaidaDoGrao,
   estadoDaAlteracao,
   GRAVIDADE,
   numero,
   ROTULO_DO_ESTADO,
+  TIPOS_DE_EQUIPAMENTO,
   type AlteracaoDoMotor,
   type EstadoDaLinha,
   type MedidaDaVariavel,
@@ -325,7 +327,7 @@ export function linhaDeSeguroDaAlteracao(a: AlteracaoDoMotor): LinhaDeSeguro | n
     seria esconder a metade mais visível do que mudou na frota.
   */
   if (!variavel) {
-    if (a.changeType !== "ENTITY_ADDED" && a.changeType !== "ENTITY_REMOVED") return null;
+    if (!ehEntradaOuSaidaDoGrao(a, TIPOS_DE_EQUIPAMENTO)) return null;
     return {
       id: a.id ?? null,
       entityLabel: a.entityLabel,

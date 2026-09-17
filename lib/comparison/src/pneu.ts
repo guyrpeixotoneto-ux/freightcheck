@@ -65,6 +65,7 @@
 
 import {
   chaveDoVeiculo,
+  ehEntradaOuSaidaDoGrao,
   estadoDaAlteracao,
   GRAVIDADE,
   numero,
@@ -395,7 +396,7 @@ export function linhaDePneuDaAlteracao(a: AlteracaoDoMotor): LinhaDePneu | null 
     a malha muda —, e some da tela se a tradução exigir código de atributo.
   */
   if (!variavel) {
-    if (a.changeType !== "ENTITY_ADDED" && a.changeType !== "ENTITY_REMOVED") return null;
+    if (!ehEntradaOuSaidaDoGrao(a, [TIPO_DO_PNEU])) return null;
     return {
       id: a.id ?? null,
       entityLabel: a.entityLabel,

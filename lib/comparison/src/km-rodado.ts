@@ -69,6 +69,7 @@
 
 import {
   chaveDoVeiculo,
+  ehEntradaOuSaidaDoGrao,
   estadoDaAlteracao,
   GRAVIDADE,
   numero,
@@ -469,7 +470,7 @@ export function linhaDeKmDaAlteracao(a: AlteracaoDoMotor): LinhaDeKm | null {
     que aconteceu entre duas vigências.
   */
   if (!variavel) {
-    if (a.changeType !== "ENTITY_ADDED" && a.changeType !== "ENTITY_REMOVED") return null;
+    if (!ehEntradaOuSaidaDoGrao(a, [TIPO_DO_KM_RODADO])) return null;
     return {
       id: a.id ?? null,
       entityLabel: a.entityLabel,

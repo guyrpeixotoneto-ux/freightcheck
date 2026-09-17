@@ -41,10 +41,12 @@
 
 import {
   chaveDoVeiculo,
+  ehEntradaOuSaidaDoGrao,
   estadoDaAlteracao,
   GRAVIDADE,
   numero,
   ROTULO_DO_ESTADO,
+  TIPOS_DE_EQUIPAMENTO,
   type EstadoDaLinha,
   type MedidaDaVariavel,
   type AlteracaoDoMotor,
@@ -254,7 +256,7 @@ export function linhaDeAluguelDaAlteracao(a: AlteracaoDoMotor): LinhaDeAluguel |
     /* Entrada e saída de ativo não citam atributo: o motor as grava uma vez por
        veículo. Nesta rubrica elas importam duas vezes — um implemento alugado
        que entra traz um custo mensal novo, e um que sai leva embora um. */
-    if (a.changeType !== "ENTITY_ADDED" && a.changeType !== "ENTITY_REMOVED") return null;
+    if (!ehEntradaOuSaidaDoGrao(a, TIPOS_DE_EQUIPAMENTO)) return null;
     return {
       id: a.id ?? null,
       entityLabel: a.entityLabel,
