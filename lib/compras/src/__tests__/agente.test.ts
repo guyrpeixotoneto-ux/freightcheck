@@ -7,7 +7,7 @@ import {
   precosDaPergunta,
   quantidadeDaPergunta,
 } from "../agente/extracao";
-import { ehDeItem, intencaoDe } from "../agente/intencao";
+import { ehDeItem, ehDeMercado, intencaoDe } from "../agente/intencao";
 import { conferirLastro, valoresCitados } from "../agente/lastro";
 import {
   blocoDaAvaliacao,
@@ -170,6 +170,7 @@ const ANALISE = {
     effectiveDate: "2026-09-01",
     veiculos: 64,
     placa: null,
+    unidade: "Camaçari",
   },
   avaliacao: AVALIACAO,
   cotacoes: [],
@@ -238,7 +239,13 @@ describe("a resposta escrita em código", () => {
     );
     const linha = {
       produto: produtoDe("financiamento")!,
-      leitura: { base: PNEU, effectiveDate: null, veiculos: null, placa: null },
+      leitura: {
+        base: PNEU,
+        effectiveDate: null,
+        veiculos: null,
+        placa: null,
+        unidade: null,
+      },
       melhor: {
         cotacao: {
           id: "x",
@@ -386,10 +393,53 @@ describe("a navegação contextual", () => {
   });
 });
 
+describe("a decisão de sair para a internet é por regra", () => {
+  it("reconhece as perguntas de mercado", () => {
+    expect(intencaoDe("Pesquise esse uniforme no mercado.")).toBe(
+      "PESQUISAR_MERCADO",
+    );
+    expect(intencaoDe("Encontre fornecedores para esse item.")).toBe(
+      "PESQUISAR_MERCADO",
+    );
+    expect(intencaoDe("Estou pagando caro?")).toBe("PESQUISAR_MERCADO");
+    expect(intencaoDe("Me mostre as fontes.")).toBe("PESQUISAR_MERCADO");
+    expect(
+      intencaoDe("Quanto a Ambev remunera e quanto consigo comprar?"),
+    ).toBe("REMUNERADO_VERSUS_MERCADO");
+    expect(intencaoDe("Compare o que somos remunerados com o mercado.")).toBe(
+      "REMUNERADO_VERSUS_MERCADO",
+    );
+  });
+
+  it("não sai para a internet nas perguntas que o acervo responde", () => {
+    /*
+      Pesquisa de mercado custa tempo e dinheiro. Dispará-la em toda pergunta —
+      inclusive nas que o acervo já responde — seria pagar por uma resposta que
+      já se tinha.
+    */
+    for (const p of [
+      "Quanto devo pagar por este pneu?",
+      "Qual é meu preço máximo?",
+      "Quais itens estou comprando acima do teto?",
+      "Onde estou destruindo margem?",
+      "Mostre a evidência que sustenta esse preço-alvo.",
+    ]) {
+      expect(ehDeMercado(intencaoDe(p))).toBe(false);
+    }
+    expect(ehDeMercado(intencaoDe("Pesquise pneu no mercado"))).toBe(true);
+  });
+});
+
 describe("as sugestões da tela inicial", () => {
-  it("são seis, e cada uma é uma pergunta inteira que o agente sabe classificar", () => {
+  it("são oito, e cada uma é uma pergunta inteira que o agente sabe classificar", () => {
+    /*
+      O número está preso porque ele é contrato de tela: as sugestões são a
+      entrada do produto, e uma que o classificador não reconhecesse levaria
+      quem clicou para uma resposta sobre outra coisa. As duas últimas — as de
+      mercado — são as únicas que saem para a internet.
+    */
     const lista = sugestoes();
-    expect(lista).toHaveLength(6);
+    expect(lista).toHaveLength(8);
     for (const s of lista) {
       expect(intencaoDe(s.exemplo, { temCotacao: /R\$/.test(s.exemplo) })).toBe(
         s.intencao,

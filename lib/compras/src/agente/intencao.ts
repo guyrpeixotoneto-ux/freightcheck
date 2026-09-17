@@ -37,7 +37,11 @@ export type Intencao =
   /** "Simule uma compra de 80 unidades a R$ 3.080." */
   | "SIMULAR"
   /** "Mostre a evidência que sustenta esse preço-alvo." */
-  | "EVIDENCIA";
+  | "EVIDENCIA"
+  /** "Pesquise esse uniforme no mercado." / "Encontre fornecedores para este item." */
+  | "PESQUISAR_MERCADO"
+  /** "Quanto a Ambev remunera e quanto consigo comprar?" — os dois lados juntos. */
+  | "REMUNERADO_VERSUS_MERCADO";
 
 export const INTENCAO_PADRAO: Intencao = "PRECO_ALVO";
 
@@ -52,6 +56,8 @@ export const ROTULO_DA_INTENCAO: Record<Intencao, string> = {
   OPORTUNIDADES: "Oportunidades de economia",
   SIMULAR: "Simulação de compra",
   EVIDENCIA: "Evidência do preço-alvo",
+  PESQUISAR_MERCADO: "Pesquisa de mercado",
+  REMUNERADO_VERSUS_MERCADO: "Remuneração contra o mercado",
 };
 
 /**
@@ -81,8 +87,63 @@ const MARCAS: { intencao: Intencao; termos: string[] }[] = [
     ],
   },
   {
+    /*
+      Vem depois da evidência e antes de tudo o mais: "compare o que somos
+      remunerados com o mercado" contém "compare", e responder com o ranking de
+      propostas registradas deixaria de fora justamente o mercado que a pergunta
+      pede. As duas intenções de mercado são as únicas que saem para a internet,
+      e por isso elas precisam ser reconhecidas antes das que só leem o acervo.
+    */
+    intencao: "REMUNERADO_VERSUS_MERCADO",
+    termos: [
+      "remunera e quanto consigo",
+      "remunerado com o mercado",
+      "remunerados com o mercado",
+      "remuneracao com o mercado",
+      "somos remunerados",
+      "remunerado e o mercado",
+      "quanto somos remunerados",
+      "compare o remunerado",
+      "remuneracao contra o mercado",
+      "sobra se eu comprar no mercado",
+    ],
+  },
+  {
+    intencao: "PESQUISAR_MERCADO",
+    termos: [
+      "pesquise",
+      "pesquisar",
+      "pesquisa de mercado",
+      "no mercado",
+      "de mercado",
+      "encontre fornecedores",
+      "procure fornecedores",
+      "buscar fornecedores",
+      "achar fornecedores",
+      "quanto custa no mercado",
+      "quanto o mercado",
+      "precos de mercado",
+      "cotar",
+      "cote",
+      "cotacao de mercado",
+      "estou pagando caro",
+      "pagando caro",
+      "melhor preco encontrado",
+      "me mostre as fontes",
+      "mostre as fontes",
+      "quais as fontes",
+    ],
+  },
+  {
     intencao: "COMPARAR",
-    termos: ["compare", "comparar", "comparacao", "qual das", "entre as propostas", "versus"],
+    termos: [
+      "compare",
+      "comparar",
+      "comparacao",
+      "qual das",
+      "entre as propostas",
+      "versus",
+    ],
   },
   {
     intencao: "FORNECEDORES",
@@ -203,7 +264,10 @@ export function intencaoDe(
   }
 
   const intencao = achada ?? INTENCAO_PADRAO;
-  if (contexto.temCotacao === true && (intencao === "PRECO_ALVO" || intencao === "TETO")) {
+  if (
+    contexto.temCotacao === true &&
+    (intencao === "PRECO_ALVO" || intencao === "TETO")
+  ) {
     return "AVALIAR_COTACAO";
   }
   return intencao;
@@ -216,6 +280,22 @@ export function ehDeItem(intencao: Intencao): boolean {
     intencao === "TETO" ||
     intencao === "AVALIAR_COTACAO" ||
     intencao === "SIMULAR" ||
-    intencao === "EVIDENCIA"
+    intencao === "EVIDENCIA" ||
+    ehDeMercado(intencao)
+  );
+}
+
+/**
+ * Se a intenção exige sair para a internet.
+ *
+ * É a decisão de ferramenta do agente, e ela é por regra: pesquisa de mercado
+ * custa tempo e dinheiro, e disparar uma a cada pergunta — inclusive nas que o
+ * acervo responde sozinho — seria pagar por resposta que já se tinha. Quem
+ * pergunta o teto econômico de um item quer a conta da remuneração; quem
+ * pergunta quanto o mercado cobra quer a internet.
+ */
+export function ehDeMercado(intencao: Intencao): boolean {
+  return (
+    intencao === "PESQUISAR_MERCADO" || intencao === "REMUNERADO_VERSUS_MERCADO"
   );
 }

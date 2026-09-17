@@ -53,7 +53,9 @@ function Numero({
       >
         {valor}
       </div>
-      {nota && <div className="text-xs text-muted-foreground mt-0.5">{nota}</div>}
+      {nota && (
+        <div className="text-xs text-muted-foreground mt-0.5">{nota}</div>
+      )}
     </div>
   );
 }
@@ -103,7 +105,12 @@ export function CartaoDaAvaliacao({
       ) : (
         <>
           <div className="grid gap-4 grid-cols-2 sm:grid-cols-4">
-            <Numero rotulo="Preço-alvo" valor={reais(a.precoAlvo)} forte nota="por unidade" />
+            <Numero
+              rotulo="Preço-alvo"
+              valor={reais(a.precoAlvo)}
+              forte
+              nota="por unidade"
+            />
             <Numero
               rotulo="Teto econômico"
               valor={reais(a.precoTeto)}
@@ -142,7 +149,10 @@ export function CartaoDaAvaliacao({
                   : `${formatBrl(a.margemAbsoluta)} · ${formatPercent((a.margemPercentual ?? 0) * 100)}`
               }
             />
-            <Numero rotulo="Impacto no pedido" valor={reais(a.impactoPelaQuantidade)} />
+            <Numero
+              rotulo="Impacto no pedido"
+              valor={reais(a.impactoPelaQuantidade)}
+            />
             <Numero
               rotulo="Impacto mensal / anual"
               valor={
@@ -157,23 +167,38 @@ export function CartaoDaAvaliacao({
 
       <div className="text-xs text-muted-foreground space-y-1 pt-1 border-t">
         <p>
-          <span className="font-semibold text-foreground">Remuneração usada:</span>{" "}
-          {reais(a.valorRemunerado)} — {a.base.escopo}, vigência {a.base.vigencia}.
+          <span className="font-semibold text-foreground">
+            Remuneração usada:
+          </span>{" "}
+          {reais(a.valorRemunerado)} — {a.base.escopo}, vigência{" "}
+          {a.base.vigencia}.
         </p>
         <p>
-          <span className="font-semibold text-foreground">Fonte:</span> {a.base.fonte}
+          <span className="font-semibold text-foreground">Fonte:</span>{" "}
+          {a.base.fonte}
         </p>
         <p>
-          <span className="font-semibold text-foreground">Política configurada:</span> meta{" "}
-          {formatPercent(a.politica.margemAlvo * 100)} e limite{" "}
-          {formatPercent(a.politica.margemMinima * 100)} sobre o valor econômico.
+          <span className="font-semibold text-foreground">
+            Política configurada:
+          </span>{" "}
+          meta {formatPercent(a.politica.margemAlvo * 100)} e limite{" "}
+          {formatPercent(a.politica.margemMinima * 100)} sobre o valor
+          econômico.
         </p>
       </div>
 
       {(confirmados.length > 0 || estimados.length > 0) && (
         <div className="grid gap-3 sm:grid-cols-2 pt-1 border-t">
-          <Procedencia titulo="Dados confirmados" itens={confirmados} confirmado />
-          <Procedencia titulo="Dados estimados" itens={estimados} confirmado={false} />
+          <Procedencia
+            titulo="Dados confirmados"
+            itens={confirmados}
+            confirmado
+          />
+          <Procedencia
+            titulo="Dados estimados"
+            itens={estimados}
+            confirmado={false}
+          />
         </div>
       )}
 
@@ -264,7 +289,10 @@ export function Atalhos({ atalhos }: { atalhos: Atalho[] }) {
 export function CartaoDaAnalise({ analise }: { analise: AnaliseDoItem }) {
   return (
     <div className="space-y-3">
-      <CartaoDaAvaliacao avaliacao={analise.avaliacao} titulo={analise.produto.rotulo} />
+      <CartaoDaAvaliacao
+        avaliacao={analise.avaliacao}
+        titulo={analise.produto.rotulo}
+      />
       <Atalhos atalhos={analise.atalhos} />
     </div>
   );

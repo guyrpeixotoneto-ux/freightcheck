@@ -34,9 +34,28 @@ import {
   type LinhaDaCarteira,
   type RecorteDaConsulta,
 } from "./dossie";
-import { ehDeItem, intencaoDe, ROTULO_DA_INTENCAO, type Intencao } from "./intencao";
+import {
+  ehDeItem,
+  ehDeMercado,
+  intencaoDe,
+  ROTULO_DA_INTENCAO,
+  type Intencao,
+} from "./intencao";
+import {
+  buscaDisponivel,
+  buscaIndisponivel,
+  buscaPorModelo,
+  pesquisarMercado,
+  temFaixa,
+  type BuscaDeMercado,
+  type PesquisaDeMercado,
+} from "../mercado";
 import { lerPergunta, itemPorChave } from "./extracao";
-import { blocoDaAvaliacao, numerosDaAvaliacao, redigirEmCodigo } from "./redacao";
+import {
+  blocoDaAvaliacao,
+  numerosDaAvaliacao,
+  redigirEmCodigo,
+} from "./redacao";
 import { conferirLastro } from "./lastro";
 import { disponivel as iaDisponivel, modeloConfigurado, redigir } from "./llm";
 import type { Atalho } from "./navegacao";
@@ -48,10 +67,24 @@ export interface PerguntaAoAgente {
   item?: string | null;
   premissas?: PremissasDaCompra;
   politica?: Partial<PoliticaDeCompra>;
-  recorte?: { period?: string; context?: EscopoDaConsulta; operacao?: string | null };
+  recorte?: {
+    period?: string;
+    context?: EscopoDaConsulta;
+    operacao?: string | null;
+  };
   historico?: { papel: "PERGUNTA" | "RESPOSTA"; texto: string }[];
   /** Pula o modelo. A tela usa para comparar as duas redações. */
   semIa?: boolean;
+  /**
+   * O buscador de mercado. Omitido, usa o de verdade quando há chave.
+   *
+   * Entra por argumento para a suíte poder provar a cadeia inteira contra
+   * páginas escritas à mão — ver `mercado/busca.ts`. Não é ponto de extensão
+   * para o chamador escolher outra internet.
+   */
+  busca?: BuscaDeMercado;
+  /** O relógio, por argumento: o frescor das cotações precisa ser testável. */
+  agora?: Date;
 }
 
 /** Quem escreveu o texto que está na tela. */
@@ -71,8 +104,14 @@ export interface RespostaDoAgente {
   fornecedores: DesempenhoDoFornecedor[];
   atalhos: Atalho[];
   /** O que a extração leu da pergunta — a tela mostra para quem quiser corrigir. */
-  leitura: { precos: number[]; quantidade: number | null; placa: string | null };
+  leitura: {
+    precos: number[];
+    quantidade: number | null;
+    placa: string | null;
+  };
   lacunas: string[];
+  /** A pesquisa de mercado, quando a pergunta pediu uma. Nula quando não pediu. */
+  pesquisa: PesquisaDeMercado | null;
 }
 
 /**
@@ -123,8 +162,12 @@ export async function responderCompras(
   });
 
   const recorte: RecorteDaConsulta = {
-    ...(pedido.recorte?.period !== undefined ? { period: pedido.recorte.period } : {}),
-    ...(pedido.recorte?.context !== undefined ? { context: pedido.recorte.context } : {}),
+    ...(pedido.recorte?.period !== undefined
+      ? { period: pedido.recorte.period }
+      : {}),
+    ...(pedido.recorte?.context !== undefined
+      ? { context: pedido.recorte.context }
+      : {}),
     operacao: pedido.recorte?.operacao ?? null,
   };
 
@@ -157,11 +200,65 @@ export async function responderCompras(
     });
   }
 
+  /*
+    A pesquisa de mercado sai para a internet, e por isso ela só acontece quando
+    a intenção pede — nunca "por garantia". Ver `ehDeMercado`: quem pergunta o
+    teto econômico quer a conta da remuneração, e disparar uma busca ali seria
+    pagar por uma resposta que o acervo já tinha.
+
+    Ela recebe o que o motor já apurou: o valor econômico por unidade vira a
+    margem contra o mercado, e o teto econômico corta a faixa-alvo. É o elo que
+    fecha a cadeia — sem ele a pesquisa devolveria o preço do mercado sem dizer
+    se ele cabe na remuneração, que é a única pergunta que este produto faz.
+  */
+  let pesquisa: PesquisaDeMercado | null = null;
+  if (ehDeMercado(intencao) && item) {
+    const buscador =
+      pedido.busca ??
+      (buscaDisponivel()
+        ? buscaPorModelo()
+        : buscaIndisponivel(
+            "A pesquisa de mercado precisa de uma chave de modelo (ANTHROPIC_API_KEY). " +
+              "Sem ela o agente responde sobre a remuneração e as cotações registradas, " +
+              "e não consulta o mercado.",
+          ));
+
+    pesquisa = await pesquisarMercado(buscador, {
+      item: item.chave,
+      descricao: descricaoDoItem(analise),
+      /* A pergunta traz a medida quando quem pergunta a conhece — e só isso. */
+      textoLivre: pedido.pergunta,
+      quantidade: premissas.quantidade ?? null,
+      /*
+        A região é a **unidade**, que é um lugar — nunca a operação. "Entrega em
+        EMPURRADA" não é endereço e não seleciona fornecedor nenhum; "Camaçari"
+        seleciona. A operação continua recortando o acervo, que é o trabalho
+        dela.
+      */
+      regiao: analise?.leitura.unidade ?? null,
+      precoAtual:
+        premissas.precoUnitario ??
+        analise?.cotacoes[0]?.cotacao.precoUnitario ??
+        null,
+      precoHistorico: premissas.precoHistorico ?? null,
+      remuneracaoUnitaria: analise?.avaliacao.valorEconomicoUnitario ?? null,
+      tetoEconomico: analise?.avaliacao.precoTeto ?? null,
+      ...(pedido.agora ? { agora: pedido.agora } : {}),
+    });
+  }
+
   const fornecedores = intencao === "FORNECEDORES" ? porFornecedor(linhas) : [];
 
   // ---- a redação em código ------------------------------------------------
   const semItem = ehDeItem(intencao) && !item ? pedirItem() : null;
-  const material = { intencao, analise, carteira: linhas, fornecedores, semItem };
+  const material = {
+    intencao,
+    analise,
+    carteira: linhas,
+    fornecedores,
+    semItem,
+    pesquisa,
+  };
   const determinismo = redigirEmCodigo(material);
 
   // ---- a redação por modelo, quando ela passa na trava --------------------
@@ -191,7 +288,7 @@ export async function responderCompras(
         a lista é a dos números da carteira — e ela é montada aqui, e não na
         redação, porque é aqui que se sabe qual material foi usado.
       */
-      const permitidos = numerosPermitidos(analise, linhas);
+      const permitidos = numerosPermitidos(analise, linhas, pesquisa);
       const conferencia = conferirLastro(escrita.texto, permitidos);
       if (conferencia.passou) {
         texto = escrita.texto;
@@ -225,21 +322,42 @@ export async function responderCompras(
       placa: leitura.placa,
     },
     lacunas: analise?.avaliacao.lacunas ?? [],
+    pesquisa,
   };
+}
+
+/**
+ * A descrição que nomeia o item na busca.
+ *
+ * Só a cotação registrada serve: quem digitou "295/80 R22.5 recapado" escreveu
+ * exatamente o que se compra. A pergunta **não** entra aqui — ela vai por
+ * `textoLivre`, de onde se lê atributo sem batizar o item com a frase inteira.
+ * O rótulo do catálogo também fica de fora de propósito: `especificarCompra` já
+ * cai nele sozinho, e passá-lo aqui faria a lacuna "a cotação não traz
+ * descrição" nunca aparecer, que é justamente o aviso que destrava a busca.
+ */
+function descricaoDoItem(analise: AnaliseDoItem | null): string | null {
+  return (
+    analise?.cotacoes.find((c) => c.cotacao.descricao !== null)?.cotacao
+      .descricao ?? null
+  );
 }
 
 /** Todo número que a resposta pode citar, vindo do material que ela usou. */
 function numerosPermitidos(
   analise: AnaliseDoItem | null,
   linhas: LinhaDaCarteira[],
+  pesquisa: PesquisaDeMercado | null = null,
 ): number[] {
   const numeros: number[] = [];
   if (analise) {
     numeros.push(...numerosDaAvaliacao(analise.avaliacao));
-    for (const c of analise.cotacoes) numeros.push(...numerosDaAvaliacao(c.avaliacao));
+    for (const c of analise.cotacoes)
+      numeros.push(...numerosDaAvaliacao(c.avaliacao));
   }
   for (const linha of linhas) {
-    for (const p of linha.propostas) numeros.push(...numerosDaAvaliacao(p.avaliacao));
+    for (const p of linha.propostas)
+      numeros.push(...numerosDaAvaliacao(p.avaliacao));
   }
 
   /*
@@ -253,11 +371,61 @@ function numerosPermitidos(
     .reduce((a, b) => a + b, 0);
   if (somaImpacto > 0) numeros.push(somaImpacto);
 
+  /*
+    Os números do mercado entram na lista pelo mesmo critério dos do acervo:
+    eles existem no dossiê, foram conferidos contra o texto da página
+    (`mercado/verificacao.ts`) e são calculados em código. O que a trava impede
+    continua sendo o mesmo — o modelo citar um real que ninguém apurou.
+  */
+  if (pesquisa) {
+    for (const o of pesquisa.ofertas) {
+      numeros.push(o.oferta.preco);
+      if (o.custo.custoTotal !== null) numeros.push(o.custo.custoTotal);
+      if (o.custo.precoPorUnidade !== null)
+        numeros.push(o.custo.precoPorUnidade);
+      if (o.custo.fretePorUnidade !== null)
+        numeros.push(o.custo.fretePorUnidade);
+      if (o.oferta.frete !== null) numeros.push(o.oferta.frete);
+    }
+    if (pesquisa.leitura) {
+      numeros.push(
+        pesquisa.leitura.menor,
+        pesquisa.leitura.maior,
+        pesquisa.leitura.mediana,
+        pesquisa.leitura.media,
+      );
+    }
+    if (temFaixa(pesquisa.alvo)) {
+      numeros.push(pesquisa.alvo.piso, pesquisa.alvo.teto);
+      for (const ev of pesquisa.alvo.evidencias) {
+        if (ev.valor !== null) numeros.push(ev.valor);
+      }
+    }
+    if (pesquisa.economia) {
+      numeros.push(
+        pesquisa.economia.economiaUnitaria,
+        pesquisa.economia.precoRecomendado,
+      );
+      if (pesquisa.economia.economiaTotal !== null)
+        numeros.push(pesquisa.economia.economiaTotal);
+    }
+    if (pesquisa.margem) {
+      numeros.push(
+        pesquisa.margem.margemUnitaria,
+        pesquisa.margem.custoDeCompra,
+      );
+      if (pesquisa.margem.margemTotal !== null)
+        numeros.push(pesquisa.margem.margemTotal);
+    }
+  }
+
   const somaGanho = linhas
     .map((l) => {
       const a = l.melhor?.avaliacao;
       const q = l.melhor?.cotacao.quantidade ?? null;
-      return a?.diferencaParaAlvo != null && q !== null ? Math.max(0, a.diferencaParaAlvo) * q : 0;
+      return a?.diferencaParaAlvo != null && q !== null
+        ? Math.max(0, a.diferencaParaAlvo) * q
+        : 0;
     })
     .reduce((a, b) => a + b, 0);
   if (somaGanho > 0) numeros.push(somaGanho);
@@ -286,7 +454,8 @@ export function sugestoes(): SugestaoRapida[] {
   return [
     {
       rotulo: "Analisar uma cotação",
-      exemplo: "Essa cotação está boa? Pneu a R$ 3.080 por unidade, 80 unidades.",
+      exemplo:
+        "Essa cotação está boa? Pneu a R$ 3.080 por unidade, 80 unidades.",
       intencao: "AVALIAR_COTACAO",
     },
     {
@@ -314,6 +483,16 @@ export function sugestoes(): SugestaoRapida[] {
       exemplo: "Simule uma compra de 80 pneus a R$ 2.900 por unidade.",
       intencao: "SIMULAR",
     },
+    {
+      rotulo: "Pesquisar preço de mercado",
+      exemplo: "Pesquise pneu 295/80 R22.5 no mercado, 40 unidades.",
+      intencao: "PESQUISAR_MERCADO",
+    },
+    {
+      rotulo: "Remuneração contra o mercado",
+      exemplo: "Quanto somos remunerados em pneu e quanto consigo comprar?",
+      intencao: "REMUNERADO_VERSUS_MERCADO",
+    },
   ];
 }
 
@@ -325,4 +504,10 @@ export * from "./base";
 export * from "./dossie";
 export * from "./panorama";
 export * from "./lastro";
-export { redigirEmCodigo, numerosDaAvaliacao, reais, percentual, inteiro } from "./redacao";
+export {
+  redigirEmCodigo,
+  numerosDaAvaliacao,
+  reais,
+  percentual,
+  inteiro,
+} from "./redacao";

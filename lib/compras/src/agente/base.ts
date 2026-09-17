@@ -43,6 +43,15 @@ export interface BaseDoItem {
   veiculos: number | null;
   /** A placa, quando a base é de um veículo. */
   placa: string | null;
+  /**
+   * A unidade do recorte — e ela é um **lugar**, não uma operação.
+   *
+   * É o que a pesquisa de mercado usa como região de entrega, e a distinção
+   * custou uma busca inteira: passando a operação, a consulta saía com
+   * "entrega em EMPURRADA", que não é um endereço e não seleciona fornecedor
+   * nenhum. "Camaçari/BA" seleciona.
+   */
+  unidade: string | null;
 }
 
 /** A base vazia que se devolve quando o acervo não tem o que responder. */
@@ -59,6 +68,7 @@ function semBase(chave: string, porque: string, vigencia = "—"): BaseDoItem {
     effectiveDate: null,
     veiculos: null,
     placa: null,
+    unidade: null,
   };
 }
 
@@ -74,7 +84,11 @@ export async function baseDoItem(
   pedido: PedidoDeBase,
 ): Promise<BaseDoItem> {
   const produto = produtoDe(pedido.chave);
-  if (!produto) return semBase(pedido.chave, `"${pedido.chave}" não está no catálogo de compras.`);
+  if (!produto)
+    return semBase(
+      pedido.chave,
+      `"${pedido.chave}" não está no catálogo de compras.`,
+    );
 
   if (produto.balcao === "QLP_OPERACIONAL") {
     return semBase(
@@ -83,7 +97,8 @@ export async function baseDoItem(
     );
   }
 
-  if (produto.balcao === "QLP_ADMINISTRATIVO") return baseDoQlp(db, pedido, produto.ressalva?.texto ?? null);
+  if (produto.balcao === "QLP_ADMINISTRATIVO")
+    return baseDoQlp(db, pedido, produto.ressalva?.texto ?? null);
   return baseDaFrota(db, pedido, produto.ressalva?.texto ?? null);
 }
 
@@ -106,7 +121,9 @@ async function baseDaFrota(
         `Nenhum veículo com a placa ${pedido.placa} neste acervo — ou nenhuma vigência importada.`,
       );
     }
-    const produto = consulta.produtos.find((p) => p.produto.chave === pedido.chave);
+    const produto = consulta.produtos.find(
+      (p) => p.produto.chave === pedido.chave,
+    );
     const destaque = produto?.destaque ?? null;
     return {
       base: {
@@ -123,12 +140,14 @@ async function baseDaFrota(
       effectiveDate: consulta.effectiveDate,
       veiculos: 1,
       placa: consulta.placa.placaLegivel,
+      unidade: consulta.unidade,
     };
   }
 
   // ---- a frota ------------------------------------------------------------
   const matriz = await matrizDaFrota(db, opcoes);
-  if (!matriz) return semBase(pedido.chave, "Nenhuma vigência importada ainda.");
+  if (!matriz)
+    return semBase(pedido.chave, "Nenhuma vigência importada ainda.");
 
   const coluna = matriz.colunas.find((c) => c.produto.chave === pedido.chave);
   if (!coluna) {
@@ -161,6 +180,7 @@ async function baseDaFrota(
       effectiveDate: matriz.effectiveDate,
       veiculos: coluna.veiculosComValor,
       placa: null,
+      unidade: matriz.unidade,
     };
   }
 
@@ -178,6 +198,7 @@ async function baseDaFrota(
     effectiveDate: matriz.effectiveDate,
     veiculos: coluna.veiculosComValor,
     placa: null,
+    unidade: matriz.unidade,
   };
 }
 
@@ -206,10 +227,15 @@ async function baseDoQlp(
     ...(pedido.context !== undefined ? { context: pedido.context } : {}),
   });
   if (!consulta) {
-    return semBase(pedido.chave, "Nenhuma vigência de QLP Administrativo importada ainda.");
+    return semBase(
+      pedido.chave,
+      "Nenhuma vigência de QLP Administrativo importada ainda.",
+    );
   }
 
-  const produto = consulta.produtos.find((p) => p.produto.chave === pedido.chave);
+  const produto = consulta.produtos.find(
+    (p) => p.produto.chave === pedido.chave,
+  );
   if (!produto || produto.semColuna) {
     return semBase(
       pedido.chave,
@@ -218,12 +244,15 @@ async function baseDoQlp(
     );
   }
 
-  const unitarias = produto.colunas.filter((c) => c.papel === "UNITARIO").map((c) => c.code);
+  const unitarias = produto.colunas
+    .filter((c) => c.papel === "UNITARIO")
+    .map((c) => c.code);
   const valores: number[] = [];
   for (const linha of produto.linhas) {
     for (const celula of linha.celulas) {
       if (!unitarias.includes(celula.code)) continue;
-      if (typeof celula.valor === "number" && celula.valor > 0) valores.push(celula.valor);
+      if (typeof celula.valor === "number" && celula.valor > 0)
+        valores.push(celula.valor);
     }
   }
 
@@ -233,13 +262,15 @@ async function baseDoQlp(
         valor: null,
         gaveta: null,
         escopo: "valor unitário por cargo",
-        fonte: "As colunas de valor unitário existem e nenhuma trouxe número nesta vigência.",
+        fonte:
+          "As colunas de valor unitário existem e nenhuma trouxe número nesta vigência.",
         vigencia: consulta.periodLabel,
         ressalva,
       },
       effectiveDate: consulta.effectiveDate,
       veiculos: null,
       placa: null,
+      unidade: null,
     };
   }
 
@@ -260,6 +291,7 @@ async function baseDoQlp(
     effectiveDate: consulta.effectiveDate,
     veiculos: null,
     placa: null,
+    unidade: null,
   };
 }
 

@@ -4,6 +4,7 @@ import {
   acharCotacao,
   arquivarCotacao,
   analisarItem,
+  buscaDisponivel,
   carteira,
   criarCotacao,
   ehSituacao,
@@ -154,6 +155,13 @@ router.get("/agente-compras/capacidades", (_req, res): void => {
   res.json({
     ia: iaDisponivel(),
     modelo: modeloConfigurado(),
+    /*
+      `mercado` é diferente de `ia`, e a tela precisa dos dois separados. Hoje
+      as duas dependem da mesma chave, mas elas respondem a perguntas distintas
+      — "um modelo redigiu isto?" e "o agente pode sair para a internet?" — e o
+      dia em que a busca vier de outro lugar, a tela não muda.
+    */
+    mercado: buscaDisponivel(),
     politica: politicaDe(),
     sugestoes: sugestoes(),
   });

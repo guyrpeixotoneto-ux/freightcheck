@@ -70,24 +70,31 @@ export function NovaCotacao({
 
     setEnviando(true);
     try {
-      const cotacao = await fetchJson<Cotacao>(`/agente-compras/cotacoes${contexto}`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          item,
-          fornecedor: fornecedor.trim(),
-          precoUnitario: precoNumero,
-          quantidade: numero(quantidade),
-          evidencia: evidencia.trim() || null,
-        }),
-      });
+      const cotacao = await fetchJson<Cotacao>(
+        `/agente-compras/cotacoes${contexto}`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            item,
+            fornecedor: fornecedor.trim(),
+            precoUnitario: precoNumero,
+            quantidade: numero(quantidade),
+            evidencia: evidencia.trim() || null,
+          }),
+        },
+      );
       setFornecedor("");
       setPreco("");
       setQuantidade("");
       setEvidencia("");
       aoRegistrar(cotacao);
     } catch (err) {
-      setErro(err instanceof Error ? err.message : "Não foi possível registrar a proposta.");
+      setErro(
+        err instanceof Error
+          ? err.message
+          : "Não foi possível registrar a proposta.",
+      );
     } finally {
       setEnviando(false);
     }
@@ -97,8 +104,8 @@ export function NovaCotacao({
     <form onSubmit={registrar} className="superficie p-4 space-y-3">
       <h3 className="font-bold text-sm">Registrar uma proposta</h3>
       <p className="text-xs text-muted-foreground">
-        O acervo traz a remuneração; a proposta vem de você. Com as duas na mesa, o preço-alvo
-        e o teto passam a ter contra o que ser comparados.
+        O acervo traz a remuneração; a proposta vem de você. Com as duas na
+        mesa, o preço-alvo e o teto passam a ter contra o que ser comparados.
       </p>
 
       <div className="grid gap-3 sm:grid-cols-2">

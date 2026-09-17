@@ -24,6 +24,7 @@ import {
   CartaoDaAnalise,
   CartaoDaAvaliacao,
 } from "@/components/agente-compras/cartao-da-analise";
+import { CartaoDoMercado } from "@/components/agente-compras/cartao-do-mercado";
 import {
   COR_DO_VEREDITO,
   ROTULO_DA_SITUACAO,
@@ -178,8 +179,8 @@ export default function AgenteDeCompras() {
         contexto={
           capacidades.data
             ? capacidades.data.ia
-              ? `Redação por modelo ligada · meta ${formatPercent(capacidades.data.politica.margemAlvo * 100)} · teto ${formatPercent(capacidades.data.politica.margemMinima * 100)}`
-              : "Redação em código — nenhuma chave de modelo configurada"
+              ? `${capacidades.data.mercado ? "Pesquisa de mercado e redação por modelo" : "Redação por modelo"} · meta ${formatPercent(capacidades.data.politica.margemAlvo * 100)} · teto ${formatPercent(capacidades.data.politica.margemMinima * 100)}`
+              : "Redação em código, sem pesquisa de mercado — nenhuma chave de modelo configurada"
             : undefined
         }
       />
@@ -377,6 +378,10 @@ function Resposta({ turno }: { turno: Turno }) {
         </span>
         <div className="min-w-0 flex-1 space-y-3">
           <Markdown texto={turno.texto} />
+
+          {resposta?.pesquisa && (
+            <CartaoDoMercado pesquisa={resposta.pesquisa} />
+          )}
 
           {resposta?.analise && <CartaoDaAnalise analise={resposta.analise} />}
 

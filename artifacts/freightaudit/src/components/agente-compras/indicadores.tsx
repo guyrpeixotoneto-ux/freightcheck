@@ -44,16 +44,20 @@ const ICONE: Record<string, LucideIcon> = {
  */
 function corDoValor(indicador: Indicador): string | undefined {
   if (indicador.valor === null) return "text-muted-foreground";
-  if (indicador.chave === "acima-do-teto" && indicador.valor > 0) return "text-rose-600";
-  if (indicador.chave === "margem-media" && indicador.valor < 0) return "text-rose-600";
-  if (indicador.chave === "maior-oportunidade" && indicador.valor > 0) return "text-emerald-600";
+  if (indicador.chave === "acima-do-teto" && indicador.valor > 0)
+    return "text-rose-600";
+  if (indicador.chave === "margem-media" && indicador.valor < 0)
+    return "text-rose-600";
+  if (indicador.chave === "maior-oportunidade" && indicador.valor > 0)
+    return "text-emerald-600";
   return undefined;
 }
 
 function escrever(indicador: Indicador): string {
   if (indicador.valor === null) return "—";
   if (indicador.formato === "BRL") return formatBrl(indicador.valor);
-  if (indicador.formato === "PERCENTUAL") return formatPercent(indicador.valor * 100);
+  if (indicador.formato === "PERCENTUAL")
+    return formatPercent(indicador.valor * 100);
   return new Intl.NumberFormat("pt-BR").format(indicador.valor);
 }
 
@@ -66,8 +70,12 @@ export function Indicadores({ indicadores }: { indicadores: Indicador[] }) {
           rotulo={indicador.rotulo}
           valor={escrever(indicador)}
           nota={indicador.porque}
-          {...(ICONE[indicador.chave] ? { icone: ICONE[indicador.chave]! } : {})}
-          {...(corDoValor(indicador) ? { corDoValor: corDoValor(indicador)! } : {})}
+          {...(ICONE[indicador.chave]
+            ? { icone: ICONE[indicador.chave]! }
+            : {})}
+          {...(corDoValor(indicador)
+            ? { corDoValor: corDoValor(indicador)! }
+            : {})}
           href={indicador.atalho?.href ?? null}
         />
       ))}

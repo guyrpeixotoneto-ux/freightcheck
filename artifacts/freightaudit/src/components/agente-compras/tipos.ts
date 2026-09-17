@@ -11,6 +11,8 @@ import type { Gaveta } from "@/components/composicao/tipos";
 import type { ProdutoDeCompra } from "@/components/compras/tipos";
 
 export type Intencao =
+  | "PESQUISAR_MERCADO"
+  | "REMUNERADO_VERSUS_MERCADO"
   | "PRECO_ALVO"
   | "TETO"
   | "AVALIAR_COTACAO"
@@ -53,10 +55,7 @@ export const ROTULO_DA_CONFIABILIDADE: Record<Confiabilidade, string> = {
 };
 
 export type SituacaoDaCotacao =
-  | "AGUARDANDO"
-  | "EM_NEGOCIACAO"
-  | "APROVADA"
-  | "RECUSADA";
+  "AGUARDANDO" | "EM_NEGOCIACAO" | "APROVADA" | "RECUSADA";
 
 export const ROTULO_DA_SITUACAO: Record<SituacaoDaCotacao, string> = {
   AGUARDANDO: "Aguardando análise",
@@ -66,10 +65,7 @@ export const ROTULO_DA_SITUACAO: Record<SituacaoDaCotacao, string> = {
 };
 
 export type MotivoSemAlvo =
-  | "SEM_REMUNERACAO"
-  | "SEM_GAVETA"
-  | "SEM_VIDA_UTIL"
-  | "SEM_UNIDADES";
+  "SEM_REMUNERACAO" | "SEM_GAVETA" | "SEM_VIDA_UTIL" | "SEM_UNIDADES";
 
 export const ROTULO_SEM_ALVO: Record<MotivoSemAlvo, string> = {
   SEM_REMUNERACAO: "Sem remuneração apurada nesta vigência",
@@ -179,6 +175,8 @@ export interface BaseDoItem {
   effectiveDate: string | null;
   veiculos: number | null;
   placa: string | null;
+  /** A unidade do recorte — um lugar, e é ela que vira região de entrega. */
+  unidade: string | null;
 }
 
 export interface PremissaDoItem {
@@ -246,11 +244,15 @@ export interface SugestaoRapida {
 export interface Capacidades {
   ia: boolean;
   modelo: string | null;
+  /** Se o agente pode sair para a internet. Separado de `ia` — ver a rota. */
+  mercado: boolean;
   politica: PoliticaDeCompra;
   sugestoes: SugestaoRapida[];
 }
 
 export interface RespostaDoAgente {
+  /** A pesquisa de mercado, quando a pergunta pediu uma. */
+  pesquisa: PesquisaDeMercado | null;
   texto: string;
   redacao: "IA" | "DETERMINISTICA";
   porqueDeterministica: string | null;
@@ -261,7 +263,11 @@ export interface RespostaDoAgente {
   carteira: LinhaDaCarteira[];
   fornecedores: DesempenhoDoFornecedor[];
   atalhos: Atalho[];
-  leitura: { precos: number[]; quantidade: number | null; placa: string | null };
+  leitura: {
+    precos: number[];
+    quantidade: number | null;
+    placa: string | null;
+  };
   lacunas: string[];
 }
 
@@ -271,4 +277,210 @@ export interface Turno {
   texto: string;
   /** A resposta inteira, para os cartões abaixo do texto. Só nas respostas. */
   resposta?: RespostaDoAgente;
+}
+
+// ---------------------------------------------------------------------------
+// Pesquisa de mercado
+// ---------------------------------------------------------------------------
+
+export type ClasseDeMatch =
+  "EXATO" | "COMPATIVEL" | "PARCIAL" | "NAO_COMPARAVEL";
+
+export const ROTULO_DO_MATCH: Record<ClasseDeMatch, string> = {
+  EXATO: "Exato",
+  COMPATIVEL: "Compatível",
+  PARCIAL: "Parcial",
+  NAO_COMPARAVEL: "Não comparável",
+};
+
+/**
+ * A cor de cada classe de match.
+ *
+ * `NAO_COMPARAVEL` é vermelho e não cinza de propósito: ela aparece na lista
+ * junto das outras, e a oferta mais barata costuma ser justamente essa. Cinza a
+ * faria parecer uma linha secundária; vermelho diz que ela foi recusada.
+ */
+export const COR_DO_MATCH: Record<ClasseDeMatch, string> = {
+  EXATO: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  COMPATIVEL: "bg-sky-50 text-sky-700 border-sky-200",
+  PARCIAL: "bg-amber-50 text-amber-800 border-amber-200",
+  NAO_COMPARAVEL: "bg-rose-50 text-rose-700 border-rose-200",
+};
+
+export type Frescor = "AGORA" | "RECENTE" | "ENVELHECIDA" | "VELHA";
+
+export const ROTULO_DO_FRESCOR: Record<Frescor, string> = {
+  AGORA: "Capturada agora",
+  RECENTE: "Últimas 24 h",
+  ENVELHECIDA: "Mais de um dia",
+  VELHA: "Mais de uma semana",
+};
+
+export type ConfiancaDeMercado = "ALTA" | "MEDIA" | "BAIXA";
+
+export const ROTULO_DA_CONFIANCA_DE_MERCADO: Record<
+  ConfiancaDeMercado,
+  string
+> = {
+  ALTA: "Alta",
+  MEDIA: "Média",
+  BAIXA: "Baixa",
+};
+
+export type UnidadeDoPreco =
+  | "UNIDADE"
+  | "CAIXA"
+  | "PACOTE"
+  | "KG"
+  | "LITRO"
+  | "METRO"
+  | "MES"
+  | "DESCONHECIDA";
+
+export interface Proveniencia {
+  url: string;
+  titulo: string | null;
+  fonte: string;
+  capturadoEm: string;
+  idadeDaPagina: string | null;
+}
+
+export interface OfertaCapturada {
+  fornecedor: string | null;
+  produto: string | null;
+  marca: string | null;
+  especificacao: string | null;
+  preco: number;
+  unidadeDoPreco: UnidadeDoPreco;
+  unidadesPorEmbalagem: number | null;
+  quantidadeMinima: number | null;
+  disponibilidade: string | null;
+  frete: number | null;
+  freteIncluso: boolean | null;
+  impostos: number | null;
+  prazoEmDias: number | null;
+  condicaoComercial: string | null;
+  trecho: string;
+  proveniencia: Proveniencia;
+}
+
+export interface CustoComparavel {
+  precoAnunciado: number;
+  unidadeDoPreco: UnidadeDoPreco;
+  precoPorUnidade: number | null;
+  fretePorUnidade: number | null;
+  impostoPorUnidade: number | null;
+  custoTotal: number | null;
+  completo: boolean;
+  semCusto: string | null;
+  abaixoDoMinimo: boolean;
+  conta: string;
+}
+
+export interface MatchDaOferta {
+  classe: ClasseDeMatch;
+  atributos: {
+    tipo: string;
+    esperado: string;
+    encontrado: string | null;
+    desfecho: "BATE" | "DIVERGE" | "NAO_DECLARADO";
+  }[];
+  porque: string;
+  comparavel: boolean;
+}
+
+export interface OfertaAnalisada {
+  oferta: OfertaCapturada;
+  match: MatchDaOferta;
+  custo: CustoComparavel;
+  frescor: Frescor;
+  entrouNaConta: boolean;
+  foraPorque: string | null;
+  fonteDuvidosa: boolean;
+}
+
+export interface LeituraDeMercado {
+  ofertas: number;
+  menor: number;
+  maior: number;
+  mediana: number;
+  media: number;
+  dispersao: number;
+}
+
+export interface FaixaAlvo {
+  piso: number;
+  teto: number;
+  evidencias: { tipo: string; valor: number | null; efeito: string }[];
+  derivacao: string;
+}
+
+export interface SemAlvoDeMercado {
+  porque: string;
+  evidencias: { tipo: string; valor: number | null; efeito: string }[];
+}
+
+export interface AvaliacaoDeConfianca {
+  confianca: ConfiancaDeMercado;
+  pontos: number;
+  fatores: { fator: string; observado: string; penalidade: number }[];
+}
+
+export interface PesquisaDeMercado {
+  especificacao: {
+    item: string;
+    titulo: string;
+    descricao: string | null;
+    atributos: {
+      tipo: string;
+      bruto: string;
+      canonico: string;
+      origem: string;
+    }[];
+    quantidade: number | null;
+    regiao: string | null;
+    consulta: string;
+    lacunas: string[];
+  };
+  buscador: string;
+  consultas: string[];
+  indisponivel: string | null;
+  paginas: {
+    url: string;
+    titulo: string | null;
+    capturadoEm: string;
+    frescor: Frescor;
+  }[];
+  ofertas: OfertaAnalisada[];
+  descartadas: {
+    motivo: string;
+    url: string;
+    preco: number | null;
+    trecho: string;
+  }[];
+  leitura: LeituraDeMercado | null;
+  melhor: OfertaAnalisada | null;
+  alvo: FaixaAlvo | SemAlvoDeMercado;
+  confianca: AvaliacaoDeConfianca;
+  economia: {
+    precoAtual: number;
+    precoRecomendado: number;
+    economiaUnitaria: number;
+    quantidade: number | null;
+    economiaTotal: number | null;
+  } | null;
+  margem: {
+    remuneracaoUnitaria: number;
+    custoDeCompra: number;
+    margemUnitaria: number;
+    quantidade: number | null;
+    margemTotal: number | null;
+  } | null;
+  frescor: Frescor | null;
+  medicao: { latenciaMs: number; paginasBaixadas: number };
+}
+
+/** Distingue os dois desfechos do alvo sem `in`, como no servidor. */
+export function temFaixa(a: FaixaAlvo | SemAlvoDeMercado): a is FaixaAlvo {
+  return (a as FaixaAlvo).piso !== undefined;
 }

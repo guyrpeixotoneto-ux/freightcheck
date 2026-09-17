@@ -6,3 +6,4 @@ export * from "./matriz-qlp";
 export * from "./motor";
 export * from "./cotacoes";
 export * from "./agente";
+export * from "./mercado";
