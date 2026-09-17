@@ -2,11 +2,15 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Server } from "node:http";
 import express from "express";
 import { createTestDatabase, type TestDb } from "@workspace/ingest/testing";
+import { eq, sql } from "drizzle-orm";
 import {
   createDb,
   encerrarPoolDoProcesso,
+  fechamentoCompetenciaTable,
   fechamentoDocumentoTable,
   fechamentoFrotaPromaxTable,
+  remuneracaoUnidadeTable,
+  unidadeTable,
 } from "@workspace/db";
 import { erroEmJson } from "../../middlewares/contrato-json";
 
@@ -105,6 +109,19 @@ async function gravarFrota(opcoes: {
 const BELEM = { codigo: "081-0443", nome: "CRBS SA - CDD Belem" };
 const MANAUS = { codigo: "081-0999", nome: "CRBS SA - CDD Manaus" };
 
+/*
+  Os escopos da lateral — três, e os três de propósito.
+
+  A tela de Ativos e Parados fala em `scope_hash`, que é como a caixa "Unidade
+  atual" nomeia uma unidade, e o Fechamento fala em `unidade.id`. Quem liga os
+  dois é `remuneracao_unidade`, e é essa travessia que estes três exercitam: a
+  que chega (Belém), a que não tem associação nenhuma (Manaus) e a que tem duas
+  discordando (o escopo ambíguo).
+*/
+const ESCOPO_DE_BELEM = "scope-belem";
+const ESCOPO_SEM_CADASTRO = "scope-manaus";
+const ESCOPO_AMBIGUO = "scope-ambiguo";
+
 beforeAll(async () => {
   ctx = await createTestDatabase("api_frota_quinzenas");
   process.env.DATABASE_URL = ctx.url;
@@ -202,6 +219,74 @@ beforeAll(async () => {
     sufixo: "b3",
     placas: ["BBB2B22"],
   });
+
+  /*
+    A identidade, que é o que o escopo resolve para.
+
+    Belém ganha unidade canônica e as competências dela passam a apontar para
+    ela — é o estado normal de uma unidade classificada. Manaus fica sem, de
+    propósito: é o passivo histórico, e é ele que prova que a resposta a um
+    escopo sem cadastro não pode ser o acervo inteiro.
+  */
+  const [unidadeDeBelem] = await ctx.db
+    .insert(unidadeTable)
+    .values({ nome: "CDD BELÉM", codigoGerencial: "081-0443" })
+    .returning();
+  const [outraUnidade] = await ctx.db
+    .insert(unidadeTable)
+    .values({ nome: "CDD MANAUS", codigoGerencial: "081-0999" })
+    .returning();
+
+  await ctx.db
+    .update(fechamentoCompetenciaTable)
+    .set({ unidadeId: unidadeDeBelem!.id })
+    .where(eq(fechamentoCompetenciaTable.unidadeCodigo, BELEM.codigo));
+
+  await ctx.db.insert(remuneracaoUnidadeTable).values([
+    {
+      scopeHash: ESCOPO_DE_BELEM,
+      codigo: BELEM.codigo,
+      nome: "CDD BELÉM",
+      canal: "EMPURRADA",
+      vigenciaInicial: "2026-06-01",
+      unidadeId: unidadeDeBelem!.id,
+    },
+    /* O mesmo escopo, o outro canal, a mesma unidade — uma resposta só. */
+    {
+      scopeHash: ESCOPO_DE_BELEM,
+      codigo: BELEM.codigo,
+      nome: "CDD BELÉM",
+      canal: "ROTA",
+      vigenciaInicial: "2026-06-01",
+      unidadeId: unidadeDeBelem!.id,
+    },
+    /* Cadastro sem associação: o escopo existe e não alcança unidade nenhuma. */
+    {
+      scopeHash: ESCOPO_SEM_CADASTRO,
+      codigo: MANAUS.codigo,
+      nome: "CDD MANAUS",
+      canal: "EMPURRADA",
+      vigenciaInicial: "2026-06-01",
+      unidadeId: null,
+    },
+    /* Duas unidades para o mesmo escopo — erro de alguém, e ninguém escolhe. */
+    {
+      scopeHash: ESCOPO_AMBIGUO,
+      codigo: "081-0443",
+      nome: "CDD BELÉM",
+      canal: "EMPURRADA",
+      vigenciaInicial: "2026-06-01",
+      unidadeId: unidadeDeBelem!.id,
+    },
+    {
+      scopeHash: ESCOPO_AMBIGUO,
+      codigo: "081-0999",
+      nome: "CDD MANAUS",
+      canal: "ROTA",
+      vigenciaInicial: "2026-06-01",
+      unidadeId: outraUnidade!.id,
+    },
+  ]);
 }, 300_000);
 
 afterAll(async () => {
@@ -319,5 +404,101 @@ describe("GET /fechamento/frota/quinzenas", () => {
     );
     expect(status).toBe(200);
     expect(body.quinzenas).toEqual([]);
+  });
+});
+
+/**
+ * O ESCOPO DA LATERAL — a tela recortada pela unidade que a caixa "Unidade
+ * atual" está anunciando.
+ *
+ * O que se mede aqui é a travessia inteira, e ela é a razão de esta suíte
+ * existir com banco: `scope_hash` → `remuneracao_unidade.unidade_id` →
+ * `fechamento_competencia.unidade_id`. Nenhum texto é comparado no caminho, e é
+ * isso que impede o pior desfecho possível desta tela — a frota de uma unidade
+ * desenhada embaixo do nome de outra.
+ */
+describe("GET /fechamento/frota/quinzenas?scopeHash", () => {
+  it("recorta pela unidade canônica do escopo, sem comparar texto nenhum", async () => {
+    const { status, body } = await pedir(
+      `/fechamento/frota/quinzenas?scopeHash=${ESCOPO_DE_BELEM}`,
+    );
+
+    expect(status).toBe(200);
+    expect(body.escopo).toMatchObject({
+      scopeHash: ESCOPO_DE_BELEM,
+      tipo: "RESOLVIDO",
+      nome: "CDD BELÉM",
+    });
+    /* As três de Belém, e nenhuma de Manaus — que é a única da 2026-06-Q2. */
+    expect(
+      body.quinzenas.map((q: { competencia: string }) => q.competencia),
+    ).toEqual(["2026-06-Q1", "2026-06-Q2", "2026-07-Q1"]);
+    const segunda = body.quinzenas[1];
+    expect(segunda).toMatchObject({ ativos: 2, parados: 1, total: 3 });
+    expect(segunda.cobertura.unidades).toEqual([BELEM.codigo]);
+  });
+
+  /*
+    O caso que motivou a mudança: escopo que não alcança unidade cadastrada.
+
+    A tentação é responder o acervo inteiro — "não sei recortar, então mostro
+    tudo" —, e é exatamente o defeito que a tela tinha antes, só que agora
+    escondido no caminho da falha. A resposta é vazia e **diz por quê**.
+  */
+  it("escopo sem unidade associada devolve vazio com o motivo, e não o acervo", async () => {
+    const { status, body } = await pedir(
+      `/fechamento/frota/quinzenas?scopeHash=${ESCOPO_SEM_CADASTRO}`,
+    );
+
+    expect(status).toBe(200);
+    expect(body.quinzenas).toEqual([]);
+    expect(body.escopo).toMatchObject({
+      scopeHash: ESCOPO_SEM_CADASTRO,
+      tipo: "SEM_CADASTRO",
+    });
+    /* O caminho de volta continua publicado: o acervo tem unidades. */
+    expect(body.unidades.length).toBe(2);
+  });
+
+  it("escopo que nunca foi cadastrado cai no mesmo estado", async () => {
+    const { body } = await pedir(
+      "/fechamento/frota/quinzenas?scopeHash=scope-que-ninguem-cadastrou",
+    );
+
+    expect(body.quinzenas).toEqual([]);
+    expect(body.escopo).toMatchObject({ tipo: "SEM_CADASTRO" });
+  });
+
+  it("duas unidades para o mesmo escopo não escolhem nenhuma", async () => {
+    const { body } = await pedir(
+      `/fechamento/frota/quinzenas?scopeHash=${ESCOPO_AMBIGUO}`,
+    );
+
+    expect(body.quinzenas).toEqual([]);
+    expect(body.escopo).toMatchObject({ tipo: "AMBIGUO" });
+    expect(body.escopo.nomes).toEqual(["CDD BELÉM", "CDD MANAUS"]);
+  });
+
+  /*
+    Sem escopo, a leitura continua sendo a do acervo — a Visão Geral. `escopo`
+    volta `null` para que a tela distinga "ninguém pediu recorte" de "pedi e não
+    resolveu", que são as duas leituras que ela desenha de formas diferentes.
+  */
+  it("sem escopo, a resposta é a de sempre e `escopo` é null", async () => {
+    const { body } = await pedir("/fechamento/frota/quinzenas");
+
+    expect(body.escopo).toBeNull();
+    expect(body.quinzenas.length).toBeGreaterThan(0);
+  });
+
+  /* A janela continua valendo dentro do recorte do escopo. */
+  it("a janela recorta dentro do escopo", async () => {
+    const { body } = await pedir(
+      `/fechamento/frota/quinzenas?scopeHash=${ESCOPO_DE_BELEM}&limite=2`,
+    );
+
+    expect(
+      body.quinzenas.map((q: { competencia: string }) => q.competencia),
+    ).toEqual(["2026-06-Q2", "2026-07-Q1"]);
   });
 });

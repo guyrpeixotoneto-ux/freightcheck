@@ -84,6 +84,7 @@ import {
 import type { ParametrosDoContrato } from "@workspace/remuneracao";
 import { cadastroDaRemuneracao } from "../lib/cadastro-da-remuneracao";
 import { conciliarIdentidadeDoCadastro } from "../lib/identidade-do-cadastro";
+import { unidadeDoEscopo } from "../lib/unidade-do-escopo";
 
 /**
  * Fechamento de Remuneração — a superfície HTTP do outro ambiente do produto.
@@ -1111,15 +1112,32 @@ router.get("/fechamento/competencias/:id/frota", async (req, res): Promise<void>
  * **vigentes** e conta placas distintas; a régua da contagem é função pura
  * (`frota-quinzenal.ts`), fora do motor financeiro.
  *
- * Os três parâmetros, todos opcionais:
+ * Os parâmetros, todos opcionais:
  *
  * - `tipoDeOperacao` — o recorte que separa Rota de Empurrada. Ausente, o
  *   acervo inteiro;
- * - `unidade` — o código da unidade. Ausente, todas as do recorte, somadas por
+ * - `scopeHash` — **a unidade como a lateral a nomeia**. É o recorte que a tela
+ *   usa desde que ela passou a honrar o escopo: o hash vira `unidade.id` por
+ *   `unidadeDoEscopo`, e o filtro é por identidade, sem comparar texto nenhum.
+ *   O que a resolução achou (ou não achou) volta em `escopo`, porque a tela
+ *   precisa dizer **por que** está vazia;
+ * - `unidade` — o código da unidade, como a competência o guarda. Continua
+ *   valendo para quem endereça pelo texto, e é o que as competências históricas
+ *   ainda são. Ausente (e sem `scopeHash`), todas as do recorte, somadas por
  *   período — e é aí que a cobertura de cada quinzena importa: a unidade que não
  *   mandou arquivo aparece em `cobertura`, para que a tela não leia uma frota
  *   encolhendo onde houve um relatório que não veio;
  * - `limite` — a janela em quinzenas, de 1 a 24.
+ *
+ * ---------------------------------------------------------------------------
+ * Um escopo que não resolve devolve nada, e não tudo
+ * ---------------------------------------------------------------------------
+ *
+ * `scopeHash` que não alcança unidade cadastrada — ou que alcança duas —
+ * responde `quinzenas: []` com o motivo em `escopo`, e **não** a série do
+ * acervo. Somar as unidades embaixo do nome que a lateral está escrevendo é
+ * precisamente o defeito que fez esta tela passar a honrar escopo; repeti-lo no
+ * caminho da falha seria trocar o defeito de lugar.
  */
 router.get("/fechamento/frota/quinzenas", async (req, res): Promise<void> => {
   const limite = req.query.limite === undefined ? QUINZENAS_POR_PADRAO : Number(req.query.limite);
@@ -1139,14 +1157,46 @@ router.get("/fechamento/frota/quinzenas", async (req, res): Promise<void> => {
     typeof req.query.unidade === "string" && req.query.unidade.trim() !== ""
       ? req.query.unidade.trim()
       : null;
+  const scopeHash =
+    typeof req.query.scopeHash === "string" && req.query.scopeHash.trim() !== ""
+      ? req.query.scopeHash.trim()
+      : null;
 
-  const [serie, unidades] = await Promise.all([
-    serieDeFrotaQuinzenal(db, { tipoDeOperacao, unidadeCodigo, limite }),
-    unidadesComFrota(db, tipoDeOperacao),
-  ]);
+  /*
+    A unidade da lateral vira identidade antes de virar filtro — e a resolução
+    acontece aqui, e não dentro de `serieDeFrotaQuinzenal`, pela fronteira que o
+    módulo de leitura declara no cabeçalho dele: lá só se contam placas. Quem
+    sabe que `scope_hash` e `unidade.id` são a mesma unidade é o cadastro, e o
+    cadastro mora na borda.
+  */
+  const escopo = scopeHash === null ? null : await unidadeDoEscopo(db, scopeHash);
+
+  const unidades = await unidadesComFrota(db, tipoDeOperacao);
+
+  if (escopo !== null && escopo.tipo !== "RESOLVIDO") {
+    res.json({
+      recorte: {
+        tipoDeOperacao: tipoDeOperacao ?? null,
+        unidadeCodigo: unidadeCodigo ?? null,
+        limite,
+      },
+      escopo: { scopeHash, ...escopo },
+      unidades,
+      quinzenas: [],
+    });
+    return;
+  }
+
+  const serie = await serieDeFrotaQuinzenal(db, {
+    tipoDeOperacao,
+    unidadeCodigo,
+    unidadeId: escopo?.unidadeId ?? null,
+    limite,
+  });
 
   res.json({
     recorte: { tipoDeOperacao: tipoDeOperacao ?? null, unidadeCodigo: unidadeCodigo ?? null, limite },
+    escopo: escopo === null ? null : { scopeHash, ...escopo },
     unidades,
     quinzenas: serie.quinzenas,
   });
