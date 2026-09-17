@@ -72,6 +72,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import {
+  ALTERACOES_POR_MODULO,
   ATIVOS_E_PARADOS,
   DASHBOARD,
   ENTRADA_DA_AUDITORIA,
@@ -245,6 +246,19 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
           quebrar.
         */
         { href: ENTRADA_DA_AUDITORIA, label: "Painel de Unidades", icon: LayoutDashboard },
+        /*
+          As **Alterações por Módulo** vêm em terceiro, e é a altitude que as põe
+          aqui: o Panorama e o Painel respondem pelo conjunto; esta responde pelo
+          **catálogo** — quais dos módulos do produto se moveram —, e só então
+          descem os quatro que aprofundam um andar cada.
+
+          Ela não é um terceiro Monitor. Os dois Monitores quebram uma família
+          por cartão e trazem a tabela inteira embaixo; esta põe as três famílias
+          lado a lado e para aí, porque a pergunta dela termina no momento em que
+          se sabe qual módulo abrir. O clique de cada cartão leva à auditoria
+          daquele módulo com o par junto.
+        */
+        { href: ALTERACOES_POR_MODULO, label: "Alterações por Módulo", icon: Layers },
         /*
           Daqui para baixo vêm os quatro módulos que o Panorama consolida, **e
           eles ficam**. É a decisão do caminho B da proposta: o Panorama entra

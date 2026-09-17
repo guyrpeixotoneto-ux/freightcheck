@@ -27,6 +27,7 @@ export * from "./pneu";
 export * from "./consumo";
 export * from "./monitor-custo-fixo";
 export * from "./monitor-equipe";
+export * from "./alteracoes-por-modulo";
 export * from "./deduplicacao";
 export * from "./vinculos";
 export * from "./impacto-apurado";
