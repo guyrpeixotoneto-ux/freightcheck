@@ -320,10 +320,15 @@ function QuinzenasDoTipo({
   linhas,
   tipo,
   onAbrir,
+  onEnviar,
+  enviando,
 }: {
   linhas: LinhaDaQuinzena<ImportRun>[];
   tipo: DefinicaoDeTipo;
   onAbrir: (importRunId: string) => void;
+  /** Enviar **por esta linha** — é ela que declara a quinzena. */
+  onEnviar: (inicioDaQuinzena: string) => void;
+  enviando: boolean;
 }) {
   /*
     Duas ausências que parecem a mesma, e só uma é falta — ver `tipoJaEntrou`.
@@ -387,7 +392,7 @@ function QuinzenasDoTipo({
                   em curso ({emDia(linha.periodo.inicio)}–{emDia(linha.periodo.fim)})
                 </span>
               )}
-              {vazia ? (
+              {vazia && (
                 <span
                   className={cn(
                     "text-xs",
@@ -398,7 +403,31 @@ function QuinzenasDoTipo({
                     ? `nada de ${tipo.rotulo.toLowerCase()} entrou ainda nesta quinzena`
                     : `nenhuma planilha de ${tipo.rotulo.toLowerCase()} entrou nesta quinzena`}
                 </span>
-              ) : (
+              )}
+              {vazia && (
+                /*
+                  O envio da linha — e é o botão que declara a quinzena.
+
+                  Enviar por aqui diz "esta quinzena", do mesmo jeito que a aba
+                  diz "este tipo", e a importação confere as duas contra o
+                  conteúdo antes de deixar entrar: o arquivo cujo rótulo diz
+                  outra quinzena é recusado por `QUINZENA_DIVERGE_DA_DECLARACAO`,
+                  em vez de entrar calado na vigência que ele nomeia.
+                */
+                <button
+                  onClick={() => onEnviar(linha.periodo.inicio)}
+                  disabled={enviando}
+                  className={cn(
+                    "ml-auto shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium",
+                    "bg-foreground text-background hover:opacity-90",
+                    enviando && "opacity-50 cursor-not-allowed",
+                  )}
+                >
+                  <Upload className="w-3.5 h-3.5 inline-block mr-1.5 -mt-0.5" />
+                  Enviar esta quinzena
+                </button>
+              )}
+              {!vazia && (
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                   {envios.map(({ run, label }) => (
                     <button
@@ -900,6 +929,16 @@ export default function Importacoes() {
   const [error, setError] = useState<string | null>(null);
   const [removed, setRemoved] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  /*
+    O envio que sai da linha de uma quinzena tem campo de arquivo próprio.
+
+    Não é capricho: o `input` do topo envia sem declarar quinzena — dali não se
+    escolheu nenhuma —, e reaproveitá-lo obrigaria a lembrar de limpar a
+    declaração depois, que é a espécie de estado que um dia não é limpo e faz um
+    envio comum ser recusado por uma quinzena que ninguém escolheu.
+  */
+  const inputDaQuinzena = useRef<HTMLInputElement>(null);
+  const [quinzenaDoEnvio, setQuinzenaDoEnvio] = useState<string | null>(null);
   const queryClient = useQueryClient();
 
   const {
@@ -1030,10 +1069,19 @@ export default function Importacoes() {
       files,
       declaredType,
       declaredFamily,
+      declaredPeriod,
     }: {
       files: File[];
       declaredType: string;
       declaredFamily: string | null;
+      /**
+       * A quinzena declarada — presente só quando o envio saiu da linha dela.
+       *
+       * O campo de arquivo do topo continua mandando `null`: ali não se escolheu
+       * quinzena nenhuma, e afirmar uma seria inventar declaração. Ver
+       * `exigirQuinzenaDeclarada`, no pipeline, que é quem confere.
+       */
+      declaredPeriod?: string | null;
     }) => {
       const ids: string[] = [];
       for (const file of files) {
@@ -1053,6 +1101,7 @@ export default function Importacoes() {
             contentBase64: btoa(binary),
             declaredType,
             declaredFamily,
+            declaredPeriod: declaredPeriod ?? null,
           }),
         });
         const body = await readJson(response);
@@ -1418,6 +1467,27 @@ export default function Importacoes() {
           </Tabs>
 
           <input
+            ref={inputDaQuinzena}
+            type="file"
+            accept=".xlsx"
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              const files = Array.from(e.target.files ?? []);
+              if (files.length > 0 && tipoDaAba !== null && quinzenaDoEnvio !== null) {
+                upload.mutate({
+                  files,
+                  declaredType: tipoDaAba.code,
+                  declaredFamily: familiaDeclarada(acervoAberto, tipoDaAba),
+                  declaredPeriod: quinzenaDoEnvio,
+                });
+              }
+              e.target.value = "";
+              setQuinzenaDoEnvio(null);
+            }}
+          />
+
+          <input
             ref={fileInput}
             type="file"
             accept=".xlsx"
@@ -1473,6 +1543,11 @@ export default function Importacoes() {
               linhas={quinzenas}
               tipo={tipoDaAba}
               onAbrir={(importRunId) => setExpanded(importRunId)}
+              onEnviar={(inicioDaQuinzena) => {
+                setQuinzenaDoEnvio(inicioDaQuinzena);
+                inputDaQuinzena.current?.click();
+              }}
+              enviando={upload.isPending}
             />
           )}
 

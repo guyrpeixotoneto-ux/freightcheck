@@ -708,6 +708,13 @@
       "when": 1789501400000,
       "tag": "0100_descumprimento_nao_e_excecao",
       "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1789501500000,
+      "tag": "0101_quinzena_declarada_no_envio",
+      "breakpoints": true
     }
   ]
 }
