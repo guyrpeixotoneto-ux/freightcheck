@@ -1230,6 +1230,9 @@ export async function reprocessImportRun(
       declaredType: importRunTable.declaredType,
       declaredFamily: importRunTable.declaredFamily,
       declaredPeriod: importRunTable.declaredPeriod,
+      declaredGranularity: importRunTable.declaredGranularity,
+      declaredCompetence: importRunTable.declaredCompetence,
+      declaredUnidade: importRunTable.declaredUnidade,
       startedAt: importRunTable.startedAt,
     })
     .from(importRunTable)
@@ -1252,6 +1255,45 @@ export async function reprocessImportRun(
         "pela aba do tipo certo.",
     );
   }
+
+  /*
+    A declaração do arquivo é do **arquivo**, e não da última tentativa.
+
+    `anterior` é a leitura mais recente que abriu o arquivo — e ela pode ser uma
+    releitura que falhou antes de declarar o que quer que fosse. Herdar dela e
+    parar aí faz a declaração se apagar ao longo da corrente: no acervo Real, um
+    reprocessamento que falhou apagou a unidade, e o seguinte falhou pelo mesmo
+    motivo, sobre um arquivo cuja unidade estava declarada desde o primeiro
+    envio. Cada releitura perdia um pouco mais da história.
+
+    Aqui a corrente inteira é consultada, e de cada declaração se pega a mais
+    recente que **existe**. Reler um arquivo nunca desdeclara nada: no limite,
+    repete o que já se sabia dele.
+  */
+  const { rows: declaradas } = await db.execute<{
+    declared_type: string | null;
+    declared_family: string | null;
+    declared_period: string | null;
+    declared_granularity: string | null;
+    declared_competence: string | null;
+    declared_unidade: string | null;
+  }>(sql`
+    SELECT (array_agg(declared_type ORDER BY started_at DESC)
+              FILTER (WHERE declared_type IS NOT NULL))[1] AS declared_type,
+           (array_agg(declared_family ORDER BY started_at DESC)
+              FILTER (WHERE declared_family IS NOT NULL))[1] AS declared_family,
+           (array_agg(declared_period::text ORDER BY started_at DESC)
+              FILTER (WHERE declared_period IS NOT NULL))[1] AS declared_period,
+           (array_agg(declared_granularity ORDER BY started_at DESC)
+              FILTER (WHERE declared_granularity IS NOT NULL))[1] AS declared_granularity,
+           (array_agg(declared_competence::text ORDER BY started_at DESC)
+              FILTER (WHERE declared_competence IS NOT NULL))[1] AS declared_competence,
+           (array_agg(declared_unidade ORDER BY started_at DESC)
+              FILTER (WHERE declared_unidade IS NOT NULL))[1] AS declared_unidade
+      FROM import_run
+     WHERE source_file_id = ${anterior.sourceFileId}::uuid
+  `);
+  const doArquivo = declaradas[0];
 
   const [arquivo] = await db
     .select()
@@ -1281,7 +1323,9 @@ export async function reprocessImportRun(
     antes de abrir run — em vez de virar um arquivo que entra e não produz fato.
   */
   const declaracaoPedida =
-    options.declaredType === undefined ? anterior.declaredType : options.declaredType;
+    options.declaredType === undefined
+      ? (anterior.declaredType ?? doArquivo?.declared_type ?? null)
+      : options.declaredType;
   const declarado =
     declaracaoPedida === null || declaracaoPedida.trim() === ""
       ? null
@@ -1311,7 +1355,7 @@ export async function reprocessImportRun(
         triggeredBy: options.requestedBy ?? null,
         declaredType: declarado?.code ?? null,
         // Herdada, como o tipo: reler um arquivo não muda o acervo dele.
-        declaredFamily: anterior.declaredFamily ?? null,
+        declaredFamily: anterior.declaredFamily ?? doArquivo?.declared_family ?? null,
         /*
           Herdada pela mesma razão, e com uma a mais: reler não muda a quinzena
           de que o arquivo é. Perdê-la na releitura faria o run relido deixar de
@@ -1319,7 +1363,24 @@ export async function reprocessImportRun(
           conferência sumiria em silêncio, que é o oposto do que ela existe para
           fazer.
         */
-        declaredPeriod: anterior.declaredPeriod ?? null,
+        declaredPeriod: anterior.declaredPeriod ?? doArquivo?.declared_period ?? null,
+        /*
+          As três do acervo Real, herdadas pela mesma razão — e a unidade com uma
+          a mais, que a releitura do primeiro extrato ensinou: sem ela o run
+          relido **falha**, porque o extrato do ERP não traz CNPJ para o
+          pipeline deduzir e a vigência fica sem identidade.
+
+          O defeito apareceu no app, e não em teste: reprocessar o extrato para
+          que o leitor novo gravasse a impressão digital terminou em FAILED com
+          "não tem unidade declarada" — sobre um arquivo cuja unidade estava
+          declarada desde o primeiro envio. Reler um arquivo não muda de que
+          unidade ele é, exatamente como não muda o acervo nem a quinzena.
+        */
+        declaredGranularity:
+          anterior.declaredGranularity ?? doArquivo?.declared_granularity ?? null,
+        declaredCompetence:
+          anterior.declaredCompetence ?? doArquivo?.declared_competence ?? null,
+        declaredUnidade: anterior.declaredUnidade ?? doArquivo?.declared_unidade ?? null,
         reprocessOfRunId: anterior.id,
         reprocessReason: motivo,
       })

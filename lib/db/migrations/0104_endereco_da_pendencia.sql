@@ -1,0 +1,42 @@
+-- ---------------------------------------------------------------------------
+-- O ENDEREÇO DA PENDÊNCIA — a impressão digital da linha, em hash.
+-- ---------------------------------------------------------------------------
+--
+-- A `0103` guardou a chave contábil de cada lançamento, e ela responde bem à
+-- pergunta que faz: que documento é este. O que ela **não** responde é a
+-- pergunta da pendência — *estas duas linhas são a mesma linha repetida?* —, e a
+-- diferença entre as duas não é sutil:
+--
+--   * a chave contábil agrupa principal e juros do mesmo documento. São 73
+--     grupos no extrato real de 2026, e eles são dois lançamentos legítimos que
+--     **somam**;
+--   * a impressão digital cobre todas as células da linha, inclusive `DATATU`.
+--     Duas linhas iguais nela são a mesma linha duas vezes — cinco pares
+--     naquele extrato, todos da mesma placa.
+--
+-- Endereçar uma decisão humana pela chave contábil faria uma confirmação de
+-- duplicata valer também para o par principal+juros que divide o documento: o
+-- juro sumiria da conta, em silêncio, por causa de um clique sobre outra coisa.
+--
+-- Aditiva e **nula**, como todas as desta casa — e aqui a regra foi aprendida na
+-- prática: a primeira versão desta migration nascia `NOT NULL`, com o argumento
+-- de que a tabela tinha nascido na `0103` do mesmo deploy e ainda não teria
+-- linha. Production não teria mesmo; o ambiente de desenvolvimento em que o
+-- extrato já havia sido importado tinha 903, e a migration parou com
+-- `SQLSTATE 23502` no primeiro ambiente real em que rodou.
+--
+-- `NULL` descreve exatamente o que houve: aquele lançamento foi lido antes de a
+-- coluna existir, e a pendência dele não tem endereço até o mês ser
+-- reimportado. A tela diz isso com essas palavras, em vez de oferecer um botão
+-- que não teria onde gravar. Um backfill dentro da migration precisaria reler
+-- `raw_cell` inteiro em DDL para recalcular o conteúdo das 43 células de cada
+-- linha — e a próxima importação daquele mês já o escreve, que é o caminho que
+-- esta tabela derivada tem para se reconstruir.
+--
+-- Separada da `0103`, e não dobrada dentro dela, porque a `0103` já foi
+-- aplicada em ambiente de desenvolvimento: reescrevê-la trocaria o hash de uma
+-- migration que o registro dá por aplicada, e o banco passaria a reportar-se
+-- como à frente do build. Uma migration a mais é mais barato que um registro
+-- mentindo.
+
+ALTER TABLE "finame_real_lancamento" ADD COLUMN IF NOT EXISTS "impressao_hash" text;

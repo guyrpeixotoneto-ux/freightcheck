@@ -162,6 +162,32 @@ export const finameRealLancamentoTable = pgTable(
      */
     grupoHash: text("grupo_hash").notNull(),
     /**
+     * A impressão digital da linha — **todas** as células dela, em hash.
+     *
+     * É ela, e não a chave contábil, que diz se duas linhas são a mesma linha
+     * repetida: a chave contábil agrupa principal e juros do mesmo documento,
+     * que são dois lançamentos legítimos. A impressão inclui a data de
+     * escrituração, e é por isso que dois pagamentos com a mesma parcela em dias
+     * diferentes não se confundem com uma repetição do export.
+     *
+     * Guardada porque é o **endereço da pendência**: é por ela que uma decisão
+     * humana ("estas duas são a mesma") encontra o grupo na leitura seguinte.
+     * Sem esta coluna, a tela teria de endereçar a decisão pela chave contábil —
+     * e uma confirmação de duplicata acabaria valendo para o par principal+juros
+     * que divide o mesmo documento.
+     *
+     * **Nula nos lançamentos lidos antes de a coluna existir**, e é isso que
+     * `NULL` diz: aquela leitura não guardou a impressão, e a pendência dela não
+     * tem endereço até o mês ser reimportado — o que a tela mostra com essas
+     * palavras, em vez de oferecer um botão que não teria onde gravar.
+     *
+     * Nula, e não preenchida por backfill: a impressão é o conteúdo das 43
+     * células da linha, e recalculá-la dentro de uma migration significaria
+     * reler `raw_cell` inteiro em DDL. A próxima importação daquele mês a
+     * escreve, que é o caminho que esta tabela já tem para se reconstruir.
+     */
+    impressaoHash: text("impressao_hash"),
+    /**
      * `ACEITO` | `DUPLICATA_PROVAVEL` | `PENDENTE_DE_CLASSIFICACAO` | `REJEITADO`.
      *
      * Texto e não enum pela razão de sempre neste schema: a lista mora no

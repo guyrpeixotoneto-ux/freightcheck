@@ -5,7 +5,14 @@ import { fileURLToPath } from "node:url";
 import { readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import * as XLSX from "xlsx";
-import { captureRaw, preview, promote, receiveFile, stage } from "../../pipeline";
+import {
+  captureRaw,
+  preview,
+  promote,
+  receiveFile,
+  reprocessImportRun,
+  stage,
+} from "../../pipeline";
 import { createTestDatabase, type TestDb } from "../../testing";
 import { DATASET_FAMILY_FINANCIAMENTO_REAL } from "../../tipos";
 import { estagiarExtratoReal, vincularLancamentosAosFatos } from "../estagio";
@@ -54,6 +61,14 @@ async function importarExtrato(arquivo = EXTRATO): Promise<{
     filePath: arquivo,
     declaredType: "CAVALO",
     declaredFamily: DATASET_FAMILY_FINANCIAMENTO_REAL,
+    /*
+      As declarações vão para o **run**, como a tela as manda, e não como
+      argumento do estágio: é de lá que o reprocessamento as herda e é lá que a
+      exclusão da importação as leva junto. Passá-las por fora faria este teste
+      exercitar um caminho que o app não tem.
+    */
+    declaredUnidade: UNIDADE_CNPJ,
+    declaredGranularity: "MENSAL",
   });
   /*
     O arquivo idêntico já é reconhecido pelo SHA-256 antes de qualquer leitura —
@@ -65,7 +80,6 @@ async function importarExtrato(arquivo = EXTRATO): Promise<{
   }
   await captureRaw(ctx.db, recebido.importRunId);
   const estagio = await estagiarExtratoReal(ctx.db, recebido.importRunId, {
-    unidadeCnpj: UNIDADE_CNPJ,
     unidadeNome: UNIDADE_NOME,
   });
   /*
@@ -292,6 +306,47 @@ describe("o extrato do ERP entra pelo pipeline oficial", () => {
     expect(orfaos[0].n).toBe("0");
   });
 
+  it("a decisão é endereçada pela impressão da linha, não pela chave contábil", async () => {
+    /*
+      A distinção que esta coluna existe para sustentar. A chave contábil agrupa
+      principal e juros do mesmo documento — no extrato real, 73 grupos que
+      **somam**. A impressão digital cobre todas as células, inclusive a data de
+      escrituração, e duas linhas iguais nela são a mesma linha duas vezes.
+
+      Endereçar a decisão pela chave contábil faria uma confirmação de duplicata
+      valer também para o par principal+juros: o juro sumiria da conta, em
+      silêncio, por causa de um clique sobre outra coisa.
+    */
+    const { rows: pares } = await ctx.db.execute<{
+      chave: string;
+      impressoes: string;
+      linhas: string;
+    }>(sql`
+      SELECT chave_contabil_hash AS chave,
+             count(DISTINCT impressao_hash)::text AS impressoes,
+             count(*)::text AS linhas
+        FROM finame_real_lancamento
+       WHERE import_run_id = ${importRunId}::uuid
+       GROUP BY chave_contabil_hash
+      HAVING count(*) > 1
+      ORDER BY count(DISTINCT impressao_hash) DESC
+    `);
+
+    /* Existem grupos com a mesma chave contábil e impressões diferentes: são os
+       principal+juros, e eles somam. */
+    const comImpressoesDistintas = pares.filter((p) => Number(p.impressoes) > 1);
+    expect(comImpressoesDistintas.length).toBeGreaterThan(0);
+
+    /* E as cinco duplicatas compartilham chave **e** impressão — é isso que as
+       torna endereçáveis sem atingir o par legítimo. */
+    const { rows: duplicadas } = await ctx.db.execute<{ n: string }>(sql`
+      SELECT count(DISTINCT impressao_hash)::text AS n
+        FROM finame_real_lancamento
+       WHERE import_run_id = ${importRunId}::uuid AND status = 'DUPLICATA_PROVAVEL'
+    `);
+    expect(duplicadas[0].n).toBe("5");
+  });
+
   it("a reconciliação fecha com o razão de origem", () => {
     expect(estagio.reconciliacao.fecha).toBe(true);
     expect(estagio.reconciliacao.totalDoExtrato).toBeCloseTo(10198831.18, 1);
@@ -336,6 +391,108 @@ describe("o extrato do ERP entra pelo pipeline oficial", () => {
     `);
     expect(Number(cruzadas[0].n)).toBeGreaterThan(50);
   });
+});
+
+describe("o reprocessamento", () => {
+  it("herda a unidade declarada — reler não muda de que unidade o arquivo é", async () => {
+    /*
+      O defeito que este teste prende apareceu no app, não aqui: reprocessar o
+      extrato (para que o leitor novo gravasse a impressão digital) terminou em
+      FAILED com "não tem unidade declarada", sobre um arquivo cuja unidade
+      estava declarada desde o primeiro envio. O run relido nascia sem as
+      declarações do Real, e sem elas o extrato do ERP não tem como dizer de quem
+      é a vigência — ele traz o nome da unidade por extenso e nunca o CNPJ.
+    */
+    /*
+      O reprocessamento relê a **última leitura não-duplicada** daquele arquivo,
+      e não o run que se passa: é o desenho de `reprocessImportRun`, e é por isso
+      que este teste não precisa de um envio novo. O que ele confere é que as
+      declarações atravessam a releitura.
+    */
+    const [original] = await ctx.db.execute<{ id: string }>(sql`
+      SELECT id::text FROM import_run
+       WHERE declared_family = ${DATASET_FAMILY_FINANCIAMENTO_REAL}
+         AND status <> 'SKIPPED_DUPLICATE'
+       ORDER BY started_at DESC LIMIT 1
+    `).then((r) => r.rows);
+
+    const relido = await reprocessImportRun(ctx.db, original.id, {
+      reason: "O leitor passou a gravar a impressão digital de cada linha.",
+      requestedBy: "teste",
+    });
+
+    const { rows } = await ctx.db.execute<{
+      unidade: string | null;
+      familia: string | null;
+      granularidade: string | null;
+    }>(sql`
+      SELECT declared_unidade AS unidade,
+             declared_family AS familia,
+             declared_granularity AS granularidade
+        FROM import_run
+       WHERE id = ${relido.importRunId}::uuid
+    `);
+    expect(rows[0].unidade).toBe(UNIDADE_CNPJ);
+    expect(rows[0].familia).toBe(DATASET_FAMILY_FINANCIAMENTO_REAL);
+    expect(rows[0].granularidade).toBe("MENSAL");
+  }, 600_000);
+});
+
+describe("a corrente de releituras", () => {
+  it("uma releitura que falhou não apaga a declaração do arquivo", async () => {
+    /*
+      O segundo defeito que a releitura do extrato real mostrou, e o mais
+      traiçoeiro dos dois: consertada a herança, o reprocessamento **continuou**
+      falhando — porque ele relê a última leitura que abriu o arquivo, e a última
+      era a releitura que tinha falhado sem declarar nada. A declaração ia se
+      apagando ao longo da corrente, um elo por vez.
+
+      A declaração é do arquivo, e não da última tentativa. Reler nunca
+      desdeclara: no limite, repete o que já se sabia.
+    */
+    const [original] = await ctx.db.execute<{ id: string }>(sql`
+      SELECT id::text FROM import_run
+       WHERE declared_family = ${DATASET_FAMILY_FINANCIAMENTO_REAL}
+         AND declared_unidade IS NOT NULL
+       ORDER BY started_at DESC LIMIT 1
+    `).then((r) => r.rows);
+
+    /*
+      A releitura anterior deste arquivo termina em falha — que é exatamente o
+      estado que o app produziu: ela abriu o arquivo, não declarou nada e parou.
+      Uma leitura ainda aberta impede a próxima, e com razão: duas leituras
+      simultâneas do mesmo arquivo disputariam a mesma vigência.
+    */
+    await ctx.db.execute(sql`
+      UPDATE import_run SET status = 'FAILED', finished_at = now()
+       WHERE source_file_id = (SELECT source_file_id FROM import_run WHERE id = ${original.id}::uuid)
+         AND status IN ('PENDING', 'READING', 'STAGED', 'PREVIEWED', 'PROMOTING')
+    `);
+
+    /*
+      E uma releitura que falhou **sem declarar nada** — o elo que apagava a
+      história. É ela que o reprocessamento vai encontrar como "a leitura mais
+      recente que abriu o arquivo".
+    */
+    await ctx.db.execute(sql`
+      INSERT INTO import_run (source_file_id, status, triggered_by, finished_at,
+                              reprocess_of_run_id, reprocess_reason)
+      SELECT source_file_id, 'FAILED', 'teste', now(), ${original.id}::uuid,
+             'releitura que falhou antes de declarar'
+        FROM import_run WHERE id = ${original.id}::uuid
+    `);
+
+    const relido = await reprocessImportRun(ctx.db, original.id, {
+      reason: "A releitura seguinte, depois de uma que falhou sem declarar nada.",
+      requestedBy: "teste",
+    });
+
+    const { rows } = await ctx.db.execute<{ unidade: string | null }>(sql`
+      SELECT declared_unidade AS unidade FROM import_run
+       WHERE id = ${relido.importRunId}::uuid
+    `);
+    expect(rows[0].unidade).toBe(UNIDADE_CNPJ);
+  }, 600_000);
 });
 
 describe("a reimportação", () => {

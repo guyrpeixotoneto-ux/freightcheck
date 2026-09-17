@@ -193,7 +193,17 @@ export interface PendenciasDoReal {
     valor: number;
     motivo: string | null;
     linhaRepetida: number;
-    impressaoDigital: string;
+    /**
+     * O endereço da pendência: o hash da impressão digital da linha.
+     *
+     * **Não** é a chave contábil. Aquela agrupa principal e juros do mesmo
+     * documento — dois lançamentos legítimos —, e uma confirmação de duplicata
+     * endereçada por ela apagaria o juro junto com a repetição.
+     *
+     * `null` num lançamento lido antes de a coluna existir: a pendência é real,
+     * mas não tem endereço até o mês ser reimportado.
+     */
+    impressaoHash: string | null;
   }[];
   semClassificacao: {
     placa: string;
@@ -215,6 +225,50 @@ export interface PendenciasDoReal {
  * importa é que elas sejam **lidas do banco**, e não recalculadas a partir do
  * arquivo — o arquivo já não está mais lá quando alguém abre a tela.
  */
+/**
+ * Os lançamentos que **contam** — a leitura mais recente do arquivo que
+ * sustenta cada vigência ativa.
+ *
+ * ---------------------------------------------------------------------------
+ * Por que não basta "o run que promoveu"
+ * ---------------------------------------------------------------------------
+ * Um arquivo relido produz um segundo conjunto de lançamentos, e o primeiro
+ * continua no banco: cada importação guarda a leitura dela, e apagar a anterior
+ * seria apagar a história de como aquele mês foi lido. Sem recorte nenhum a tela
+ * soma os dois — a releitura do extrato real mostrou dez duplicatas onde há
+ * cinco, cada uma aparecendo duas vezes.
+ *
+ * Recortar pelo run que promoveu a vigência resolve a duplicidade e cria outro
+ * problema, e ele também apareceu no app: a releitura com o leitor novo foi
+ * reconhecida como **mesmo conteúdo** (`SKIPPED_DUPLICATE_DATA`, que é a
+ * idempotência funcionando), então nenhuma revisão foi aberta e a vigência ativa
+ * continuou sendo do run antigo. A tela passou a mostrar a leitura velha — sem o
+ * endereço que o leitor novo grava — e as pendências ficaram indecidíveis.
+ *
+ * O recorte certo tem dois passos, e é o que está escrito abaixo: **qual
+ * arquivo** sustenta uma vigência ativa, e **qual leitura dele** é a mais
+ * recente que produziu lançamentos. O primeiro passo é a autoridade de sempre —
+ * a vigência ativa decide o que é verdade hoje; o segundo é o que faz reler um
+ * arquivo com um leitor melhor servir para alguma coisa.
+ */
+const DOS_RUNS_ATIVOS = sql`
+  l.import_run_id IN (
+    SELECT DISTINCT ON (ir.source_file_id) ir.id
+      FROM import_run ir
+     WHERE ir.source_file_id IN (
+             SELECT dono.source_file_id
+               FROM import_run dono
+               JOIN snapshot s ON s.import_run_id = dono.id
+              WHERE s.dataset_family = 'FINANCIAMENTO_REAL'
+                AND s.status <> 'SUPERSEDED'
+           )
+       AND EXISTS (
+             SELECT 1 FROM finame_real_lancamento x WHERE x.import_run_id = ir.id
+           )
+     ORDER BY ir.source_file_id, ir.started_at DESC
+  )
+`;
+
 export async function lerPendenciasDoReal(
   db: Pick<Database, "execute">,
 ): Promise<PendenciasDoReal> {
@@ -225,7 +279,7 @@ export async function lerPendenciasDoReal(
     valor: string;
     motivo: string | null;
     raw_row_id: string;
-    chave: string;
+    chave: string | null;
   }>(sql`
     SELECT l.competencia::text AS competencia,
            l.placa,
@@ -233,10 +287,11 @@ export async function lerPendenciasDoReal(
            l.valor_absoluto::text AS valor,
            l.motivo,
            r.row_index::text AS raw_row_id,
-           l.chave_contabil_hash AS chave
+           l.impressao_hash AS chave
       FROM finame_real_lancamento l
       JOIN raw_row r ON r.id = l.raw_row_id
      WHERE l.status = 'DUPLICATA_PROVAVEL'
+       AND ${DOS_RUNS_ATIVOS}
      ORDER BY l.competencia, l.placa
   `);
 
@@ -254,6 +309,7 @@ export async function lerPendenciasDoReal(
            array_agg(DISTINCT coalesce(l.conta_analitica, 'sem conta')) AS contas
       FROM finame_real_lancamento l
      WHERE l.status = 'PENDENTE_DE_CLASSIFICACAO'
+       AND ${DOS_RUNS_ATIVOS}
      GROUP BY l.placa
      ORDER BY sum(l.valor_absoluto) DESC
   `);
@@ -268,6 +324,7 @@ export async function lerPendenciasDoReal(
            count(DISTINCT l.placa)::text AS placas
       FROM finame_real_lancamento l
      WHERE l.status = 'ACEITO'
+       AND ${DOS_RUNS_ATIVOS}
      GROUP BY l.competencia
      ORDER BY l.competencia
   `);
@@ -280,7 +337,7 @@ export async function lerPendenciasDoReal(
       valor: Number(d.valor),
       motivo: d.motivo,
       linhaRepetida: Number(d.raw_row_id),
-      impressaoDigital: d.chave,
+      impressaoHash: d.chave,
     })),
     semClassificacao: semTipo.map((s) => ({
       placa: s.placa,
@@ -354,6 +411,7 @@ export async function lerLancamentosDaPlaca(
       LEFT JOIN source_file sf ON sf.id = ir.source_file_id
      WHERE l.competencia = ${competencia}::date
        AND l.placa = ${placa}
+       AND ${DOS_RUNS_ATIVOS}
      ORDER BY r.row_index
   `);
 

@@ -1,6 +1,6 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
-import { fetchJson } from "@/lib/api";
+import { fetchJson, getApiUrl } from "@/lib/api";
 import type {
   EstadoDaComparacaoReal,
   LinhaDaComparacaoReal,
@@ -65,6 +65,14 @@ export interface PendenciasDoReal {
     valor: number;
     motivo: string | null;
     linhaRepetida: number;
+    /**
+     * O endereço da pendência — é ela que a decisão carrega como chave.
+     *
+     * `null` quando o lançamento foi lido antes de a coluna existir: a pendência
+     * é real e continua à vista, mas só volta a ser decidível depois que aquele
+     * mês for reimportado.
+     */
+    impressaoHash: string | null;
   }[];
   semClassificacao: {
     placa: string;
@@ -134,6 +142,38 @@ export function useLancamentosDaPlaca(competencia: string | null, placa: string 
           competencia as string,
         )}&placa=${encodeURIComponent(placa as string)}`,
       ),
+  });
+}
+
+/**
+ * Registrar uma decisão sobre o que ficou de fora da soma.
+ *
+ * A decisão é **gravada**, e não aplicada: o consolidado só muda quando aquele
+ * mês for reimportado, porque a apuração é função pura das linhas do arquivo
+ * mais as decisões conhecidas. Aplicar por aqui seria mexer numa vigência
+ * fechada sem passar pela pré-visualização — e a resposta do servidor diz isso
+ * com todas as letras, para que a tela possa dizer também.
+ */
+export function useRegistrarDecisao() {
+  const cliente = useQueryClient();
+  return useMutation<
+    { efeito: string },
+    Error,
+    { tipo: string; chave: string; motivo: string; valor?: string }
+  >({
+    mutationFn: async (decisao) => {
+      const resposta = await fetch(getApiUrl("/financiamento-real/decisoes"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(decisao),
+      });
+      const corpo = await resposta.json();
+      if (!resposta.ok) throw new Error(corpo.error ?? "Não foi possível registrar.");
+      return corpo;
+    },
+    onSuccess: () => {
+      void cliente.invalidateQueries({ queryKey: ["financiamento-real", "pendencias"] });
+    },
   });
 }
 

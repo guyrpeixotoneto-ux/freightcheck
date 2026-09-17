@@ -798,6 +798,27 @@ export default function Importacoes() {
   const acervoAberto: DefinicaoDeAcervo | null = emChamados
     ? null
     : (acervoDoSlug(secaoPedida) ?? ACERVOS[0]);
+  /*
+    A unidade que o envio declara — e quando ela é obrigatória.
+
+    Só o acervo de granularidade mensal precisa dela, e por uma razão de dado e
+    não de desenho: o extrato do ERP traz o nome da unidade por extenso e nunca
+    o CNPJ, enquanto o export de remuneração traz `Unidade - CNPJ` em cada
+    linha. Ali o escopo sai do arquivo; aqui ele precisa de quem envia.
+
+    O valor é a unidade aberta na lateral: ela está escrita em cima da tela o
+    tempo todo, é uma escolha explícita de quem está enviando, e é a mesma pela
+    qual o histórico logo abaixo está recortado. Um seletor à parte, ao lado
+    dela, seria uma segunda resposta para a mesma pergunta — e o dia em que as
+    duas discordassem seria o dia em que o extrato de Camaçari entraria como se
+    fosse de Recife.
+  */
+  const exigeUnidadeDeclarada = acervoAberto?.granularidade === "MENSAL";
+  const unidadeDoEnvio = exigeUnidadeDeclarada
+    ? (unidadeDoRecorte?.code ?? null)
+    : null;
+  const faltaUnidadeParaEnviar = exigeUnidadeDeclarada && unidadeDoEnvio === null;
+
   const setSecao = (valor: DefinicaoDeAcervo | "chamados") => {
     const params = new URLSearchParams(search);
     /*
@@ -1009,6 +1030,7 @@ export default function Importacoes() {
       declaredType,
       declaredFamily,
       declaredPeriod,
+      declaredUnidade,
     }: {
       files: File[];
       declaredType: string;
@@ -1021,6 +1043,21 @@ export default function Importacoes() {
        * `exigirQuinzenaDeclarada`, no pipeline, que é quem confere.
        */
       declaredPeriod?: string | null;
+      /**
+       * A unidade que o envio declara, como CNPJ — obrigatória no acervo Real.
+       *
+       * O extrato do ERP traz o nome da unidade por extenso e nunca o CNPJ, e é
+       * o CNPJ que fecha a identidade de uma vigência. Aqui ele vem da unidade
+       * aberta na lateral: ela **é** uma escolha explícita de quem está
+       * enviando — está escrita em cima da tela o tempo todo —, e é a mesma
+       * unidade pela qual o histórico logo abaixo está recortado.
+       *
+       * Nula no remunerado, e nula de propósito: ali a coluna `Unidade - CNPJ`
+       * vem em cada linha do arquivo, e o escopo sai do próprio arquivo, como
+       * sempre saiu. Declarar por fora o que o arquivo já diz criaria uma
+       * segunda fonte para a mesma verdade.
+       */
+      declaredUnidade?: string | null;
     }) => {
       const ids: string[] = [];
       for (const file of files) {
@@ -1041,6 +1078,7 @@ export default function Importacoes() {
             declaredType,
             declaredFamily,
             declaredPeriod: declaredPeriod ?? null,
+            declaredUnidade: declaredUnidade ?? null,
           }),
         });
         const body = await readJson(response);
@@ -1419,6 +1457,7 @@ export default function Importacoes() {
                   declaredType: tipoDaAba.code,
                   declaredFamily: familiaDeclarada(acervoAberto, tipoDaAba),
                   declaredPeriod: quinzenaDoEnvio,
+                  declaredUnidade: unidadeDoEnvio,
                 });
               }
               e.target.value = "";
@@ -1439,6 +1478,7 @@ export default function Importacoes() {
                   files,
                   declaredType: tipoDaAba.code,
                   declaredFamily: familiaDeclarada(acervoAberto, tipoDaAba),
+                  declaredUnidade: unidadeDoEnvio,
                 });
               }
               e.target.value = "";
@@ -1449,15 +1489,35 @@ export default function Importacoes() {
             declarar é justamente o que esta tela deixou de fazer. */}
           {tipoDaAba === null ? (
             <SemAbaEscolhida />
+          ) : faltaUnidadeParaEnviar ? (
+            /*
+              Recusar aqui, e não depois de ler o arquivo. O servidor recusa a
+              mesma coisa — o acervo Real sem unidade declarada não tem
+              identidade de vigência —, mas recusar depois do envio faria alguém
+              esperar a leitura de um arquivo que nunca ia entrar.
+            */
+            <div
+              className="rounded-lg border border-amber-500/40 bg-amber-500/5 p-6 text-sm"
+              data-testid="sem-unidade-para-o-real"
+            >
+              <p className="font-medium">Escolha a unidade antes de enviar</p>
+              <p className="mt-1 text-muted-foreground">
+                O extrato do financiamento traz o nome da unidade por extenso e nunca o
+                CNPJ — e é o CNPJ que diz de quem é a vigência. Abra a unidade na lateral
+                e o envio passa a declará-la.
+              </p>
+            </div>
           ) : (
             <Dropzone
               tipo={tipoDaAba}
               busy={upload.isPending}
+              mensal={acervoAberto?.granularidade === "MENSAL"}
               onFiles={(files) =>
                 upload.mutate({
                   files,
                   declaredType: tipoDaAba.code,
                   declaredFamily: familiaDeclarada(acervoAberto, tipoDaAba),
+                  declaredUnidade: unidadeDoEnvio,
                 })
               }
               onPick={() => fileInput.current?.click()}
@@ -1471,7 +1531,37 @@ export default function Importacoes() {
             inversa, a lista de quinzenas apareceria antes de a tela dizer de
             que tipo ela é.
           */}
-          {tipoDaAba === null ? (
+          {/*
+            O calendário de quinzenas não cabe no acervo mensal, e mostrá-lo lá
+            não era um detalhe de layout: a grade dizia "nada de cavalo entrou
+            nesta unidade, em quinzena nenhuma" sobre um acervo que acabara de
+            receber nove competências, e oferecia "Enviar esta quinzena" para um
+            arquivo que não tem quinzena — um envio que declararia uma metade de
+            mês para o extrato de um mês inteiro.
+
+            O que entra no lugar é a verdade curta: este acervo fecha por mês, e
+            as competências que já entraram estão na auditoria do Financiamento
+            Real. Uma grade de competências com o que falta seria melhor, e ela
+            exige saber quais meses a operação deve entregar — que é justamente o
+            que o produto não sabe afirmar hoje, do mesmo jeito que não afirma
+            para a quinzena (ver `quinzenas-do-acervo.ts`).
+          */}
+          {acervoAberto?.granularidade === "MENSAL" ? (
+            <div
+              className="rounded-xl border p-6 text-sm text-muted-foreground"
+              data-testid="acervo-mensal-sem-grade"
+            >
+              <p className="font-medium text-foreground">
+                Este acervo fecha por competência mensal
+              </p>
+              <p className="mt-1">
+                O extrato do financiamento não tem quinzena: cada arquivo abre uma
+                vigência por mês que ele cobrir. As competências que já entraram, e o
+                que o banco cobrou em cada uma, estão em{" "}
+                <strong className="text-foreground">Custo Fixo → Finame Real</strong>.
+              </p>
+            </div>
+          ) : tipoDaAba === null ? (
             <GradeDasQuinzenas
               linhas={quinzenas}
               tipos={tipos}
@@ -1867,10 +1957,21 @@ function SemAbaEscolhida() {
 function Dropzone({
   tipo,
   busy,
+  mensal,
   onFiles,
   onPick,
 }: {
   tipo: DefinicaoDeTipo;
+  /**
+   * O acervo aberto fecha por **mês**, e não por quinzena.
+   *
+   * A caixa dizia sempre a mesma coisa — "uma quinzena ou o acumulado", "o
+   * export de remuneração por placa e quinzena" —, e na aba Real isso é falso
+   * em cada palavra: o que entra ali é o razão contábil do ERP, que fecha por
+   * competência e nem sequer tem coluna de vigência. Uma tela que promete o
+   * arquivo errado é pior do que uma tela sem texto.
+   */
+  mensal?: boolean;
   busy: boolean;
   onFiles: (files: File[]) => void;
   onPick: () => void;
@@ -1911,9 +2012,26 @@ function Dropzone({
         <p className="font-semibold">
           {busy
             ? "Lendo…"
-            : `Escolher planilhas de ${tipo.rotulo} — uma quinzena ou o acumulado`}
+            : mensal
+              ? `Escolher o extrato do financiamento de ${tipo.rotulo} — uma competência ou o acumulado`
+              : `Escolher planilhas de ${tipo.rotulo} — uma quinzena ou o acumulado`}
         </p>
         <p className="text-sm text-muted-foreground">
+          {mensal ? (
+            <>
+              O razão contábil do ERP, no grão do lançamento: uma linha por
+              documento, e a mesma placa quantas vezes o mês tiver lançamentos
+              dela. O período vem de <strong className="text-foreground">MES</strong> e{" "}
+              <strong className="text-foreground">ANO</strong> das linhas — um arquivo
+              com vários meses dentro abre{" "}
+              <strong className="text-foreground">uma competência por mês</strong>.
+              A unidade é a da lateral, e é ela que o envio declara: o extrato traz o
+              nome dela por extenso e nunca o CNPJ. O arquivo é lido e conferido, mas
+              <strong className="text-foreground"> nada entra</strong> antes de você
+              ver o resumo e aprovar.
+            </>
+          ) : (
+            <>
           {tipo.descricao} Pode enviar mais de uma de uma vez.{" "}
           {/*
             O envio do topo é o do **acumulado**, e isso passou a ser dito.
@@ -1937,6 +2055,8 @@ function Dropzone({
           O arquivo é lido e conferido contra o tipo desta aba, mas
           <strong className="text-foreground"> nada entra</strong> antes de você
           ver o resumo e aprovar.
+            </>
+          )}
         </p>
       </div>
     </button>

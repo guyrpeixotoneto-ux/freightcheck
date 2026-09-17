@@ -3836,6 +3836,22 @@ function planoUp(): PassoUp[] {
     add(M103, `índice ${i}`, levantar(M103, new RegExp(`INDEX IF NOT EXISTS "${i}"`)));
   }
 
+  /*
+    A `0104` — o endereço da pendência, uma coluna em `finame_real_lancamento`.
+
+    Ela entra **depois** da `0103` na ordem do `up`, que é a inversa da do
+    `down`: o `down` derruba a tabela inteira, o `up` a recria do `CREATE TABLE`
+    da `0103` — que não conhece esta coluna — e só então a acrescenta. Sem esta
+    entrada, o banco reconstruído ficaria com uma coluna a menos do que um banco
+    criado do zero, e foi assim que `bridge.test.ts` a cobrou.
+  */
+  const M104 = "0104_endereco_da_pendencia";
+  add(
+    M104,
+    "finame_real_lancamento.impressao_hash",
+    levantar(M104, /ADD COLUMN IF NOT EXISTS "impressao_hash"/),
+  );
+
   const M89 = "0089_normalizacao_do_nome_gerencial";
   add(
     M89,

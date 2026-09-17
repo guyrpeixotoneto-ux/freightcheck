@@ -26,6 +26,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { ACERVOS } from "@workspace/ingest/tipos";
 import {
   ROTULO_DO_ESTADO_REAL,
   TOM_DO_ESTADO_REAL,
@@ -34,8 +35,10 @@ import {
   useComparacaoDoReal,
   useLancamentosDaPlaca,
   usePendenciasDoReal,
+  useRegistrarDecisao,
   type LinhaDaComparacaoReal,
 } from "@/lib/financiamento-real";
+import { Button } from "@/components/ui/button";
 
 /**
  * FINANCIAMENTO REAL — o que o banco cobrou, ao lado do que a Ambev paga.
@@ -65,6 +68,14 @@ import {
  * `compararCompetencia` e `resumirCompetencia`, as mesmas funções que a API
  * usa — é assim que o cartão do topo e a linha da tabela nunca discordam.
  */
+/*
+  Os tipos que o acervo Real aceita — a lista mora no domínio, e a tela a lê.
+
+  Uma segunda lista aqui concordaria no dia em que fosse escrita e discordaria no
+  dia do sexto equipamento.
+*/
+const TIPOS_DE_ATIVO = ACERVOS.find((a) => a.code === "REAL")?.tipos ?? [];
+
 export default function FinanciamentoReal() {
   const busca = useSearch();
   const [, navegar] = useLocation();
@@ -304,12 +315,12 @@ export default function FinanciamentoReal() {
                     confirmação. Somá-las cobraria duas vezes o mesmo pagamento;
                     descartá-las perderia um pagamento que talvez exista.
                   </p>
-                  <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
+                  <ul className="mt-3 space-y-2 text-xs">
                     {pendencias.data.duplicatas.slice(0, 5).map((d) => (
-                      <li key={`${d.competencia}-${d.numdoc}-${d.linhaRepetida}`}>
-                        {d.placa} · {d.competencia} · doc {d.numdoc} ·{" "}
-                        {escreverReais(d.valor)} · linha {d.linhaRepetida}
-                      </li>
+                      <DuplicataPendente
+                        key={`${d.competencia}-${d.numdoc}-${d.linhaRepetida}`}
+                        duplicata={d}
+                      />
                     ))}
                   </ul>
                 </div>
@@ -330,12 +341,9 @@ export default function FinanciamentoReal() {
                     <strong>{escreverReais(pendencias.data.valorSemClassificacao)}</strong>{" "}
                     ficam fora da comparação até alguém classificá-las.
                   </p>
-                  <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
-                    {pendencias.data.semClassificacao.slice(0, 5).map((s) => (
-                      <li key={s.placa}>
-                        {s.placa} · {s.lancamentos} lançamentos ·{" "}
-                        {escreverReais(s.valor)} · {s.contas.join(", ")}
-                      </li>
+                  <ul className="mt-3 space-y-2 text-xs">
+                    {pendencias.data.semClassificacao.slice(0, 5).map((placa) => (
+                      <PlacaSemTipo key={placa.placa} placa={placa} />
                     ))}
                   </ul>
                 </div>
@@ -393,6 +401,176 @@ export default function FinanciamentoReal() {
         </div>
       )}
     </Layout>
+  );
+}
+
+/**
+ * Uma duplicata provável, com as duas saídas que ela tem.
+ *
+ * As duas, e não uma: "é o export repetindo" e "são dois pagamentos" são
+ * respostas opostas para a mesma pergunta, e oferecer só uma delas seria empurrar
+ * quem decide para o lado que o software achou mais provável. O motivo é
+ * obrigatório — o servidor recusa sem ele — porque daqui a seis meses o
+ * histórico precisa dizer **por que**, e não só o quê.
+ */
+function DuplicataPendente({
+  duplicata,
+}: {
+  duplicata: {
+    competencia: string;
+    placa: string;
+    numdoc: string;
+    valor: number;
+    linhaRepetida: number;
+    impressaoHash: string | null;
+  };
+}): ReactElement {
+  const [motivo, setMotivo] = useState("");
+  const registrar = useRegistrarDecisao();
+
+  return (
+    <li className="rounded border bg-background/60 p-2" data-testid="duplicata-pendente">
+      <p className="text-muted-foreground">
+        {duplicata.placa} · {duplicata.competencia} · doc {duplicata.numdoc} ·{" "}
+        {escreverReais(duplicata.valor)} · linha {duplicata.linhaRepetida}
+      </p>
+      {duplicata.impressaoHash === null ? (
+        /*
+          A pendência existe e continua à vista; o que falta é endereço. Ela foi
+          lida antes de a coluna da impressão digital existir, e decidir sobre
+          ela exigiria gravar uma chave que não aponta para grupo nenhum.
+          Reimportar o mês escreve a impressão e devolve os botões.
+        */
+        <p className="mt-1 text-muted-foreground">
+          Esta pendência foi lida antes de o endereço dela existir. Reimporte esta
+          competência para poder decidir sobre ela.
+        </p>
+      ) : registrar.isSuccess ? (
+        <p className="mt-1 text-emerald-700 dark:text-emerald-300">
+          {registrar.data.efeito}
+        </p>
+      ) : (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <Input
+            value={motivo}
+            onChange={(e) => setMotivo(e.target.value)}
+            placeholder="Por quê?"
+            className="h-7 w-48 text-xs"
+            data-testid="motivo-da-decisao"
+          />
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-xs"
+            disabled={motivo.trim() === "" || registrar.isPending}
+            onClick={() =>
+              registrar.mutate({
+                tipo: "DUPLICATA_CONFIRMADA",
+                chave: duplicata.impressaoHash as string,
+                motivo,
+              })
+            }
+          >
+            É repetição do export
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-xs"
+            disabled={motivo.trim() === "" || registrar.isPending}
+            onClick={() =>
+              registrar.mutate({
+                tipo: "LANCAMENTOS_DISTINTOS",
+                chave: duplicata.impressaoHash as string,
+                motivo,
+              })
+            }
+          >
+            São dois pagamentos
+          </Button>
+          {registrar.isError ? (
+            <span className="text-rose-600">{registrar.error.message}</span>
+          ) : null}
+        </div>
+      )}
+    </li>
+  );
+}
+
+/**
+ * Uma placa que o cadastro não resolveu, com a classificação declarada.
+ *
+ * A conta contábil aparece como evidência ao lado — e continua não decidindo
+ * nada: quem escolhe o tipo é quem está olhando, e é por isso que a lista de
+ * tipos é a do produto e não uma dedução da conta.
+ */
+function PlacaSemTipo({
+  placa,
+}: {
+  placa: {
+    placa: string;
+    competencias: string[];
+    lancamentos: number;
+    valor: number;
+    contas: string[];
+  };
+}): ReactElement {
+  const [tipo, setTipo] = useState("");
+  const [motivo, setMotivo] = useState("");
+  const registrar = useRegistrarDecisao();
+
+  return (
+    <li className="rounded border bg-background/60 p-2" data-testid="placa-sem-tipo">
+      <p className="text-muted-foreground">
+        {placa.placa} · {placa.lancamentos} lançamentos · {escreverReais(placa.valor)} ·{" "}
+        {placa.contas.join(", ")}
+      </p>
+      {registrar.isSuccess ? (
+        <p className="mt-1 text-emerald-700 dark:text-emerald-300">
+          {registrar.data.efeito}
+        </p>
+      ) : (
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          <Select value={tipo} onValueChange={setTipo}>
+            <SelectTrigger className="h-7 w-36 text-xs" data-testid="tipo-do-ativo">
+              <SelectValue placeholder="Tipo do ativo" />
+            </SelectTrigger>
+            <SelectContent>
+              {TIPOS_DE_ATIVO.map((t) => (
+                <SelectItem key={t} value={t}>
+                  {t}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Input
+            value={motivo}
+            onChange={(e) => setMotivo(e.target.value)}
+            placeholder="Como se sabe?"
+            className="h-7 w-44 text-xs"
+          />
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-xs"
+            disabled={tipo === "" || motivo.trim() === "" || registrar.isPending}
+            onClick={() =>
+              registrar.mutate({
+                tipo: "CLASSIFICAR_ATIVO",
+                chave: placa.placa,
+                valor: tipo,
+                motivo,
+              })
+            }
+          >
+            Classificar
+          </Button>
+          {registrar.isError ? (
+            <span className="text-rose-600">{registrar.error.message}</span>
+          ) : null}
+        </div>
+      )}
+    </li>
   );
 }
 

@@ -13,6 +13,7 @@ import {
   resumirCompetencia,
 } from "@workspace/comparison";
 import { periodLabel } from "@workspace/comparison/labels";
+import { financiamentoRealDecisaoTable } from "@workspace/db/schema";
 import { classificarFalha } from "../lib/classificar-falha";
 import { operacaoDaConsulta } from "../lib/operacao";
 
@@ -37,6 +38,13 @@ import { operacaoDaConsulta } from "../lib/operacao";
  * nunca como média.
  */
 const router: IRouter = Router();
+
+/** As três decisões que esta tela registra. A lista mora no domínio. */
+const TIPOS_DE_DECISAO = [
+  "DUPLICATA_CONFIRMADA",
+  "LANCAMENTOS_DISTINTOS",
+  "CLASSIFICAR_ATIVO",
+] as const;
 
 /** A competência que a consulta pediu, ou a mais recente que existir. */
 function competenciaDaConsulta(query: Record<string, unknown>): string | null {
@@ -252,6 +260,91 @@ router.get("/financiamento-real/lancamentos", async (req, res, next): Promise<vo
           .reduce((soma, l) => soma + l.valor, 0)
           .toFixed(2),
       ),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * Registrar uma decisão sobre o que ficou de fora da soma.
+ *
+ * ---------------------------------------------------------------------------
+ * Por que a decisão é gravada, e não aplicada
+ * ---------------------------------------------------------------------------
+ * Esta rota escreve uma linha em `financiamento_real_decisao` e nada mais: ela
+ * **não** refaz o consolidado. A apuração é função pura das linhas do arquivo
+ * mais as decisões conhecidas, então aplicar a decisão é reimportar aquele mês —
+ * que é um ato com dono, com pré-visualização e com revisão, e não um efeito
+ * colateral de um clique.
+ *
+ * A resposta diz isso com todas as letras, para que a tela possa dizer também:
+ * a decisão fica registrada e vale na próxima leitura daquele extrato.
+ *
+ * Append-only: uma decisão revista não apaga a anterior. Quem lê pega a mais
+ * recente da chave, e o histórico continua legível — "foi confirmada como
+ * duplicata em setembro e desconfirmada em outubro, por fulano, com este
+ * motivo". Um `UPDATE` no lugar transformaria a mudança de opinião num estado
+ * sem passado.
+ */
+router.post("/financiamento-real/decisoes", async (req, res, next): Promise<void> => {
+  try {
+    const corpo = req.body as Record<string, unknown>;
+    const tipo = String(corpo["tipo"] ?? "").trim();
+    const chave = String(corpo["chave"] ?? "").trim();
+    const motivo = String(corpo["motivo"] ?? "").trim();
+    const valor =
+      typeof corpo["valor"] === "string" && corpo["valor"].trim() !== ""
+        ? corpo["valor"].trim()
+        : null;
+
+    if (!TIPOS_DE_DECISAO.includes(tipo as (typeof TIPOS_DE_DECISAO)[number])) {
+      res.status(400).json({
+        error: `"${tipo}" não é uma decisão conhecida. As três são: ${TIPOS_DE_DECISAO.join(", ")}.`,
+      });
+      return;
+    }
+    if (chave === "") {
+      res.status(400).json({ error: "A decisão precisa dizer sobre o que ela é." });
+      return;
+    }
+    /*
+      O motivo é obrigatório, e não é burocracia: uma decisão sem motivo não é
+      auditável, e daqui a seis meses ninguém vai lembrar por que aquelas duas
+      linhas viraram uma só.
+    */
+    if (motivo === "") {
+      res.status(400).json({
+        error:
+          "Escreva o motivo da decisão. Sem ele, quem ler o histórico daqui a seis meses " +
+          "vê o que foi decidido e não por quê.",
+      });
+      return;
+    }
+    if (tipo === "CLASSIFICAR_ATIVO" && valor === null) {
+      res.status(400).json({
+        error: "Classificar um ativo exige dizer de que tipo ele é.",
+      });
+      return;
+    }
+
+    const [gravada] = await db
+      .insert(financiamentoRealDecisaoTable)
+      .values({
+        tipo,
+        chave,
+        valor,
+        motivo,
+        decididoPor: req.user?.email ?? "desconhecido",
+      })
+      .returning();
+
+    res.status(201).json({
+      decisao: gravada,
+      efeito:
+        "A decisão ficou registrada e vale na próxima leitura deste extrato. O valor " +
+        "consolidado só muda quando o mês for reimportado — aplicar por aqui seria mexer " +
+        "numa vigência fechada sem passar pela pré-visualização.",
     });
   } catch (err) {
     next(err);

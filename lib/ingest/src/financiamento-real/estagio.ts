@@ -106,8 +106,16 @@ export class ExtratoRecusado extends Error {
 export interface OpcoesDoEstagio {
   /** O canal da vigência. O acervo remunerado é EMPURRADA, e o real o segue. */
   canal?: string;
-  /** O CNPJ da unidade declarada no envio — o escopo da vigência. */
-  unidadeCnpj: string;
+  /**
+   * O CNPJ da unidade — normalmente **não** se passa aqui.
+   *
+   * A fonte é `import_run.declared_unidade`, escrita no envio: é lá que a
+   * declaração vive, é de lá que o reprocessamento a herda, e é ela que a
+   * exclusão de importação leva junto. Este campo existe para quem quer estagiar
+   * um run sem passar pelo envio — um teste, uma reconstrução —, e sobrepõe a do
+   * run quando vem preenchido.
+   */
+  unidadeCnpj?: string;
   /** O nome da unidade, para o escopo nascer legível. */
   unidadeNome?: string | null;
   /** A competência corrente, para a marca de mês em curso. */
@@ -133,6 +141,22 @@ export async function estagiarExtratoReal(
     .from(importRunTable)
     .where(eq(importRunTable.id, importRunId));
   if (!run) throw new Error(`Importação ${importRunId} não encontrada.`);
+
+  /*
+    A unidade sai do run, e não do chamador. Uma declaração que vivesse só no
+    argumento se perderia no reprocessamento — e foi exatamente o que aconteceu
+    na primeira releitura do extrato real: o run relido falhou por "não tem
+    unidade declarada" sobre um arquivo cuja unidade estava declarada desde o
+    primeiro envio.
+  */
+  const unidadeCnpj = opcoes.unidadeCnpj ?? run.declaredUnidade ?? null;
+  if (unidadeCnpj === null) {
+    throw new ExtratoRecusado(
+      "UNIDADE_NAO_DECLARADA",
+      "Esta importação do acervo Real não tem unidade declarada, e o extrato do financiamento " +
+        "não traz CNPJ para deduzi-la. Envie o arquivo de novo escolhendo a unidade.",
+    );
+  }
 
   const { linhas, celulas } = await lerLinhasDoRaw(db, importRunId);
   const leitura = lerExtrato(linhas);
@@ -192,7 +216,22 @@ export async function estagiarExtratoReal(
     db,
     [...new Set(leitura.linhas.map((l) => l.placa))],
   );
-  const decisoes = await lerDecisoes(db);
+  /*
+    As decisões chegam endereçadas pelo **hash** da impressão digital — é o que
+    a tela tem na mão, e guardar a impressão inteira (as 43 células de uma
+    linha) numa coluna de chave seria guardar o arquivo dentro da decisão.
+
+    A tradução acontece aqui, e não dentro de `apurar`, porque a regra de
+    agregação é pura e não conhece hash nenhum: ela compara impressões digitais.
+    Quem sabe fazer a ponte entre as duas formas é quem leu as linhas.
+  */
+  const porHash = new Map(
+    leitura.linhas.map((l) => [hash(l.impressaoDigital), l.impressaoDigital]),
+  );
+  const decisoes = (await lerDecisoes(db)).map((d) => ({
+    ...d,
+    chave: porHash.get(d.chave) ?? d.chave,
+  }));
 
   const apuracao = apurar(leitura.linhas, {
     resolverTipo,
@@ -266,6 +305,7 @@ export async function estagiarExtratoReal(
         rubrica: RUBRICA_FINAME_REAL,
         chaveContabilHash: hash(l.chaveContabil),
         grupoHash: hash(l.grupo),
+        impressaoHash: hash(l.impressaoDigital),
         status: l.status,
         motivo: l.motivo,
       }),
@@ -308,8 +348,8 @@ export async function estagiarExtratoReal(
         ...base,
         rawCellId: ancora.unidade ?? ancora.valor,
         attributeCode: `${consolidado.entityType.toLowerCase()}.unidade_cnpj`,
-        valueText: opcoes.unidadeCnpj,
-        valueHash: hash(`t:${opcoes.unidadeCnpj}`),
+        valueText: unidadeCnpj,
+        valueHash: hash(`t:${unidadeCnpj}`),
         isNull: false,
       });
       if (opcoes.unidadeNome) {
