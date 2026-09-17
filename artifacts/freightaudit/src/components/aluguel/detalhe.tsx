@@ -19,7 +19,6 @@ export function diagnosticoDoVeiculo(linhas: readonly LinhaDeAluguel[]): string[
   const por = (chave: string) => linhas.find((l) => l.variavel === chave);
 
   const aluguel = por("aluguel");
-  const parcela = por("parcela_finame");
   const veiculo = por("veiculo");
 
   if (aluguel && aluguel.estado === "ALTERADO" && aluguel.diferenca !== null) {
@@ -33,12 +32,12 @@ export function diagnosticoDoVeiculo(linhas: readonly LinhaDeAluguel[]): string[
     );
   }
 
-  if (aluguel && parcela && aluguel.estado === "ALTERADO") {
+  if (aluguel && aluguel.estado === "ALTERADO") {
     frases.push(
       "A parcela FINAME desta placa muda junto, e pelo mesmo valor: nos implementos " +
-        "alugados ela é o aluguel. Por isso a parcela sai do total da Auditoria de " +
-        "FINAME quando esta linha se move — as duas são o mesmo dinheiro, e quem o soma " +
-        "é esta tela.",
+        "alugados ela é o aluguel. Por isso ela sai do total da Auditoria de FINAME " +
+        "quando esta linha se move — as duas são o mesmo dinheiro, e quem o soma é esta " +
+        "tela. A conferência, ativo a ativo, está no painel do topo.",
     );
   }
 
@@ -98,12 +97,14 @@ const DETALHE_DO_ALUGUEL: DetalheDaRubrica<LinhaDeAluguel> = {
   aviso: (
     <>
       <strong className="font-semibold">
-        A parcela FINAME está aqui para conferir o aluguel, não para somar com ele.
+        A parcela FINAME não é linha desta tela, e isso é de propósito.
       </strong>{" "}
       Nos implementos alugados as duas são o mesmo dinheiro — amortização e juros são zero, e a
-      parcela é o aluguel ao centavo, em todas as linhas do acervo. Quem soma a parcela é a
-      Auditoria de FINAME, e ela sai do total de lá quando o aluguel se move. O aluguel do
-      cavalo também não soma: é zero em 558 de 558 linhas, com semântica presumida.
+      parcela é o aluguel ao centavo, em todas as linhas do acervo —, mas a parcela é rubrica do
+      FINAME, que é quem a soma. Reivindicá-la aqui faria esta rubrica contar, no Monitor, as
+      alterações de parcela da frota financiada. A conferência entre as duas está no painel do
+      topo. O aluguel do cavalo também não soma: é zero em 558 de 558 linhas, com semântica
+      presumida.
     </>
   ),
 };

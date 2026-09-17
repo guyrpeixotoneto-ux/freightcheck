@@ -221,17 +221,23 @@ describe("o consolidado fecha com a auditoria de origem", () => {
     expect(resumo.porSituacao.FORA_DO_TOTAL).toBe(1);
   });
 
-  it("no aluguel, publica o mensal uma vez só — a parcela que o contém sai fora", () => {
+  it("no aluguel, publica o mensal uma vez só — e não conta a parcela como dele", () => {
     /*
       O caso que o módulo existe para não errar: a parcela FINAME do implemento
       alugado **é** o aluguel, e as duas chegam alteradas pelo mesmo valor. Se as
       duas entrassem, o Monitor publicaria R$ 600,00 de aumento onde houve
       R$ 300,00.
+
+      A parcela não é variável desta rubrica, então ela nem vira linha aqui: a
+      linha do Aluguel no Monitor conta contratos de locação, e nada mais. Foi o
+      acervo real que cobrou isso — com a parcela no catálogo, esta linha contava
+      33 alterações de frota financiada sob o rótulo "Aluguel de Frota".
     */
-    const { impacto, resumo } = resumoDe("ALUGUEL", ACERVO.ALUGUEL);
+    const { impacto, resumo, normalizadas } = resumoDe("ALUGUEL", ACERVO.ALUGUEL);
+    expect(normalizadas).toHaveLength(1);
     expect(impacto.porPeriodicidade).toEqual({ MENSAL: 300 });
     expect(resumo.porPeriodicidade).toEqual({ MENSAL: 300 });
-    expect(resumo.porSituacao.FORA_DO_TOTAL).toBe(1);
+    expect(resumo.alteracoes).toBe(1);
   });
 
   it("e o FINAME, do outro lado, tira a parcela do total quando o aluguel se move", () => {

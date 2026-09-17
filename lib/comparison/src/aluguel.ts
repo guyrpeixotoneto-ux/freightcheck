@@ -90,11 +90,25 @@ export interface VariavelDeAluguel {
 }
 
 /**
- * As variáveis do aluguel, na ordem em que a tela as lê.
+ * As variáveis do aluguel: **uma**, e a razão de ser uma só.
  *
- * Duas, e não dez: o aluguel — que é a rubrica — e a parcela FINAME do mesmo
- * implemento, que está aqui porque é o que **confere** o aluguel. Nos alugados
- * as duas são o mesmo número, e é esse o achado que a tela publica.
+ * A parcela FINAME do implemento é o que **confere** o aluguel — nos alugados as
+ * duas são o mesmo número, ao centavo — e por um tempo ela esteve neste
+ * catálogo, marcada como fora da soma. O acervo real mostrou o preço disso: a
+ * linha deste módulo no Monitor Custo Fixo passou a contar **33 alterações**,
+ * todas de parcela de frota *financiada*, sob o rótulo "Aluguel de Frota". O
+ * número estava certo e a leitura, errada.
+ *
+ * A regra que a rota desta tela já escrevia vale aqui: *uma tela não reivindica
+ * a coluna de outra só porque precisa lê-la*. A amortização e os juros nunca
+ * estiveram neste catálogo, e são lidos para a conferência do mesmo jeito; a
+ * parcela passou a ser tratada como eles.
+ *
+ * O que se perde: a parcela deixa de aparecer como linha ao lado do aluguel na
+ * tabela por placa. O que se ganha: a contagem deste módulo, em toda tela que a
+ * publica, é o número de contratos de locação que se moveram — e nada mais.
+ * A conferência continua inteira, e num lugar melhor: o painel próprio, que
+ * compara as quatro colunas por vigência ({@link conferenciaDoAluguel}).
  */
 export const VARIAVEIS_DE_ALUGUEL: readonly VariavelDeAluguel[] = [
   {
@@ -105,22 +119,7 @@ export const VARIAVEIS_DE_ALUGUEL: readonly VariavelDeAluguel[] = [
     ajuda:
       "O que se paga por mês pelo implemento que a frota aluga em vez de " +
       "financiar. Confirmado BRL/MENSAL pela curadoria, por base aritmética: é a " +
-      "terceira parcela de `finame_implemento`.",
-  },
-  {
-    chave: "parcela_finame",
-    rotulo: "Parcela FINAME",
-    medida: "DINHEIRO",
-    codigo: { CARRETA: "carreta.finame_implemento" },
-    foraDaSoma:
-      "A parcela é rubrica da Auditoria de FINAME, que é quem a soma — e nos " +
-      "implementos alugados ela **contém** o aluguel, de modo que somar as duas " +
-      "aqui contaria o mesmo dinheiro duas vezes. Ela está na tabela porque é o " +
-      "que confere o aluguel: quando amortização e juros são zero, a parcela é o " +
-      "aluguel, ao centavo.",
-    ajuda:
-      "Amortização + juros + aluguel, em 1.314 de 1.314 linhas do acervo. Nos " +
-      "alugados os dois primeiros são zero.",
+      "terceira parcela de `finame_implemento`, e nos alugados é a parcela inteira.",
   },
 ] as const;
 
@@ -382,10 +381,10 @@ export interface ImpactoDeAluguel {
  * **Não soma periodicidades diferentes.** Cada balde é uma periodicidade, como
  * `resumirImpacto` já faz para o produto inteiro.
  *
- * **Não soma a parcela FINAME.** Ela é rubrica do outro módulo e, nos
- * implementos alugados, **contém** este aluguel — somar as duas seria contar o
- * mesmo dinheiro duas vezes. Sai pelo `foraDaSoma`, e do outro lado a regra de
- * parcelas tira a parcela do total quando o aluguel se move.
+ * **Não vê a parcela FINAME.** Ela contém este aluguel nos implementos alugados,
+ * e somar as duas seria contar o mesmo dinheiro duas vezes — por isso ela não é
+ * variável deste catálogo (é lida só para a conferência). Do outro lado, a regra
+ * de parcelas do FINAME tira a parcela do total de lá quando o aluguel se move.
  *
  * **Não soma o aluguel do cavalo.** Zero em todas as linhas e com semântica
  * presumida: um total que o inclui afirma que alugar cavalo custa R$ 0,00.

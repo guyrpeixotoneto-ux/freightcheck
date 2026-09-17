@@ -63,7 +63,6 @@ const router: IRouter = Router();
 
 /** As variáveis — lidas do catálogo, nunca redigitadas. */
 const ALUGUEL = VARIAVEIS_DE_ALUGUEL.find((v) => v.chave === "aluguel");
-const PARCELA = VARIAVEIS_DE_ALUGUEL.find((v) => v.chave === "parcela_finame");
 const ALUGUEL_DO_CAVALO = VARIAVEIS_DE_DETALHE_DE_ALUGUEL.find(
   (v) => v.chave === "aluguel_cavalo",
 );
@@ -72,12 +71,17 @@ const ALUGUEL_DO_CAVALO = VARIAVEIS_DE_DETALHE_DE_ALUGUEL.find(
  * As colunas de financiamento que a conferência precisa, e que não são do
  * catálogo desta rubrica.
  *
- * Amortização e juros são rubrica do FINAME, e por isso **não** entram em
- * `VARIAVEIS_DE_ALUGUEL`: uma tela não reivindica a coluna de outra só porque
- * precisa lê-la. Elas são lidas aqui, para a conferência, e não viram linha da
- * tabela nem entram em soma nenhuma — a mesma separação que a Auditoria de
- * Seguro faz ao conferir o custo fixo declarado.
+ * A parcela, a amortização e os juros são rubrica do FINAME, e por isso **não**
+ * entram em `VARIAVEIS_DE_ALUGUEL`: uma tela não reivindica a coluna de outra só
+ * porque precisa lê-la. As três são lidas aqui, para a conferência, e não viram
+ * linha da tabela nem entram em soma nenhuma — a mesma separação que a Auditoria
+ * de Seguro faz ao conferir o custo fixo declarado.
+ *
+ * A parcela esteve no catálogo e saiu por medição: com ela lá, a linha deste
+ * módulo no Monitor contava 33 alterações de parcela de frota financiada sob o
+ * rótulo "Aluguel de Frota" (`docs/ACHADO-ALUGUEL.md`).
  */
+const PARCELA_DO_IMPLEMENTO = "carreta.finame_implemento";
 const AMORTIZACAO_DO_IMPLEMENTO = "carreta.amortizacao_implemento";
 const JUROS_DO_IMPLEMENTO = "carreta.juros_finame_implemento";
 
@@ -280,7 +284,7 @@ router.get("/aluguel/totais", async (req, res): Promise<void> => {
 
         /* A parcela e as duas colunas do financiamento só existem na carreta —
            e é só nela que a conferência tem pergunta. */
-        const codeParcela = entityType === "CARRETA" ? PARCELA?.codigo.CARRETA : undefined;
+        const codeParcela = entityType === "CARRETA" ? PARCELA_DO_IMPLEMENTO : undefined;
         const colunas = [
           codeAluguel,
           codeParcela,

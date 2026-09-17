@@ -162,7 +162,7 @@ describe("o acervo tem matéria — este arquivo não pode passar por vacuidade"
     produzem hoje, e são contrato: se algum deles mudar sem que alguém tenha
     mudado uma regra de propósito, a regra mudou sozinha.
   */
-  it("os pares do acervo produzem alterações de custo fixo nos quatro módulos", async () => {
+  it("os pares do acervo produzem alterações de custo fixo nos cinco módulos", async () => {
     const porModulo: Record<string, number> = {};
     let total = 0;
     for (const par of pares) {
@@ -172,9 +172,20 @@ describe("o acervo tem matéria — este arquivo não pode passar por vacuidade"
         total += r.alteracoes;
       }
     }
+    /*
+      Os 22 do Aluguel são **só entradas e saídas de ativo**: o acervo tem 11
+      `ENTITY_ADDED` e 11 `ENTITY_REMOVED`, e toda rubrica os conta, porque uma
+      placa que entra ou sai explica todas as outras linhas dela. Nenhum contrato
+      de locação mudou de valor nas vigências deste acervo — as duas carretas
+      alugadas declaram o mesmo aluguel nas 18 (`docs/ACHADO-ALUGUEL.md`).
+
+      O número é contrato, como os outros quatro: no dia em que um aluguel se
+      mover, ele deixa de ser 22 e alguém precisa ter mexido numa regra de
+      propósito.
+    */
     expect({ total, porModulo }).toEqual({
-      total: 767,
-      porModulo: { FINAME: 219, IPVA: 437, LUCRO_FIXO: 89, IMPOSTOS: 22 },
+      total: 789,
+      porModulo: { FINAME: 219, ALUGUEL: 22, IPVA: 437, LUCRO_FIXO: 89, IMPOSTOS: 22 },
     });
   }, 600_000);
 });

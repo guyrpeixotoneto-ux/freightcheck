@@ -125,7 +125,28 @@ se esse custo mudou entre as duas vigências.**
 
 ---
 
-## 6. O que o aluguel não é
+## 6. A parcela FINAME confere o aluguel — e não é linha desta rubrica
+
+A primeira versão desta tela trazia `carreta.finame_implemento` no catálogo do
+aluguel, marcada como fora da soma, para que a conferência aparecesse placa a
+placa. O acervo real mostrou o preço disso: a linha do módulo no Monitor Custo
+Fixo passou a contar **33 alterações**, todas de parcela de frota *financiada*,
+sob o rótulo "Aluguel de Frota". O número estava certo e a leitura, errada.
+
+A regra que a rota já escrevia vale para a parcela como vale para a amortização
+e para os juros: **uma tela não reivindica a coluna de outra só porque precisa
+lê-la.** As três são lidas em `/aluguel/totais`, alimentam a conferência, e não
+viram linha de tabela nem entram em soma nenhuma.
+
+O que se perde é a parcela ao lado do aluguel na tabela por placa. O que se ganha
+é a contagem deste módulo ser, em toda tela que a publica, o número de contratos
+de locação que se moveram — e nada mais. Hoje esse número é **22 em todos os
+pares do acervo, e os 22 são entradas e saídas de ativo**: nenhum aluguel mudou
+de valor.
+
+---
+
+## 7. O que o aluguel não é
 
 - **Não é aparato.** Ele aparece hoje na Auditoria de Seguro e Aparato,
   declarado `foraDaSoma` com a razão certa — "outro contrato e outra pergunta".

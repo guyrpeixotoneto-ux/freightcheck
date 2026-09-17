@@ -62,11 +62,17 @@ function valor(parcial: Partial<ValorDeAluguel>): ValorDeAluguel {
 }
 
 describe("o catálogo", () => {
-  it("tem o aluguel como rubrica e a parcela FINAME como conferência", () => {
+  it("tem uma variável só: o aluguel, que é a rubrica", () => {
+    /*
+      A parcela FINAME confere o aluguel, e é lida para isso — mas não é variável
+      deste catálogo. Com ela dentro, a linha deste módulo no Monitor contava 33
+      alterações de parcela de frota **financiada** sob o rótulo "Aluguel de
+      Frota": o número certo, a leitura errada.
+    */
+    expect(VARIAVEIS_DE_ALUGUEL).toHaveLength(1);
     const aluguel = VARIAVEIS_DE_ALUGUEL.find((v) => v.chave === "aluguel");
-    const parcela = VARIAVEIS_DE_ALUGUEL.find((v) => v.chave === "parcela_finame");
     expect(aluguel?.foraDaSoma).toBeUndefined();
-    expect(parcela?.foraDaSoma).toBeTruthy();
+    expect(variavelDeAluguelDoCodigo("carreta.finame_implemento")).toBeUndefined();
   });
 
   it("é só da carreta — o cavalo não tem aluguel na identidade dele", () => {
@@ -119,20 +125,19 @@ describe("o impacto", () => {
     expect(impacto.alugueisAlterados).toBe(1);
   });
 
-  it("não soma a parcela FINAME junto, que nos alugados é o mesmo dinheiro", () => {
+  it("não enxerga a parcela FINAME, que nos alugados é o mesmo dinheiro", () => {
     /*
       O caso real: nos implementos alugados a parcela **é** o aluguel, e as duas
-      chegam alteradas pelo mesmo valor. Somar as duas publicaria R$ 600,00 de
-      aumento onde houve R$ 300,00.
+      chegam alteradas pelo mesmo valor. Se ela fosse linha desta rubrica, o
+      risco seria publicar R$ 600,00 de aumento onde houve R$ 300,00. Ela não é:
+      a alteração dela nem vira linha aqui.
     */
-    const impacto = impactoDeAluguel(
-      linhasDeAluguel([
-        alteracao({}),
-        alteracao({ id: 2, attributeCode: "carreta.finame_implemento" }),
-      ]),
-    );
-    expect(impacto.porPeriodicidade).toEqual({ MENSAL: 300 });
-    expect(impacto.foraDaSoma).toBe(1);
+    const linhas = linhasDeAluguel([
+      alteracao({}),
+      alteracao({ id: 2, attributeCode: "carreta.finame_implemento" }),
+    ]);
+    expect(linhas).toHaveLength(1);
+    expect(impactoDeAluguel(linhas).porPeriodicidade).toEqual({ MENSAL: 300 });
   });
 
   it("não soma o aluguel do cavalo", () => {
@@ -238,14 +243,14 @@ describe("o total mensal", () => {
 });
 
 describe("o agrupamento por placa", () => {
-  it("junta o aluguel e a parcela da mesma placa numa linha só", () => {
+  it("junta as linhas da mesma placa e não conta a entrada de frota como alteração", () => {
     const veiculos = agruparPorVeiculoDeAluguel(
       linhasDeAluguel([
         alteracao({}),
-        alteracao({ id: 2, attributeCode: "carreta.finame_implemento" }),
+        alteracao({ id: 2, changeType: "ENTITY_ADDED", attributeCode: null }),
       ]),
     );
     expect(veiculos).toHaveLength(1);
-    expect(veiculos[0].alteracoes).toBe(2);
+    expect(veiculos[0].alteracoes).toBe(1);
   });
 });
