@@ -163,6 +163,21 @@ export const importRunTable = pgTable(
      */
     declaredFamily: text("declared_family"),
     /**
+     * A quinzena que o envio declarou — a linha da tela por onde a planilha
+     * entrou.
+     *
+     * Guardada como a **data em que o período começa** (dia 1 ou dia 16), que é
+     * a forma com que o resto do produto fala de quinzena: `snapshot.effective_date`
+     * sai do rótulo por essa mesma regra (`parseVigenciaLabel`). Assim a
+     * conferência é uma igualdade de datas, sem tradução no meio.
+     *
+     * Nula quer dizer "ninguém declarou quinzena", que é como todo envio pelo
+     * campo de arquivo entra: o arquivo vale pela quinzena que o rótulo dele
+     * disser, e não há o que conferir. Preenchida, a pré-visualização recusa o
+     * arquivo cujo rótulo diz outra — ver `QUINZENA_DIVERGE_DA_DECLARACAO`.
+     */
+    declaredPeriod: date("declared_period", { mode: "string" }),
+    /**
      * O run que este aqui releu — nulo em toda importação que é a primeira
      * leitura do seu arquivo.
      *

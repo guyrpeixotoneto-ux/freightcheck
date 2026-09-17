@@ -68,6 +68,8 @@ import MonitorCustoFixo from '@/pages/monitor-custo-fixo';
 import MonitorEquipe from '@/pages/monitor-equipe';
 import AuditoriaDeFiname from '@/pages/custo-fixo-finame';
 import AuditoriaDeIpva from '@/pages/custo-fixo-ipva';
+import AuditoriaDeAquisicao from '@/pages/custo-fixo-aquisicao';
+import AuditoriaDeAluguel from '@/pages/custo-fixo-aluguel';
 import AuditoriaDeLucroFixo from '@/pages/custo-fixo-lucro-fixo';
 import AuditoriaDeImpostos from '@/pages/custo-fixo-impostos';
 import AuditoriaDeSeguro from '@/pages/custo-fixo-seguro';
@@ -529,6 +531,8 @@ function RotasDaAuditoria() {
         catálogo.
       */}
       <Route path="/custo-fixo-ipva" component={AuditoriaDeIpva} />
+      <Route path="/custo-fixo-aquisicao" component={AuditoriaDeAquisicao} />
+      <Route path="/custo-fixo-aluguel" component={AuditoriaDeAluguel} />
       {/*
         Lucro Fixo sai de `TELAS_EM_PREPARO` pelo caminho das outras duas, e com
         a ressalva de sempre: o percentual contratado continua não existindo no

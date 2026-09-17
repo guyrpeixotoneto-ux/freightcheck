@@ -25,7 +25,8 @@ import { CONTAS_DO_QUADRO, VARIAVEIS_DO_QUADRO } from "./qlp";
  * a devolve por código de atributo, que é o que a alteração carrega.
  *
  * - `VARIAVEIS_DE_FINAME`, pelo campo `parcelas` — hoje só a parcela, que se
- *   abre em juros e amortização, nos dois tipos de equipamento;
+ *   abre em juros e amortização nos dois tipos, mais o aluguel na carreta, onde
+ *   ele é a terceira parcela (`docs/ACHADO-ALUGUEL.md`);
  * - `CONTAS_DO_QUADRO` (QLP), pelo par `resultado`/`parcelas` — os seis trios
  *   do administrativo (quantidade × valor = despesa) e os três degraus da
  *   cadeia de subtotais do operacional.
@@ -57,16 +58,42 @@ function daFiname(): TotalDerivado[] {
     /*
       Uma entrada por tipo de equipamento: cavalo e carreta têm códigos
       diferentes para a mesma variável, e é o código que a alteração carrega.
-      O tipo que não declarar o código da variável ou o de alguma parcela fica
-      de fora — meia composição não é composição.
+
+      ---------------------------------------------------------------------
+      A parcela que não se aplica, e a parcela que falta
+      ---------------------------------------------------------------------
+      A regra antiga era uma só — "o tipo que não declarar o código de alguma
+      parcela fica de fora, porque meia composição não é composição" —, e ela
+      estava certa enquanto as parcelas existiam nos dois tipos.
+
+      O aluguel do implemento quebrou esse pressuposto: ele é a terceira parcela
+      da parcela FINAME **da carreta**, e no cavalo ele não existe — a identidade
+      de lá é amortização + juros + lucro fixo (`composition.ts`). Tratado como
+      parcela faltando, ele derrubava a composição do cavalo inteira, e a
+      justificativa da parcela do cavalo voltava a ser escrita à mão.
+
+      Então a leitura passa a distinguir dois casos que se pareciam:
+
+      - a chave **não existe no catálogo** — é erro de escrita, e derruba a
+        composição, como antes;
+      - a variável existe e **não declara código para este tipo** — ela não se
+        aplica ali, e a composição daquele tipo é a das parcelas que se aplicam.
+
+      A salvaguarda que sobra é a que importa: uma composição precisa de pelo
+      menos duas parcelas. Com uma só, o "total" seria um apelido da parcela.
     */
     for (const tipo of ["CAVALO", "CARRETA"] as const) {
       const resultado = variavel.codigo[tipo];
       if (!resultado) continue;
-      const parcelas = variavel.parcelas
-        .map((chave) => porChave.get(chave)?.codigo[tipo])
+
+      const declaradas = variavel.parcelas.map((chave) => porChave.get(chave));
+      if (declaradas.some((v) => v === undefined)) continue;
+
+      const parcelas = declaradas
+        .map((v) => v!.codigo[tipo])
         .filter((codigo): codigo is string => !!codigo);
-      if (parcelas.length !== variavel.parcelas.length) continue;
+      if (parcelas.length < 2) continue;
+
       totais.push({ resultado, parcelas, forma: "SOMA" });
     }
   }

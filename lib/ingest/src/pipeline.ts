@@ -196,6 +196,16 @@ function motivoDoImpedimento(
         `colunas de identidade). Confira o arquivo contra o export anterior antes de reenviar.`
       );
     }
+    if (issue.code === "QUINZENA_DIVERGE_DA_DECLARACAO") {
+      /*
+        O texto da recusa já sabe distinguir os dois casos — o arquivo de outra
+        quinzena e o acumulado mandado pela casa de uma —, e a saída de cada um
+        está na própria mensagem (`comoCorrigir`, em `conferirQuinzenaDeclarada`).
+        Repetir aqui uma saída fixa mandaria metade das recusas para o lugar
+        errado, que é o defeito que a frase fixa da duplicidade já causou uma vez.
+      */
+      return `${issue.sample} Nada foi importado.`;
+    }
     if (issue.code === "TIPO_DIVERGE_DA_DECLARACAO") {
       return (
         `${issue.sample} Nada foi importado: envie o arquivo pela aba do tipo certo, ` +
@@ -761,6 +771,19 @@ export interface ReceiveOptions {
    * porque nem o acervo nem o tipo a decidem sozinhos.
    */
   declaredFamily?: string | null;
+  /**
+   * A quinzena que quem envia declarou — a linha da tela por onde ele escolheu.
+   *
+   * Opcional, como as outras duas declarações, e como elas o que ela muda é a
+   * *conferência*, não a leitura: a quinzena de cada vigência continua saindo
+   * do rótulo de dentro do arquivo, e a pré-visualização compara as duas
+   * respostas. Ausente, tudo se passa como antes.
+   *
+   * A forma é a data em que o período começa — `2026-08-01` ou `2026-08-16` —,
+   * que é como `snapshot.effective_date` fala de quinzena. Ver
+   * {@link exigirQuinzenaDeclarada}.
+   */
+  declaredPeriod?: string | null;
 }
 
 /**
@@ -788,6 +811,37 @@ export function exigirTipoDeclarado(declaredType: string): DefinicaoDeTipo {
     );
   }
   return tipo;
+}
+
+/**
+ * A quinzena declarada, conferida antes de gravar.
+ *
+ * Duas recusas, as duas antes de qualquer coisa acontecer. A primeira é uma
+ * data que não é data. A segunda é uma data que **não começa uma quinzena**: o
+ * período vai do dia 1 ao 15 e do 16 ao fim do mês, então declarar `2026-08-07`
+ * não é declarar nada que exista — e aceitar viraria uma conferência que nunca
+ * casa, recusando todo arquivo por divergir de uma quinzena inexistente.
+ *
+ * A regra é a mesma de `parseVigenciaLabel`, do outro lado: a quinzena mapeia
+ * para o dia em que o período dela começa. É por isso que a conferência pode
+ * ser uma igualdade de datas.
+ */
+export function exigirQuinzenaDeclarada(declaredPeriod: string): string {
+  const data = declaredPeriod.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(data)) {
+    throw new Error(
+      `"${declaredPeriod}" não é uma data no formato AAAA-MM-DD. A quinzena declarada é ` +
+        `o dia em que o período dela começa.`,
+    );
+  }
+  const dia = data.slice(8, 10);
+  if (dia !== "01" && dia !== "16") {
+    throw new Error(
+      `"${declaredPeriod}" não começa uma quinzena. A primeira vai do dia 1 ao 15 e a ` +
+        `segunda do 16 ao fim do mês, então a quinzena declarada é sempre dia 01 ou dia 16.`,
+    );
+  }
+  return data;
 }
 
 /**
@@ -836,6 +890,10 @@ export async function receiveFile(
     options.declaredFamily == null || options.declaredFamily.trim() === ""
       ? null
       : exigirFamiliaDeclarada(options.declaredFamily);
+  const quinzenaDeclarada =
+    options.declaredPeriod == null || options.declaredPeriod.trim() === ""
+      ? null
+      : exigirQuinzenaDeclarada(options.declaredPeriod);
 
   const bytes = readFileSync(options.filePath);
   const contentSha256 = createHash("sha256").update(bytes).digest("hex");
@@ -914,6 +972,7 @@ export async function receiveFile(
       finishedAt: isDuplicate ? new Date() : null,
       declaredType: declarado?.code ?? null,
       declaredFamily: familiaDeclarada,
+      declaredPeriod: quinzenaDeclarada,
     })
     .returning();
 
@@ -1115,6 +1174,7 @@ export async function reprocessImportRun(
       sourceFileId: importRunTable.sourceFileId,
       declaredType: importRunTable.declaredType,
       declaredFamily: importRunTable.declaredFamily,
+      declaredPeriod: importRunTable.declaredPeriod,
       startedAt: importRunTable.startedAt,
     })
     .from(importRunTable)
@@ -1197,6 +1257,14 @@ export async function reprocessImportRun(
         declaredType: declarado?.code ?? null,
         // Herdada, como o tipo: reler um arquivo não muda o acervo dele.
         declaredFamily: anterior.declaredFamily ?? null,
+        /*
+          Herdada pela mesma razão, e com uma a mais: reler não muda a quinzena
+          de que o arquivo é. Perdê-la na releitura faria o run relido deixar de
+          ser conferido contra a quinzena em que o original entrou — a
+          conferência sumiria em silêncio, que é o oposto do que ela existe para
+          fazer.
+        */
+        declaredPeriod: anterior.declaredPeriod ?? null,
         reprocessOfRunId: anterior.id,
         reprocessReason: motivo,
       })
@@ -2828,6 +2896,119 @@ export interface PreviewReport {
  * Build the report a human reads before anything reaches the canonical layer.
  * Promotion refuses to run until this step has produced a report.
  */
+/**
+ * A QUINZENA DECLARADA, CONFERIDA CONTRA O RÓTULO DO ARQUIVO.
+ *
+ * O envio pela linha da quinzena diz *desta quinzena*; o rótulo de dentro do
+ * arquivo diz de qual ele é. Quando as duas respostas discordam, o arquivo não
+ * é o que o envio disse ser — e é o mesmo tipo de impedimento da declaração de
+ * tipo: não há parte aproveitável, porque a vigência inteira entraria sob a
+ * etiqueta errada.
+ *
+ * **Por que isto vale a pena existir.** Sem a conferência, o engano entra
+ * calado: o arquivo é da vigência que o rótulo diz, o pipeline está certo, e
+ * quem enviou só descobre semanas depois — na comparação — que uma quinzena foi
+ * lida duas vezes e a outra nunca chegou. O export da Ambev chega quinzena a
+ * quinzena com nomes de arquivo que diferem em um dígito, então este é o engano
+ * mais fácil que a tela permite.
+ *
+ * **Idempotente de propósito.** `preview` roda de novo sobre um run já
+ * PREVIEWED (a tela repergunta o estado), e um apontamento acumulado a cada
+ * chamada faria a contagem de impedimentos crescer sozinha. Os anteriores deste
+ * código saem antes de os novos entrarem.
+ */
+async function conferirQuinzenaDeclarada(
+  db: Database,
+  importRunId: string,
+  declarada: string,
+): Promise<void> {
+  const rotulos = await db
+    .selectDistinct({ label: stagedFactTable.snapshotLabel })
+    .from(stagedFactTable)
+    .where(eq(stagedFactTable.importRunId, importRunId));
+
+  await db
+    .delete(validationIssueTable)
+    .where(
+      and(
+        eq(validationIssueTable.importRunId, importRunId),
+        eq(validationIssueTable.code, "QUINZENA_DIVERGE_DA_DECLARACAO"),
+      ),
+    );
+
+  /*
+    O rótulo que o parser não entende **não** é divergência: ele já tem
+    apontamento próprio, e chamá-lo de quinzena errada mandaria corrigir a
+    quinzena de um arquivo cujo problema é o formato do rótulo.
+  */
+  const divergentes = rotulos
+    .map((r) => ({ label: r.label, data: parseVigenciaLabel(r.label).effectiveDate }))
+    .filter((v) => v.data !== null && v.data !== declarada);
+  if (divergentes.length === 0) return;
+
+  const comoSeLe = (data: string) =>
+    `${data.slice(8, 10) === "01" ? "1ª" : "2ª"} quinzena de ${data.slice(5, 7)}/${data.slice(0, 4)}`;
+  const achadas = [...new Set(divergentes.map((v) => comoSeLe(v.data as string)))];
+  /*
+    Duas recusas diferentes, e a saída de cada uma é outra.
+
+    O arquivo **de outra** quinzena é engano de linha: a saída é a casa da
+    quinzena a que ele pertence. O arquivo que traz a declarada **e mais
+    outras** é um acumulado mandado pela casa de uma — e mandar para outra casa
+    não resolveria nada, porque ele não é de nenhuma delas em particular. A
+    saída dele é o envio do topo, que não declara quinzena e deixa cada quinzena
+    coberta acender sozinha na grade. Uma frase só para os dois casos mandaria
+    metade das pessoas para o lugar errado.
+  */
+  const cobreADeclarada = rotulos.some(
+    (r) => parseVigenciaLabel(r.label).effectiveDate === declarada,
+  );
+  const resumo = cobreADeclarada
+    ? `Este arquivo foi enviado pela ${comoSeLe(declarada)}, e traz ${achadas.length + 1} quinzenas dentro: ` +
+      `a declarada e ${achadas.length === 1 ? "mais a " : "mais as "}${achadas.join(", ")}.`
+    : `Este arquivo foi enviado pela ${comoSeLe(declarada)}, e o que ele traz dentro é ` +
+      `${achadas.length === 1 ? "a " : "as "}${achadas.join(", ")} ` +
+      `(${[...new Set(divergentes.map((v) => v.label))].join(", ")}).`;
+  const comoCorrigir = cobreADeclarada
+    ? "Um arquivo com mais de uma quinzena entra pelo envio do topo da aba, que não " +
+      "declara quinzena — cada quinzena que ele cobrir acende sozinha na grade. A casa " +
+      "de uma quinzena é para o arquivo que é só dela, e é ela que confere isso."
+    : "Envie o arquivo pela casa da quinzena a que ele pertence — ou confira se " +
+      "este é mesmo o arquivo que você queria enviar. Nada foi importado.";
+
+  await db.insert(validationIssueTable).values({
+    importRunId,
+    severity: "ERROR",
+    code: "QUINZENA_DIVERGE_DA_DECLARACAO",
+    /*
+      A mensagem leva a saída dentro, e não só o diagnóstico.
+
+      `message` é o que vira `failureReason` do run — o texto que o cartão
+      mostra como motivo da recusa. Deixá-lo só com o diagnóstico mandaria quem
+      lê procurar o que fazer nos apontamentos, um clique adiante; e a saída é
+      justamente a parte que muda entre os dois casos. A `apresentacao` continua
+      com as duas partes separadas, que é como a tela as desenha.
+    */
+    message: `${resumo} ${comoCorrigir}`,
+    detail: {
+      declarada,
+      encontradas: [...new Set(divergentes.map((v) => v.data))],
+      rotulos: [...new Set(divergentes.map((v) => v.label))],
+      apresentacao: {
+        titulo: cobreADeclarada
+          ? "O arquivo traz mais de uma quinzena"
+          : "O arquivo não é da quinzena escolhida no envio",
+        resumo,
+        comoCorrigir,
+        porQueImporta:
+          "A quinzena errada entra calada: o arquivo é da vigência que o rótulo dele diz, " +
+          "e o engano só aparece depois, quando uma quinzena tiver sido lida duas vezes e " +
+          "a outra nunca tiver chegado.",
+      },
+    },
+  });
+}
+
 export async function preview(
   db: Database,
   importRunId: string,
@@ -2879,6 +3060,16 @@ export async function preview(
       factCount: v.factCount,
     }))
     .sort((a, b) => a.effectiveDate.localeCompare(b.effectiveDate));
+
+  /*
+    A conferência da quinzena declarada roda **antes** da leitura dos
+    apontamentos, e não depois: é ela que pode acrescentar um impedimento, e um
+    impedimento que chegasse depois da conta não seria contado — o run iria para
+    PREVIEWED com o arquivo da quinzena errada dentro.
+  */
+  if (run.declaredPeriod !== null) {
+    await conferirQuinzenaDeclarada(db, importRunId, run.declaredPeriod);
+  }
 
   const issueRows = await db
     .select({

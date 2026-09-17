@@ -1,3 +1,5 @@
+import { VARIAVEIS_DE_ALUGUEL, VARIAVEIS_DE_DETALHE_DE_ALUGUEL } from "./aluguel";
+import { VARIAVEIS_DE_AQUISICAO, VARIAVEIS_DE_DETALHE_DE_AQUISICAO } from "./aquisicao";
 import { VARIAVEIS_DE_FINAME } from "./finame";
 import { VARIAVEIS_DE_IMPOSTOS } from "./impostos";
 import { VARIAVEIS_DE_IPVA } from "./ipva";
@@ -39,8 +41,8 @@ import { codigosDaRubrica, modulosDoQlp } from "./qlp-comparacao";
  *
  * **Em que rubrica?** Duas origens, nesta ordem:
  *
- * 1. **A rubrica que tem tela** — Finame, IPVA, Lucro Fixo, Impostos, Seguro,
- *    Manutenção, KM rodado, Velocidade média —, quando o código do atributo
+ * 1. **A rubrica que tem tela** — Aquisição, Aluguel de Frota, Finame, IPVA,
+ *    Lucro Fixo, Impostos, Seguro, Manutenção, KM rodado, Velocidade média —, quando o código do atributo
  *    está no catálogo daquela tela (`VARIAVEIS_DE_*`, os mesmos que a tela lê).
  *    É a que importa para cobrar: ela tem endereço, e o endereço é onde a
  *    justificativa se escreve.
@@ -153,6 +155,23 @@ interface RubricaComTela {
   modulo: ChaveDeModulo;
   rota: string;
   codigos: readonly string[];
+  /**
+   * Os códigos de que esta rubrica é **dona**, ainda que outras telas os leiam.
+   *
+   * Existe porque o desempate abaixo descarta o código reivindicado por várias
+   * — e essa regra só está certa enquanto **ninguém** tiver tomado a decisão de
+   * quem é o dono. Com a Auditoria de Aquisição a decisão passou a existir: o
+   * valor de nota, o percentual de entrada e a data são a rubrica *dela*, e
+   * Finame, IPVA e Impostos os leem como base do próprio número, exatamente
+   * como o `foraDaSoma` de cada um daqueles catálogos já dizia por escrito.
+   *
+   * Não é um desempate escrito à mão: é a mesma posse que
+   * `__tests__/posse-da-soma-do-custo-fixo.test.ts` mede do lado do dinheiro,
+   * dita aqui do lado da justificativa. E continua valendo para um código só
+   * quando **uma** rubrica o declara — duas donas voltam a ser disputa, e a
+   * disputa continua caindo na fila.
+   */
+  proprios?: readonly string[];
 }
 
 /** Os códigos de um catálogo de variáveis — por tipo de ativo, ou soltos. */
@@ -176,6 +195,30 @@ function codigos(
  * junto, sem ninguém vir a este arquivo.
  */
 const RUBRICAS_COM_TELA: readonly RubricaComTela[] = [
+  {
+    chave: "aquisicao",
+    rotulo: "Aquisição",
+    modulo: "CUSTO_FIXO",
+    rota: "/custo-fixo-aquisicao",
+    codigos: codigos([...VARIAVEIS_DE_AQUISICAO, ...VARIAVEIS_DE_DETALHE_DE_AQUISICAO]),
+    /* As cinco colunas da compra do ativo. Três telas as leem como base — e é
+       por isso que, antes desta existir, elas não eram rubrica de ninguém. */
+    proprios: codigos([...VARIAVEIS_DE_AQUISICAO, ...VARIAVEIS_DE_DETALHE_DE_AQUISICAO]),
+  },
+  {
+    chave: "aluguel",
+    rotulo: "Aluguel de Frota",
+    modulo: "CUSTO_FIXO",
+    rota: "/custo-fixo-aluguel",
+    codigos: codigos([...VARIAVEIS_DE_ALUGUEL, ...VARIAVEIS_DE_DETALHE_DE_ALUGUEL]),
+    /*
+      Só as colunas de aluguel. A parcela FINAME está no catálogo desta tela
+      porque é o que **confere** o aluguel — e continua sendo rubrica do Finame,
+      que é quem a soma. Reivindicá-la aqui mandaria para esta tela a
+      justificativa de toda alteração de parcela da frota financiada.
+    */
+    proprios: ["cavalo.custo_aluguel", "carreta.custo_aluguel"],
+  },
   {
     chave: "finame",
     rotulo: "Finame",
@@ -238,24 +281,57 @@ const RUBRICAS_COM_TELA: readonly RubricaComTela[] = [
  * `código do atributo` → a rubrica com tela que o reivindica — quando **uma só**
  * o reivindica.
  *
- * Treze códigos são reivindicados por mais de uma: `cavalo.valor_nf_compra`
- * está no catálogo do Finame, no do IPVA e no dos Impostos, porque as três
- * telas mostram o valor da nota como contexto do próprio número; `cavalo.ano` e
- * `cavalo.data` estão em três; `trecho.km_rodado` está no KM rodado e na
- * Velocidade média. Eles não são a rubrica de nenhuma delas — são a coluna que
- * várias leem.
+ * Vários códigos são reivindicados por mais de uma tela, e por dois motivos
+ * diferentes — que agora recebem tratamentos diferentes.
  *
- * **Eles ficam fora deste mapa**, e caem na regra seguinte: o nome vem do
- * parâmetro da família, e o link vem da fila. Dar o valor da nota ao Finame,
- * por ser o primeiro do menu, faria a linha do IPVA contar menos do que a tela
- * do IPVA mostra — e a pendência do ICMS seria cobrada como se fosse de
- * financiamento. Um desempate escrito à mão diria, com cara de regra, uma
- * escolha que ninguém tomou.
+ * **O primeiro é a coluna que tem dona.** `cavalo.valor_nf_compra` está no
+ * catálogo do Finame, no do IPVA e no dos Impostos porque as três mostram o
+ * valor da nota como contexto do próprio número; o mesmo vale para `cavalo.ano`
+ * e `cavalo.data`. Enquanto nenhuma tela era a **rubrica** dessas colunas, dar a
+ * qualquer uma delas teria sido inventar uma escolha que ninguém tomou — e elas
+ * ficavam fora do mapa. Desde a Auditoria de Aquisição a escolha existe e está
+ * escrita: ela as declara em `proprios`, e é ela que as recebe. As outras três
+ * continuam mostrando a nota, e continuam dizendo, cada uma no próprio
+ * `foraDaSoma`, que ela não é rubrica delas.
+ *
+ * **O segundo é a coluna que várias leem e ninguém reivindicou.**
+ * `trecho.km_rodado` está no KM rodado e na Velocidade média, e nenhuma das
+ * duas se declara dona. Essas continuam **fora deste mapa**, e caem na regra
+ * seguinte: o nome vem do parâmetro da família, e o link vem da fila. Dar o km
+ * rodado ao primeiro do menu faria a linha da outra tela contar menos do que a
+ * própria tela mostra — um desempate escrito à mão diria, com cara de regra,
+ * uma escolha que ninguém tomou.
  */
 const POR_CODIGO = new Map<string, RubricaComTela>();
 const REIVINDICADO_POR_VARIAS = new Set<string>();
+
+/**
+ * A posse declarada, antes do desempate — e só quando é de uma rubrica só.
+ *
+ * Dois donos do mesmo código voltam a ser disputa, e a disputa cai na fila: a
+ * regra do desempate continua intacta para tudo o que ninguém reivindicou como
+ * seu.
+ */
+const DONO_DECLARADO = new Map<string, RubricaComTela>();
+const DECLARADO_POR_VARIAS = new Set<string>();
+for (const rubrica of RUBRICAS_COM_TELA) {
+  for (const codigo of rubrica.proprios ?? []) {
+    if (DONO_DECLARADO.has(codigo)) {
+      DECLARADO_POR_VARIAS.add(codigo);
+      DONO_DECLARADO.delete(codigo);
+      continue;
+    }
+    if (!DECLARADO_POR_VARIAS.has(codigo)) DONO_DECLARADO.set(codigo, rubrica);
+  }
+}
+
 for (const rubrica of RUBRICAS_COM_TELA) {
   for (const codigo of rubrica.codigos) {
+    const dono = DONO_DECLARADO.get(codigo);
+    if (dono) {
+      POR_CODIGO.set(codigo, dono);
+      continue;
+    }
     if (POR_CODIGO.has(codigo)) {
       REIVINDICADO_POR_VARIAS.add(codigo);
       POR_CODIGO.delete(codigo);

@@ -71,7 +71,7 @@ const comNumeros = (id: string, valor: number, alteracoes: number) => ({
   numeros: {
     alteracoes,
     /* Natureza nula: é uma rubrica, e a linha sai sem prefixo. */
-    impacto: { baldes: [{ periodicidade: "MENSAL", natureza: null, valor }] },
+    impacto: { baldes: [{ periodicidade: "MENSAL", valor }] },
   },
 });
 

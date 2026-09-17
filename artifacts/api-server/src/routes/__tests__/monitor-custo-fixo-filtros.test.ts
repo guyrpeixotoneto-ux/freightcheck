@@ -50,10 +50,9 @@ const base: LinhaDoMonitor = {
   variacao: 3.67,
   impacto: {
     situacao: "VALORADO",
-    direcao: "AUMENTO",
+    direcao: "GANHO",
     valor: 310,
     periodicidade: "MENSAL",
-    natureza: "CUSTO",
     motivo: null,
   },
   prioridade: { nivel: "MEDIO", score: 35, motivos: [] },
@@ -144,8 +143,16 @@ describe("a leitura dos parâmetros", () => {
   });
 
   it("cai em todos os módulos quando nenhum é pedido", () => {
+    /*
+      A lista escrita por extenso, e não `MODULOS_DO_MONITOR`: é ela que prende a
+      ordem em que o menu os oferece, e um módulo que entrasse no Monitor sem
+      alguém decidir onde ele aparece passaria despercebido. O Aluguel entrou
+      depois do FINAME de propósito — nos implementos alugados a parcela de lá é
+      o aluguel daqui, e as duas linhas falam do mesmo contrato.
+    */
     expect(parseFiltros({}).filtros.modulos).toEqual([
       "FINAME",
+      "ALUGUEL",
       "IPVA",
       "LUCRO_FIXO",
       "IMPOSTOS",
@@ -163,7 +170,13 @@ describe("a leitura dos parâmetros", () => {
       inexplicável. O padrão é mais honesto, e o aviso é o que impede que ele
       pareça um filtro aplicado.
     */
-    expect(filtros.modulos).toEqual(["FINAME", "IPVA", "LUCRO_FIXO", "IMPOSTOS"]);
+    expect(filtros.modulos).toEqual([
+      "FINAME",
+      "ALUGUEL",
+      "IPVA",
+      "LUCRO_FIXO",
+      "IMPOSTOS",
+    ]);
     expect(filtros.situacoes).toEqual([]);
     expect(filtros.equipamento).toBeNull();
     expect(ignorados).toEqual([
@@ -187,14 +200,18 @@ describe("a leitura dos parâmetros", () => {
 });
 
 /**
- * Os baldes que o menu do seletor recebe — a única resposta do produto em que
- * custo e receita viajam juntos.
+ * Os baldes que o menu do seletor recebe.
  *
- * A regressão que este bloco guarda é a que a tela inteira do Monitor existe
- * para não ter: **não há número único**. O consolidado separa as duas naturezas
- * em cada periodicidade, e a linha do menu tem de continuar separando — somar
- * os dois lados ali publicaria, num canto sem espaço para ressalva, exatamente
- * o "impacto líquido" que `CartoesDoMonitor` recusa em letra grande.
+ * Saíam daqui **dois** por periodicidade, um de custo e um de receita, porque o
+ * Monitor era o único recorte do produto em que as duas naturezas viajavam
+ * juntas e somá-las teria juntado um custo que subiu com uma receita que subiu.
+ * Não há mais natureza: os cinco módulos falam o idioma de quem recebe,
+ * positivo é ganho e negativo é perda, e o líquido da periodicidade é a leitura
+ * inteira.
+ *
+ * O que este bloco continua guardando é a recusa que sobreviveu: **periodicidade
+ * nunca se mistura**. Mensal e pontual seguem em duas entradas, e nenhuma linha
+ * do menu junta as duas.
  */
 describe("os baldes do Monitor como o menu os lê", () => {
   const resumo = (baldes: ResumoDoMonitor["baldes"]): ResumoDoMonitor => ({
@@ -205,50 +222,40 @@ describe("os baldes do Monitor como o menu os lê", () => {
       NAO_MONETARIA: 0,
       FORA_DO_TOTAL: 0,
     },
-    aumentos: 0,
-    reducoes: 0,
+    ganhos: 0,
+    perdas: 0,
     entidadesAfetadas: 0,
     baldes,
     porModulo: [],
   });
 
-  const lado = (liquido: number) => ({ liquido, aumentos: 0, reducoes: 0 });
-
-  it("abre cada periodicidade nas duas naturezas, e nunca as soma", () => {
+  it("publica o líquido de cada periodicidade, e não as metades", () => {
     const baldes = baldesDoMonitor(
-      resumo([
-        { periodicidade: "MENSAL", custo: lado(1200), receita: lado(-900), resultado: -2100 },
-      ]),
+      resumo([{ periodicidade: "MENSAL", liquido: 300, ganho: 1200, perda: -900 }]),
     );
 
-    expect(baldes).toEqual([
-      { periodicidade: "MENSAL", natureza: "CUSTO", valor: 1200 },
-      { periodicidade: "MENSAL", natureza: "RECEITA", valor: -900 },
-    ]);
-    /* Nem o líquido somado (300), nem o `resultado` (−2100) aparecem sozinhos:
-       o primeiro é a soma que o produto recusa, e o segundo trocaria o sinal do
-       custo sem avisar, ao lado de menus em que positivo é custo que subiu. */
-    expect(baldes.map((b) => b.valor)).not.toContain(300);
-    expect(baldes.map((b) => b.valor)).not.toContain(-2100);
+    expect(baldes).toEqual([{ periodicidade: "MENSAL", valor: 300 }]);
+    /* A abertura é do quadro da tela, que tem espaço para as duas metades. A
+       linha do menu cabe num canto, e ali o que decide é o sinal do líquido. */
+    expect(baldes.map((b) => b.valor)).not.toContain(1200);
+    expect(baldes.map((b) => b.valor)).not.toContain(-900);
   });
 
   /* Duas periodicidades continuam duas, pela razão de sempre: a parcela é
      mensal e a base de compra é do ato da compra. */
-  it("uma entrada por natureza em cada periodicidade", () => {
+  it("uma entrada por periodicidade, e nunca uma soma das duas", () => {
     const baldes = baldesDoMonitor(
       resumo([
-        { periodicidade: "MENSAL", custo: lado(10), receita: lado(0), resultado: -10 },
-        { periodicidade: "PONTUAL", custo: lado(50), receita: lado(0), resultado: -50 },
+        { periodicidade: "MENSAL", liquido: 10, ganho: 10, perda: 0 },
+        { periodicidade: "PONTUAL", liquido: 50, ganho: 50, perda: 0 },
       ]),
     );
 
-    expect(baldes).toHaveLength(4);
-    expect(baldes.map((b) => b.periodicidade)).toEqual([
-      "MENSAL",
-      "MENSAL",
-      "PONTUAL",
-      "PONTUAL",
+    expect(baldes).toEqual([
+      { periodicidade: "MENSAL", valor: 10 },
+      { periodicidade: "PONTUAL", valor: 50 },
     ]);
+    expect(baldes.map((b) => b.valor)).not.toContain(60);
   });
 
   /*
@@ -257,16 +264,11 @@ describe("os baldes do Monitor como o menu os lê", () => {
     não é ausência. A rota que já o filtrasse tiraria daquela função a
     informação de que a conta aconteceu.
   */
-  it("o lado zerado vai na resposta — filtrar é decisão do cliente", () => {
+  it("o balde zerado vai na resposta — filtrar é decisão do cliente", () => {
     const baldes = baldesDoMonitor(
-      resumo([
-        { periodicidade: "MENSAL", custo: lado(0), receita: lado(0), resultado: 0 },
-      ]),
+      resumo([{ periodicidade: "MENSAL", liquido: 0, ganho: 0, perda: 0 }]),
     );
 
-    expect(baldes).toEqual([
-      { periodicidade: "MENSAL", natureza: "CUSTO", valor: 0 },
-      { periodicidade: "MENSAL", natureza: "RECEITA", valor: 0 },
-    ]);
+    expect(baldes).toEqual([{ periodicidade: "MENSAL", valor: 0 }]);
   });
 });

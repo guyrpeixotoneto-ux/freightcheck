@@ -272,7 +272,7 @@ unidades reais, dois hashes vinculados, um hash órfão e quatro contas:
 
 ## 8. O bridge
 
-A `0101` cria uma tabela e nenhuma coluna em tabela existente — foi o que
+A `0102` cria uma tabela e nenhuma coluna em tabela existente — foi o que
 dissolveu o bloqueio da versão anterior, em que `app_user.empresa_id NOT NULL`
 não cabia em `COLUNAS_REMOVIDAS` (todas aditivas e nulas).
 

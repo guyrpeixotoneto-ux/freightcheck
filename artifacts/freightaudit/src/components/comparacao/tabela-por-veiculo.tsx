@@ -1,12 +1,16 @@
 import { useState, type ReactNode } from "react";
 import { ChevronRight, Info, MessageSquarePlus, PanelRightOpen } from "lucide-react";
-import type {
-  EstadoDaLinha,
-  MedidaDaVariavel,
+import {
+  UNIDADE_DA_MEDIDA,
+  type EstadoDaLinha,
+  type MedidaDaVariavel,
 } from "@workspace/comparison/recorte-de-rubrica";
-import type {
-  LinhaAgrupavel,
-  VeiculoDaRubrica,
+import {
+  medidaDoDestaque,
+  rubricaTemDinheiro,
+  type LinhaAgrupavel,
+  type OpcoesDoAgrupamento,
+  type VeiculoDaRubrica,
 } from "@workspace/comparison/agrupamento-por-veiculo";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -102,12 +106,19 @@ export interface EscritaDaRubrica<L extends LinhaAgrupavel, V extends VeiculoDaR
    */
   destaque: string;
   /**
-   * A unidade do destaque. Dinheiro, por padrão — mas nem toda rubrica de custo
-   * mede em reais: a Manutenção resume a placa em **R$/km**, e escrever
-   * "R$ 0,34" onde a fonte disse trinta e quatro centavos por quilômetro é o
-   * erro que a coluna inteira convida a cometer.
+   * O agrupamento da rubrica — o mesmo objeto que o núcleo usa para agrupar.
+   *
+   * Duas coisas a tela tira dele, e nenhuma das duas ela teria como saber
+   * olhando o recorte: **a unidade do destaque** (nem toda rubrica de custo
+   * mede em reais — a Manutenção resume a placa em R$/km, e escrever "R$ 0,34"
+   * onde a fonte disse trinta e quatro centavos por quilômetro é o erro que a
+   * coluna convida a cometer) e **se a rubrica tem alguma variável em reais**,
+   * que é o que autoriza o complemento "(0 em R$)" da contagem.
+   *
+   * É o objeto da rubrica, e não uma cópia: uma variável que mude de unidade
+   * muda no catálogo, e a tela acompanha sem edição nenhuma.
    */
-  medidaDoDestaque?: MedidaDaVariavel;
+  agrupamento?: OpcoesDoAgrupamento;
   escreverValor: (valor: string | null, medida: MedidaDaVariavel) => string;
   escreverDiferenca: (diferenca: number | null, medida: MedidaDaVariavel) => string;
   escreverVariacao: (variacao: number | null) => string;
@@ -243,6 +254,148 @@ export function TabelaPorVeiculo<
   );
 }
 
+/**
+ * O nome da variável mostrada, com a unidade quando o rótulo não a traz.
+ *
+ * "R$/km do BID" já diz em que unidade está, e "R$/km do BID (R$/km)" só
+ * gaguejaria; "Valor de NF" não diz, e sob um cabeçalho que promete outra coisa
+ * o número seria lido como o da variável do cabeçalho.
+ */
+const nomeComUnidade = (rotulo: string, medida: MedidaDaVariavel): string => {
+  const unidade = UNIDADE_DA_MEDIDA[medida];
+  return rotulo.toLowerCase().includes(unidade.toLowerCase())
+    ? rotulo
+    : `${rotulo} (${unidade})`;
+};
+
+/**
+ * As quatro colunas de destaque da linha-mãe — De, Para, Diferença e Variação.
+ *
+ * ---------------------------------------------------------------------------
+ * Os três símbolos, e a diferença entre eles
+ * ---------------------------------------------------------------------------
+ * Esta tabela já confundiu dois deles, e a confusão custou a leitura de uma
+ * placa inteira. Aqui eles são três, e cada um diz uma coisa só:
+ *
+ * - `—` é **não há valor aplicável no recorte**. Nenhuma variável da medida do
+ *   destaque veio, ou a que veio não tem aquela ponta. É ausência de dado.
+ * - `R$ 0,0000/km` (ou `R$ 0,00`) é **zero medido**. O número existe e vale
+ *   zero, e escrevê-lo como travessão apagaria o achado.
+ * - `sem alteração` é **existe valor, e ele não mudou**. A variável está no
+ *   recorte, as duas pontas estão escritas, e a diferença não é nula: é nenhuma.
+ *
+ * O que decide entre eles vem do núcleo (`destaqueExibido`), não daqui: a tela
+ * escolhe a cor e escreve, como em toda esta tabela.
+ */
+function CelulasDoDestaque<L extends LinhaDeRubrica, V extends VeiculoDaRubrica<L>>({
+  veiculo: v,
+  escrita,
+  medida,
+}: {
+  veiculo: V;
+  escrita: EscritaDaRubrica<L, V>;
+  /** A medida do destaque da rubrica — a unidade das colunas do cabeçalho. */
+  medida: MedidaDaVariavel;
+}) {
+  const d = v.destaqueExibido;
+
+  /* Nenhuma variável da medida do destaque no recorte: quatro travessões, e é
+     exatamente isto que eles significam. */
+  if (d === null) {
+    return (
+      <>
+        {[0, 1, 2, 3].map((i) => (
+          <td
+            key={i}
+            className="whitespace-nowrap px-3 py-2 text-right font-mono tabular-nums text-muted-foreground"
+          >
+            {escrita.escreverValor(null, medida)}
+          </td>
+        ))}
+      </>
+    );
+  }
+
+  /*
+    Mais de uma variável da mesma medida se moveu, e nenhuma delas é a que a
+    rubrica declarou. A linha-mãe diz quantas são e para de afirmar: eleger uma
+    representante aqui seria inventar um critério de desempate que ninguém pediu
+    e que a expansão contradiria logo abaixo, onde as duas estão escritas.
+  */
+  if (d.tipo === "MULTIPLOS") {
+    return (
+      <td
+        colSpan={4}
+        className="whitespace-nowrap px-3 py-2 text-right text-xs text-muted-foreground"
+      >
+        {formatNumber(d.variaveis.length, 0)} valores em {UNIDADE_DA_MEDIDA[d.medida]}{" "}
+        alterados
+        <span className="sr-only">: {d.variaveis.join(", ")}. Abra a placa para vê-los.</span>
+      </td>
+    );
+  }
+
+  const { base, comparada, diferenca, variacao } = d.valores;
+  const parado = d.estado === "SEM_ALTERACAO";
+
+  return (
+    <>
+      <td className="whitespace-nowrap px-3 py-2 text-right">
+        {/*
+          O nome da variável só aparece quando ela **não** é a do cabeçalho.
+          Sem ele, o R$/km do BID desta placa seria lido como o R$/km resolvido
+          dela — o mesmo número sob o rótulo errado, que é o erro que este
+          produto documenta em toda parte.
+        */}
+        {d.tipo === "SUBSTITUTO" && (
+          <span className="block text-[0.65rem] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+            {nomeComUnidade(d.rotulo, d.medida)}
+            <span className="sr-only">
+              {" "}
+              — no lugar de {escrita.destaque}, que não está no recorte desta placa
+            </span>
+          </span>
+        )}
+        <span className="font-mono tabular-nums">
+          {escrita.escreverValor(base?.toString() ?? null, d.medida)}
+        </span>
+      </td>
+      <td className="whitespace-nowrap px-3 py-2 text-right font-mono tabular-nums">
+        {escrita.escreverValor(comparada?.toString() ?? null, d.medida)}
+      </td>
+      {parado ? (
+        /* As duas colunas de movimento numa só, porque a frase é uma só: a
+           variável está aqui, escrita nas duas pontas, e não se moveu. */
+        <td
+          colSpan={2}
+          className="whitespace-nowrap px-3 py-2 text-right text-xs text-muted-foreground"
+        >
+          sem alteração
+        </td>
+      ) : (
+        <>
+          <td
+            className={cn(
+              "whitespace-nowrap px-3 py-2 text-right font-mono tabular-nums",
+              escrita.corDaDiferenca(diferenca, d.medida),
+            )}
+          >
+            {escrita.escreverDiferenca(diferenca, d.medida)}
+          </td>
+          <td
+            className={cn(
+              "whitespace-nowrap px-3 py-2 text-right font-mono tabular-nums",
+              escrita.corDaDiferenca(diferenca, d.medida),
+            )}
+          >
+            {escrita.escreverVariacao(variacao)}
+          </td>
+        </>
+      )}
+    </>
+  );
+}
+
 /** A linha da placa e, quando aberta, a das alterações dela. */
 function FragmentoDoVeiculo<
   L extends LinhaDeRubrica,
@@ -266,8 +419,12 @@ function FragmentoDoVeiculo<
   onAlternar: () => void;
   onAbrir: () => void;
 }) {
-  const diferenca = v.destaque?.diferenca ?? null;
-  const medida = escrita.medidaDoDestaque ?? "DINHEIRO";
+  const medida = escrita.agrupamento
+    ? medidaDoDestaque(escrita.agrupamento)
+    : "DINHEIRO";
+  const temDinheiro = escrita.agrupamento
+    ? rubricaTemDinheiro(escrita.agrupamento)
+    : true;
   const fora = new Set(escrita.foraDaExpansao ?? []);
   const linhasDaExpansao = v.linhas.filter((l) => !fora.has(l.variavel));
   const aviso = escrita.avisoDaPlaca?.(v) ?? null;
@@ -351,36 +508,23 @@ function FragmentoDoVeiculo<
           <span className="font-mono font-semibold tabular-nums">
             {formatNumber(v.alteracoes, 0)}
           </span>
-          {/* Quantas das alterações são dinheiro — o resto é prazo, taxa, ano e
-              data, que não viram reais e não entram em soma nenhuma. */}
-          {v.alteracoes > v.alteracoesEmDinheiro && (
+          {/*
+            Quantas das alterações são dinheiro — o resto é prazo, taxa, ano e
+            data, que não viram reais e não entram em soma nenhuma.
+
+            Só onde a conta separa alguma coisa: numa rubrica sem variável
+            nenhuma em reais — a Manutenção é toda R$/km, meses e percentual —
+            o complemento sairia "(0 em R$)" em **todas** as placas, dizendo da
+            rubrica o que a coluna de unidade já diz, e ao lado de uma contagem
+            um zero constante é lido como se variasse.
+          */}
+          {temDinheiro && v.alteracoes > v.alteracoesEmDinheiro && (
             <span className="ml-1 text-[0.7rem] text-muted-foreground">
               ({formatNumber(v.alteracoesEmDinheiro, 0)} em R$)
             </span>
           )}
         </td>
-        <td className="whitespace-nowrap px-3 py-2 text-right font-mono tabular-nums">
-          {escrita.escreverValor(v.destaque?.base?.toString() ?? null, medida)}
-        </td>
-        <td className="whitespace-nowrap px-3 py-2 text-right font-mono tabular-nums">
-          {escrita.escreverValor(v.destaque?.comparada?.toString() ?? null, medida)}
-        </td>
-        <td
-          className={cn(
-            "whitespace-nowrap px-3 py-2 text-right font-mono tabular-nums",
-            escrita.corDaDiferenca(diferenca, medida),
-          )}
-        >
-          {escrita.escreverDiferenca(diferenca, medida)}
-        </td>
-        <td
-          className={cn(
-            "whitespace-nowrap px-3 py-2 text-right font-mono tabular-nums",
-            escrita.corDaDiferenca(diferenca, medida),
-          )}
-        >
-          {escrita.escreverVariacao(v.destaque?.variacao ?? null)}
-        </td>
+        <CelulasDoDestaque veiculo={v} escrita={escrita} medida={medida} />
         <td className="whitespace-nowrap px-3 py-2">
           <span
             className={cn(

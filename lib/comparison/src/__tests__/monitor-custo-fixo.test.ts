@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { impactoPorPeriodicidade, linhasDeFiname } from "../finame";
+import { linhasDeAluguel } from "../aluguel";
 import { impactoDeIpva, linhasDeIpva } from "../ipva";
 import { impactoDeImpostos, linhasDeImpostos } from "../impostos";
 import { impactoDeLucroFixo, linhasDeLucroFixo } from "../lucro-fixo";
 import {
   MODULOS_DO_MONITOR,
-  NATUREZA_DO_MODULO,
   ROTA_DO_MODULO,
   SITUACOES_DO_IMPACTO,
   consolidar,
@@ -62,12 +62,13 @@ function alteracao(over: Partial<AlteracaoDoMotor> = {}): AlteracaoDoMotor {
   };
 }
 
-/** As quatro leituras de rubrica, cada uma com a fábrica de linha dela. */
+/** As cinco leituras de rubrica, cada uma com a fábrica de linha dela. */
 const LINHAS_DO_MODULO: Record<
   ModuloDoMonitor,
   (a: readonly AlteracaoDoMotor[]) => LinhaDeRubrica[]
 > = {
   FINAME: (a) => linhasDeFiname(a),
+  ALUGUEL: (a) => linhasDeAluguel(a),
   IPVA: (a) => linhasDeIpva(a),
   IMPOSTOS: (a) => linhasDeImpostos(a),
   LUCRO_FIXO: (a) => linhasDeLucroFixo(a),
@@ -86,7 +87,7 @@ function resumoDe(modulo: ModuloDoMonitor, alteracoes: readonly AlteracaoDoMotor
   };
 }
 
-/** Um acervo com alteração dos quatro módulos, em periodicidades diferentes. */
+/** Um acervo com alteração dos cinco módulos, em periodicidades diferentes. */
 const ACERVO = {
   FINAME: [
     alteracao({ id: 1 }),
@@ -153,6 +154,36 @@ const ACERVO = {
       impactPeriodicity: null,
     }),
   ],
+  /*
+    O aluguel do implemento, e a parcela FINAME que o contém.
+
+    As duas mudam pelo mesmo valor, porque nos alugados são o mesmo dinheiro —
+    e é exatamente esse par que o Monitor precisa publicar sem somar duas vezes:
+    aqui a parcela cai em FORA_DO_TOTAL (rubrica do FINAME) e o aluguel é o
+    único que entra no balde mensal.
+  */
+  ALUGUEL: [
+    alteracao({
+      id: 40,
+      attributeCode: "carreta.custo_aluguel",
+      entityType: "CARRETA",
+      valueBefore: "5363.55",
+      valueAfter: "5663.55",
+      deltaAbsolute: "300",
+      impactAmount: "300",
+      impactPeriodicity: "MENSAL",
+    }),
+    alteracao({
+      id: 41,
+      attributeCode: "carreta.finame_implemento",
+      entityType: "CARRETA",
+      valueBefore: "5363.55",
+      valueAfter: "5663.55",
+      deltaAbsolute: "300",
+      impactAmount: "300",
+      impactPeriodicity: "MENSAL",
+    }),
+  ],
   LUCRO_FIXO: [
     alteracao({
       id: 30,
@@ -187,6 +218,36 @@ describe("o consolidado fecha com a auditoria de origem", () => {
     // O módulo tirou uma linha por ser de outra rubrica (o PIS/COFINS).
     expect(impacto.modulo === "FINAME" && impacto.foraDaSoma).toBe(1);
     expect(resumo.porSituacao.FORA_DO_TOTAL).toBe(1);
+  });
+
+  it("no aluguel, publica o mensal uma vez só — e não conta a parcela como dele", () => {
+    /*
+      O caso que o módulo existe para não errar: a parcela FINAME do implemento
+      alugado **é** o aluguel, e as duas chegam alteradas pelo mesmo valor. Se as
+      duas entrassem, o Monitor publicaria R$ 600,00 de aumento onde houve
+      R$ 300,00.
+
+      A parcela não é variável desta rubrica, então ela nem vira linha aqui: a
+      linha do Aluguel no Monitor conta contratos de locação, e nada mais. Foi o
+      acervo real que cobrou isso — com a parcela no catálogo, esta linha contava
+      33 alterações de frota financiada sob o rótulo "Aluguel de Frota".
+    */
+    const { impacto, resumo, normalizadas } = resumoDe("ALUGUEL", ACERVO.ALUGUEL);
+    expect(normalizadas).toHaveLength(1);
+    expect(impacto.porPeriodicidade).toEqual({ MENSAL: 300 });
+    expect(resumo.porPeriodicidade).toEqual({ MENSAL: 300 });
+    expect(resumo.alteracoes).toBe(1);
+  });
+
+  it("e o FINAME, do outro lado, tira a parcela do total quando o aluguel se move", () => {
+    /*
+      A outra metade da mesma garantia, medida pela régua do FINAME: com a
+      parcela e o aluguel alterados no mesmo veículo, quem sai é a parcela — a
+      regra de `cobertasPorParcelasEm`, agora com a terceira parcela dentro.
+    */
+    const { impacto } = resumoDe("FINAME", ACERVO.ALUGUEL);
+    expect(impacto.porPeriodicidade).toEqual({});
+    expect(impacto.modulo === "FINAME" && impacto.cobertasPorParcelas).toBe(1);
   });
 
   it("não conta como sem valoração o que o módulo não conta como não precificado", () => {
@@ -245,12 +306,10 @@ describe("a identidade dos baldes", () => {
     }
   });
 
-  it("abre cada líquido em aumentos e reduções sem inventar dinheiro", () => {
+  it("abre cada líquido em ganho e perda sem inventar dinheiro", () => {
     const consolidado = consolidadoDoAcervo();
     for (const balde of consolidado.baldes) {
-      for (const lado of [balde.custo, balde.receita]) {
-        expect(lado.aumentos + lado.reducoes).toBeCloseTo(lado.liquido, 2);
-      }
+      expect(balde.ganho + balde.perda).toBeCloseTo(balde.liquido, 2);
     }
   });
 });
@@ -265,23 +324,29 @@ describe("o que nunca pode acontecer", () => {
     expect(consolidado).not.toHaveProperty("impactoTotal");
   });
 
-  it("nunca soma custo com receita", () => {
+  it("soma os cinco módulos no líquido da periodicidade, e abre as metades", () => {
     const consolidado = consolidadoDoAcervo();
     const mensal = consolidado.baldes.find((b) => b.periodicidade === "MENSAL")!;
-    // FINAME: +310 e −120. Lucro Fixo: +600, e ele é receita.
-    expect(mensal.custo.liquido).toBe(190);
-    expect(mensal.receita.liquido).toBe(600);
-    // O resultado é derivado à vista, com os dois componentes ao lado.
-    expect(mensal.resultado).toBe(410);
+    /*
+      FINAME: +310 e −120. Aluguel: +300 — e **só** o aluguel, porque a parcela
+      FINAME que o acompanha no mesmo veículo saiu do total pela regra de
+      parcelas. Se ela tivesse entrado, este número seria 790, e o Monitor
+      estaria publicando o dobro do aumento de um contrato de locação.
+
+      Lucro Fixo: +600. Ele soma com os outros porque todos falam o mesmo
+      idioma — o de quem recebe —, e não porque alguém inverteu um sinal.
+    */
+    expect(mensal.ganho).toBe(1210);
+    expect(mensal.perda).toBe(-120);
+    expect(mensal.liquido).toBe(1090);
   });
 
-  it("preserva o sinal do módulo de receita, sem invertê-lo", () => {
+  it("não inverte o sinal de nenhum módulo — o valor é o que a fonte declarou", () => {
     const { normalizadas } = resumoDe("LUCRO_FIXO", ACERVO.LUCRO_FIXO);
     const linha = normalizadas.find((l) => l.impacto.situacao === "VALORADO")!;
-    // Mais receita é `AUMENTO` da rubrica. Quem diz que isso é bom é a natureza.
+    // Positivo é ganho, e a direção é o sinal do valor — e nada além dele.
     expect(linha.impacto.valor).toBe(600);
-    expect(linha.impacto.direcao).toBe("AUMENTO");
-    expect(linha.impacto.natureza).toBe("RECEITA");
+    expect(linha.impacto.direcao).toBe("GANHO");
   });
 
   it("nunca transforma ausência de valor em R$ 0,00", () => {
@@ -325,7 +390,6 @@ describe("a rastreabilidade até a origem", () => {
       expect(l.origem.rota).toBe(ROTA_DO_MODULO[l.modulo]);
       expect(l.origem.changeSetId).toBe("cs-1");
       expect(l.changeId).not.toBeNull();
-      expect(l.impacto.natureza).toBe(NATUREZA_DO_MODULO[l.modulo]);
     }
   });
 

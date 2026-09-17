@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
 import {
   CODIGOS_DO_DETALHE,
+  CODIGOS_DO_DETALHE_DE_ALUGUEL,
   CODIGOS_DO_DETALHE_DE_IPVA,
   CODIGOS_DO_DETALHE_DE_IMPOSTOS,
   CODIGOS_DO_DETALHE_DE_LUCRO_FIXO,
@@ -13,6 +14,7 @@ import {
   impactoDoModulo,
   linhasDeFiname,
   linhasDeImpostos,
+  linhasDeAluguel,
   linhasDeIpva,
   linhasDeLucroFixo,
   listChanges,
@@ -80,7 +82,7 @@ import { comTetoDeRota } from "../lib/timeout-de-rota";
 const router: IRouter = Router();
 
 /**
- * O recorte que se pede ao motor: a união dos quatro catálogos.
+ * O recorte que se pede ao motor: a união dos cinco catálogos.
  *
  * `Set` porque eles se sobrepõem de propósito — a base de compra está nos três
  * de ativo, e é a mesma coluna.
@@ -88,6 +90,7 @@ const router: IRouter = Router();
 const CODIGOS_DO_MONITOR = [
   ...new Set([
     ...CODIGOS_DO_DETALHE,
+    ...CODIGOS_DO_DETALHE_DE_ALUGUEL,
     ...CODIGOS_DO_DETALHE_DE_IPVA,
     ...CODIGOS_DO_DETALHE_DE_IMPOSTOS,
     ...CODIGOS_DO_DETALHE_DE_LUCRO_FIXO,
@@ -100,6 +103,7 @@ const LINHAS_DO_MODULO: Record<
   (linhas: Parameters<typeof linhasDeFiname>[0]) => LinhaDeRubrica[]
 > = {
   FINAME: (rows) => linhasDeFiname(rows),
+  ALUGUEL: (rows) => linhasDeAluguel(rows),
   IPVA: (rows) => linhasDeIpva(rows),
   IMPOSTOS: (rows) => linhasDeImpostos(rows),
   LUCRO_FIXO: (rows) => linhasDeLucroFixo(rows),
@@ -286,27 +290,22 @@ export function consolidadoDosModulos(
 }
 
 /**
- * Os baldes do consolidado como o menu do seletor os lê — **com a natureza**.
+ * Os baldes do consolidado como o menu do seletor os lê.
  *
- * É o único recorte do produto que mistura custo e receita, e por isso o único
- * em que `BaldeDoImpacto.natureza` não é `null`. Somar os dois lados num número
- * por periodicidade seria publicar o "impacto líquido" que `CartoesDoMonitor`
- * recusa em letra grande — e publicá-lo justamente no lugar onde não há espaço
- * para a ressalva.
- *
- * `resultado` (receita − custo) também não serve aqui: ele é uma terceira
- * linha, lida com as duas primeiras à vista, e sozinho no menu trocaria o sinal
- * do custo sem avisar — um custo que caiu apareceria como número positivo ao
- * lado de um número de FINAME em que positivo quer dizer custo que subiu.
+ * Saíam daqui **dois** por periodicidade, um de custo e um de receita, porque o
+ * Monitor era o único recorte que misturava as duas naturezas e somá-las teria
+ * juntado um custo que subiu com uma receita que subiu. Não mistura mais: os
+ * cinco módulos falam o idioma de quem recebe, positivo é ganho e negativo é
+ * perda, e o líquido da periodicidade é a leitura inteira.
  *
  * Os zerados saem na lista: quem os filtra é `numerosDaLinha`, do lado do
  * cliente, que é onde a regra de "zero não é ausência" mora inteira.
  */
 export function baldesDoMonitor(resumo: ResumoDoMonitor): BaldeDoImpacto[] {
-  return resumo.baldes.flatMap((b) => [
-    { periodicidade: b.periodicidade, natureza: "CUSTO" as const, valor: b.custo.liquido },
-    { periodicidade: b.periodicidade, natureza: "RECEITA" as const, valor: b.receita.liquido },
-  ]);
+  return resumo.baldes.map((b) => ({
+    periodicidade: b.periodicidade,
+    valor: b.liquido,
+  }));
 }
 
 /**

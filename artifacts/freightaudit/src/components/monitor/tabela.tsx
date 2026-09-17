@@ -46,7 +46,7 @@ import { cn } from "@/lib/utils";
  * ---------------------------------------------------------------------------
  * A cor nunca carrega a informação
  * ---------------------------------------------------------------------------
- * Aumento e redução têm seta **e** palavra; situação tem selo com texto. Quem
+ * Ganho e perda têm seta **e** palavra; situação tem selo com texto. Quem
  * não distingue vermelho de verde lê a mesma tabela — e quem imprime, também.
  *
  * ---------------------------------------------------------------------------
@@ -221,13 +221,13 @@ function CelulaDeImpacto({ linha }: { linha: LinhaDoMonitor }) {
       <span className="text-xs text-muted-foreground">{FRASE_DA_SITUACAO[situacao]}</span>
     );
   }
-  const Seta = direcao === "AUMENTO" ? ArrowUpRight : direcao === "REDUCAO" ? ArrowDownRight : Minus;
+  const Seta = direcao === "GANHO" ? ArrowUpRight : direcao === "PERDA" ? ArrowDownRight : Minus;
   return (
     <span className={cn("inline-flex items-center gap-1 font-mono text-xs tabular-nums", corDaDirecao(direcao))}>
       <Seta className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
       {/* A palavra ao lado da seta: a cor nunca carrega sozinha a informação. */}
       <span className="sr-only">
-        {direcao === "AUMENTO" ? "Aumento de" : direcao === "REDUCAO" ? "Redução de" : "Sem variação:"}
+        {direcao === "GANHO" ? "Ganho de" : direcao === "PERDA" ? "Perda de" : "Sem variação:"}
       </span>
       {escreverImpacto(valor, periodicidade)}
     </span>

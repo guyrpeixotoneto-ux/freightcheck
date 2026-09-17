@@ -50,6 +50,7 @@ import {
 } from "./recorte-de-rubrica";
 import {
   agruparVeiculos,
+  medidasDoCatalogo,
   contextoDasLinhas,
   type OpcoesDoAgrupamento,
   type VeiculoDaRubrica,
@@ -137,8 +138,26 @@ export const VARIAVEIS_DE_FINAME: readonly VariavelDeFiname[] = [
     rotulo: "Parcela FINAME",
     medida: "DINHEIRO",
     codigo: { CAVALO: "cavalo.finame_cavalo", CARRETA: "carreta.finame_implemento" },
-    parcelas: ["juros", "amortizacao"],
-    ajuda: "Amortização do principal mais juros, no período da vigência.",
+    /*
+      Três parcelas, e a terceira só existe no implemento.
+
+      `aluguel` entrou quando a curadoria confirmou a periodicidade da coluna por
+      base aritmética: `finameImplemento = amortização + juros + aluguel` fecha
+      em 1.314 de 1.314 linhas do acervo, e **sem ela falha nas 36** — todas de
+      implementos alugados, em que amortização e juros são zero e o custo inteiro
+      está no aluguel (`docs/ACHADO-ALUGUEL.md`).
+
+      Declará-la aqui faz duas coisas ao mesmo tempo, e as duas importam: a
+      expansão da placa passa a explicar a parcela dos implementos alugados — ela
+      mostrava R$ 5.363,55 ao lado de duas parcelas zeradas —, e a regra de
+      `cobertasPorParcelasEm` passa a tirar a parcela do total quando o aluguel
+      se move, que é o que impede o módulo Aluguel de contar o mesmo dinheiro
+      uma segunda vez.
+    */
+    parcelas: ["juros", "amortizacao", "aluguel"],
+    ajuda:
+      "Amortização do principal mais juros, no período da vigência — e, nos " +
+      "implementos alugados, o aluguel, que ocupa o lugar do financiamento.",
   },
   {
     chave: "juros",
@@ -157,6 +176,26 @@ export const VARIAVEIS_DE_FINAME: readonly VariavelDeFiname[] = [
       CAVALO: "cavalo.amortizacao_cavalo",
       CARRETA: "carreta.amortizacao_implemento",
     },
+  },
+  {
+    chave: "aluguel",
+    rotulo: "Aluguel do implemento",
+    medida: "DINHEIRO",
+    /* Só a carreta. A identidade do cavalo é amortização + juros + lucro fixo
+       (`composition.ts`), sem aluguel, e `cavalo.custo_aluguel` é zero nas 558
+       linhas do acervo. Emparelhar os dois aqui faria a expansão do cavalo
+       mostrar uma parcela que o cavalo não tem. */
+    codigo: { CARRETA: "carreta.custo_aluguel" },
+    foraDaSoma:
+      "O aluguel do implemento é rubrica do módulo Aluguel de Frota, que é quem " +
+      "o soma. Ele está aqui porque é a terceira parcela desta parcela — sem ele " +
+      "a identidade falha nos implementos alugados —, e é como parcela que ele " +
+      "tira o total da soma deste módulo. Somá-lo aqui *e* lá contaria o mesmo " +
+      "dinheiro duas vezes; é a mesma recusa que esta tela já faz sobre o ICMS.",
+    ajuda:
+      "O implemento que a frota aluga em vez de financiar: nele a parcela FINAME " +
+      "é o aluguel, com amortização e juros zerados. Quem o soma é a Auditoria de " +
+      "Aluguel de Frota.",
   },
   {
     chave: "taxa",
@@ -690,6 +729,10 @@ export interface VeiculoDeFiname extends VeiculoDaRubrica<LinhaDeFiname> {
 export const AGRUPAMENTO_DE_FINAME = {
   ordemDasVariaveis: ["veiculo", ...TODAS.map((v) => v.chave)],
   destaque: "parcela",
+  /* A unidade do destaque e a resposta a "esta rubrica tem dinheiro?" saem
+     daqui — do mesmo catálogo que define a ordem da expansão, e nunca de
+     uma segunda lista escrita à mão. */
+  medidas: medidasDoCatalogo(TODAS),
   foraDaContagem: ["veiculo"],
 } as const satisfies OpcoesDoAgrupamento;
 

@@ -68,6 +68,14 @@ export const CODIGOS_QUE_BLOQUEIAM_PROMOCAO: ReadonlySet<string> = new Set([
   // tipo e a leitura não a reconheceu como tal. Promover importaria uma
   // vigência sem o que foi prometido — silêncio no lugar do dado.
   "ABA_REBAIXADA_COM_TIPO_DECLARADO",
+  // A quinzena declarada no envio discordando do rótulo de dentro do arquivo.
+  // Bloqueia pela mesma razão do tipo, e não por severidade: não há parte
+  // aproveitável de um arquivo que entraria inteiro sob a quinzena errada. É o
+  // engano que mais entra calado nesta tela — o export chega quinzena a
+  // quinzena, com nomes que diferem em um dígito —, e sem bloqueio ele só
+  // aparece semanas depois, quando uma quinzena tiver sido lida duas vezes e a
+  // outra nunca tiver chegado.
+  "QUINZENA_DIVERGE_DA_DECLARACAO",
 ]);
 
 /**

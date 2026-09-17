@@ -1,10 +1,7 @@
 import { ExternalLink } from "lucide-react";
 import { Link } from "wouter";
 import type { LinhaDoMonitor } from "@workspace/comparison/monitor-custo-fixo";
-import {
-  ROTULO_DA_NATUREZA,
-  ROTULO_DA_SITUACAO,
-} from "@workspace/comparison/monitor-custo-fixo";
+import { ROTULO_DA_SITUACAO } from "@workspace/comparison/monitor-custo-fixo";
 /* Pelos subcaminhos, e não pelo barril — ver a nota em `tabela.tsx`. */
 import { ROTULO_DO_ESTADO } from "@workspace/comparison/recorte-de-rubrica";
 import { SEVERITY_LABELS } from "@workspace/comparison/cockpit";
@@ -62,7 +59,6 @@ export function DetalheDaAlteracao({
                 <Badge variant="outline">
                   Prioridade {SEVERITY_LABELS[linha.prioridade.nivel].toLowerCase()}
                 </Badge>
-                <Badge variant="outline">{ROTULO_DA_NATUREZA[linha.impacto.natureza]}</Badge>
               </section>
 
               <Bloco titulo="O par de vigências">

@@ -1,0 +1,54 @@
+-- ---------------------------------------------------------------------------
+-- A QUINZENA DECLARADA NO ENVIO — a segunda resposta para a mesma pergunta.
+-- ---------------------------------------------------------------------------
+--
+-- A tela de Importações tem duas fileiras de abas, e as duas são **declaração**:
+-- enviar por uma delas diz o que o arquivo traz, e a importação confere essa
+-- declaração contra o conteúdo antes de deixar entrar (`declared_type`, da
+-- `0035`; `declared_family`, da `0099`). A quinzena era a única coisa que o
+-- envio não dizia — ela saía inteira do rótulo de dentro do arquivo, sem
+-- ninguém do lado de fora para discordar.
+--
+-- O preço disso é um erro que entra calado. O export da Ambev chega quinzena a
+-- quinzena, com nomes de arquivo que diferem em um dígito, e reenviar a 1ª
+-- quinzena achando que se manda a 2ª é o engano mais fácil que esta tela
+-- permite. Hoje ele **entra**: o arquivo é da vigência que o rótulo diz, o
+-- pipeline está certo, e quem enviou descobre semanas depois, na comparação,
+-- que agosto tem uma quinzena duas vezes lida e outra que nunca chegou.
+--
+-- Com a coluna, a linha da quinzena na tela passa a ser o lugar do envio: subir
+-- por ela declara *esta* quinzena, e a pré-visualização recusa por
+-- `QUINZENA_DIVERGE_DA_DECLARACAO` o arquivo cujo rótulo diz outra. O erro deixa
+-- de ser silêncio e vira recusa nomeada, antes de qualquer fato entrar.
+--
+-- ---------------------------------------------------------------------------
+-- Por que `date`, e não (ano, mês, quinzena)
+-- ---------------------------------------------------------------------------
+--
+-- Porque é a forma com que o resto do produto já fala de quinzena: `snapshot`
+-- guarda `effective_date`, e a `0015` a derivou do rótulo por uma regra testada
+-- — a quinzena mapeia para o dia em que o período começa (1 → dia 1, 2 → dia
+-- 16; ver `parseVigenciaLabel`, em `lib/ingest/src/vigencia.ts`). Guardar três
+-- inteiros criaria uma segunda gramática de quinzena dentro do mesmo banco, e a
+-- conferência teria de traduzir entre as duas toda vez — que é exatamente onde
+-- uma diverge da outra.
+--
+-- Assim a conferência é uma igualdade de datas: a data declarada contra a data
+-- que o rótulo do arquivo produz. Nada é normalizado no meio.
+--
+-- ---------------------------------------------------------------------------
+-- O que acontece com o que já está gravado
+-- ---------------------------------------------------------------------------
+--
+-- Nada, e por isso não há backfill. `NULL` é a descrição correta de todo run
+-- anterior: ninguém declarou quinzena neles, e sem declaração não há o que
+-- conferir — o arquivo entra pela quinzena que o rótulo disser, como sempre
+-- entrou. Preencher em massa a data que o rótulo produziu diria "alguém
+-- declarou isto" sobre envios em que ninguém declarou, e apagaria a diferença
+-- entre o que foi afirmado e o que foi deduzido, que é a única coisa que esta
+-- coluna existe para guardar. É a mesma razão da `0099`.
+--
+-- Aditiva e nula, em tabela que já existe: é a forma que a `ALLOWLIST` do
+-- bridge aceita (ver `bridge.ts`).
+
+ALTER TABLE "import_run" ADD COLUMN IF NOT EXISTS "declared_period" date;

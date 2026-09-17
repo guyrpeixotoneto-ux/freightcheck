@@ -2,6 +2,14 @@
 -- ACESSO À UNIDADE — a autorização de leitura que o produto nunca teve.
 -- ---------------------------------------------------------------------------
 --
+-- **Nasceu `0101` e virou `0102` no encontro de fila.** A `main` chegou antes
+-- com a `0101_quinzena_declarada_no_envio`, e renumerar é o que a fila deste
+-- repositório faz nesse caso — a `0048` tem o mesmo histórico escrito no
+-- cabeçalho dela. O número aparece num lugar só do código (`M102`, em
+-- `bridge.ts`), que é o que torna renumerar uma troca de literal em vez de uma
+-- caçada por texto solto.
+-- ---------------------------------------------------------------------------
+--
 -- Esta migration cria **estrutura**, e não bloqueio. Depois dela, nenhuma
 -- leitura deste produto responde diferente do que respondia antes: a tabela
 -- nasce vazia, ninguém a consulta para recusar nada, e o corte é uma decisão

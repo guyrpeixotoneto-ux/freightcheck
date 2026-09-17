@@ -408,6 +408,18 @@ export const ALLOWLIST: {
     tipo: "text",
     aindaPodeNaoExistir: true,
   },
+  /*
+    A da `0101`. A quinzena que o envio declarou — a terceira declaração da tela
+    de Importações, ao lado do tipo e do acervo, e a que faltava: sem ela,
+    mandar a 1ª quinzena achando que se manda a 2ª entra calado. Aditiva e nula,
+    como todas as daqui.
+  */
+  {
+    tabela: "import_run",
+    coluna: "declared_period",
+    tipo: "date",
+    aindaPodeNaoExistir: true,
+  },
 ];
 
 /**
@@ -744,7 +756,7 @@ const TABELAS_REMOVIDAS = [
     assim que um menu inteiro voltou a aparecer para quem o tinha desligado.
   */
   /*
-    `acesso_a_unidade`, da `0101` — quem pode ler o acervo de qual unidade.
+    `acesso_a_unidade`, da `0102` — quem pode ler o acervo de qual unidade.
 
     Entra aqui pelo critério desta lista: cada linha é **decisão de gente**.
     "Fulano concedeu a Beltrano acesso ao CDD Belém em tal dia" não é
@@ -1721,7 +1733,7 @@ export async function bridgeDown(
       */
       cargo: ["app_user"],
       /*
-        `unidade` ganhou uma segunda dependente na `0101`: `acesso_a_unidade`,
+        `unidade` ganhou uma segunda dependente na `0102`: `acesso_a_unidade`,
         que sai **antes** dela em `TABELAS_REMOVIDAS`. A varredura roda antes de
         qualquer DDL — é o desenho deste módulo —, então ela veria a FK como
         surpresa mesmo com a ordem de queda correta.
@@ -3183,7 +3195,7 @@ function planoUp(): PassoUp[] {
   );
 
   /*
-    A `0101` — o acesso por unidade.
+    A `0102` — o acesso por unidade (nasceu `0101`; ver o cabeçalho da migration).
 
     O `up` repõe a tabela **vazia**, e isso não é omissão: uma concessão de
     acesso é decisão de gente, e nenhuma consulta a reconstrói. É pela mesma
@@ -3196,31 +3208,31 @@ function planoUp(): PassoUp[] {
     existir — uma segunda escrita da mesma definição concorda no dia em que é
     escrita e discorda no dia em que a migration muda.
   */
-  const M101 = "0101_acesso_a_unidade";
+  const M102 = "0102_acesso_a_unidade";
   add(
-    M101,
+    M102,
     "acesso_a_unidade",
-    levantar(M101, /CREATE TABLE IF NOT EXISTS "acesso_a_unidade" \(/),
+    levantar(M102, /CREATE TABLE IF NOT EXISTS "acesso_a_unidade" \(/),
   );
   add(
-    M101,
+    M102,
     "fk acesso_a_unidade_user_id_app_user_id_fk",
-    levantar(M101, /DO \$\$\s*\n\s*BEGIN\s*\n\s*IF NOT EXISTS \(SELECT 1 FROM pg_constraint WHERE conname = 'acesso_a_unidade_user_id_app_user_id_fk'\)/),
+    levantar(M102, /DO \$\$\s*\n\s*BEGIN\s*\n\s*IF NOT EXISTS \(SELECT 1 FROM pg_constraint WHERE conname = 'acesso_a_unidade_user_id_app_user_id_fk'\)/),
   );
   add(
-    M101,
+    M102,
     "fk acesso_a_unidade_unidade_id_unidade_id_fk",
-    levantar(M101, /DO \$\$\s*\n\s*BEGIN\s*\n\s*IF NOT EXISTS \(SELECT 1 FROM pg_constraint WHERE conname = 'acesso_a_unidade_unidade_id_unidade_id_fk'\)/),
+    levantar(M102, /DO \$\$\s*\n\s*BEGIN\s*\n\s*IF NOT EXISTS \(SELECT 1 FROM pg_constraint WHERE conname = 'acesso_a_unidade_unidade_id_unidade_id_fk'\)/),
   );
   add(
-    M101,
+    M102,
     "índice acesso_a_unidade_uq",
-    levantar(M101, /INDEX IF NOT EXISTS "acesso_a_unidade_uq"/),
+    levantar(M102, /INDEX IF NOT EXISTS "acesso_a_unidade_uq"/),
   );
   add(
-    M101,
+    M102,
     "índice acesso_a_unidade_user_idx",
-    levantar(M101, /INDEX IF NOT EXISTS "acesso_a_unidade_user_idx"/),
+    levantar(M102, /INDEX IF NOT EXISTS "acesso_a_unidade_user_idx"/),
   );
 
   /*
