@@ -27,6 +27,16 @@ import { parseVigenciaLabel } from "./vigencia";
  * matters is what that run actually produced, not what a query says today.
  */
 
+/** Uma vigência que uma importação produziu, com o que ela trouxe. */
+export interface VigenciaDaImportacao {
+  /** O rótulo literal da origem, p.ex. `EMPURRADA_1_8_2026`. */
+  label: string;
+  /** `AAAA-MM-DD` — a data derivada do rótulo, que é o que ordena e agrupa. */
+  effectiveDate: string;
+  /** Os tipos que este arquivo trouxe para **esta** vigência, sem a herança. */
+  tipos: string[];
+}
+
 export interface ImportRunSummary {
   importRunId: string;
   status: string;
@@ -46,8 +56,31 @@ export interface ImportRunSummary {
   snapshots: number;
   errors: number;
   warnings: number;
-  /** Vigências this run produced, oldest first. */
+  /**
+   * Vigências this run produced, oldest first.
+   *
+   * Derivado de {@link ImportRunSummary.vigencias}, e não de uma segunda
+   * consulta: as duas respondem a mesma pergunta, e duas consultas para uma
+   * pergunta só é a doença de sempre — nada obriga as duas a concordarem.
+   */
   labels: string[];
+  /**
+   * O que cada vigência desta importação é: rótulo, data e os tipos que **este
+   * arquivo** trouxe para ela.
+   *
+   * `labels` responde *quantas e quais*; isto responde *o que entrou em cada
+   * uma*, que é outra pergunta e é a que a tela por quinzena faz. Ler os tipos
+   * do run inteiro no lugar destes seria afirmar uma coisa com o número de
+   * outra: um arquivo com duas vigências e dois tipos não trouxe
+   * necessariamente os dois tipos nas duas.
+   *
+   * `tipos` sai de `snapshot_entity_type`, com a mesma regra de
+   * {@link ImportRunSummary.tiposDoArquivo} aplicada a uma vigência de cada
+   * vez: um tipo cujos fatos são todos herdados não veio neste arquivo. Vazio
+   * nas vigências anteriores ao agregado por tipo que o backfill da `0021` não
+   * cobriu — e aí quem sabe o tipo é a declaração do envio, não este campo.
+   */
+  vigencias: VigenciaDaImportacao[];
   /**
    * O tipo declarado no envio — a aba da tela em que o arquivo foi escolhido.
    *
@@ -186,14 +219,40 @@ function selectRunSummary(db: Database) {
       contentSha256: sourceFileTable.contentSha256,
       receivedAt: sourceFileTable.receivedAt,
       receivedBy: sourceFileTable.receivedBy,
-      labels: sql<string[]>`
+      /*
+        As vigências desta importação, cada uma com o que ela recebeu deste
+        arquivo. `labels` nasce daqui, em TypeScript — era um `array()` próprio,
+        lado a lado com este, e duas consultas para a mesma pergunta é o começo
+        de uma discordar da outra.
+
+        A ordem é a de sempre (a mais antiga primeiro), e ela é por data e não
+        por rótulo: `EMPURRADA_2_12_2025` vem antes de `EMPURRADA_2_1_2026` no
+        calendário e depois dele no alfabeto.
+      */
+      vigencias: sql<VigenciaDaImportacao[]>`
         coalesce(
-          array(
-            SELECT s.source_label FROM snapshot s
-             WHERE s.import_run_id = ${importRunTable.id}
-             ORDER BY s.effective_date
-          ),
-          '{}'
+          (SELECT jsonb_agg(
+                    jsonb_build_object(
+                      'label', v.source_label,
+                      'effectiveDate', v.effective_date,
+                      'tipos', v.tipos
+                    )
+                    ORDER BY v.effective_date, v.source_label
+                  )
+             FROM (
+               SELECT s.source_label,
+                      s.effective_date,
+                      coalesce(
+                        (SELECT jsonb_agg(DISTINCT et.entity_type)
+                           FROM snapshot_entity_type et
+                          WHERE et.snapshot_id = s.id
+                            AND et.fact_count > et.inherited_fact_count),
+                        '[]'::jsonb
+                      ) AS tipos
+                 FROM snapshot s
+                WHERE s.import_run_id = ${importRunTable.id}
+             ) v),
+          '[]'::jsonb
         )`,
       declaredType: importRunTable.declaredType,
       declaredFamily: importRunTable.declaredFamily,
@@ -322,7 +381,20 @@ export async function listImportRuns(
             SELECT 1 FROM snapshot s
              WHERE s.import_run_id = ${importRunTable.id} AND s.canal = ${operacao}
           )`);
-  return recortada.orderBy(desc(importRunTable.startedAt));
+  return (await recortada.orderBy(desc(importRunTable.startedAt))).map(comLabels);
+}
+
+/**
+ * `labels` a partir de `vigencias` — a derivação, escrita uma vez.
+ *
+ * A lista e o detalhe leem a mesma projeção, então a derivação também é uma só:
+ * se ela morasse nos dois, um cartão poderia listar vigências que o outro não
+ * lista, sobre o mesmo run.
+ */
+function comLabels<T extends { vigencias: VigenciaDaImportacao[] }>(
+  run: T,
+): T & { labels: string[] } {
+  return { ...run, labels: run.vigencias.map((v) => v.label) };
 }
 
 /**
@@ -347,7 +419,7 @@ export async function getImportRun(
   const [run] = await selectRunSummary(db).where(
     eq(importRunTable.id, importRunId),
   );
-  return run ?? null;
+  return run === undefined ? null : comLabels(run);
 }
 
 /**

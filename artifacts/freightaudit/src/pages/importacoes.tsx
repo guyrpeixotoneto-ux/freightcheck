@@ -63,6 +63,13 @@ import {
   type PapelNoArquivo,
 } from "@/lib/importacoes";
 import { useAmbiente } from "@/lib/ambiente-aberto";
+import { hojeEm, MES_LONGO } from "@/lib/calendario";
+import {
+  quinzenasDoAcervo,
+  semEnvio,
+  tipoJaEntrou,
+  type LinhaDaQuinzena,
+} from "@/lib/quinzenas-do-acervo";
 import { useContextosDaCasca } from "@/lib/contextos";
 import { escopoDaTela } from "@/lib/escopo-da-tela";
 import { nomeDaUnidade } from "@/lib/recorte";
@@ -152,6 +159,14 @@ interface ImportRun {
   errors: number;
   warnings: number;
   labels: string[];
+  /**
+   * Cada vigência desta importação com o que ela recebeu deste arquivo.
+   *
+   * `labels` diz **quais** vigências; isto diz **o que entrou em cada uma** — é
+   * o que a lista por quinzena lê, e é outra pergunta. Ler os tipos do run
+   * inteiro no lugar destes afirmaria uma coisa com o número de outra.
+   */
+  vigencias: { label: string; effectiveDate: string; tipos: string[] }[];
   /** Equipamentos que esta importação criaria e o dicionário não conhece. */
   pendingIdentities: string[];
   /** O tipo declarado no envio — a aba por onde o arquivo entrou. */
@@ -269,6 +284,253 @@ export const vigenciasDoCartao = (
   for (const label of labels) contagem.set(label, (contagem.get(label) ?? 0) + 1);
   return [...contagem].map(([label, vezes]) => ({ label, vezes }));
 };
+
+/**
+ * O NOME DE UMA QUINZENA — na mesma forma em que o produto já escreve vigência.
+ *
+ * `agosto/2026 · 1ª quinzena` é a forma de `rotuloDaVigencia`
+ * (`@workspace/comparison/labels`), que é o que a Linha do Tempo, o seletor de
+ * vigência e as comparações escrevem. Aqui a quinzena é uma casa do calendário
+ * e não uma vigência gravada — mas é a mesma quinzena do mesmo mês, e escrevê-la
+ * de outro jeito faria a mesma coisa ter dois nomes em duas telas vizinhas.
+ *
+ * O mês vai em caixa baixa por isso: `mesPorExtenso` existe para o nome sozinho
+ * num campo de formulário, e aqui ele está dentro de uma frase.
+ */
+const rotuloDaQuinzena = (periodo: {
+  quinzena: 1 | 2;
+  mes: number;
+  ano: number;
+}): string => `${MES_LONGO[periodo.mes - 1]}/${periodo.ano} · ${periodo.quinzena}ª quinzena`;
+
+/**
+ * A LISTA POR QUINZENA DE UMA ABA — o que entrou, e o que não entrou.
+ *
+ * O histórico abaixo é dos arquivos que chegaram, e por isso é cego para a
+ * quinzena que ninguém enviou: ela não tem cartão, não tem linha, não aparece.
+ * Esta lista é a outra metade — a mesma aba, o mesmo recorte de unidade, com as
+ * quinzenas do calendário à espera das vigências que caíram nelas.
+ *
+ * **Ela não diz "pendente".** Nada no produto registra que esta unidade entrega
+ * quinzenalmente, e escrever pendência seria inventar uma expectativa — ver o
+ * cabeçalho de `lib/quinzenas-do-acervo.ts`. O que ela diz é o que se pode
+ * afirmar: a quinzena existe e nada de {tipo} entrou nela.
+ */
+function QuinzenasDoTipo({
+  linhas,
+  tipo,
+  onAbrir,
+}: {
+  linhas: LinhaDaQuinzena<ImportRun>[];
+  tipo: DefinicaoDeTipo;
+  onAbrir: (importRunId: string) => void;
+}) {
+  /*
+    Duas ausências que parecem a mesma, e só uma é falta — ver `tipoJaEntrou`.
+    Numa unidade que nunca entregou Trecho, a coluna vazia não afirma nada que o
+    produto saiba; o alarme fica para o que ela entrega e faltou.
+  */
+  const jaEntrou = tipoJaEntrou(linhas, tipo.code);
+  const faltando = jaEntrou ? semEnvio(linhas, tipo.code) : [];
+  return (
+    <div className="superficie px-6 py-5 space-y-3">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <h2 className="text-sm font-bold">
+            {tipo.rotulo} — quinzena a quinzena, nesta unidade
+          </h2>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            {jaEntrou ? (
+              <>
+                As quinzenas do calendário, com o que entrou em cada uma. A
+                quinzena sem envio não é uma pendência declarada: é o calendário
+                dizendo que ela existe, e o acervo dizendo que nada de{" "}
+                {tipo.rotulo.toLowerCase()} entrou nela.
+              </>
+            ) : (
+              <>
+                Nenhuma planilha de {tipo.rotulo.toLowerCase()} entrou nesta
+                unidade — nem nesta janela, nem antes dela. As quinzenas abaixo
+                são o calendário, e não uma cobrança: o produto não sabe se esta
+                operação entrega {tipo.rotulo.toLowerCase()}.
+              </>
+            )}
+          </p>
+        </div>
+        {faltando.length > 0 && (
+          <span className={cn("shrink-0 rounded-full border px-3 py-1 text-xs font-medium", TONS.espera)}>
+            {plural(faltando.length, "quinzena sem envio", "quinzenas sem envio")}
+          </span>
+        )}
+      </div>
+
+      <div className="space-y-2">
+        {linhas.map((linha) => {
+          const envios = linha.porTipo.get(tipo.code) ?? [];
+          const vazia = envios.length === 0;
+          return (
+            <div
+              key={linha.periodo.chave}
+              className={cn(
+                "flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border px-4 py-2.5",
+                vazia && !linha.emCurso && jaEntrou
+                  ? "border-amber-200 bg-amber-50/60 border-dashed"
+                  : "bg-white",
+                vazia && !jaEntrou && "border-dashed",
+              )}
+            >
+              <span className="text-sm font-semibold w-56 shrink-0">
+                {rotuloDaQuinzena(linha.periodo)}
+              </span>
+              {linha.emCurso && (
+                <span className="text-[0.6875rem] text-muted-foreground">
+                  em curso ({emDia(linha.periodo.inicio)}–{emDia(linha.periodo.fim)})
+                </span>
+              )}
+              {vazia ? (
+                <span
+                  className={cn(
+                    "text-xs",
+                    jaEntrou ? "text-amber-900" : "text-muted-foreground",
+                  )}
+                >
+                  {linha.emCurso
+                    ? `nada de ${tipo.rotulo.toLowerCase()} entrou ainda nesta quinzena`
+                    : `nenhuma planilha de ${tipo.rotulo.toLowerCase()} entrou nesta quinzena`}
+                </span>
+              ) : (
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  {envios.map(({ run, label }) => (
+                    <button
+                      key={run.importRunId}
+                      onClick={() => onAbrir(run.importRunId)}
+                      className="inline-flex items-center gap-2 text-xs text-left hover:underline"
+                      title={`Abrir o cartão de ${run.filename}`}
+                    >
+                      <span
+                        className={cn(
+                          "rounded-full border px-2 py-0.5 text-[0.6875rem] font-medium",
+                          TONS.ok,
+                        )}
+                      >
+                        entrou
+                      </span>
+                      <span className="font-mono text-[0.6875rem] text-muted-foreground">
+                        {label}
+                      </span>
+                      <span className="text-muted-foreground truncate max-w-[22rem]">
+                        {run.filename}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A MESMA LEITURA, INTEIRA — a grade da aba Todas.
+ *
+ * Todas é a única aba que não envia nada, porque nela não há tipo declarado
+ * (ver {@link SemAbaEscolhida}). É justamente por isso que ela é o lugar da
+ * grade: o que ela pode fazer é mostrar o conjunto e apontar para a aba onde o
+ * envio acontece — e cada célula pertence a uma aba.
+ */
+function GradeDasQuinzenas({
+  linhas,
+  tipos,
+  onEscolher,
+}: {
+  linhas: LinhaDaQuinzena<ImportRun>[];
+  tipos: DefinicaoDeTipo[];
+  onEscolher: (tipo: DefinicaoDeTipo) => void;
+}) {
+  /* Os tipos que esta unidade de fato entrega — os únicos cuja ausência é falta. */
+  const entregues = new Set(
+    tipos.filter((tipo) => tipoJaEntrou(linhas, tipo.code)).map((t) => t.code),
+  );
+  return (
+    <div className="superficie px-6 py-5 space-y-3">
+      <div>
+        <h2 className="text-sm font-bold">Quinzena × tipo, nesta unidade</h2>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          As quinzenas do calendário e os tipos que esta operação recebe. Em
+          amarelo, a quinzena sem envio de um tipo que esta unidade entrega; em
+          cinza, o tipo que ela nunca entregou — que é ausência, não falta.
+          Clique numa coluna para abrir a aba dela, que é de onde se envia.
+        </p>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs border-separate border-spacing-y-1">
+          <thead>
+            <tr>
+              <th className="text-left font-medium text-muted-foreground w-56" />
+              {tipos.map((tipo) => (
+                <th key={tipo.code} className="px-2 pb-1">
+                  <button
+                    onClick={() => onEscolher(tipo)}
+                    className="font-semibold text-foreground hover:underline"
+                  >
+                    {tipo.rotulo}
+                  </button>
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {linhas.map((linha) => (
+              <tr key={linha.periodo.chave}>
+                <td className="pr-3 whitespace-nowrap font-medium">
+                  {rotuloDaQuinzena(linha.periodo)}
+                  {linha.emCurso && (
+                    <span className="ml-1.5 text-[0.625rem] text-muted-foreground">
+                      em curso
+                    </span>
+                  )}
+                </td>
+                {tipos.map((tipo) => {
+                  const envios = linha.porTipo.get(tipo.code) ?? [];
+                  const vazia = envios.length === 0;
+                  /* A coluna de um tipo que nunca entrou não é falta — é
+                     desconhecimento, e ele é dito em cinza. */
+                  const alarme = vazia && !linha.emCurso && entregues.has(tipo.code);
+                  return (
+                    <td key={tipo.code} className="px-1">
+                      <button
+                        onClick={() => onEscolher(tipo)}
+                        className={cn(
+                          "w-full rounded-lg border px-2 py-1.5 text-[0.6875rem] font-medium",
+                          vazia && !alarme && "border-dashed text-muted-foreground",
+                          alarme && `border-dashed ${TONS.espera}`,
+                          !vazia && TONS.ok,
+                        )}
+                        title={
+                          vazia
+                            ? `Nada de ${tipo.rotulo.toLowerCase()} entrou nesta quinzena`
+                            : envios.map((e) => e.run.filename).join(", ")
+                        }
+                      >
+                        {vazia ? "sem envio" : "entrou"}
+                      </button>
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/** `2026-08-16` vira `16/08` — o dia como o período do mês é falado. */
+const emDia = (iso: string): string => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
 
 /** Uma unidade como a importação a entregou: o CNPJ da planilha, e o nome. */
 export interface UnidadeDaImportacao {
@@ -696,6 +958,16 @@ export default function Importacoes() {
     aba === null
       ? doAcervo
       : doAcervo.filter((run) => tiposVindosDoArquivo(run).includes(aba));
+
+  /*
+    As quinzenas desta unidade neste acervo — o calendário ao lado do acervo.
+
+    Sai de `doAcervo`, e não de `visiveis`: uma importação oculta **entrou**, e
+    ocultar é escolha de exibição do histórico, não retratação do que foi
+    importado. Dizer "sem envio" numa quinzena que tem importação oculta seria
+    a tela contradizendo o próprio banco por causa de um botão de olho.
+  */
+  const quinzenas = quinzenasDoAcervo(doAcervo, hojeEm());
 
   /*
     Quantas importações o recorte de unidade escondeu — do mesmo acervo e da
@@ -1180,6 +1452,27 @@ export default function Importacoes() {
                 })
               }
               onPick={() => fileInput.current?.click()}
+            />
+          )}
+
+          {/*
+            O calendário, entre o envio e o histórico — e nesta ordem de
+            propósito. Primeiro se escolhe o tipo (a aba), depois se vê o que
+            falta daquele tipo, e só então o histórico de arquivos. Na ordem
+            inversa, a lista de quinzenas apareceria antes de a tela dizer de
+            que tipo ela é.
+          */}
+          {tipoDaAba === null ? (
+            <GradeDasQuinzenas
+              linhas={quinzenas}
+              tipos={tipos}
+              onEscolher={(tipo) => setAba(tipo.code)}
+            />
+          ) : (
+            <QuinzenasDoTipo
+              linhas={quinzenas}
+              tipo={tipoDaAba}
+              onAbrir={(importRunId) => setExpanded(importRunId)}
             />
           )}
 
