@@ -101,15 +101,25 @@ import type { FamiliesOverview, FamiliesView, GroupedView } from "@/components/i
  * Esta tela é o quinto módulo, e ela **não é os quatro empilhados** — empilhar
  * trocaria quatro telas redundantes por uma tela longa e redundante. Onde três
  * módulos desenhavam a mesma coisa de três jeitos, aqui se desenha o melhor dos
- * três, uma vez. São **seis andares**, e a ordem é a das perguntas que uma
- * diretoria faz:
+ * três, uma vez.
  *
- * 1. **O veredito** — quanto custou esta vigência?
- * 2. **O placar** — e os outros números?
- * 3. **A composição** — de onde vem esse número?
- * 4. **A trajetória** — estamos melhorando ou piorando?
- * 5. **O mapa** — onde isso aconteceu?
- * 6. **A procedência** — posso confiar nisto?
+ * São **três dobras**, e a ordem é a das perguntas que uma diretoria faz:
+ *
+ * | # | Pergunta | O que responde |
+ * |---|---|---|
+ * | 1 | Quanto custou, e dá para confiar? | a manchete: veredito, régua de medidas, cobertura |
+ * | 2 | É um mês comum? E onde aconteceu? | a trajetória e o ranking dos tipos de ativo |
+ * | 3 | De onde vem esse número? | a ponte por família e o ranking do dinheiro |
+ * | — | Posso confiar no dado? | a procedência, no rodapé |
+ * | — | E o pessoal? | a travessia para o quadro, a última linha |
+ *
+ * **Eram nove blocos em coluna única, em outra ordem.** Os seis andares
+ * originais — veredito, placar, composição, trajetória, mapa, procedência —
+ * eram as perguntas certas e custavam cinco telas de rolagem, com o líquido
+ * apurado impresso seis vezes. As dobras agrupam cada pergunta com o seu par de
+ * cartões; a composição desceu para a terceira porque a segunda pergunta de
+ * quem abre a tela de manhã não é "de onde vem", é "isto é normal?" — e quem
+ * responde essa é o histórico.
  *
  * **A fila ("o que eu faço agora") saiu.** Ela era o único andar que não
  * respondia sobre a vigência lida: fundia três listas de trabalho e mandava
@@ -407,7 +417,7 @@ export default function Panorama() {
         evoluírem.
 
         O que continua sendo desta tela é o que só ela sabe: o nome do recorte
-        aberto, a frase que indexa os seis andares e os três controles.
+        aberto, a frase que indexa as dobras e os três controles.
       */}
       <CabecalhoDePagina
         titulo={`Panorama — ${visaoGeral ? "Visão Geral" : (unidade ?? "")}`}
@@ -656,7 +666,7 @@ function ParDaLeitura({
 }
 
 /**
- * Os seis andares — **iguais nas duas leituras**.
+ * As três dobras — **iguais nas duas leituras**.
  *
  * A Visão Geral e a unidade desenham o mesmo corpo, e não duas telas parecidas:
  * `LeituraDoPanorama` é o que as duas respostas do servidor têm em comum, e os
@@ -823,7 +833,92 @@ function Corpo({
         <FaixaSemAlteracao temAnterior={view ? view.cockpit.baseline.hasBaseline : true} />
       )}
 
-      {/* ---- Dobra 2 · de onde vem ---- */}
+      {/* ---- Dobra 2 · quando, e onde ---- */}
+      {/*
+        A trajetória e o mapa dividem a faixa, meio a meio: os dois são
+        contexto do número da dobra 1 — "como chegamos aqui" e "onde isso
+        aconteceu" —, e nenhum dos dois é a resposta. Empilhados de largura
+        inteira eles custavam duas telas de rolagem para publicar um gráfico de
+        seis pontos e quatro contagens de frota.
+
+        **Ela vem antes da composição, e a ordem é de leitura.** As duas dobras
+        já foram na ordem inversa: a composição — de onde vem o número — subia
+        colada na manchete, e o histórico ficava para o fim. Quem abre a tela de
+        manhã não pergunta "de onde vem" antes de saber se a vigência é fora do
+        normal, e é o gráfico que responde isso: um líquido de R$ 11.917 não
+        diz nada sozinho, e dito ao lado de seis vigências passa a dizer se é
+        um mês comum ou o maior movimento do semestre. A decomposição é o
+        degrau seguinte — e continua a um rolar de distância, na dobra 3.
+
+        Sem mapa a desenhar a faixa vira uma coluna só (`mapaVazio`): metade de
+        uma dobra em branco se lê como cartão que não carregou.
+      */}
+      <div className={cn("grid gap-5 items-start", !semMapa && "xl:grid-cols-2")}>
+        <Superficie className="px-6 py-5 min-w-0">
+          {/*
+            Barras divergentes, e não a linha do líquido sozinha.
+
+            A linha respondia "estamos melhorando ou piorando" e parava aí: uma
+            vigência de líquido zero desenhava o mesmo ponto tendo havido R$ 0 de
+            movimento ou R$ 120 mil somados contra R$ 120 mil tirados — e são
+            duas vigências completamente diferentes de se administrar. Aqui os
+            dois lados aparecem inteiros, cada um crescendo do zero para o seu
+            lado, com o líquido passando por cima.
+
+            Uma barra por vigência **entregue**, e não por mês de calendário: duas
+            vigências no mesmo mês aparecem pelo dia, uma ao lado da outra, nunca
+            somadas — somá-las inventaria uma vigência que ninguém entregou.
+
+            É o gráfico do Dashboard, o mesmo componente e a mesma série — esta
+            dobra não é uma quinta verdade sobre o mesmo dado.
+          */}
+          {/*
+            Só o título aqui. O gráfico escreve a própria linha de subtítulo, e a
+            que havia neste lugar começava com as mesmas três palavras.
+          */}
+          <CabecalhoDaSuperficie titulo="Impacto das alterações por vigência" className="mb-1" />
+          <GraficoDeImpacto
+            pontos={pontos}
+            periodicity={periodicityDaSerie ?? periodicidade}
+            carregando={serieCarregando}
+            vigenciaAtiva={vigenciaAberta}
+            onEscolherVigencia={(periodo) => onTrocar({ period: periodo })}
+          />
+          {/*
+            A leitura por tipo de ativo — cavalo, carreta, trecho — **não** é um
+            controle deste cartão, e essa é uma correção à proposta original.
+
+            Trocar o tipo troca a **população** de todo número, e não o recorte de
+            um gráfico: com "Carreta" ligado aqui, esta dobra falaria de carretas
+            enquanto o resto da tela continuaria falando da frota inteira, sem
+            nada acusando a divergência — exatamente a classe de defeito que o
+            Panorama existe para desfazer.
+
+            A Linha do Tempo pode fazê-lo porque lá o tipo é aba **de página**: a
+            tela inteira troca de população junto. Daí o link, e não a pastilha.
+          */}
+          <p className="text-xs text-muted-foreground mt-4 pt-4 border-t flex items-center gap-1.5 flex-wrap">
+            <History className="w-3.5 h-3.5 shrink-0" />
+            Para ler este mesmo histórico por tipo de ativo — a população inteira trocada, e não só
+            este gráfico —
+            <Link
+              href={consulta.toString() ? `${LINHA_DO_TEMPO}?${consulta}` : LINHA_DO_TEMPO}
+              className="font-semibold text-brand hover:underline"
+            >
+              abra a Linha do Tempo
+            </Link>
+            .
+          </p>
+        </Superficie>
+
+        <Mapa
+          mapa={mapa}
+          onAbrirUnidade={
+            overview ? (chave) => onTrocar({ visaoGeral: null, scopeHash: chave }) : null
+          }
+        />
+      </div>
+      {/* ---- Dobra 3 · de onde vem ---- */}
       {/*
         Duas colunas, e cada uma responde uma metade da pergunta: a ponte diz
         **como o número se formou** (a escada de famílias até o líquido), e o
@@ -834,6 +929,11 @@ function Corpo({
         mesma lista de famílias. Os três últimos viraram um
         (`components/panorama/ranking.tsx`), porque o que os separava eram duas
         escolhas, e escolha é chave: `?grao=` e `?mudancas=`.
+
+        Esta é a **última** dobra de leitura, e é onde ela pertence: quem desce
+        até aqui já sabe quanto custou (dobra 1) e se a vigência é fora do
+        normal (dobra 2), e o que vem agora é a decomposição — o degrau em que
+        se para de ler e se começa a investigar, com as gavetas abrindo daqui.
 
         3 e 2 de cinco, e não a metade: a ponte é um desenho com escala e
         rótulos de eixo, e o ranking é uma lista de texto — dar a mesma largura
@@ -908,84 +1008,6 @@ function Corpo({
           nota={view ? undefined : NOTA_DA_VISAO_GERAL[grao]}
         />
       </div>
-
-      {/* ---- Dobra 3 · quando, e onde ---- */}
-      {/*
-        A trajetória e o mapa dividem a faixa, meio a meio: os dois são
-        contexto do número da dobra 1 — "como chegamos aqui" e "onde isso
-        aconteceu" —, e nenhum dos dois é a resposta. Empilhados de largura
-        inteira eles custavam duas telas de rolagem para publicar um gráfico de
-        seis pontos e quatro contagens de frota.
-
-        Sem mapa a desenhar a faixa vira uma coluna só (`mapaVazio`): metade de
-        uma dobra em branco se lê como cartão que não carregou.
-      */}
-      <div className={cn("grid gap-5 items-start", !semMapa && "xl:grid-cols-2")}>
-        <Superficie className="px-6 py-5 min-w-0">
-          {/*
-            Barras divergentes, e não a linha do líquido sozinha.
-
-            A linha respondia "estamos melhorando ou piorando" e parava aí: uma
-            vigência de líquido zero desenhava o mesmo ponto tendo havido R$ 0 de
-            movimento ou R$ 120 mil somados contra R$ 120 mil tirados — e são
-            duas vigências completamente diferentes de se administrar. Aqui os
-            dois lados aparecem inteiros, cada um crescendo do zero para o seu
-            lado, com o líquido passando por cima.
-
-            Uma barra por vigência **entregue**, e não por mês de calendário: duas
-            vigências no mesmo mês aparecem pelo dia, uma ao lado da outra, nunca
-            somadas — somá-las inventaria uma vigência que ninguém entregou.
-
-            É o gráfico do Dashboard, o mesmo componente e a mesma série — esta
-            dobra não é uma quinta verdade sobre o mesmo dado.
-          */}
-          {/*
-            Só o título aqui. O gráfico escreve a própria linha de subtítulo, e a
-            que havia neste lugar começava com as mesmas três palavras.
-          */}
-          <CabecalhoDaSuperficie titulo="Impacto das alterações por vigência" className="mb-1" />
-          <GraficoDeImpacto
-            pontos={pontos}
-            periodicity={periodicityDaSerie ?? periodicidade}
-            carregando={serieCarregando}
-            vigenciaAtiva={vigenciaAberta}
-            onEscolherVigencia={(periodo) => onTrocar({ period: periodo })}
-          />
-          {/*
-            A leitura por tipo de ativo — cavalo, carreta, trecho — **não** é um
-            controle deste cartão, e essa é uma correção à proposta original.
-
-            Trocar o tipo troca a **população** de todo número, e não o recorte de
-            um gráfico: com "Carreta" ligado aqui, esta dobra falaria de carretas
-            enquanto o resto da tela continuaria falando da frota inteira, sem
-            nada acusando a divergência — exatamente a classe de defeito que o
-            Panorama existe para desfazer.
-
-            A Linha do Tempo pode fazê-lo porque lá o tipo é aba **de página**: a
-            tela inteira troca de população junto. Daí o link, e não a pastilha.
-          */}
-          <p className="text-xs text-muted-foreground mt-4 pt-4 border-t flex items-center gap-1.5 flex-wrap">
-            <History className="w-3.5 h-3.5 shrink-0" />
-            Para ler este mesmo histórico por tipo de ativo — a população inteira trocada, e não só
-            este gráfico —
-            <Link
-              href={consulta.toString() ? `${LINHA_DO_TEMPO}?${consulta}` : LINHA_DO_TEMPO}
-              className="font-semibold text-brand hover:underline"
-            >
-              abra a Linha do Tempo
-            </Link>
-            .
-          </p>
-        </Superficie>
-
-        <Mapa
-          mapa={mapa}
-          onAbrirUnidade={
-            overview ? (chave) => onTrocar({ visaoGeral: null, scopeHash: chave }) : null
-          }
-        />
-      </div>
-
       {/* ---- O rodapé · a procedência ---- */}
       {/*
         Dentro de uma unidade o cartão desenha nos seis desfechos — é justamente o

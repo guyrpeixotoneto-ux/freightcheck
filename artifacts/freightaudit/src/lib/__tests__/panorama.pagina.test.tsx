@@ -351,14 +351,14 @@ describe("a página do Panorama", () => {
     // e a confiança, na terceira
     expect(screen.getByText(/apenas 7 de 102 alterações/)).toBeTruthy();
 
-    // 2 — de onde vem: a ponte e o ranking, lado a lado
-    expect(screen.getByText("Composição do impacto líquido")).toBeTruthy();
-    expect(screen.getByText("Onde o dinheiro se mexeu")).toBeTruthy();
-
-    // 3 — quando e onde: a trajetória e o mapa, lado a lado
+    // 2 — quando e onde: a trajetória e o mapa, lado a lado
     expect(screen.getByText("Impacto das alterações por vigência")).toBeTruthy();
     expect(screen.getByText("abra a Linha do Tempo")).toBeTruthy();
     expect(screen.getByText("Onde aconteceu")).toBeTruthy();
+
+    // 3 — de onde vem: a ponte e o ranking, lado a lado
+    expect(screen.getByText("Composição do impacto líquido")).toBeTruthy();
+    expect(screen.getByText("Onde o dinheiro se mexeu")).toBeTruthy();
     /*
       O ranking dos tipos, e não quatro tiles. O de baixo tem a frota maior e
       aparece depois — a ordem é por alteração, que é a pergunta do andar.
@@ -449,10 +449,15 @@ describe("a página do Panorama", () => {
 
   /*
     A ordem das dobras é a ordem das perguntas, e `getByText` não a vê: os
-    títulos passariam na ordem inversa. A leitura desce da resposta para a
-    composição e daí para o contexto — e é isso que este teste prende.
+    títulos passariam na ordem inversa.
+
+    A leitura desce da resposta ("quanto custou") para a trajetória ("isto é
+    normal?") e só então para a composição ("de onde vem"). As duas últimas já
+    estiveram invertidas, e esta é a ordem que este teste prende: a decomposição
+    é o degrau em que se para de ler e se começa a investigar, e ela não vem
+    antes de quem lê saber se a vigência é fora do normal.
   */
-  it("desce em ordem: a resposta, de onde vem, quando e onde", async () => {
+  it("desce em ordem: a resposta, a trajetória, de onde vem", async () => {
     vi.stubGlobal("fetch", servidor());
     montar();
 
@@ -460,9 +465,10 @@ describe("a página do Panorama", () => {
 
     const ordem = [
       "Impacto líquido apurado",
+      "Impacto das alterações por vigência",
+      "Onde aconteceu",
       "Composição do impacto líquido",
       "Onde o dinheiro se mexeu",
-      "Impacto das alterações por vigência",
     ].map((titulo) => screen.getByText(titulo));
 
     for (let i = 1; i < ordem.length; i += 1) {
