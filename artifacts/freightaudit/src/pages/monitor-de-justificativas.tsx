@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { useLocation, useSearch } from "wouter";
 import {
   CalendarRange,
@@ -54,6 +54,7 @@ import {
   pendenciasPorTipo,
   responsaveisDoPainel,
   resumoDoPainel,
+  rubricasAgrupadasPorSecao,
   rubricasDoPainel,
   textoDaCobranca,
   tiposDoPainel,
@@ -103,7 +104,7 @@ import { cn } from "@/lib/utils";
  * ---------------------------------------------------------------------------
  * As quatro leituras, e por que elas são abas
  * ---------------------------------------------------------------------------
- * A mesma cobertura, por quatro eixos: **por módulo** (onde está a pendência),
+ * A mesma cobertura, por quatro eixos: **por seção** (onde está a pendência),
  * **por responsável** (quem escreveu o que já está escrito), **por vigência**
  * (se o atraso é de uma quinzena ou do acervo) e **por tipo de ativo** (a quem
  * mandar a fila). São perguntas diferentes sobre a mesma máquina — e nenhuma
@@ -133,7 +134,7 @@ import { cn } from "@/lib/utils";
  * de quem, e a tela não sabe.
  *
  * **Tendência.** O destaque ao lado do gráfico diz qual vigência tem menos
- * explicação e qual módulo puxa a conta dela para baixo — o que está no dado.
+ * explicação e qual seção puxa a conta dela para baixo — o que está no dado.
  * "A pendência é recente" seria uma leitura de duas colunas viradas em
  * afirmação sobre o trabalho.
  *
@@ -158,7 +159,7 @@ const CORES = {
 
 /** As quatro leituras. A primeira é a de partida, e não vai para o endereço. */
 const ABAS = [
-  { chave: "modulo", rotulo: "Por módulo", hint: "onde está a pendência" },
+  { chave: "modulo", rotulo: "Por seção", hint: "onde está a pendência" },
   {
     chave: "responsavel",
     rotulo: "Por responsável",
@@ -177,7 +178,7 @@ type Aba = (typeof ABAS)[number]["chave"];
 /**
  * O selo e o ícone de cada módulo.
  *
- * A cor é a mesma nas duas leituras — a barra de "Cobertura por módulo" e o selo
+ * A cor é a mesma nas duas leituras — a barra de "Cobertura por seção" e o selo
  * da tabela —, e é ela que permite descer de uma para a outra sem reler o nome.
  */
 const DESENHO_DO_MODULO: Record<
@@ -435,21 +436,34 @@ export default function MonitorDeJustificativas() {
     () => modulosDoPainel(rubricas, changeSetId, tipo),
     [rubricas, changeSetId, tipo],
   );
-  /* A tabela obedece ao filtro de módulo; os cartões e as barras, não — eles
+  /* A tabela obedece ao filtro de seção; os cartões e as barras, não — eles
      são o total do recorte, e é contra eles que a tabela se confere. */
   const linhasDeRubrica = useMemo(
     () => rubricasDoPainel(rubricas, changeSetId, tipo, moduloFiltrado),
     [rubricas, changeSetId, tipo, moduloFiltrado],
   );
+  /* A ordem da tabela, que não é a de `linhasDeRubrica`: lá a lista é a de por
+     onde começar, aqui ela vem agrupada por seção. O texto da cobrança continua
+     lendo a outra — quem cola num chat quer a rubrica mais atrasada na primeira
+     linha, e não um cabeçalho de seção. */
+  const linhasAgrupadas = useMemo(
+    () => rubricasAgrupadasPorSecao(linhasDeRubrica),
+    [linhasDeRubrica],
+  );
   /* A tabela é paginada em tela, e não no servidor: a cobertura por rubrica já
      está inteira em mãos — são dezenas de linhas, não milhares —, e uma ida ao
      banco por página daria a mesma resposta por N vezes o custo. */
   const paginaDeRubricas = useMemo(
-    () => linhasDeRubrica.slice((pagina - 1) * porPagina, pagina * porPagina),
-    [linhasDeRubrica, pagina, porPagina],
+    () => linhasAgrupadas.slice((pagina - 1) * porPagina, pagina * porPagina),
+    [linhasAgrupadas, pagina, porPagina],
   );
+  /* O subtotal que cada cabeçalho de grupo escreve. É o da seção **no recorte
+     inteiro**, e não o das linhas desta página: um grupo que se parte entre
+     duas páginas diria dois números, e nenhum dos dois seria o da barra logo
+     acima — o cabeçalho escreve "no recorte" com todas as letras por isso. */
+  const totalDaSecao = useMemo(() => new Map(modulos.map((m) => [m.modulo, m])), [modulos]);
   /* O quarto cartão: quantas telas alguém precisa abrir para zerar a fila —
-     sempre do recorte inteiro, e não do módulo filtrado. */
+     sempre do recorte inteiro, e não da seção filtrada. */
   const rubricasPendentes = useMemo(
     () => rubricasDoPainel(rubricas, changeSetId, tipo).filter((r) => r.pendentes > 0).length,
     [rubricas, changeSetId, tipo],
@@ -540,7 +554,7 @@ export default function MonitorDeJustificativas() {
 
     Ele **não** interpreta tendência ("a pendência é recente"): duas colunas
     bastam para uma reta, e não para uma afirmação sobre o trabalho. Ele diz o
-    que está no dado — qual vigência tem menos explicação, e qual módulo puxa a
+    que está no dado — qual vigência tem menos explicação, e qual seção puxa a
     conta dela para baixo —, que é por onde se começa.
   */
   const destaque = useMemo(() => {
@@ -618,7 +632,7 @@ export default function MonitorDeJustificativas() {
    *
    * É o único lugar onde o detalhe por alteração mora desde que a lista saiu da
    * tela, e por isso ele sai **inteiro**: as justificadas e as pendentes, com o
-   * módulo e a rubrica de cada uma ao lado do que mudou.
+   * seção e a rubrica de cada uma ao lado do que mudou.
    */
   const exportar = async () => {
     setExportando(true);
@@ -648,7 +662,7 @@ export default function MonitorDeJustificativas() {
       const csv = [
         [
           "Vigência",
-          "Módulo",
+          "Seção",
           "Rubrica",
           "Placa",
           "Tipo",
@@ -707,15 +721,15 @@ export default function MonitorDeJustificativas() {
       <div className="px-6 py-4 flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="text-lg font-bold">Onde está a pendência</h2>
         <p className="text-sm text-muted-foreground">
-          Uma linha por rubrica. Nenhuma se justifica aqui — o botão leva à tela que grava.
+          Uma linha por rubrica, agrupada por seção. Nenhuma se justifica aqui — o botão leva
+          à tela que grava.
         </p>
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead className="border-y bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
             <tr>
-              <th className="px-4 py-2.5 text-left font-semibold">Módulo</th>
-              <th className="px-3 py-2.5 text-left font-semibold">Rubrica</th>
+              <th className="px-4 py-2.5 text-left font-semibold">Rubrica</th>
               <th className="px-3 py-2.5 text-right font-semibold">Alterações</th>
               <th className="px-3 py-2.5 text-right font-semibold">Justificadas</th>
               <th className="px-3 py-2.5 text-left font-semibold w-64">Cobertura</th>
@@ -727,83 +741,131 @@ export default function MonitorDeJustificativas() {
           <tbody>
             {linhasDeRubrica.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-4 py-10 text-center text-muted-foreground">
+                <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">
                   Nenhuma rubrica neste recorte.
                 </td>
               </tr>
             )}
-            {paginaDeRubricas.map((linha) => {
+            {paginaDeRubricas.map((linha, i) => {
               const desenho = DESENHO_DO_MODULO[linha.modulo];
+              const Icone = desenho.icone;
+              /* O selo era uma coluna, e virou este cabeçalho. Repetido em doze
+                 linhas seguidas ele escrevia "Custo Variável" doze vezes para
+                 dizer o que o agrupamento já diz — e gastava, no celular, a
+                 largura que a rubrica precisa. A cor é a mesma da barra de
+                 "Cobertura por seção": é ela que liga as duas leituras. */
+              const abreSecao = i === 0 || paginaDeRubricas[i - 1].modulo !== linha.modulo;
+              const secao = totalDaSecao.get(linha.modulo);
               return (
-                <tr key={linha.chave} className="border-b last:border-0 hover:bg-muted/30">
-                  <td className="px-4 py-3">
-                    <span
-                      className={cn(
-                        "inline-block whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-bold",
-                        desenho.selo,
-                      )}
-                    >
-                      {linha.moduloRotulo}
-                    </span>
-                  </td>
-                  <td className="px-3 py-3 font-medium">{linha.rotulo}</td>
-                  <td className="px-3 py-3 text-right tabular-nums">
-                    {linha.alteracoes.toLocaleString("pt-BR")}
-                  </td>
-                  <td className="px-3 py-3 text-right tabular-nums text-emerald-700">
-                    {linha.justificadas.toLocaleString("pt-BR")}
-                  </td>
-                  <td className="px-3 py-3">
-                    <BarraDaCobertura cobertura={linha.cobertura} />
-                    <span className="mt-1.5 block text-xs text-muted-foreground tabular-nums">
-                      {pct(linha.cobertura)} ·{" "}
-                      <span className="text-amber-700">
-                        {linha.pendentes.toLocaleString("pt-BR")} pendentes
-                      </span>
-                    </span>
-                  </td>
-                  <td className="px-3 py-3">
-                    {linha.ultimoAutor === null ? (
-                      /* Ninguém — e não "sem responsável": a rubrica não tem
-                         dono a quem cobrar, tem trabalho a fazer. */
-                      <span className="text-xs text-muted-foreground">—</span>
-                    ) : (
-                      <span className="flex items-center gap-2 text-xs">
-                        <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-bold">
-                          {iniciaisDoResponsavel(linha.ultimoAutor)}
+                <Fragment key={linha.chave}>
+                  {abreSecao && (
+                    <tr className={cn("border-b", desenho.fundo)}>
+                      <th scope="colgroup" colSpan={7} className="px-4 py-2.5 text-left">
+                        {/* Grudado à esquerda, e da largura da **tela** e não
+                            da tabela: ela rola de lado no celular, e um
+                            cabeçalho que acompanha a rolagem some junto com a
+                            primeira coluna — ou, largo como a tabela, não
+                            quebra linha e some pela direita. No desktop o
+                            `max-w-full` devolve a largura da tabela, que aí é
+                            a menor das duas. */}
+                        <span className="sticky left-4 flex w-[calc(100vw-6rem)] max-w-full flex-wrap items-baseline gap-x-3 gap-y-1">
+                          <span
+                            className={cn(
+                              "flex items-center gap-2 text-sm font-bold",
+                              desenho.tinta,
+                            )}
+                          >
+                            <Icone className="h-4 w-4 shrink-0" />
+                            {linha.moduloRotulo}
+                          </span>
+                          {/* "No recorte" vem **primeiro**, e não no fim: é o
+                              que impede ler o subtotal como o das linhas desta
+                              página, e é a parte que a tela estreita corta se
+                              estiver no fim da frase. */}
+                          {secao && (
+                            <span className="flex flex-wrap items-baseline gap-x-2 text-xs font-medium text-muted-foreground tabular-nums">
+                              {/* Cada número é um item do flex, e não um trecho
+                                  de uma frase só: assim a linha quebra entre
+                                  eles na tela estreita, em vez de sumir pela
+                                  direita com o último deles. */}
+                              <span>No recorte:</span>
+                              <span>
+                                {secao.rubricas.length.toLocaleString("pt-BR")}{" "}
+                                {secao.rubricas.length === 1 ? "rubrica" : "rubricas"} ·
+                              </span>
+                              <span>
+                                {secao.alteracoes.toLocaleString("pt-BR")} alterações ·
+                              </span>
+                              <span className="text-amber-700">
+                                {secao.pendentes.toLocaleString("pt-BR")} pendentes ·
+                              </span>
+                              <span>{pct(secao.cobertura)} explicado</span>
+                            </span>
+                          )}
                         </span>
-                        <span className="truncate max-w-[12rem]">{linha.ultimoAutor}</span>
+                      </th>
+                    </tr>
+                  )}
+                  <tr className="border-b last:border-0 hover:bg-muted/30">
+                    <td className="px-4 py-3 font-medium">{linha.rotulo}</td>
+                    <td className="px-3 py-3 text-right tabular-nums">
+                      {linha.alteracoes.toLocaleString("pt-BR")}
+                    </td>
+                    <td className="px-3 py-3 text-right tabular-nums text-emerald-700">
+                      {linha.justificadas.toLocaleString("pt-BR")}
+                    </td>
+                    <td className="px-3 py-3">
+                      <BarraDaCobertura cobertura={linha.cobertura} />
+                      <span className="mt-1.5 block text-xs text-muted-foreground tabular-nums">
+                        {pct(linha.cobertura)} ·{" "}
+                        <span className="text-amber-700">
+                          {linha.pendentes.toLocaleString("pt-BR")} pendentes
+                        </span>
                       </span>
-                    )}
-                  </td>
-                  <td className="px-3 py-3 text-xs text-muted-foreground">
-                    {linha.ultimaEm === null
-                      ? "Nenhuma ainda"
-                      : tempoRelativo(new Date(linha.ultimaEm))}
-                  </td>
-                  <td className="px-3 py-3 text-right">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="text-primary font-semibold"
-                      onClick={() =>
-                        navegar(
-                          /*
-                            A tela da rubrica quando ela tem uma; a fila quando
-                            não — e a fila justifica qualquer alteração. Nenhum
-                            dos dois caminhos abre um diálogo daqui: quem grava
-                            é a tela de destino.
-                          */
-                          `${linha.rota ?? "/justificativas"}?${recorteDoEndereco(
-                            changeSetId ? { changeSetId } : {},
-                          )}`,
-                        )
-                      }
-                    >
-                      {linha.rota ? `Abrir em ${linha.moduloRotulo}` : "Abrir na fila"} →
-                    </Button>
-                  </td>
-                </tr>
+                    </td>
+                    <td className="px-3 py-3">
+                      {linha.ultimoAutor === null ? (
+                        /* Ninguém — e não "sem responsável": a rubrica não tem
+                           dono a quem cobrar, tem trabalho a fazer. */
+                        <span className="text-xs text-muted-foreground">—</span>
+                      ) : (
+                        <span className="flex items-center gap-2 text-xs">
+                          <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-bold">
+                            {iniciaisDoResponsavel(linha.ultimoAutor)}
+                          </span>
+                          <span className="truncate max-w-[12rem]">{linha.ultimoAutor}</span>
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-3 py-3 text-xs text-muted-foreground">
+                      {linha.ultimaEm === null
+                        ? "Nenhuma ainda"
+                        : tempoRelativo(new Date(linha.ultimaEm))}
+                    </td>
+                    <td className="px-3 py-3 text-right">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-primary font-semibold"
+                        onClick={() =>
+                          navegar(
+                            /*
+                              A tela da rubrica quando ela tem uma; a fila quando
+                              não — e a fila justifica qualquer alteração. Nenhum
+                              dos dois caminhos abre um diálogo daqui: quem grava
+                              é a tela de destino.
+                            */
+                            `${linha.rota ?? "/justificativas"}?${recorteDoEndereco(
+                              changeSetId ? { changeSetId } : {},
+                            )}`,
+                          )
+                        }
+                      >
+                        {linha.rota ? `Abrir em ${linha.moduloRotulo}` : "Abrir na fila"} →
+                      </Button>
+                    </td>
+                  </tr>
+                </Fragment>
               );
             })}
           </tbody>
@@ -888,7 +950,7 @@ export default function MonitorDeJustificativas() {
             — é a vigência com menos explicação: {pct(100 - destaque.vigencia.cobertura)} do que
             mudou nela ainda não tem justificativa
             {destaque.modulo
-              ? `, e o módulo mais atrasado dentro dela é ${destaque.modulo.rotulo} (${pct(
+              ? `, e a seção mais atrasada dentro dela é ${destaque.modulo.rotulo} (${pct(
                   destaque.modulo.cobertura,
                 )} explicado)`
               : ""}
@@ -908,13 +970,13 @@ export default function MonitorDeJustificativas() {
         descricao={
           <>
             Quanto do que a Ambev mudou já está explicado, e quanto ainda falta —
-            por módulo, por rubrica e por vigência
+            por seção, por rubrica e por vigência
             {unidadeDoRecorte
               ? `, em ${unidadeDoRecorte}`
               : emVisaoGeral
                 ? ", somando todas as unidades"
                 : ""}
-            . Justificar acontece dentro de cada módulo; aqui se acompanha e se
+            . Justificar acontece dentro de cada seção; aqui se acompanha e se
             cobra.
           </>
         }
@@ -941,7 +1003,7 @@ export default function MonitorDeJustificativas() {
         acoes={
           /*
             A vigência é o recorte da leitura, e não um filtro dela: ela decide
-            **de que acervo** os cartões, os módulos e a tabela falam, do mesmo
+            **de que acervo** os cartões, as seções e a tabela falam, do mesmo
             jeito que a unidade da lateral. Por isso o botão da casa — "Trocar
             vigência" —, no canto direito do cabeçalho.
           */
@@ -1036,7 +1098,7 @@ export default function MonitorDeJustificativas() {
       <div className="px-8 pb-10 space-y-4 max-w-[1400px] pt-4">
         {tipo !== null && (
           <p className="text-sm text-muted-foreground">
-            Tudo abaixo — os cartões, os módulos e a tabela — fala só{" "}
+            Tudo abaixo — os cartões, as seções e a tabela — fala só{" "}
             {contracaoDoTipo(tipo, "de")} {palavrasDoTipo(tipo).plural}.
           </p>
         )}
@@ -1115,7 +1177,7 @@ export default function MonitorDeJustificativas() {
                 rodape={
                   modulos.length > 0
                     ? `O que mudou entre as vigências, em ${modulos.length} ${
-                        modulos.length === 1 ? "módulo" : "módulos"
+                        modulos.length === 1 ? "seção" : "seções"
                       }`
                     : "O que mudou entre as vigências"
                 }
@@ -1150,20 +1212,20 @@ export default function MonitorDeJustificativas() {
                 <div className="grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
                   {/*
                     A leitura que esta tela existe para dar: onde está a
-                    pendência, por módulo. Clicar na linha recorta a tabela
+                    pendência, por seção. Clicar na linha recorta a tabela
                     abaixo — que é a continuação da mesma pergunta, um nível mais
-                    fundo —, e "Abrir" vai para a tela do módulo inteiro.
+                    fundo —, e "Abrir" vai para a tela da seção inteira.
                   */}
                   <section className="superficie min-w-0 px-6 py-5">
                     <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-                      <h2 className="text-lg font-bold">Cobertura por módulo</h2>
+                      <h2 className="text-lg font-bold">Cobertura por seção</h2>
                       <p className="text-xs text-muted-foreground">
                         A barra diz onde mandar a cobrança. Clique para recortar a tabela.
                       </p>
                     </div>
                     {modulos.length === 0 ? (
                       <p className="text-sm text-muted-foreground mt-3">
-                        A cobertura por módulo não veio nesta resposta.
+                        A cobertura por seção não veio nesta resposta.
                       </p>
                     ) : (
                       <ul className="mt-2 divide-y">
@@ -1307,7 +1369,7 @@ export default function MonitorDeJustificativas() {
                         duas gravam o mesmo estado. */}
                     <label className="space-y-1">
                       <span className="block text-xs uppercase tracking-wide text-muted-foreground">
-                        Módulo
+                        Seção
                       </span>
                       <Select
                         value={moduloFiltrado ?? TODOS_OS_MODULOS}
@@ -1531,7 +1593,7 @@ export default function MonitorDeJustificativas() {
                           dizer isso é o que impede a leitura de ser lida como a
                           cobertura inteira. */}
                       O quadro de pessoal não aparece nesta leitura: ele não é ativo com placa. A
-                      cobertura dele está na aba Por módulo.
+                      cobertura dele está na aba Por seção.
                     </p>
                   </section>
 

@@ -4,6 +4,7 @@ import {
   enderecoDasLinhas,
   iniciaisDoResponsavel,
   modulosDoPainel,
+  rubricasAgrupadasPorSecao,
   rubricasDoPainel,
   textoDaCobranca,
   pendenciasPorTipo,
@@ -455,6 +456,47 @@ describe("rubricasDoPainel", () => {
  * sem pendência ocupando a lista, ou uma instrução que manda justificar onde
  * não se justifica.
  */
+describe("rubricasAgrupadasPorSecao", () => {
+  it("põe as seções na ordem do catálogo — a mesma das barras", () => {
+    /* A tabela fica logo abaixo de "Cobertura por seção", e duas ordens
+       diferentes fariam a terceira barra apontar para o primeiro grupo. */
+    const agrupadas = rubricasAgrupadasPorSecao(rubricasDoPainel(POR_RUBRICA, null, null));
+    expect(agrupadas.map((l) => l.modulo)).toEqual([
+      "CUSTO_FIXO",
+      "CUSTO_VARIAVEL",
+      "SEM_CLASSE",
+    ]);
+    expect(agrupadas.map((l) => l.modulo)).toEqual(
+      modulosDoPainel(POR_RUBRICA, null, null).map((m) => m.modulo),
+    );
+  });
+
+  it("mantém, dentro da seção, a ordem por pendência", () => {
+    /* O agrupamento decide o grupo, e não a linha por onde começar dentro
+       dele: a rubrica mais atrasada continua sendo a primeira do grupo. */
+    const doCustoFixo = [
+      rubrica("v1", "CAVALO", "CUSTO_FIXO", "finame", 10, 9),
+      rubrica("v1", "CAVALO", "CUSTO_FIXO", "ipva", 20, 1),
+      rubrica("v1", "CAVALO", "CUSTO_VARIAVEL", "manutencao", 4, 0),
+    ];
+    const agrupadas = rubricasAgrupadasPorSecao(rubricasDoPainel(doCustoFixo, null, null));
+    expect(agrupadas.map((l) => [l.rotulo, l.pendentes])).toEqual([
+      ["IPVA", 19],
+      ["Finame", 1],
+      ["Manutenção", 4],
+    ]);
+  });
+
+  it("não perde nem duplica linha — é a mesma lista, noutra ordem", () => {
+    const linhas = rubricasDoPainel(POR_RUBRICA, null, null);
+    const agrupadas = rubricasAgrupadasPorSecao(linhas);
+    expect(agrupadas).toHaveLength(linhas.length);
+    expect(agrupadas.map((l) => l.chave).sort()).toEqual(
+      linhas.map((l) => l.chave).sort(),
+    );
+  });
+});
+
 describe("textoDaCobranca", () => {
   const recorte = {
     unidade: "CAMAÇARI",
