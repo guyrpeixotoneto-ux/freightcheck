@@ -425,6 +425,34 @@ async function lerLinhasDoRaw(
       .where(eq(rawRowTable.rawSheetId, aba.id));
     if (linhasDaAba.length === 0) continue;
 
+    /*
+      O cabeçalho primeiro, e só ele — a aba é descartada antes de custar.
+
+      O cabeçalho vem das próprias células, e não de uma lista à parte: é ele
+      que `raw_cell.column_header` guarda, verbatim, em toda célula. Decidir o
+      layout por aqui é decidir pelo que foi gravado, e não pelo que o leitor
+      achou na hora.
+
+      Ler **uma linha** para decidir, em vez do arquivo inteiro, é o que impede
+      a aba errada de custar caro: o de-para que veio junto do extrato real tem
+      24.164 linhas, e carregar as 48 mil células dele para concluir "isto não é
+      o extrato" seria pagar o preço do arquivo todo por uma resposta que a
+      primeira linha dá.
+    */
+    const linhaDeCabecalho =
+      linhasDaAba.find((l) => l.isHeader) ??
+      [...linhasDaAba].sort((a, b) => a.rowIndex - b.rowIndex)[0];
+    const celulasDoCabecalho = await db
+      .select()
+      .from(rawCellTable)
+      .where(eq(rawCellTable.rawRowId, linhaDeCabecalho.id));
+
+    const cabecalhos = [...celulasDoCabecalho]
+      .sort((a, b) => a.columnIndex - b.columnIndex)
+      .map((c) => c.columnHeader);
+
+    if (!reconhecerLayoutDoExtrato(cabecalhos).reconhecido) continue;
+
     const ids = linhasDaAba.map((l) => l.id);
     const todasAsCelulas: (typeof rawCellTable.$inferSelect)[] = [];
     for (let i = 0; i < ids.length; i += 500) {
@@ -434,24 +462,6 @@ async function lerLinhasDoRaw(
         .where(inArray(rawCellTable.rawRowId, ids.slice(i, i + 500)));
       todasAsCelulas.push(...lote);
     }
-
-    /*
-      O cabeçalho vem das próprias células, e não de uma lista à parte: é ele
-      que `raw_cell.column_header` guarda, verbatim, em toda célula. Decidir o
-      layout por aqui é decidir pelo que foi gravado — não pelo que o leitor
-      achou na hora.
-    */
-    const cabecalhos = [
-      ...new Map(
-        todasAsCelulas
-          .filter((c) => c.columnHeader !== null)
-          .map((c) => [c.columnIndex, c.columnHeader as string]),
-      ).entries(),
-    ]
-      .sort(([a], [b]) => a - b)
-      .map(([, cabecalho]) => cabecalho);
-
-    if (!reconhecerLayoutDoExtrato(cabecalhos).reconhecido) continue;
 
     const porLinha = new Map<number, (typeof rawCellTable.$inferSelect)[]>();
     for (const celula of todasAsCelulas) {

@@ -147,7 +147,7 @@ export interface Apuracao {
 /** A rubrica que o extrato alimenta hoje. Uma só, e nomeada. */
 export const RUBRICA_FINAME_REAL = "finame_real";
 
-const SEP = "";
+const SEP = "\u0001";
 
 /**
  * A chave contábil: o que faz duas linhas serem o **mesmo lançamento**.
@@ -428,13 +428,22 @@ export function reconciliar(apuracao: Apuracao): {
 
   return {
     /*
-      Um centavo de tolerância, e não zero: os consolidados são arredondados ao
-      centavo um a um, e o extrato tem três casas decimais, de modo que a soma
-      dos arredondados difere da soma dos originais por frações de centavo. A
-      tolerância é proporcional ao número de grupos pela mesma razão — é a
-      margem que o arredondamento pode acumular, e nada além dela.
+      A tolerância é exatamente o que o arredondamento pode acumular, e nada
+      além disso.
+
+      Os consolidados são arredondados ao centavo um a um, e o extrato tem três
+      e quatro casas decimais — de modo que a soma dos arredondados difere da
+      soma dos originais por, no máximo, meio centavo por grupo. Daí
+      `0,005 × grupos`, mais um centavo de folga para o erro de ponto flutuante
+      da própria soma.
+
+      Era o dobro disso, e o dobro é frouxo demais para o que esta conta existe
+      para pegar: num arquivo com 811 grupos, a folga de R$ 8,11 esconderia uma
+      diferença real de R$ 8 — que é dinheiro sumido entre a planilha e o banco,
+      e é o único defeito que esta função tem a obrigação de encontrar.
     */
-    fecha: Math.abs(diferenca) <= 0.01 * Math.max(1, apuracao.consolidados.length),
+    fecha:
+      Math.abs(diferenca) <= 0.005 * Math.max(1, apuracao.consolidados.length) + 0.01,
     totalDoExtrato: arredondar(totalDoExtrato),
     totalConsolidado: arredondar(totalConsolidado),
     totalEmDuplicatas: arredondar(totalEmDuplicatas),

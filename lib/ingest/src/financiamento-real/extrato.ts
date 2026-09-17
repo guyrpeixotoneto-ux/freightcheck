@@ -303,5 +303,5 @@ function impressaoDigitalDe(celulas: Record<string, string | null>): string {
   return Object.keys(celulas)
     .sort()
     .map((chave) => `${chave}=${celulas[chave] ?? "∅"}`)
-    .join("");
+    .join("\u0001");
 }
