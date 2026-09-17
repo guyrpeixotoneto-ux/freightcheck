@@ -33,7 +33,7 @@ const ENVELHECIDA_ATE_HORAS = 24 * 7;
  * precisa de teste com o tempo controlado.
  */
 export function frescorDe(capturadoEm: string, agora: Date): Frescor {
-  const quando = new Date(capturadoEm).getTime();
+  const quando = new Date(comFusoExplicito(capturadoEm)).getTime();
   if (!Number.isFinite(quando)) return "VELHA";
 
   const horas = (agora.getTime() - quando) / 3_600_000;
@@ -55,6 +55,31 @@ export function frescorDoConjunto(
     .reduce((pior, atual) =>
       ordem.indexOf(atual) > ordem.indexOf(pior) ? atual : pior,
     );
+}
+
+/**
+ * O carimbo da ferramenta, com fuso, sempre.
+ *
+ * `web_fetch` devolve `retrieved_at` de dois jeitos — observados nas duas
+ * primeiras pesquisas reais deste agente: `2026-09-17T00:58:14.396000+00:00` e
+ * `2026-09-17T09:32:45.902484`, o segundo sem fuso nenhum. O JavaScript lê uma
+ * data-hora sem fuso como **hora local**, então em São Paulo aquele segundo
+ * carimbo vira três horas no futuro.
+ *
+ * E o erro tem direção: no futuro, a diferença até agora fica negativa, cai no
+ * `horas < 1` e **toda captura vira AGORA**. Quer dizer, o defeito não faz a
+ * cotação parecer velha — faz a velha parecer fresca, que é exatamente o
+ * engano que `frescor.ts` existe para impedir.
+ *
+ * A normalização é conservadora: só acrescenta `Z` quando a string tem forma de
+ * data-hora ISO e não traz fuso. Qualquer outra coisa passa intacta e cai no
+ * `VELHA` do chamador, que é o desfecho certo para carimbo ilegível.
+ */
+export function comFusoExplicito(carimbo: string): string {
+  const texto = carimbo.trim();
+  const ehDataHora = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/.test(texto);
+  const temFuso = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(texto);
+  return ehDataHora && !temFuso ? `${texto}Z` : texto;
 }
 
 /** Se uma captura ainda serve para ser apresentada como preço de mercado. */

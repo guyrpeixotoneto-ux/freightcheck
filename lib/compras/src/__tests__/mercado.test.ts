@@ -9,6 +9,7 @@ import {
   derivarPrecoAlvo,
   especificarCompra,
   frescorDe,
+  comFusoExplicito,
   grafiasDoPreco,
   lerMercado,
   lerOfertasDeJson,
@@ -571,6 +572,32 @@ describe("o frescor distingue captura de hoje de preço velho", () => {
 
   it("data ilegível é velha, e nunca fresca", () => {
     expect(frescorDe("nao-e-data", AGORA)).toBe("VELHA");
+  });
+
+  it("carimbo sem fuso é lido como UTC, e não como hora local", () => {
+    /*
+      A ferramenta devolve `retrieved_at` dos dois jeitos — as duas primeiras
+      pesquisas reais trouxeram `...+00:00` e `...902484`, sem fuso. O
+      JavaScript lê o segundo como hora local, e o erro tem direção: num fuso
+      atrás de UTC a captura vira futuro, a diferença fica negativa, e TODA
+      captura vira AGORA. O defeito não faz a cotação parecer velha — faz a
+      velha parecer fresca.
+    */
+    expect(comFusoExplicito("2026-09-17T09:32:45.902484")).toBe(
+      "2026-09-17T09:32:45.902484Z",
+    );
+    expect(comFusoExplicito("2026-09-17T00:58:14.396000+00:00")).toBe(
+      "2026-09-17T00:58:14.396000+00:00",
+    );
+    expect(comFusoExplicito("2026-09-17T09:32:45Z")).toBe("2026-09-17T09:32:45Z");
+    expect(comFusoExplicito("nao-e-data")).toBe("nao-e-data");
+  });
+
+  it("uma captura de dez dias atrás é VELHA mesmo sem fuso no carimbo", () => {
+    const dezDias = new Date(AGORA.getTime() - 10 * 24 * 3_600_000)
+      .toISOString()
+      .replace("Z", "");
+    expect(frescorDe(dezDias, AGORA)).toBe("VELHA");
   });
 });
 

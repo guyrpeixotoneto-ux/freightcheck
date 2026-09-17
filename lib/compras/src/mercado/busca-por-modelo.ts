@@ -99,6 +99,11 @@ const PREFIXOS_COM_FILTRAGEM_DINAMICA = [
   "claude-mythos-5",
 ];
 
+/** Quantas buscas esta configuração permite, para o relatório poder dizê-lo. */
+export function buscasPorPesquisa(): number {
+  return BUSCAS_POR_PESQUISA;
+}
+
 export function temFiltragemDinamica(modelo: string): boolean {
   return PREFIXOS_COM_FILTRAGEM_DINAMICA.some((p) => modelo.startsWith(p));
 }
@@ -117,13 +122,16 @@ export function temFiltragemDinamica(modelo: string): boolean {
 function ferramentasDaBusca(
   modelo: string,
   maximoDePaginas: number,
+  regiao: string | null,
 ): Anthropic.Beta.BetaToolUnion[] {
+  const user_location = localDoUsuario(regiao);
   if (temFiltragemDinamica(modelo)) {
     return [
       {
         type: "web_search_20260209",
         name: "web_search",
         max_uses: BUSCAS_POR_PESQUISA,
+        user_location,
       },
       {
         type: "web_fetch_20260209",
@@ -138,6 +146,7 @@ function ferramentasDaBusca(
       type: "web_search_20250305",
       name: "web_search",
       max_uses: BUSCAS_POR_PESQUISA,
+      user_location,
     },
     {
       type: "web_fetch_20250910",
@@ -154,17 +163,62 @@ const TOKENS_POR_PAGINA = 6000;
 /**
  * Quantas buscas o modelo pode disparar antes de começar a abrir páginas.
  *
- * Eram quatro, e a primeira pesquisa real mostrou o preço disso: 378 mil
- * tokens de entrada e US$ 2,20 numa consulta só. O conteúdo de cada busca
- * volta ao contexto e é reenviado a cada passo do laço interno, então o custo
- * cresce com o **quadrado** do número de buscas, não com ele.
+ * **Quatro, e o corte para duas foi medido e reprovado.** A tentação era óbvia:
+ * quatro buscas custaram 378 mil tokens de entrada e US$ 2,20 numa consulta só,
+ * porque o conteúdo de cada busca volta ao contexto e é reenviado a cada passo
+ * do laço interno. Cortar pela metade derrubou o custo 78%.
  *
- * Duas bastam para o que este agente faz: a consulta já chega especificada
- * (medida, quantidade, região), e o trabalho caro e útil é abrir as páginas,
- * não variar os termos. Quem precisar de mais varredura sobe o número aqui e
- * paga por ela sabendo.
+ * E derrubou a pesquisa junto: **uma página aberta, zero ofertas, e a página
+ * era a eBay.com** — site americano, em dólar, para uma consulta com entrega em
+ * Camaçari. Com quatro buscas o modelo encontrava varejistas brasileiros; com
+ * duas ele não encontrou candidato bom o bastante e parou depois de um único
+ * fetch, dos seis a que tinha direito.
+ *
+ * A leitura correta desse resultado não é "duas é pouco": é que a busca não
+ * tinha **âncora geográfica** nenhuma, e o volume estava compensando isso por
+ * força bruta. A âncora entrou (ver `localDoUsuario`), e é com ela que o número
+ * certo pode ser procurado — `COMPRAS_BUSCAS_POR_PESQUISA` varre sem recompilar.
  */
-const BUSCAS_POR_PESQUISA = 2;
+const BUSCAS_POR_PESQUISA = (() => {
+  const bruto = Number(process.env["COMPRAS_BUSCAS_POR_PESQUISA"]);
+  return Number.isFinite(bruto) && bruto >= 1 && bruto <= 8 ? Math.trunc(bruto) : 4;
+})();
+
+/**
+ * O país é o Brasil, e isso é do produto — não do ambiente.
+ *
+ * O FreightCheck audita remuneração de frota da Ambev no Brasil: o catálogo é
+ * em português, os valores são em reais, e a consulta termina em "preço
+ * fornecedor Brasil". Sem esta âncora a busca é global, e ela de fato foi:
+ * abriu a eBay americana para um pedido de quarenta pneus em Camaçari.
+ *
+ * `COMPRAS_PAIS_DA_BUSCA` existe para o dia em que a operação não for
+ * brasileira. Até lá, o padrão é o que o produto é.
+ */
+const PAIS = process.env["COMPRAS_PAIS_DA_BUSCA"]?.trim().toUpperCase() || "BR";
+const FUSO = process.env["COMPRAS_FUSO_DA_BUSCA"]?.trim() || "America/Sao_Paulo";
+
+/**
+ * A localização aproximada que ancora a busca, derivada da unidade.
+ *
+ * "Camaçari/BA" vira cidade *Camaçari* e região *BA*; "CAMAÇARI" sozinho vira
+ * só a cidade. Sem região declarada, o país sustenta a âncora sozinho — que já
+ * é a diferença entre um resultado brasileiro e um americano.
+ */
+export function localDoUsuario(regiao: string | null): Anthropic.Beta.BetaUserLocation {
+  const partes = (regiao ?? "")
+    .split("/")
+    .map((p) => p.trim())
+    .filter((p) => p !== "");
+
+  return {
+    type: "approximate",
+    country: PAIS,
+    timezone: FUSO,
+    ...(partes[0] ? { city: partes[0] } : {}),
+    ...(partes[1] ? { region: partes[1] } : {}),
+  };
+}
 
 export function buscaDisponivel(): boolean {
   return Boolean(
@@ -273,7 +327,7 @@ export function buscaPorModelo(): BuscaDeMercado {
           model: MODELO,
           max_tokens: 12_000,
           system: [{ type: "text", text: INSTRUCAO_DA_BUSCA }],
-          tools: ferramentasDaBusca(MODELO, maximo),
+          tools: ferramentasDaBusca(MODELO, maximo, especificacao.regiao),
           messages: [
             {
               role: "user",

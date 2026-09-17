@@ -26,6 +26,8 @@
  */
 
 import {
+  buscasPorPesquisa,
+  localDoUsuario,
   buscaDisponivel,
   buscaIndisponivel,
   buscaPorModelo,
@@ -151,6 +153,14 @@ function relatarModelo(): void {
   console.log(`   Cabeçalho beta: nenhum — as duas ferramentas são GA`);
   console.log(
     `   Teto de tempo : ${Math.round(TETO_MS / 1000)}s (COMPRAS_BUSCA_TIMEOUT_MS)`,
+  );
+  console.log(
+    `   Buscas        : ${buscasPorPesquisa()} por pesquisa (COMPRAS_BUSCAS_POR_PESQUISA)`,
+  );
+  const local = localDoUsuario(argumento("regiao", "Camaçari/BA"));
+  console.log(
+    `   Âncora geo    : ${[local.city, local.region, local.country].filter(Boolean).join(" / ")}` +
+      ` — sem ela a busca abriu a eBay americana para um pedido em Camaçari`,
   );
 }
 
