@@ -40,6 +40,12 @@ import { cn } from "@/lib/utils";
  * chave normalizada aparece como está — menos bonita e igualmente verdadeira.
  * Inventar um nome seria pior.
  *
+ * A classificação tem coluna própria porque é um fato próprio: a fonte do
+ * quadro operacional escreve `Cargo: Manobrista | Classificação: …` numa célula
+ * só, e uma coluna "Cargo" que mostrasse a frase inteira não se filtraria nem se
+ * ordenaria por nenhum dos dois. Ver "Uma coluna, um fato" em
+ * `docs/LINGUAGEM-VISUAL.md`.
+ *
  * ---------------------------------------------------------------------------
  * A coluna da direita é "Diferença", e nunca "Impacto"
  * ---------------------------------------------------------------------------
@@ -81,8 +87,8 @@ export function TabelaDoMonitorDeEquipe({
       <Table>
         <caption className="sr-only">
           Todas as alterações do quadro de pessoal do recorte, com módulo,
-          {mostrarQuadro ? " quadro," : ""} cargo, variável, valores, diferença e
-          situação.
+          {mostrarQuadro ? " quadro," : ""} cargo, classificação, variável, valores,
+          diferença e situação.
         </caption>
         <TableHeader>
           <TableRow>
@@ -101,6 +107,7 @@ export function TabelaDoMonitorDeEquipe({
             <Cabecalho coluna="cargo" ordem={ordem} onOrdenar={onOrdenar}>
               Cargo
             </Cabecalho>
+            <TableHead scope="col">Classificação</TableHead>
             <Cabecalho coluna="variavel" ordem={ordem} onOrdenar={onOrdenar}>
               Variável
             </Cabecalho>
@@ -123,7 +130,10 @@ export function TabelaDoMonitorDeEquipe({
         </TableHeader>
         <TableBody>
           {linhas.map((l) => {
-            const { unidade, cargo } = escreverCargo(l.cargo.chave, rotulos);
+            const { unidade, cargo, classificacao, outros } = escreverCargo(
+              l.cargo.chave,
+              rotulos,
+            );
             return (
               <TableRow
                 key={l.id}
@@ -166,6 +176,14 @@ export function TabelaDoMonitorDeEquipe({
                   {unidade && (
                     <span className="ml-1 text-[0.7rem] text-muted-foreground">{unidade}</span>
                   )}
+                </TableCell>
+                <TableCell className="text-xs text-muted-foreground">
+                  {classificacao ?? "—"}
+                  {outros.map((campo) => (
+                    <div key={campo.rotulo} className="text-[0.7rem]">
+                      {campo.rotulo}: {campo.valor}
+                    </div>
+                  ))}
                 </TableCell>
                 <TableCell className="whitespace-nowrap text-xs">
                   {l.variavel.rotulo}

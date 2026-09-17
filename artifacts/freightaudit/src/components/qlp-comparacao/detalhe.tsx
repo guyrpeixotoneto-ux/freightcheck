@@ -56,7 +56,7 @@ export function DetalheDoCargo({
   const doCargo = linhas.filter((l) => l.entityLabel === cargo);
   const somaveis = doCargo.filter((l) => l.foraDaSoma === null);
   const foraDaSoma = doCargo.filter((l) => l.foraDaSoma !== null);
-  const { unidade, cargo: nome } = escreverCargo(cargo, rotulos);
+  const { unidade, cargo: nome, classificacao, outros } = escreverCargo(cargo, rotulos);
 
   /* Por rubrica, na ordem em que as rubricas apareceram — que é a ordem do
      catálogo, porque é dela que a tabela veio. */
@@ -80,6 +80,17 @@ export function DetalheDoCargo({
             {unidade && <span className="font-mono">{unidade}</span>}
             {unidade && " · "}
             {rotuloBase} → {rotuloComparada}
+            {/* Classificação e o que mais vinha grudado no nome, como campos. */}
+            {(classificacao !== null || outros.length > 0) && (
+              <span className="mt-1 block">
+                {[
+                  ...(classificacao ? [{ rotulo: "Classificação", valor: classificacao }] : []),
+                  ...outros,
+                ]
+                  .map((campo) => `${campo.rotulo}: ${campo.valor}`)
+                  .join(" · ")}
+              </span>
+            )}
           </SheetDescription>
         </SheetHeader>
 

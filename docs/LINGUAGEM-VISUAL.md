@@ -107,6 +107,33 @@ precisou de traço) e o bloco da conta passou a ser medalhão + nome + e-mail, n
 lugar do e-mail em caixa alta — que é o identificador do banco, e o pior dos dois
 para se reconhecer de relance.
 
+### 6. Uma coluna, um fato
+
+Quando a fonte grudou vários fatos numa célula só, a tela os separa em colunas
+— nunca repassa a frase inteira para uma coluna que promete um fato só.
+
+O caso que deu origem à regra é o quadro operacional: o rótulo da entidade vem
+como `Cargo: Manobrista | Classificação: Classificação: CARREGAMENTO -
+ESTACIONÁRIA`, com o prefixo repetido e tudo. Numa coluna "Cargo", isso é uma
+coluna que não se filtra, não se ordena e empurra as colunas de número para
+fora da tela. Em duas — "Cargo" e "Classificação" —, cada uma volta a ser o que
+o cabeçalho diz.
+
+Como se faz, e o que **não** se faz:
+
+- a separação é de **apresentação**: `separarCampos`, em
+  `components/qlp/apresentacao.ts`, desmembra o rótulo, e `escreverCargo`
+  entrega `{ unidade, cargo, classificacao, outros }` para a tabela, para a
+  gaveta e para o CSV (que ganhou as colunas na mesma ordem). O dado gravado
+  não muda: quem conserta a fonte é a importação, não a tela;
+- **nada se descarta.** Um campo rotulado sem coluna própria — `Quantidade:
+  10,0` — aparece sob a classificação com o rótulo dele. Sumir com um fato para
+  a coluna ficar bonita é pior do que a frase grudada;
+- **não se inventa estrutura.** Sem `Cargo:` nem `Classificação:` à vista, o
+  rótulo fica inteiro: dois-pontos no meio de um nome é pontuação, não campo;
+- junto, só onde o texto é **nome** e não tabela: o título da gaveta, o
+  `aria-label` e a busca usam `cargoEmUmaLinha`.
+
 ## O Panorama como vitrine
 
 `pages/panorama.tsx` é a tela onde a linguagem está inteira:

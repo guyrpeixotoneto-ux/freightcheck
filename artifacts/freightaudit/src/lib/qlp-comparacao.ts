@@ -5,6 +5,7 @@ import {
   type AlteracoesDaVariavelDeQlp,
   type EstadoDaLinha,
   type FatiaDeEstadoDeQlp,
+  type IdentificacaoDoCargo,
   type LinhaDeQlpComparado,
   type MedidaDaVariavel,
   type QuadroDeQlp,
@@ -12,7 +13,7 @@ import {
 } from "@workspace/comparison/qlp-comparacao";
 import { numeroParaCsv } from "@/lib/csv";
 import { formatBrl, formatNumber } from "@/lib/format";
-import { separarRotulo } from "@/components/qlp/apresentacao";
+import { separarRotulo, type RotuloDaEntidade } from "@/components/qlp/apresentacao";
 
 /**
  * A metade de tela da Comparação do QLP — apresentação, e só.
@@ -41,7 +42,8 @@ export interface ComparacaoDeQlp {
 }
 
 /**
- * O cargo como se lê — unidade de um lado, cargo do outro.
+ * O cargo como se lê — unidade de um lado, cargo do outro, e cada campo que a
+ * fonte grudou no nome (a classificação, e o que mais vier) na sua própria casa.
  *
  * O motor rotula a linha com a chave normalizada
  * (`07526557001505CARGOGERENTE…`); o dicionário de `rotulos` devolve a forma
@@ -51,20 +53,48 @@ export interface ComparacaoDeQlp {
 export function escreverCargo(
   chave: string | null,
   rotulos: Record<string, string>,
-): { unidade: string; cargo: string } {
-  if (!chave) return { unidade: "", cargo: "—" };
+): RotuloDaEntidade {
+  const vazio = { classificacao: null, outros: [] };
+  if (!chave) return { unidade: "", cargo: "—", ...vazio };
   const legivel = rotulos[chave];
-  if (!legivel) return { unidade: "", cargo: chave };
+  if (!legivel) return { unidade: "", cargo: chave, ...vazio };
   return separarRotulo(legivel);
 }
 
-/** O cargo numa linha só, para a busca e para o CSV. */
+/**
+ * O cargo em campos, como o CSV o quer: uma coluna por fato. Os campos sem
+ * coluna própria — `Quantidade: 10,0` e afins — entram junto da classificação,
+ * com o rótulo deles: perder um fato para a planilha ficar bonita seria pior.
+ */
+export function identificacaoDoCargo(
+  chave: string | null,
+  rotulos: Record<string, string>,
+): IdentificacaoDoCargo {
+  const { unidade, cargo, classificacao, outros } = escreverCargo(chave, rotulos);
+  const complemento = [
+    ...(classificacao ? [classificacao] : []),
+    ...outros.map((c) => `${c.rotulo}: ${c.valor}`),
+  ];
+  return {
+    unidade,
+    cargo,
+    classificacao: complemento.length > 0 ? complemento.join(" · ") : null,
+  };
+}
+
+/**
+ * O cargo numa linha só — para a busca, para o `aria-label` e para o título da
+ * gaveta. Só onde o texto é **nome** os campos voltam a andar juntos: numa
+ * tabela cada um tem a sua coluna, e é essa a regra ({@link separarCampos}).
+ */
 export function cargoEmUmaLinha(
   chave: string | null,
   rotulos: Record<string, string>,
 ): string {
-  const { unidade, cargo } = escreverCargo(chave, rotulos);
-  return unidade ? `${unidade} · ${cargo}` : cargo;
+  const { unidade, cargo, classificacao } = identificacaoDoCargo(chave, rotulos);
+  return [...(unidade ? [unidade] : []), cargo, ...(classificacao ? [classificacao] : [])].join(
+    " · ",
+  );
 }
 
 /**
@@ -291,7 +321,7 @@ export function linhasDoCsv(
     ...linhas.map((l) =>
       celulasDoCsvDeQlpComparado(
         l,
-        cargoEmUmaLinha(l.entityLabel, rotulos),
+        identificacaoDoCargo(l.entityLabel, rotulos),
         ROTULO_DO_ESTADO[l.estado],
         l.id === null ? null : (justificadaPor?.get(l.id)?.texto ?? null),
       ).map((celula) =>

@@ -3,6 +3,7 @@ import {
   agruparMovimentos,
   formatarValor,
   rotuloDaVigencia,
+  separarCampos,
   separarRotulo,
 } from "../apresentacao";
 import type { ChangeRow } from "@/components/changes/change-table";
@@ -70,11 +71,69 @@ describe("separarRotulo", () => {
     expect(separarRotulo("07.526.557/0015-05 · ANALISTA ADM")).toEqual({
       unidade: "07.526.557/0015-05",
       cargo: "ANALISTA ADM",
+      classificacao: null,
+      outros: [],
     });
   });
 
   it("sem separador, tudo é cargo — melhor do que inventar uma unidade", () => {
-    expect(separarRotulo("ANALISTA ADM")).toEqual({ unidade: "", cargo: "ANALISTA ADM" });
+    expect(separarRotulo("ANALISTA ADM")).toEqual({
+      unidade: "",
+      cargo: "ANALISTA ADM",
+      classificacao: null,
+      outros: [],
+    });
+  });
+
+  /*
+    O quadro operacional escreve dois fatos numa célula só. Uma coluna que
+    mostra a frase inteira não se filtra nem se ordena por nenhum dos dois.
+  */
+  it("desmembra cargo e classificação, que a fonte escreve grudados", () => {
+    expect(
+      separarRotulo("07526557001505_CERV · Cargo: Manobrista | Classificação: CARREGAMENTO"),
+    ).toEqual({
+      unidade: "07526557001505_CERV",
+      cargo: "Manobrista",
+      classificacao: "CARREGAMENTO",
+      outros: [],
+    });
+  });
+});
+
+describe("separarCampos", () => {
+  it("o prefixo repetido do arquivo cai — é o arquivo, não a leitura", () => {
+    expect(
+      separarCampos(
+        "Cargo: Manobrista | Classificação: Classificação: CARREGAMENTO - ESTACIONÁRIA",
+      ),
+    ).toEqual({
+      cargo: "Manobrista",
+      classificacao: "CARREGAMENTO - ESTACIONÁRIA",
+      outros: [],
+    });
+  });
+
+  it("o campo que não tem coluna própria vira campo, e não some", () => {
+    expect(
+      separarCampos("Cargo: Manobrista | Classificação: CARREGAMENTO | Quantidade: 10.0"),
+    ).toEqual({
+      cargo: "Manobrista",
+      classificacao: "CARREGAMENTO",
+      outros: [{ rotulo: "Quantidade", valor: "10.0" }],
+    });
+  });
+
+  /*
+    Sem `Cargo:` nem `Classificação:`, dois-pontos é pontuação do nome —
+    desmontar ali seria inventar uma estrutura que a fonte não escreveu.
+  */
+  it("não desmonta um cargo que só tem dois-pontos no nome", () => {
+    expect(separarCampos("AUX: ADM")).toEqual({
+      cargo: "AUX: ADM",
+      classificacao: null,
+      outros: [],
+    });
   });
 });
 

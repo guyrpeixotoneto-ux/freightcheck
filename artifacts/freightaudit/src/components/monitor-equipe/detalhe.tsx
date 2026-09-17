@@ -15,7 +15,7 @@ import {
 } from "@/components/ui/sheet";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { cargoEmUmaLinha, escreverValor } from "@/lib/qlp-comparacao";
+import { cargoEmUmaLinha, escreverCargo, escreverValor } from "@/lib/qlp-comparacao";
 import {
   AJUDA_DA_SITUACAO_DE_EQUIPE,
   FRASE_DA_SITUACAO_DE_EQUIPE,
@@ -90,11 +90,7 @@ export function DetalheDaAlteracaoDeEquipe({
                 </p>
               </Bloco>
 
-              <Bloco titulo="O cargo">
-                <Campo rotulo="Identificação" valor={cargoEmUmaLinha(linha.cargo.chave, rotulos)} />
-                <Campo rotulo="Chave no acervo" valor={linha.cargo.chave} />
-                <Campo rotulo="Tipo" valor={linha.cargo.entityType} />
-              </Bloco>
+              <BlocoDoCargo cargo={linha.cargo} rotulos={rotulos} />
 
               <Bloco titulo="A variável">
                 <Campo rotulo="Nome" valor={linha.variavel.rotulo} />
@@ -190,6 +186,33 @@ export function DetalheDaAlteracaoDeEquipe({
         )}
       </SheetContent>
     </Sheet>
+  );
+}
+
+/**
+ * O cargo aberto em campos — unidade, cargo, classificação e o que mais a fonte
+ * tiver grudado no rótulo, cada um com o seu nome. A identificação numa linha
+ * só ficou para o título da gaveta, onde ela é nome, e não tabela.
+ */
+function BlocoDoCargo({
+  cargo,
+  rotulos,
+}: {
+  cargo: LinhaDoMonitorDeEquipe["cargo"];
+  rotulos: Record<string, string>;
+}) {
+  const { unidade, cargo: nome, classificacao, outros } = escreverCargo(cargo.chave, rotulos);
+  return (
+    <Bloco titulo="O cargo">
+      <Campo rotulo="Unidade" valor={unidade} />
+      <Campo rotulo="Cargo" valor={nome} />
+      <Campo rotulo="Classificação" valor={classificacao} />
+      {outros.map((campo) => (
+        <Campo key={campo.rotulo} rotulo={campo.rotulo} valor={campo.valor} />
+      ))}
+      <Campo rotulo="Chave no acervo" valor={cargo.chave} />
+      <Campo rotulo="Tipo" valor={cargo.entityType} />
+    </Bloco>
   );
 }
 

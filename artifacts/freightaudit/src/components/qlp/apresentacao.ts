@@ -47,13 +47,90 @@ export function formatarValor(
   return formatNumber(valor, Number.isInteger(valor) ? 0 : 2);
 }
 
-/** `"07.526.557/0015-05 · ANALISTA ADM"` → as duas metades. */
-export function separarRotulo(entityLabel: string): { unidade: string; cargo: string } {
+/** Um campo que vinha grudado no rótulo, já separado do que o rotulava. */
+export interface CampoDoRotulo {
+  rotulo: string;
+  valor: string;
+}
+
+/** O rótulo de uma entidade, desmembrado — um fato por casa. */
+export interface RotuloDaEntidade {
+  unidade: string;
+  cargo: string;
+  /** `CARREGAMENTO - ESTACIONÁRIA`, quando a fonte a traz. */
+  classificacao: string | null;
+  /** O que sobrou de rotulado no meio do caminho — `Quantidade: 10,0` e afins. */
+  outros: CampoDoRotulo[];
+}
+
+/** A mesma dobra de sempre para comparar rótulo: sem acento, sem caixa, sem borda. */
+function dobrar(texto: string): string {
+  return texto
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .trim()
+    .toLowerCase();
+}
+
+/**
+ * `"Cargo: Manobrista | Classificação: CARREGAMENTO"` → um campo por fato.
+ *
+ * A fonte do quadro operacional escreve numa célula só o que são dois ou três
+ * fatos — cargo, classificação e, em alguns arquivos, quantidade —, separados
+ * por `|` e prefixados pelo próprio nome. Aqui isso volta a ser campo, porque
+ * uma coluna que promete "Cargo" e entrega a frase inteira não se filtra, não
+ * se ordena e empurra os números para fora da tela.
+ *
+ * Duas coisas que o arquivo real faz e que esta leitura absorve sem reclamar: o
+ * prefixo vem repetido (`Classificação: Classificação: CARREGAMENTO`) e há
+ * linhas sem prefixo nenhum. No primeiro caso a repetição cai; no segundo o
+ * texto inteiro continua sendo o cargo — que é o que ele sempre foi.
+ *
+ * O que ela **não** faz: inventar estrutura. Sem `Cargo:` nem `Classificação:`
+ * à vista, o rótulo sai inteiro — dois-pontos no meio de um nome é pontuação.
+ */
+export function separarCampos(cargo: string): Omit<RotuloDaEntidade, "unidade"> {
+  const campos: CampoDoRotulo[] = [];
+  const semRotulo: string[] = [];
+  for (const parte of cargo.split("|").map((p) => p.trim())) {
+    if (parte === "") continue;
+    const casa = parte.match(/^([^:]{1,40}):\s*(.+)$/s);
+    if (!casa) {
+      semRotulo.push(parte);
+      continue;
+    }
+    const rotulo = casa[1].trim();
+    /* O prefixo repetido é o arquivo, não um erro de leitura nosso. */
+    const repetido = new RegExp(`^${rotulo.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*:\\s*`, "i");
+    let valor = casa[2].trim();
+    while (repetido.test(valor)) valor = valor.replace(repetido, "").trim();
+    campos.push({ rotulo, valor });
+  }
+
+  const tirar = (nome: string): string | null => {
+    const i = campos.findIndex((c) => dobrar(c.rotulo) === nome);
+    return i < 0 ? null : campos.splice(i, 1)[0].valor;
+  };
+  const cargoNomeado = tirar("cargo");
+  const classificacao = tirar("classificacao");
+  if (cargoNomeado === null && classificacao === null) {
+    return { cargo, classificacao: null, outros: [] };
+  }
+  const resto = semRotulo.join(" | ");
+  return {
+    cargo: cargoNomeado ?? (resto !== "" ? resto : "—"),
+    classificacao,
+    outros: campos,
+  };
+}
+
+/** `"07.526.557/0015-05 · ANALISTA ADM"` → as metades, e os campos de dentro. */
+export function separarRotulo(entityLabel: string): RotuloDaEntidade {
   const posicao = entityLabel.indexOf(" · ");
-  if (posicao < 0) return { unidade: "", cargo: entityLabel };
+  if (posicao < 0) return { unidade: "", ...separarCampos(entityLabel) };
   return {
     unidade: entityLabel.slice(0, posicao),
-    cargo: entityLabel.slice(posicao + " · ".length),
+    ...separarCampos(entityLabel.slice(posicao + " · ".length)),
   };
 }
 

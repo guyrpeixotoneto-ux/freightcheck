@@ -56,14 +56,16 @@ export function TabelaDaComparacaoDeQlp({
 }) {
   return (
     <div className="superficie overflow-x-auto">
-      <table className="w-full min-w-[56rem] border-collapse text-sm">
+      <table className="w-full min-w-[64rem] border-collapse text-sm">
         <caption className="sr-only">
-          Comparação do quadro entre as duas vigências, por cargo e variável.
+          Comparação do quadro entre as duas vigências, por cargo, classificação e
+          variável.
         </caption>
         <thead>
           <tr className="border-b bg-muted/60">
             {[
               "Cargo",
+              "Classificação",
               "Variável",
               "De",
               "Para",
@@ -77,7 +79,7 @@ export function TabelaDaComparacaoDeQlp({
                   scope="col"
                   className={cn(
                     "whitespace-nowrap px-3 py-2.5 text-[0.65rem] font-bold uppercase tracking-[0.07em] text-muted-foreground",
-                    i >= 2 && i <= 5 ? "text-right" : "text-left",
+                    i >= 3 && i <= 6 ? "text-right" : "text-left",
                   )}
               >
                 {titulo}
@@ -87,7 +89,10 @@ export function TabelaDaComparacaoDeQlp({
         </thead>
         <tbody>
           {linhas.map((linha, indice) => {
-            const { unidade, cargo } = escreverCargo(linha.entityLabel, rotulos);
+            const { unidade, cargo, classificacao, outros } = escreverCargo(
+              linha.entityLabel,
+              rotulos,
+            );
             return (
               <tr
                 key={`${linha.entityLabel}-${linha.variavel}-${linha.id ?? indice}`}
@@ -110,6 +115,14 @@ export function TabelaDaComparacaoDeQlp({
                       {unidade}
                     </div>
                   )}
+                </td>
+                <td className="px-3 py-2 text-xs text-muted-foreground">
+                  {classificacao ?? "—"}
+                  {outros.map((campo) => (
+                    <div key={campo.rotulo} className="text-[0.7rem]">
+                      {campo.rotulo}: {campo.valor}
+                    </div>
+                  ))}
                 </td>
                 <td className="px-3 py-2">
                   <span className="inline-flex items-center gap-1.5">
