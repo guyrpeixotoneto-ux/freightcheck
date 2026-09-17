@@ -12,6 +12,7 @@ import {
   type ContextoDoQuadro,
   filtroDosEscopos,
 } from "./contexto";
+import type { CampoLegivel } from "@workspace/ingest/identidade-legivel";
 import { separarChaveLegivel, type SemanticaDaColuna, type ValorDeFato } from "./quadro";
 
 /**
@@ -52,6 +53,10 @@ export interface FatoDoCargo {
 export interface DetalheDoCargo extends Omit<ContextoDoQuadro, "escopos"> {
   entityId: string;
   cargo: string;
+  /** A classificação, quando a fonte a escreve na mesma célula do cargo. */
+  classificacao: string | null;
+  /** O que mais vinha rotulado ali, com o nome que a fonte deu. */
+  outros: CampoLegivel[];
   unidadeCnpjLegivel: string;
   /** A chave como a identidade canônica a escreve: "CNPJ · CARGO". */
   chaveLegivel: string;
@@ -100,7 +105,7 @@ export async function getDetalheDoCargo(
   `);
   if (entidades.length === 0) return null;
   const chaveLegivel = entidades[0].identifier_value_raw;
-  const { cnpjLegivel, cargo } = separarChaveLegivel(chaveLegivel);
+  const { cnpjLegivel, cargo, classificacao, outros } = separarChaveLegivel(chaveLegivel);
 
   const resolvido = await resolverContextoDoQuadro(db, {
     ...options.context,
@@ -199,6 +204,8 @@ export async function getDetalheDoCargo(
     ...doContexto,
     entityId,
     cargo,
+    classificacao,
+    outros,
     unidadeCnpjLegivel: cnpjLegivel,
     chaveLegivel,
     presente: atributos.length > 0,

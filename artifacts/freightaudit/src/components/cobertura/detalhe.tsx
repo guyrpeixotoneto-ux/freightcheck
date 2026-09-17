@@ -330,16 +330,22 @@ export function ProvenienciaPainel({ factId }: { factId: number }) {
     <dl className="mt-4 text-xs grid gap-x-6 gap-y-1 sm:grid-cols-2">
       <Par termo="Valor" valor={p.isNull ? `ausente (${p.nullReason})` : (p.valor ?? "—")} />
       <Par termo="Atributo" valor={`${p.atributo.label} (${p.atributo.code})`} />
-      <Par termo="Entidade" valor={`${p.entidade.identificador} · ${p.entidade.entityType}`} />
-      <Par
-        termo="Vigência"
-        valor={`${p.vigencia.sourceLabel} · revisão ${p.vigencia.revision}`}
-      />
-      <Par termo="Escopo" valor={`${p.vigencia.scopeLabel} · ${p.vigencia.canal}`} />
-      <Par
-        termo="Célula"
-        valor={`aba ${p.celula.aba}, linha ${p.celula.linha}, coluna ${p.celula.coluna}`}
-      />
+      {/*
+        Um termo, um fato. Esta é uma lista de definição: cada linha promete
+        responder uma pergunta, e emendar dois fatos num valor só — "entidade ·
+        tipo", "escopo · canal" — obriga quem lê a desfazer a emenda de cabeça
+        para achar o que veio procurar. Ver "Uma coluna, um fato" em
+        `docs/LINGUAGEM-VISUAL.md`.
+      */}
+      <Par termo="Entidade" valor={p.entidade.identificador} />
+      <Par termo="Tipo" valor={p.entidade.entityType} />
+      <Par termo="Vigência" valor={p.vigencia.sourceLabel} />
+      <Par termo="Revisão" valor={String(p.vigencia.revision)} />
+      <Par termo="Escopo" valor={p.vigencia.scopeLabel} />
+      <Par termo="Canal" valor={p.vigencia.canal} />
+      <Par termo="Aba" valor={p.celula.aba} />
+      <Par termo="Linha" valor={String(p.celula.linha)} />
+      <Par termo="Coluna" valor={p.celula.coluna} />
       <Par termo="Arquivo" valor={p.importacao.arquivo} />
       <Par termo="SHA-256" valor={p.importacao.contentSha256} />
       {p.herdadoDe && (

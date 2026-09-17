@@ -70,11 +70,72 @@ describe("separarRotulo", () => {
     expect(separarRotulo("07.526.557/0015-05 · ANALISTA ADM")).toEqual({
       unidade: "07.526.557/0015-05",
       cargo: "ANALISTA ADM",
+      classificacao: null,
+      outros: [],
     });
   });
 
   it("sem separador, tudo é cargo — melhor do que inventar uma unidade", () => {
-    expect(separarRotulo("ANALISTA ADM")).toEqual({ unidade: "", cargo: "ANALISTA ADM" });
+    expect(separarRotulo("ANALISTA ADM")).toEqual({
+      unidade: "",
+      cargo: "ANALISTA ADM",
+      classificacao: null,
+      outros: [],
+    });
+  });
+
+  /*
+    O quadro operacional escreve dois fatos numa célula só. Uma coluna que
+    mostra a frase inteira não se filtra nem se ordena por nenhum dos dois.
+  */
+  it("desmembra cargo e classificação, que a fonte escreve grudados", () => {
+    expect(
+      separarRotulo("07526557001505_CERV · Cargo: Manobrista | Classificação: CARREGAMENTO"),
+    ).toEqual({
+      unidade: "07526557001505_CERV",
+      cargo: "Manobrista",
+      classificacao: "CARREGAMENTO",
+      outros: [],
+    });
+  });
+});
+
+describe("separarRotulo, com o tipo em mãos", () => {
+  /*
+    O turno é a terceira coluna de identidade do QLP Operacional, e nunca teve
+    casa na tela: a leitura dividia a chave no primeiro ` · ` e o turno ia junto
+    do nome do cargo. Com o tipo, cada coluna volta para a casa dela.
+  */
+  it("o turno do operacional vira campo, e não rabo do cargo", () => {
+    expect(separarRotulo("07526557001505 · Manobrista · NOTURNO", "QLP_OPERACIONAL")).toEqual({
+      unidade: "07526557001505",
+      cargo: "Manobrista",
+      classificacao: null,
+      outros: [{ rotulo: "Turno", valor: "NOTURNO" }],
+    });
+  });
+
+  it("o prefixo repetido do arquivo cai — é o arquivo, não a leitura", () => {
+    expect(
+      separarRotulo(
+        "07526557001505_CERV · Cargo: Conferente | Classificação: Classificação: CARREGAMENTO",
+        "QLP_ADMINISTRATIVO",
+      ),
+    ).toEqual({
+      unidade: "07526557001505_CERV",
+      cargo: "Conferente",
+      classificacao: "CARREGAMENTO",
+      outros: [],
+    });
+  });
+
+  it("dois-pontos no meio de um nome é pontuação, e não campo", () => {
+    expect(separarRotulo("07526557001505 · AUX: ADM", "QLP_ADMINISTRATIVO")).toEqual({
+      unidade: "07526557001505",
+      cargo: "AUX: ADM",
+      classificacao: null,
+      outros: [],
+    });
   });
 });
 

@@ -1326,7 +1326,9 @@ export function resumirQuadro(
 
 /** O cabeçalho do CSV — a ordem das colunas da tela. */
 export const COLUNAS_DO_CSV_DE_QLP = [
+  "Unidade",
   "Cargo",
+  "Classificação",
   "Chave",
   "Conta",
   "Forma",
@@ -1351,9 +1353,19 @@ function leituraNoCsv(confere: boolean | null): string {
  */
 export function celulasDoCsvDeQlp(
   conferencia: ConferenciaDaLinha,
+  /*
+    A identidade já desmembrada, como a tela a mostra — uma coluna por fato. Ela
+    vem de fora porque quem sabe abrir a chave legível é a leitura da
+    identidade (`@workspace/ingest/identidade-legivel`), e este módulo é conta:
+    ele não lê arquivo nem sabe quais são as colunas de identidade do tipo.
+    Ausente, o arquivo sai com o cargo inteiro numa coluna, como antes.
+  */
+  identidade?: { unidade: string; cargo: string; classificacao: string | null },
 ): (string | number | null)[][] {
   return conferencia.contas.map((c) => [
-    conferencia.nome ?? conferencia.chave,
+    identidade?.unidade || null,
+    identidade?.cargo ?? conferencia.nome ?? conferencia.chave,
+    identidade?.classificacao ?? null,
     conferencia.chave,
     c.rotulo,
     c.forma === "PRODUTO" ? "quantidade × valor" : "soma das parcelas",

@@ -84,6 +84,7 @@ import {
   type ColunaIdentificadora,
   type DefinicaoDeTipo,
 } from "./tipos";
+import { camposDaColuna, partesDaIdentidade } from "./identidade-legivel";
 import {
   impedePromocao,
   isolaAChave,
@@ -288,15 +289,23 @@ function ondeDasOrigens(
  * que ainda é honesto: é o registro, sem nome de campo.
  */
 function registroDoTipo(entityType: string, legivel: string): CampoDeRegistro[] {
-  const partes = legivel.split(SEPARADOR_LEGIVEL);
-  const identidade = tipoDeImportacao(entityType)?.identidade ?? [];
-  if (identidade.length > 0 && identidade.length === partes.length) {
-    return identidade.map((coluna, i) => ({
-      campo: coluna.sourceName,
-      valor: partes[i],
-    }));
+  const partes = partesDaIdentidade(entityType, legivel);
+  if (partes.some(({ coluna }) => coluna === null)) {
+    return [{ campo: "Registro", valor: legivel }];
   }
-  return [{ campo: "Registro", valor: legivel }];
+  /*
+    Um campo por fato também aqui: a coluna "Cargo" do QLP chega com a
+    classificação grudada dentro (`Cargo: Conferente | Classificação: …`), e o
+    apontamento que a repetisse inteira mandaria quem lê procurar na planilha o
+    que já está lido. O nome de cada campo é o cabeçalho do arquivo — quem lê um
+    apontamento está com a planilha aberta ao lado.
+  */
+  return partes.flatMap(({ coluna, valor }) =>
+    camposDaColuna(coluna!.sourceName, valor).map((campo) => ({
+      campo: campo.rotulo === "" ? "Registro" : campo.rotulo,
+      valor: campo.valor,
+    })),
+  );
 }
 
 /** Como cada tipo interno de valor se chama numa frase. */

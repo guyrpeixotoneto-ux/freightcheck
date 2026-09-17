@@ -108,7 +108,7 @@ export function AuditoriaDoQuadro({
   useEffect(() => setPagina(1), [filtros, parametros]);
 
   function exportar() {
-    const blob = csvComoBlob(linhasDoCsv(filtradas));
+    const blob = csvComoBlob(linhasDoCsv(filtradas, quadro));
     const nome = paraNomeDeArquivo(rotuloDaVigencia ?? "vigencia");
     salvarArquivo(blob, `qlp-${quadro.toLowerCase()}-contas-${nome}.csv`);
   }
@@ -277,7 +277,7 @@ export function AuditoriaDoQuadro({
         )
       ) : (
         <>
-          <TabelaDeCargos linhas={naPagina} />
+          <TabelaDeCargos linhas={naPagina} quadro={quadro} />
           <Paginacao
             pagina={pagina}
             porPagina={porPagina}

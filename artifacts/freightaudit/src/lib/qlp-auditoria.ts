@@ -2,6 +2,7 @@ import {
   ROTULO_DO_PAPEL,
   ROTULO_DO_QUADRO,
   ROTULO_DO_VEREDITO_DA_LINHA,
+  TIPO_DO_QUADRO,
   celulasDoCsvDeQlp,
   COLUNAS_DO_CSV_DE_QLP,
   type ConferenciaDaLinha,
@@ -13,6 +14,12 @@ import {
   type ResumoDoQuadro,
   type VereditoDaLinha,
 } from "@workspace/comparison/qlp";
+import {
+  campoDaIdentidade,
+  camposFora,
+  lerIdentidade,
+  type CampoLegivel,
+} from "@workspace/ingest/identidade-legivel";
 import { numeroParaCsv } from "@/lib/csv";
 import { formatBrl, formatNumber } from "@/lib/format";
 
@@ -152,6 +159,45 @@ export function contagemPorVeredito(
   return contagem;
 }
 
+/** O campo que a fonte do QLP escreve grudado na célula do cargo. */
+const ROTULO_DA_CLASSIFICACAO = "Classificação";
+
+/** A identidade de um cargo, em campos — unidade, cargo e classificação. */
+export interface IdentidadeDoCargo {
+  unidade: string;
+  cargo: string;
+  classificacao: string | null;
+  outros: CampoLegivel[];
+}
+
+/**
+ * A chave legível de uma linha, aberta em campos.
+ *
+ * A rota manda `nome` inteiro de propósito — é o identificador como o arquivo o
+ * escreveu, e é evidência. Quem decide como isso se mostra é a tela, e aqui a
+ * decisão é a da casa: **uma coluna, um fato**. Quem sabe onde a chave se
+ * dobra é a leitura da identidade, que usa as colunas declaradas do tipo — por
+ * isso o quadro entra: é ele que diz qual tipo é este.
+ *
+ * Sem forma legível sobra a chave normalizada, que não se abre e não se
+ * inventa: ela vai inteira para o lugar do cargo, como sempre foi.
+ */
+export function identidadeDoCargo(
+  linha: Pick<ConferenciaDaLinha, "nome" | "chave">,
+  quadro: QuadroDeQlp,
+): IdentidadeDoCargo {
+  if (linha.nome === null) {
+    return { unidade: "", cargo: linha.chave, classificacao: null, outros: [] };
+  }
+  const identidade = lerIdentidade(linha.nome, TIPO_DO_QUADRO[quadro]);
+  return {
+    unidade: identidade.unidade,
+    cargo: identidade.principal,
+    classificacao: campoDaIdentidade(identidade, ROTULO_DA_CLASSIFICACAO),
+    outros: camposFora(identidade, [ROTULO_DA_CLASSIFICACAO]),
+  };
+}
+
 /**
  * A tabela virando as linhas do CSV — uma por conta, e não por cargo.
  *
@@ -160,11 +206,14 @@ export function contagemPorVeredito(
  * espremer seis vereditos numa célula, e ninguém filtra planilha por texto
  * concatenado.
  */
-export function linhasDoCsv(linhas: readonly ConferenciaDaLinha[]): string[][] {
+export function linhasDoCsv(
+  linhas: readonly ConferenciaDaLinha[],
+  quadro: QuadroDeQlp,
+): string[][] {
   return [
     [...COLUNAS_DO_CSV_DE_QLP],
     ...linhas.flatMap((l) =>
-      celulasDoCsvDeQlp(l).map((celulas) =>
+      celulasDoCsvDeQlp(l, identidadeDoCargo(l, quadro)).map((celulas) =>
         celulas.map((celula) => {
           if (celula === null || celula === undefined) return "";
           if (typeof celula === "number") return numeroParaCsv(celula);

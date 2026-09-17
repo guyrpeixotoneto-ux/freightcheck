@@ -109,18 +109,36 @@ describe("a escrita", () => {
 
 describe("o CSV", () => {
   it("escreve uma linha por conta, e não uma por cargo", () => {
-    const linhas = linhasDoCsv(QUADRO);
+    const linhas = linhasDoCsv(QUADRO, "ADMINISTRATIVO");
     /* Cabeçalho + três cargos × duas contas. */
     expect(linhas).toHaveLength(1 + 6);
   });
 
-  it("leva o nome legível para a primeira coluna", () => {
-    expect(linhasDoCsv([QUADRO[0]])[1][0]).toBe("AUXILIAR ADM");
+  /*
+    Uma coluna por fato também no arquivo: a chave legível do quadro real traz
+    unidade, cargo e a classificação grudada dentro da célula do cargo, e quem
+    abre o CSV numa planilha filtra por cada uma sem fatiar texto.
+  */
+  it("abre a chave legível em unidade, cargo e classificação", () => {
+    const glued = linha(
+      "CH4",
+      "07526557001505_CERV · Cargo: Conferente | Classificação: Classificação: CARREGAMENTO",
+      [conta("ordenados", true)],
+    );
+    expect(linhasDoCsv([glued], "ADMINISTRATIVO")[1].slice(0, 3)).toEqual([
+      "07526557001505_CERV",
+      "Conferente",
+      "CARREGAMENTO",
+    ]);
+  });
+
+  it("sem unidade na chave, o cargo continua sendo o nome legível inteiro", () => {
+    expect(linhasDoCsv([QUADRO[0]], "ADMINISTRATIVO")[1][1]).toBe("AUXILIAR ADM");
   });
 
   it("deixa a célula vazia onde não há número, em vez de escrever zero", () => {
-    const linhas = linhasDoCsv([QUADRO[2]]);
-    expect(linhas[1][4]).toBe("");
-    expect(linhas[1][7]).toBe("Base insuficiente");
+    const linhas = linhasDoCsv([QUADRO[2]], "ADMINISTRATIVO");
+    expect(linhas[1][6]).toBe("");
+    expect(linhas[1][9]).toBe("Base insuficiente");
   });
 });

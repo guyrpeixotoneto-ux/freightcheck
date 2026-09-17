@@ -1,3 +1,9 @@
+import {
+  campoDaIdentidade,
+  camposFora,
+  lerIdentidade,
+  type CampoLegivel,
+} from "@workspace/ingest/identidade-legivel";
 import { formatBrl, formatNumber } from "@/lib/format";
 import type { ChangeRow } from "@/components/changes/change-table";
 import type { AtributoDoQuadro, ValorDeFato } from "./tipos";
@@ -47,13 +53,44 @@ export function formatarValor(
   return formatNumber(valor, Number.isInteger(valor) ? 0 : 2);
 }
 
-/** `"07.526.557/0015-05 · ANALISTA ADM"` → as duas metades. */
-export function separarRotulo(entityLabel: string): { unidade: string; cargo: string } {
-  const posicao = entityLabel.indexOf(" · ");
-  if (posicao < 0) return { unidade: "", cargo: entityLabel };
+/** Um campo que vinha grudado no rótulo, já separado do que o rotulava. */
+export type CampoDoRotulo = CampoLegivel;
+
+/** O rótulo de uma entidade, desmembrado — um fato por casa. */
+export interface RotuloDaEntidade {
+  unidade: string;
+  cargo: string;
+  /** `CARREGAMENTO - ESTACIONÁRIA`, quando a fonte a traz. */
+  classificacao: string | null;
+  /** O que sobrou de rotulado — `Turno: NOTURNO` e afins. Nada se descarta. */
+  outros: CampoDoRotulo[];
+}
+
+/** O nome que a fonte do QLP dá ao fato que ela gruda na célula do cargo. */
+const ROTULO_DA_CLASSIFICACAO = "Classificação";
+
+/**
+ * `"07526557001505_CERV · Cargo: Manobrista | Classificação: CARREGAMENTO"` →
+ * um campo por fato.
+ *
+ * A leitura mora em `@workspace/ingest/identidade-legivel`, com a importação,
+ * porque é ela que sabe onde a chave legível se dobra: as colunas de identidade
+ * do tipo, na ordem em que foram emendadas. É o que faz o **turno** do QLP
+ * Operacional — uma terceira coluna de identidade — deixar de viajar dentro do
+ * nome do cargo. Aqui só se dá nome ao que ela devolve, e o nome é da casa: o
+ * cargo de um lado, a classificação de outro, o resto com o rótulo da fonte.
+ *
+ * O `entityType` é opcional porque nem toda tela o tem em mãos; sem ele a
+ * leitura cai na forma (a primeira parte é a unidade), que é menos precisa e
+ * continua honesta.
+ */
+export function separarRotulo(entityLabel: string, entityType?: string | null): RotuloDaEntidade {
+  const identidade = lerIdentidade(entityLabel, entityType);
   return {
-    unidade: entityLabel.slice(0, posicao),
-    cargo: entityLabel.slice(posicao + " · ".length),
+    unidade: identidade.unidade,
+    cargo: identidade.principal,
+    classificacao: campoDaIdentidade(identidade, ROTULO_DA_CLASSIFICACAO),
+    outros: camposFora(identidade, [ROTULO_DA_CLASSIFICACAO]),
   };
 }
 
@@ -108,7 +145,15 @@ export function agruparMovimentos(
   );
 
   const legibilizar = (entityLabel: string): { unidade: string; cargo: string } => {
-    if (entityLabel.includes(" · ")) return separarRotulo(entityLabel);
+    if (entityLabel.includes(" · ")) {
+      /*
+        Aqui o cargo é **nome numa lista**, e não coluna: a classificação anda
+        junto dele, porque sem ela dois cargos que só se distinguem por ela
+        viram duas entradas idênticas na mesma unidade.
+      */
+      const { unidade, cargo, classificacao } = separarRotulo(entityLabel);
+      return { unidade, cargo: classificacao ? `${cargo} · ${classificacao}` : cargo };
+    }
     const chave = entityLabel.match(/^(\d{14})([A-Z0-9]*)$/);
     if (!chave) return { unidade: "", cargo: entityLabel };
     const conhecido = conhecidos.get(entityLabel);

@@ -43,6 +43,8 @@ export interface VigenciaDaEvolucao {
 export interface CargoNaSerie {
   entityId: string;
   cargo: string;
+  /** A classificação que vinha na mesma célula do cargo. Ver `separarChaveLegivel`. */
+  classificacao: string | null;
   unidadeCnpj: string;
   unidadeCnpjLegivel: string;
   /** Alinhado a `vigencias`: o cargo estava no quadro daquela quinzena? */
@@ -136,6 +138,7 @@ export async function getEvolucaoDoQuadro(
   interface Presenca {
     entityId: string;
     cargo: string;
+    classificacao: string | null;
     unidadeCnpj: string;
     unidadeCnpjLegivel: string;
     datas: Set<string>;
@@ -144,10 +147,13 @@ export async function getEvolucaoDoQuadro(
   for (const linha of presencas) {
     let presenca = porEntidade.get(linha.entity_id);
     if (!presenca) {
-      const { cnpjLegivel, cargo } = separarChaveLegivel(linha.identifier_value_raw);
+      const { cnpjLegivel, cargo, classificacao } = separarChaveLegivel(
+        linha.identifier_value_raw,
+      );
       presenca = {
         entityId: linha.entity_id,
         cargo,
+        classificacao,
         unidadeCnpj: normalizeDocumento(cnpjLegivel),
         unidadeCnpjLegivel: cnpjLegivel,
         datas: new Set(),
@@ -180,6 +186,7 @@ export async function getEvolucaoDoQuadro(
     .map((p) => ({
       entityId: p.entityId,
       cargo: p.cargo,
+      classificacao: p.classificacao,
       unidadeCnpj: p.unidadeCnpj,
       unidadeCnpjLegivel: p.unidadeCnpjLegivel,
       presencas: datas.map((data) => p.datas.has(data)),
@@ -187,7 +194,8 @@ export async function getEvolucaoDoQuadro(
     .sort(
       (a, b) =>
         a.unidadeCnpj.localeCompare(b.unidadeCnpj) ||
-        a.cargo.localeCompare(b.cargo, "pt-BR"),
+        a.cargo.localeCompare(b.cargo, "pt-BR") ||
+        (a.classificacao ?? "").localeCompare(b.classificacao ?? "", "pt-BR"),
     );
 
   return { context, vigencias, quadro };

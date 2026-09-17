@@ -40,12 +40,18 @@ export type Sentido = "asc" | "desc";
  * deles pode ser só `cargo`. O tipo custa um `mesmaChave` e não deixa a dúvida
  * existir.
  */
-export type ChaveDeOrdem = { coluna: "cargo" } | { coluna: "atributo"; code: string };
+export type ChaveDeOrdem =
+  | { coluna: "cargo" }
+  | { coluna: "classificacao" }
+  | { coluna: "atributo"; code: string };
 
 /** `null` é a ordem da casa: a que o servidor entregou, por nome do cargo. */
 export type OrdemDoQuadro = { chave: ChaveDeOrdem; sentido: Sentido } | null;
 
 export const CHAVE_DO_CARGO: ChaveDeOrdem = { coluna: "cargo" };
+
+/** A classificação é coluna, e coluna se ordena. */
+export const CHAVE_DA_CLASSIFICACAO: ChaveDeOrdem = { coluna: "classificacao" };
 
 export function chaveDoAtributo(code: string): ChaveDeOrdem {
   return { coluna: "atributo", code };
@@ -53,7 +59,7 @@ export function chaveDoAtributo(code: string): ChaveDeOrdem {
 
 export function mesmaChave(a: ChaveDeOrdem | undefined, b: ChaveDeOrdem): boolean {
   if (!a || a.coluna !== b.coluna) return false;
-  return a.coluna === "cargo" || a.code === (b as { code: string }).code;
+  return a.coluna !== "atributo" || a.code === (b as { code: string }).code;
 }
 
 /**
@@ -62,7 +68,8 @@ export function mesmaChave(a: ChaveDeOrdem | undefined, b: ChaveDeOrdem): boolea
  * Quantidade, salário e despesa estreiam do maior para o menor: quem clica em
  * "salário ordenados" quer ver o que pesa na folha, não o que não pesa. Nome de
  * cargo estreia de A a Z, que é como se procura um cargo — e é a ordem que o
- * servidor já entrega.
+ * servidor já entrega. A classificação, pela mesma razão: é texto, e texto se
+ * procura de A a Z.
  *
  * Quem responde "isto é número?" é a lista única de `@workspace/curation`, a
  * mesma que decide se a coluna pode ser somada. Uma segunda lista aqui seria a
@@ -74,7 +81,7 @@ export function primeiroSentido(
   chave: ChaveDeOrdem,
   atributo?: Pick<AtributoDoQuadro, "dataType">,
 ): Sentido {
-  if (chave.coluna === "cargo") return "asc";
+  if (chave.coluna !== "atributo") return "asc";
   return ehTipoNumerico(atributo?.dataType) ? "desc" : "asc";
 }
 
@@ -101,6 +108,7 @@ export function proximaOrdem(
 /** O valor que a coluna escolhida lê num cargo — o mesmo que a célula exibe. */
 function valorDaColuna(cargo: CargoDoQuadro, chave: ChaveDeOrdem): ValorDeFato {
   if (chave.coluna === "cargo") return cargo.cargo;
+  if (chave.coluna === "classificacao") return cargo.classificacao;
   return cargo.valores[chave.code] ?? null;
 }
 

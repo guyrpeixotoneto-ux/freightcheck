@@ -54,6 +54,8 @@ export interface CelulaDaMatrizQlp {
 export interface LinhaDaMatrizQlp {
   entityId: string;
   cargo: string;
+  /** A classificação do cargo — coluna própria, como na tabela do quadro. */
+  classificacao: string | null;
   unidadeCnpj: string;
   unidadeCnpjLegivel: string;
   unidadeNome: string | null;
@@ -156,6 +158,7 @@ export function matrizDoQlp(consulta: ConsultaDoQlp): MatrizDoQlp {
       cabecalhos.set(linha.entityId, {
         entityId: linha.entityId,
         cargo: linha.cargo,
+        classificacao: linha.classificacao,
         unidadeCnpj: linha.unidadeCnpj,
         unidadeCnpjLegivel: linha.unidadeCnpjLegivel,
         unidadeNome: linha.unidadeNome,
