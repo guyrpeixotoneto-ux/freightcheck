@@ -1,4 +1,3 @@
-import { empresaPrincipal } from "@workspace/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import pg from "pg";
 import { drizzle } from "drizzle-orm/node-postgres";
@@ -96,11 +95,11 @@ describe.skipIf(!temBanco)(
 
       const [a] = await db
         .insert(unidadeTable)
-        .values({ empresaId: (await empresaPrincipal(db)).id, nome: "Transportes A", cnpj: "11111111000191" })
+        .values({ nome: "Transportes A", cnpj: "11111111000191" })
         .returning();
       const [b] = await db
         .insert(unidadeTable)
-        .values({ empresaId: (await empresaPrincipal(db)).id, nome: "Transportes B", cnpj: "22222222000172" })
+        .values({ nome: "Transportes B", cnpj: "22222222000172" })
         .returning();
       empresaA = a.id;
       empresaB = b.id;
@@ -293,7 +292,7 @@ describe.skipIf(!temBanco)(
     it("SEM DADO: empresa sem extrato nenhum — silêncio do coletor, e não verde", async () => {
       const [c] = await db
         .insert(unidadeTable)
-        .values({ empresaId: (await empresaPrincipal(db)).id, nome: "Transportes C", cnpj: "33333333000153" })
+        .values({ nome: "Transportes C", cnpj: "33333333000153" })
         .returning();
       const semeado = await importarFluxo(db, c.id, CTE_ATE_RECEBIMENTO, AUTOR);
       const fluxo = await completo(semeado.id, c.id);
@@ -384,7 +383,7 @@ describe.skipIf(!temBanco)(
     it("ISOLAMENTO: o extrato da empresa B não pinta a etapa da empresa A", async () => {
       const [d] = await db
         .insert(unidadeTable)
-        .values({ empresaId: (await empresaPrincipal(db)).id, nome: "Transportes D", cnpj: "44444444000134" })
+        .values({ nome: "Transportes D", cnpj: "44444444000134" })
         .returning();
       const semeado = await importarFluxo(db, d.id, CTE_ATE_RECEBIMENTO, AUTOR);
       /* A empresa D não tem extrato; B tem um, e é o mais recente do banco. */

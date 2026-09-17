@@ -9,7 +9,6 @@ import {
   remuneracaoUnidadeTable,
   unidadeTable,
   type Database,
-  empresaPrincipal,
 } from "@workspace/db";
 import { runMigrations } from "@workspace/db/migrate";
 
@@ -202,7 +201,7 @@ describe.skipIf(!temBanco)("o caso CDD Belém, ponta a ponta", () => {
   });
 
   it("2. o CNPJ é informado uma vez, no cadastro mestre", async () => {
-    const u = await cadastrarUnidade(db, (await empresaPrincipal(db)).id, { nome: "CDD Belém", cnpj: "11.222.333/0001-81" });
+    const u = await cadastrarUnidade(db, { nome: "CDD Belém", cnpj: "11.222.333/0001-81" });
     expect(u.cnpj).toBe(CNPJ);
 
     /* A Remuneração passa a apontar para a mesma unidade — sem redigitar CNPJ. */

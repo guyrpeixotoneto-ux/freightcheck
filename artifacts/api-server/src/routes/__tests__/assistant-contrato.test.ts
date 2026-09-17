@@ -21,7 +21,6 @@
  * prova que o caminho feliz continua de pé.
  */
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
-import { empresaPrincipal } from "@workspace/db";
 import type { Server } from "node:http";
 import { createTestDatabase, type TestDb } from "@workspace/ingest/testing";
 import { createDb, encerrarPoolDoProcesso } from "@workspace/db";
@@ -110,7 +109,6 @@ beforeAll(async () => {
   */
   const { createUser, startSession, SESSION_COOKIE } = await import("../../lib/session");
   const pessoa = await createUser(ctx.db, {
-    empresaId: (await empresaPrincipal(ctx.db)).id,
     name: "Contrato",
     email: "contrato@teste.local",
     password: "SenhaDeTeste#12345",

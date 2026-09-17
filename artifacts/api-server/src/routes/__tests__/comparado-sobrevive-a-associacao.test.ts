@@ -1,5 +1,4 @@
 import { readFileSync } from "node:fs";
-import { empresaPrincipal } from "@workspace/db";
 import path from "node:path";
 import type { Server } from "node:http";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -247,7 +246,7 @@ describe("o caso real, da associação ao painel", () => {
    * Antes desta correção, era exatamente aqui que o `comparado` virava `null`.
    */
   it("associar a unidade canônica pela rota mantém o painel comparado", async () => {
-    const u = await cadastrarUnidade(dbDoProcesso, (await empresaPrincipal(dbDoProcesso)).id, { nome: "CDD BELEM", cnpj: CNPJ });
+    const u = await cadastrarUnidade(dbDoProcesso, { nome: "CDD BELEM", cnpj: CNPJ });
 
     const competencias = await pedir(`/fechamento/competencias?${busca(MES)}`);
     const primeira = competencias.body.find((c: any) => c.quinzena === 1);

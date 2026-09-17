@@ -1,5 +1,5 @@
 {
-  "id": "291c4345-cb57-45da-aa06-a2f4d38a5bc9",
+  "id": "f2f22308-baec-4d36-9ea9-4a5e31928018",
   "prevId": "544c408b-88dd-4bea-beb9-e20964933351",
   "version": "7",
   "dialect": "postgresql",
@@ -5732,12 +5732,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "empresa_id": {
-          "name": "empresa_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
         "cargo_id": {
           "name": "cargo_id",
           "type": "uuid",
@@ -5815,21 +5809,6 @@
           "method": "btree",
           "with": {}
         },
-        "app_user_empresa_idx": {
-          "name": "app_user_empresa_idx",
-          "columns": [
-            {
-              "expression": "empresa_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "app_user_papel_idx": {
           "name": "app_user_papel_idx",
           "columns": [
@@ -5847,19 +5826,6 @@
         }
       },
       "foreignKeys": {
-        "app_user_empresa_id_empresa_id_fk": {
-          "name": "app_user_empresa_id_empresa_id_fk",
-          "tableFrom": "app_user",
-          "tableTo": "empresa",
-          "columnsFrom": [
-            "empresa_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
         "app_user_cargo_id_cargo_id_fk": {
           "name": "app_user_cargo_id_cargo_id_fk",
           "tableFrom": "app_user",
@@ -7207,8 +7173,8 @@
           "primaryKey": false,
           "notNull": true
         },
-        "em": {
-          "name": "em",
+        "criado_em": {
+          "name": "criado_em",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": true,
@@ -7292,73 +7258,6 @@
       },
       "isRLSEnabled": false
     },
-    "public.empresa": {
-      "name": "empresa",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "nome": {
-          "name": "nome",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "cnpj_raiz": {
-          "name": "cnpj_raiz",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "ativa": {
-          "name": "ativa",
-          "type": "boolean",
-          "primaryKey": false,
-          "notNull": true,
-          "default": true
-        },
-        "criada_em": {
-          "name": "criada_em",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "empresa_cnpj_raiz_uq": {
-          "name": "empresa_cnpj_raiz_uq",
-          "columns": [
-            {
-              "expression": "cnpj_raiz",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {
-        "empresa_cnpj_raiz_canonico": {
-          "name": "empresa_cnpj_raiz_canonico",
-          "value": "\"empresa\".\"cnpj_raiz\" IS NULL OR \"empresa\".\"cnpj_raiz\" ~ '^[0-9]{8}$'"
-        }
-      },
-      "isRLSEnabled": false
-    },
     "public.unidade": {
       "name": "unidade",
       "schema": "",
@@ -7369,12 +7268,6 @@
           "primaryKey": true,
           "notNull": true,
           "default": "gen_random_uuid()"
-        },
-        "empresa_id": {
-          "name": "empresa_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
         },
         "nome": {
           "name": "nome",
@@ -7403,21 +7296,6 @@
         }
       },
       "indexes": {
-        "unidade_empresa_idx": {
-          "name": "unidade_empresa_idx",
-          "columns": [
-            {
-              "expression": "empresa_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "unidade_cnpj_uq": {
           "name": "unidade_cnpj_uq",
           "columns": [
@@ -7449,21 +7327,7 @@
           "with": {}
         }
       },
-      "foreignKeys": {
-        "unidade_empresa_id_empresa_id_fk": {
-          "name": "unidade_empresa_id_empresa_id_fk",
-          "tableFrom": "unidade",
-          "tableTo": "empresa",
-          "columnsFrom": [
-            "empresa_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        }
-      },
+      "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},

@@ -95,9 +95,8 @@ describe("o ciclo dump → restore devolve o banco inteiro", () => {
       const pool = new pg.Pool({ connectionString: origem.url });
       try {
         await pool.query(
-          `INSERT INTO app_user (name, email, password_hash, created_by, empresa_id)
-           VALUES ('Prova Restore', 'prova@restore.local', 'scrypt$fake', 'teste',
-                   (SELECT id FROM empresa ORDER BY criada_em LIMIT 1))`,
+          `INSERT INTO app_user (name, email, password_hash, created_by)
+           VALUES ('Prova Restore', 'prova@restore.local', 'scrypt$fake', 'teste')`,
         );
         await pool.query(
           `INSERT INTO book_entry

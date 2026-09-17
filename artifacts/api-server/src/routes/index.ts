@@ -222,8 +222,7 @@ router.use(overviewRouter);
 router.use(versionsRouter);
 router.use(bookRouter);
 router.use(assistantRouter);
-/* A janela do modo de observação da ACL por empresa e unidade. Ver
-   `routes/escopo.ts` e `middlewares/escopo-em-observacao.ts`. */
+/* A janela do modo de observação da ACL por unidade. Ver `routes/escopo.ts`. */
 router.use(escopoRouter);
 router.use(balanceRouter);
 router.use(compositionRouter);

@@ -169,14 +169,15 @@ app.use("/api", requireSession);
 app.use("/api", visualizacaoSomenteLeitura);
 
 /**
- * Depois da permissão, antes das rotas: o escopo por empresa e unidade,
- * **medindo e não cortando**.
+ * Depois da permissão, antes das rotas: o escopo por unidade, **medindo e não
+ * cortando**.
  *
- * Ele calcula o que uma ACL por empresa e unidade faria com cada leitura e
- * registra o veredito, sem mudar uma vírgula da resposta. É o que permite
- * decidir o corte com número em vez de com coragem — ver
- * `middlewares/escopo-em-observacao.ts`, que explica por que ligar ~40 rotas de
- * leitura de uma vez é a forma conhecida de este produto quebrar.
+ * Ele calcula o que uma ACL por unidade faria com cada leitura e registra o
+ * veredito, sem mudar uma vírgula da resposta. É o que permite decidir o corte
+ * com número em vez de com coragem — e neste eixo isso pesa mais do que no
+ * outro: em `acesso_a_unidade` a ausência de linha é ausência de acesso, então
+ * ligar antes de as concessões existirem deixaria todo mundo sem nada. Ver
+ * `middlewares/escopo-em-observacao.ts`.
  *
  * Depois do portão de propósito: o que já foi recusado por permissão não
  * precisa entrar na medição, e contá-lo inflaria o denominador com requisições

@@ -6,7 +6,6 @@ import {
   cadastrarUnidade,
   fechamentoCompetenciaTable,
   type Database,
-  empresaPrincipal,
 } from "@workspace/db";
 import { runMigrations } from "@workspace/db/migrate";
 
@@ -116,7 +115,7 @@ describe.skipIf(!temBanco)("a identidade de uma competência", () => {
 
   it("nasce associada quando o texto é o CNPJ de uma unidade cadastrada", async () => {
     await limpar();
-    const u = await cadastrarUnidade(db, (await empresaPrincipal(db)).id, { nome: "CDD BELEM", cnpj: CNPJ_BELEM });
+    const u = await cadastrarUnidade(db, { nome: "CDD BELEM", cnpj: CNPJ_BELEM });
 
     /* A grafia com máscara é a mesma identidade — é o que `lerCnpj` decide. */
     const c = await abrir(1, CNPJ_BELEM);
@@ -141,7 +140,7 @@ describe.skipIf(!temBanco)("a identidade de uma competência", () => {
    */
   it("a 2ª quinzena nasce com a identidade que a 1ª já tinha", async () => {
     await limpar();
-    const u = await cadastrarUnidade(db, (await empresaPrincipal(db)).id, { nome: "CDD BELEM", cnpj: CNPJ_BELEM });
+    const u = await cadastrarUnidade(db, { nome: "CDD BELEM", cnpj: CNPJ_BELEM });
     const primeira = await abrir(1, "CDD Belém");
     expect(primeira.unidadeId).toBeNull();
 
@@ -159,7 +158,7 @@ describe.skipIf(!temBanco)("a identidade de uma competência", () => {
    */
   it("associar uma quinzena alcança a irmã do mesmo texto que já existia", async () => {
     await limpar();
-    const u = await cadastrarUnidade(db, (await empresaPrincipal(db)).id, { nome: "CDD BELEM", cnpj: CNPJ_BELEM });
+    const u = await cadastrarUnidade(db, { nome: "CDD BELEM", cnpj: CNPJ_BELEM });
     const primeira = await abrir(1, "CDD Belém");
     const segunda = await abrir(2, "CDD Belém");
     expect(segunda.unidadeId).toBeNull();
@@ -171,7 +170,7 @@ describe.skipIf(!temBanco)("a identidade de uma competência", () => {
 
   it("salvar de novo não reescreve nada — a conciliação é idempotente", async () => {
     await limpar();
-    const u = await cadastrarUnidade(db, (await empresaPrincipal(db)).id, { nome: "CDD BELEM", cnpj: CNPJ_BELEM });
+    const u = await cadastrarUnidade(db, { nome: "CDD BELEM", cnpj: CNPJ_BELEM });
     const primeira = await abrir(1, "CDD Belém");
     await associarUnidadeDaCompetencia(db, primeira.id, u.id);
     await abrir(2, "CDD Belém");
@@ -199,7 +198,7 @@ describe.skipIf(!temBanco)("a identidade de uma competência", () => {
    */
   it("nome igual não associa — nem com uma única unidade cadastrada", async () => {
     await limpar();
-    await cadastrarUnidade(db, (await empresaPrincipal(db)).id, { nome: "CDD BELEM", cnpj: CNPJ_BELEM });
+    await cadastrarUnidade(db, { nome: "CDD BELEM", cnpj: CNPJ_BELEM });
 
     const c = await abrir(1, "CDD Belém");
 
@@ -219,8 +218,8 @@ describe.skipIf(!temBanco)("a identidade de uma competência", () => {
    */
   it("duas decisões diferentes sobre o mesmo texto não escolhem nenhuma", async () => {
     await limpar();
-    const belem = await cadastrarUnidade(db, (await empresaPrincipal(db)).id, { nome: "CDD BELEM", cnpj: CNPJ_BELEM });
-    const outra = await cadastrarUnidade(db, (await empresaPrincipal(db)).id, { nome: "CDD OUTRA", cnpj: CNPJ_OUTRA });
+    const belem = await cadastrarUnidade(db, { nome: "CDD BELEM", cnpj: CNPJ_BELEM });
+    const outra = await cadastrarUnidade(db, { nome: "CDD OUTRA", cnpj: CNPJ_OUTRA });
 
     const julho = await abrir(1, "CDD Belém", 7);
     const agosto = await abrir(1, "CDD Belém", 8);
@@ -257,7 +256,7 @@ describe.skipIf(!temBanco)("a identidade de uma competência", () => {
    */
   it("a competência encerrada sai listada, com a unidade que ela teria", async () => {
     await limpar();
-    const u = await cadastrarUnidade(db, (await empresaPrincipal(db)).id, { nome: "CDD BELEM", cnpj: CNPJ_BELEM });
+    const u = await cadastrarUnidade(db, { nome: "CDD BELEM", cnpj: CNPJ_BELEM });
     const primeira = await abrir(1, "CDD Belém");
     const segunda = await abrir(2, "CDD Belém");
 
@@ -294,7 +293,7 @@ describe.skipIf(!temBanco)("a identidade de uma competência", () => {
    */
   it("o código afirmado por quem cadastra alcança as competências daquele texto", async () => {
     await limpar();
-    const u = await cadastrarUnidade(db, (await empresaPrincipal(db)).id, { nome: "CDD BELEM", cnpj: CNPJ_BELEM });
+    const u = await cadastrarUnidade(db, { nome: "CDD BELEM", cnpj: CNPJ_BELEM });
     const c = await abrir(1, "443");
     expect(c.unidadeId).toBeNull();
 

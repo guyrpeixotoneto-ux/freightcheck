@@ -743,6 +743,26 @@ const TABELAS_REMOVIDAS = [
     decisão da casa e o registro de quem a tomou para conseguir publicar. Foi
     assim que um menu inteiro voltou a aparecer para quem o tinha desligado.
   */
+  /*
+    `acesso_a_unidade`, da `0101` — quem pode ler o acervo de qual unidade.
+
+    Entra aqui pelo critério desta lista: cada linha é **decisão de gente**.
+    "Fulano concedeu a Beltrano acesso ao CDD Belém em tal dia" não é
+    reconstruível por consulta nenhuma, e é justamente a resposta a "por que
+    esta pessoa enxerga esta unidade?". Um Development com concessão cadastrada
+    trava o `down`, e travar é o desfecho certo.
+
+    Vem **antes de `unidade`**, e a ordem é obrigatória: o `down` derruba com
+    `RESTRICT`, e esta tabela referencia `unidade` e `app_user`. A mãe só sai
+    depois da filha — é a mesma regra que as seis de Fluxos Operacionais
+    seguem, e foi o guard de dependências que a cobrou quando a `0068` entrou
+    sem ela.
+
+    `app_user` não sai em lista nenhuma, e não precisa: o `ON DELETE CASCADE`
+    desta FK aponta daqui para lá, então derrubar esta tabela não encosta na
+    conta. O contrário é que seria problema, e não é o caso.
+  */
+  "acesso_a_unidade",
   "unidade",
   /*
     O registro da normalização do Nome Gerencial, da `0089` — e ele entra aqui,
@@ -1700,7 +1720,13 @@ export async function bridgeDown(
         não deixar isso passar.
       */
       cargo: ["app_user"],
-      unidade: ["app_user"],
+      /*
+        `unidade` ganhou uma segunda dependente na `0101`: `acesso_a_unidade`,
+        que sai **antes** dela em `TABELAS_REMOVIDAS`. A varredura roda antes de
+        qualquer DDL — é o desenho deste módulo —, então ela veria a FK como
+        surpresa mesmo com a ordem de queda correta.
+      */
+      unidade: ["app_user", "acesso_a_unidade"],
       /* `app_user.papel_id` (0082) é o mesmo caso, e sai em `COLUNAS_REMOVIDAS`
          antes de a tabela cair. */
       papel: ["app_user"],
@@ -3154,6 +3180,47 @@ function planoUp(): PassoUp[] {
     M75,
     "checks da identidade da unidade",
     levantar(M75, /conname = 'unidade_tem_identidade'/),
+  );
+
+  /*
+    A `0101` — o acesso por unidade.
+
+    O `up` repõe a tabela **vazia**, e isso não é omissão: uma concessão de
+    acesso é decisão de gente, e nenhuma consulta a reconstrói. É pela mesma
+    razão que o `down` exige `acesso_a_unidade` vazia antes de descer — ele só
+    desce quando não há decisão a perder. É o mesmo desenho de `unidade`, e
+    pelo mesmo motivo.
+
+    A ordem interna é a da migration: a tabela, as FKs, e os índices por
+    último. Cada objeto é levantado do próprio DDL, pela razão de `levantar`
+    existir — uma segunda escrita da mesma definição concorda no dia em que é
+    escrita e discorda no dia em que a migration muda.
+  */
+  const M101 = "0101_acesso_a_unidade";
+  add(
+    M101,
+    "acesso_a_unidade",
+    levantar(M101, /CREATE TABLE IF NOT EXISTS "acesso_a_unidade" \(/),
+  );
+  add(
+    M101,
+    "fk acesso_a_unidade_user_id_app_user_id_fk",
+    levantar(M101, /DO \$\$\s*\n\s*BEGIN\s*\n\s*IF NOT EXISTS \(SELECT 1 FROM pg_constraint WHERE conname = 'acesso_a_unidade_user_id_app_user_id_fk'\)/),
+  );
+  add(
+    M101,
+    "fk acesso_a_unidade_unidade_id_unidade_id_fk",
+    levantar(M101, /DO \$\$\s*\n\s*BEGIN\s*\n\s*IF NOT EXISTS \(SELECT 1 FROM pg_constraint WHERE conname = 'acesso_a_unidade_unidade_id_unidade_id_fk'\)/),
+  );
+  add(
+    M101,
+    "índice acesso_a_unidade_uq",
+    levantar(M101, /INDEX IF NOT EXISTS "acesso_a_unidade_uq"/),
+  );
+  add(
+    M101,
+    "índice acesso_a_unidade_user_idx",
+    levantar(M101, /INDEX IF NOT EXISTS "acesso_a_unidade_user_idx"/),
   );
 
   /*

@@ -10,7 +10,6 @@ import {
   excluirDepartamento,
 } from "../cadastro";
 import { fluxoEtapaTable, fluxoOperacionalTable, unidadeTable } from "../schema";
-import { empresaPrincipal } from "../empresa";
 import type { Database } from "../index";
 
 /**
@@ -68,16 +67,9 @@ describe.skipIf(!temBanco)("o cadastro em uso pelo mapa dos processos", () => {
     pool = new pg.Pool({ connectionString: url });
     db = drizzle(pool) as unknown as Database;
 
-    /*
-      A unidade nasce dentro da empresa que a `0101` criou. `empresa_id` é
-      `NOT NULL` desde então: uma unidade sem dono é o estado que a coluna
-      existe para acabar, e o teste que a criasse assim estaria provando sobre
-      um banco que não pode existir.
-    */
-    const principal = await empresaPrincipal(db);
     const [unidade] = await db
       .insert(unidadeTable)
-      .values({ empresaId: principal.id, nome: "Transportes X", cnpj: "11222333000181" })
+      .values({ nome: "Transportes X", cnpj: "11222333000181" })
       .returning();
     empresaId = unidade.id;
     const [fluxo] = await db

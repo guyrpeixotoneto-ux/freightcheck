@@ -1,5 +1,4 @@
 import type { Server } from "node:http";
-import { empresaPrincipal } from "@workspace/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import express from "express";
 import { sql } from "drizzle-orm";
@@ -154,7 +153,7 @@ beforeAll(async () => {
     vigenciaInicial: "2026-07-01",
   });
 
-  const u = await cadastrarUnidade(dbDoProcesso, (await empresaPrincipal(dbDoProcesso)).id, { nome: "CDD BELEM", cnpj: CNPJ });
+  const u = await cadastrarUnidade(dbDoProcesso, { nome: "CDD BELEM", cnpj: CNPJ });
   unidadeId = u.id;
 
   /*

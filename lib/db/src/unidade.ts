@@ -486,19 +486,9 @@ function lerIdentidade(pedido: {
  * que a unidade digitada e a importada se encontram. O código gerencial atende
  * quem não o tem, e o que ele evita não é digitação: é a unidade que não se
  * cadastrava de jeito nenhum.
- *
- * **A empresa é obrigatória e não vem do pedido de quem digita.** Desde a
- * `0101` toda unidade pertence a uma empresa, e quem informa qual é o chamador
- * — a rota, a partir da **sessão** (`escopoEfetivo`, no api-server), nunca a
- * partir do corpo da requisição. Aceitar `empresaId` do cliente devolveria ao
- * cliente o poder de escolher em que tenant ele cria coisa, que é precisamente
- * a fronteira que a `0101` existe para desenhar. Por isso ela é um argumento
- * próprio, e não mais um campo de `pedido`: os dois se parecem na chamada e a
- * separação é o que faz a origem de cada um ser visível em quem lê.
  */
 export async function cadastrarUnidade(
   db: Database,
-  empresaId: string,
   pedido: { nome: string; cnpj?: string; codigoGerencial?: string },
 ): Promise<UnidadeCanonica> {
   const nome = pedido.nome.trim();
@@ -518,7 +508,7 @@ export async function cadastrarUnidade(
 
   const [criada] = await db
     .insert(unidadeTable)
-    .values({ empresaId, nome, cnpj, codigoGerencial })
+    .values({ nome, cnpj, codigoGerencial })
     .returning(COLUNAS_DA_UNIDADE);
   return criada!;
 }

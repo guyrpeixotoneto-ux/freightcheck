@@ -8,7 +8,6 @@ import {
   remuneracaoPlanilhaTable,
   remuneracaoUnidadeTable,
   type Database,
-  empresaPrincipal,
 } from "@workspace/db";
 import { runMigrations } from "@workspace/db/migrate";
 import { conciliarIdentidadeDasCompetencias } from "@workspace/fechamento";
@@ -260,7 +259,7 @@ describe.skipIf(!temBanco)("a identidade escrita dos dois lados", () => {
     expect(antes.comparado).not.toBeNull();
 
     /* O ato humano, na composição exata da rota `PUT .../unidade`. */
-    const u = await cadastrarUnidade(db, (await empresaPrincipal(db)).id, { nome: "CDD BELEM", cnpj: CNPJ_MASCARADO });
+    const u = await cadastrarUnidade(db, { nome: "CDD BELEM", cnpj: CNPJ_MASCARADO });
     const competencia = await associarUnidadeDaCompetencia(db, (await primeiraDoMes(db)), u.id);
     await conciliarIdentidadeDoCadastro(db, {
       unidadeId: u.id,
@@ -300,7 +299,7 @@ describe.skipIf(!temBanco)("a identidade escrita dos dois lados", () => {
     expect(antes.comparado).not.toBeNull();
 
     /* A composição exata da rota `POST /unidades/canonicas`. */
-    const u = await cadastrarUnidade(db, (await empresaPrincipal(db)).id, { nome: "CDD BELEM", cnpj: CNPJ_MASCARADO });
+    const u = await cadastrarUnidade(db, { nome: "CDD BELEM", cnpj: CNPJ_MASCARADO });
     await conciliarIdentidadeDasCompetencias(db);
     const conciliacao = await conciliarIdentidadeDoCadastro(db);
 
@@ -329,7 +328,7 @@ describe.skipIf(!temBanco)("a identidade escrita dos dois lados", () => {
     await cadastroLegado(CNPJ_MASCARADO);
 
     /* O banco entra no estado travado: só o lado do Fechamento tem identidade. */
-    const u = await cadastrarUnidade(db, (await empresaPrincipal(db)).id, { nome: "CDD BELEM", cnpj: CNPJ_MASCARADO });
+    const u = await cadastrarUnidade(db, { nome: "CDD BELEM", cnpj: CNPJ_MASCARADO });
     await conciliarIdentidadeDasCompetencias(db);
     expect(await identidadeNoCadastro()).toBeNull();
 
@@ -368,7 +367,7 @@ describe.skipIf(!temBanco)("a identidade escrita dos dois lados", () => {
   it("rodar de novo não escreve nada", async () => {
     await abrirOMes(CNPJ_MASCARADO);
     await cadastroLegado(CNPJ_MASCARADO);
-    await cadastrarUnidade(db, (await empresaPrincipal(db)).id, { nome: "CDD BELEM", cnpj: CNPJ_MASCARADO });
+    await cadastrarUnidade(db, { nome: "CDD BELEM", cnpj: CNPJ_MASCARADO });
 
     const primeira = await conciliarIdentidadeDoCadastro(db);
     expect(primeira.associadas).toHaveLength(1);
@@ -389,8 +388,8 @@ describe.skipIf(!temBanco)("a identidade escrita dos dois lados", () => {
    */
   it("nunca sobrescreve uma identidade já escrita", async () => {
     await abrirOMes("CDD Belém");
-    const daVerdade = await cadastrarUnidade(db, (await empresaPrincipal(db)).id, { nome: "CDD BELEM", cnpj: CNPJ_MASCARADO });
-    const outra = await cadastrarUnidade(db, (await empresaPrincipal(db)).id, { nome: "CDD OUTRO", cnpj: "22.333.444/0001-81" });
+    const daVerdade = await cadastrarUnidade(db, { nome: "CDD BELEM", cnpj: CNPJ_MASCARADO });
+    const outra = await cadastrarUnidade(db, { nome: "CDD OUTRO", cnpj: "22.333.444/0001-81" });
 
     await db.insert(remuneracaoUnidadeTable).values({
       scopeHash: "escopo-ja-associado",
@@ -424,8 +423,8 @@ describe.skipIf(!temBanco)("a identidade escrita dos dois lados", () => {
    */
   it("diante de duas unidades possíveis não escolhe nenhuma, e expõe a pendência", async () => {
     await abrirOMes("CDD Belém");
-    const doCnpj = await cadastrarUnidade(db, (await empresaPrincipal(db)).id, { nome: "CDD DO CNPJ", cnpj: CNPJ_MASCARADO });
-    const daGrafia = await cadastrarUnidade(db, (await empresaPrincipal(db)).id, { nome: "CDD DA GRAFIA", cnpj: "22.333.444/0001-81" });
+    const doCnpj = await cadastrarUnidade(db, { nome: "CDD DO CNPJ", cnpj: CNPJ_MASCARADO });
+    const daGrafia = await cadastrarUnidade(db, { nome: "CDD DA GRAFIA", cnpj: "22.333.444/0001-81" });
 
     /* O código do cadastro é o CNPJ de uma unidade… */
     await cadastroLegado(CNPJ_MASCARADO, "escopo-ambiguo");
@@ -456,7 +455,7 @@ describe.skipIf(!temBanco)("a identidade escrita dos dois lados", () => {
    */
   it("não associa por semelhança de nome", async () => {
     await abrirOMes("CDD Belém");
-    await cadastrarUnidade(db, (await empresaPrincipal(db)).id, { nome: "CDD BELEM", cnpj: CNPJ_MASCARADO });
+    await cadastrarUnidade(db, { nome: "CDD BELEM", cnpj: CNPJ_MASCARADO });
     await cadastroLegado("CDD BELEM", "escopo-pelo-nome");
 
     const relatorio = await conciliarIdentidadeDoCadastro(db);
@@ -474,7 +473,7 @@ describe.skipIf(!temBanco)("a identidade escrita dos dois lados", () => {
    */
   it("não concilia quando dois cadastros reivindicam a mesma unidade", async () => {
     await abrirOMes(CNPJ_MASCARADO);
-    await cadastrarUnidade(db, (await empresaPrincipal(db)).id, { nome: "CDD BELEM", cnpj: CNPJ_MASCARADO });
+    await cadastrarUnidade(db, { nome: "CDD BELEM", cnpj: CNPJ_MASCARADO });
 
     /* O mesmo CNPJ, com e sem máscara — dois escopos, uma unidade. */
     await cadastroLegado(CNPJ_MASCARADO, "escopo-um");
@@ -499,7 +498,7 @@ describe.skipIf(!temBanco)("a identidade escrita dos dois lados", () => {
    */
   it("não concilia um segundo cadastro para uma unidade que já tem o seu", async () => {
     await abrirOMes(CNPJ_MASCARADO);
-    const u = await cadastrarUnidade(db, (await empresaPrincipal(db)).id, { nome: "CDD BELEM", cnpj: CNPJ_MASCARADO });
+    const u = await cadastrarUnidade(db, { nome: "CDD BELEM", cnpj: CNPJ_MASCARADO });
 
     await db.insert(remuneracaoUnidadeTable).values({
       scopeHash: "escopo-ja-ligado",

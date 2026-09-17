@@ -1,4 +1,3 @@
-import { empresaPrincipal } from "@workspace/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import pg from "pg";
 import { drizzle } from "drizzle-orm/node-postgres";
@@ -106,11 +105,11 @@ describe.skipIf(!temBanco)("os coletores da Prioridade 1", () => {
 
     const [a] = await db
       .insert(unidadeTable)
-      .values({ empresaId: (await empresaPrincipal(db)).id, nome: "Transportes A", cnpj: "11111111000191" })
+      .values({ nome: "Transportes A", cnpj: "11111111000191" })
       .returning();
     const [b] = await db
       .insert(unidadeTable)
-      .values({ empresaId: (await empresaPrincipal(db)).id, nome: "Transportes B", cnpj: "22222222000172" })
+      .values({ nome: "Transportes B", cnpj: "22222222000172" })
       .returning();
     empresaA = a.id;
     empresaB = b.id;

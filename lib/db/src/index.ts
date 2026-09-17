@@ -198,7 +198,6 @@ export function codigoDoPostgres(err: unknown): string | undefined {
 
 export * from "./schema";
 export * from "./fato-visivel";
-export * from "./empresa";
 export * from "./unidade";
 export * from "./cadastro";
 /*

@@ -7,7 +7,6 @@ import {
   remuneracaoPlanilhaTable,
   remuneracaoUnidadeTable,
   type Database,
-  empresaPrincipal,
 } from "@workspace/db";
 import { runMigrations } from "@workspace/db/migrate";
 import { linhasDoCustoFixo } from "@workspace/fechamento";
@@ -158,7 +157,7 @@ describe.skipIf(!temBanco)("as duas quinzenas, da abertura ao devido", () => {
   /* --- 2 --------------------------------------------------------------- */
 
   it("2. CDD BELEM é cadastrada, com o CNPJ e a aba das duas quinzenas", async () => {
-    const u = await cadastrarUnidade(db, (await empresaPrincipal(db)).id, { nome: "CDD BELEM", cnpj: CNPJ_MASCARADO });
+    const u = await cadastrarUnidade(db, { nome: "CDD BELEM", cnpj: CNPJ_MASCARADO });
     unidadeId = u.id;
 
     /* O cadastro de Remuneração aponta para a mesma unidade canônica. */

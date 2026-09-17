@@ -1,4 +1,3 @@
-import { empresaPrincipal } from "@workspace/db";
 /**
  * A superfície HTTP de Fluxos Operacionais — pelo app de verdade.
  *
@@ -77,7 +76,6 @@ beforeAll(async () => {
 
   const { createUser, startSession, SESSION_COOKIE } = await import("../../lib/session");
   const pessoa = await createUser(ctx.db, {
-    empresaId: (await empresaPrincipal(ctx.db)).id,
     name: "Fluxos",
     email: "fluxos@teste.local",
     password: "SenhaDeTeste#12345",
@@ -87,11 +85,11 @@ beforeAll(async () => {
 
   const [a] = await ctx.db
     .insert(unidadeTable)
-    .values({ empresaId: (await empresaPrincipal(ctx.db)).id, nome: "Transportes A", cnpj: "11111111000191" })
+    .values({ nome: "Transportes A", cnpj: "11111111000191" })
     .returning();
   const [b] = await ctx.db
     .insert(unidadeTable)
-    .values({ empresaId: (await empresaPrincipal(ctx.db)).id, nome: "Transportes B", cnpj: "22222222000172" })
+    .values({ nome: "Transportes B", cnpj: "22222222000172" })
     .returning();
   empresaA = a.id;
   empresaB = b.id;

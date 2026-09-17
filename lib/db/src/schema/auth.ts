@@ -9,7 +9,6 @@ import {
 import { cargoTable } from "./cadastro";
 import { unidadeTable } from "./unidade";
 import { papelTable } from "./papel";
-import { empresaTable } from "./empresa";
 
 /**
  * AUTH — quem entrou, e a prova de que entrou.
@@ -111,21 +110,6 @@ export const appUserTable = pgTable(
      * conta apontando para uma linha morta, e o cadastro recusa isso com o
      * número de contas na frase.
      */
-    /**
-     * A empresa a que esta conta pertence — o tenant, desde a `0101`.
-     *
-     * **É a raiz de confiança do escopo, e é a única.** A empresa de uma
-     * requisição sai daqui, da sessão autenticada, e nunca do corpo, da
-     * consulta ou de um cabeçalho. Um cliente que pudesse declarar a própria
-     * empresa não estaria isolado de nada, por mais completa que fosse a
-     * estrutura em volta. Ver `lib/escopo-efetivo.ts`, no api-server.
-     *
-     * Diferente de `unidadeId`, logo abaixo: aquilo é lotação e continua não
-     * sendo permissão. Esta coluna **é** fronteira.
-     */
-    empresaId: uuid("empresa_id")
-      .notNull()
-      .references(() => empresaTable.id, { onDelete: "restrict" }),
     cargoId: uuid("cargo_id").references(() => cargoTable.id, {
       onDelete: "restrict",
     }),
@@ -201,7 +185,6 @@ export const appUserTable = pgTable(
        índices cada abertura da tela varre a tabela inteira duas vezes. */
     index("app_user_cargo_idx").on(t.cargoId),
     index("app_user_unidade_idx").on(t.unidadeId),
-    index("app_user_empresa_idx").on(t.empresaId),
     /* Trocar as permissões de um papel reescreve o `role` de quem o usa, e a
        tela de Papéis conta as contas de cada um: as duas varrem por papel. */
     index("app_user_papel_idx").on(t.papelId),

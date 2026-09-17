@@ -150,8 +150,8 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
     await migradoAte(prod.pool, "0036_funcoes_restauraveis");
     for (const email of ["a@x.com", "b@x.com", "c@x.com"]) {
       await prod.pool.query(
-        `INSERT INTO "app_user" ("name","email","password_hash","created_by","empresa_id")
-     VALUES ($1,$1,'scrypt$original','fixture',(SELECT "id" FROM "empresa" ORDER BY "criada_em" LIMIT 1))`,
+        `INSERT INTO "app_user" ("name","email","password_hash","created_by")
+         VALUES ($1,$1,'scrypt$original','fixture')`,
         [email],
       );
     }
@@ -207,6 +207,19 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
           Production a ganha quando o servidor novo aplicar a fila na partida.
         */
         "unidade",
+        /*
+          O acesso por unidade, da `0101` — quem pode ler o acervo de qual
+          unidade. Aditiva pelo mesmo critério de todas as acima: tabela nova,
+          nascida vazia, que nenhuma tabela existente sente. Production a ganha
+          quando o servidor novo aplicar a fila na partida.
+
+          Nascer vazia é o que torna a chegada dela inofensiva, e é também o que
+          obriga o corte a vir depois: nesta tabela, ausência de linha é
+          ausência de acesso — ligar o bloqueio no mesmo deploy em que ela chega
+          tiraria de todo mundo tudo o que ninguém ainda concedeu. Ver
+          `schema/acesso-a-unidade.ts`.
+        */
+        "acesso_a_unidade",
         /*
           As três da referência de conferência, da `0051` — a planilha anexada a
           um mês para se conferir contra ela. Aditivas como as demais: nenhuma
@@ -663,6 +676,12 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
                junto com a tabela nova, e nomeá-las uma a uma congelaria a
                nomenclatura interna num teste que não fala sobre ela. */
             !c.startsWith("unidade_") &&
+            /* O acesso por unidade, da `0101`, pela mesma regra: a chave
+               primária, as duas FKs e a `CHECK` de nível vêm junto com a tabela
+               nova, e nenhuma delas cai sobre tabela existente — as duas FKs
+               apontam **daqui** para `app_user` e `unidade`, e não o contrário.
+               É o que mantém a chegada dela aditiva. */
+            !c.startsWith("acesso_a_unidade_") &&
             /* As de Fluxos Operacionais, da `0068`, pela mesma regra: são
                dezenas — chave primária, seis chaves compostas, as `CHECK` de
                nome não vazio e a de rota interna — e todas vêm junto com as

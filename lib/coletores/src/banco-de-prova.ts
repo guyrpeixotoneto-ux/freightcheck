@@ -1,4 +1,3 @@
-import { empresaPrincipal } from "@workspace/db";
 import pg from "pg";
 import { drizzle } from "drizzle-orm/node-postgres";
 import {
@@ -73,7 +72,7 @@ export async function criarEmpresa(
 ): Promise<string> {
   const [unidade] = await db
     .insert(unidadeTable)
-    .values({ empresaId: (await empresaPrincipal(db)).id, nome, cnpj })
+    .values({ nome, cnpj })
     .returning();
   return unidade.id;
 }

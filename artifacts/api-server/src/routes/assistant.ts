@@ -327,12 +327,13 @@ router.post("/assistant/ask", tetoDoAssistente, async (req, res): Promise<void> 
           `req.escopo` é o escopo efetivo desta sessão, calculado a partir dela
           e de mais nada (`lib/escopo-efetivo.ts`), e é o mesmo objeto que as
           rotas normais recebem — é isso que garante que o Assistente não tem
-          caminho paralelo. Enquanto o corte não está ligado, o pedido segue
-          como sempre seguiu e o que esta linha faz é **registrar** o veredito
-          no rastro; quando ele ligar, a recusa entra aqui, num lugar só.
+          caminho paralelo. A superfície que agrega é a que menos pode ter
+          regra própria: aqui um vazamento não é uma linha de tabela, é o
+          acervo resumido numa frase.
 
-          Ver `middlewares/escopo-em-observacao.ts` para por que medir vem antes
-          de cortar.
+          Enquanto o corte está em observação, o pedido segue como sempre
+          seguiu e o middleware registra o veredito. Quando ele ligar, a recusa
+          entra aqui, lendo `req.escopo` — num lugar só, e no mesmo objeto.
         */
         ...(typeof scopeHash === "string" ? { scopeHash } : {}),
         ...(typeof canal === "string" ? { channel: canal } : {}),

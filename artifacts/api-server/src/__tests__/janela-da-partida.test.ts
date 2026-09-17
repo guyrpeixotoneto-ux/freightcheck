@@ -176,8 +176,8 @@ beforeAll(async () => {
   */
   const { hashPassword } = await import("../lib/auth");
   const { rows } = await poolDoTeste.query<{ id: string }>(
-    `INSERT INTO "app_user" ("name","email","password_hash","role","empresa_id")
-     VALUES ('Guy','guy@freightcheck',$1,'OPERADOR',(SELECT "id" FROM "empresa" ORDER BY "criada_em" LIMIT 1)) RETURNING id`,
+    `INSERT INTO "app_user" ("name","email","password_hash","role")
+     VALUES ('Guy','guy@freightcheck',$1,'OPERADOR') RETURNING id`,
     /*
       Um hash de verdade, e não um carimbo: metade deste arquivo passou a
       exercitar o `/auth/login` — recusado com a fila atrasada, aceito depois

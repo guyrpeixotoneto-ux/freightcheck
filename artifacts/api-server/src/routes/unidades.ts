@@ -18,7 +18,6 @@ import {
 import { conciliarIdentidadeDasCompetencias } from "@workspace/fechamento";
 
 import { conciliarIdentidadeDoCadastro } from "../lib/identidade-do-cadastro";
-import { escopoEfetivo } from "../lib/escopo-efetivo";
 
 /**
  * ADMINISTRAÇÃO → UNIDADES — o cadastro mestre, e o que ele **não** é.
@@ -176,16 +175,7 @@ router.post("/unidades/canonicas", async (req, res): Promise<void> => {
     typeof corpo.codigoGerencial === "string" ? corpo.codigoGerencial : "";
 
   try {
-    /*
-      A empresa vem da **sessão**, e o corpo não tem voz nisto.
-
-      `req.escopo` é calculado a partir da conta autenticada e de mais nada
-      (`lib/escopo-efetivo.ts`). Ler `empresaId` do corpo devolveria ao cliente
-      o poder de criar unidade dentro de outro tenant — a fronteira que a `0101`
-      existe para desenhar, desfeita na primeira rota de escrita.
-    */
-    const empresaId = req.escopo?.empresaId ?? (await escopoEfetivo(req.user!.id)).empresaId;
-    const criada = await cadastrarUnidade(db, empresaId, { nome, cnpj, codigoGerencial });
+    const criada = await cadastrarUnidade(db, { nome, cnpj, codigoGerencial });
     /*
       Cadastrar a unidade é um dos momentos em que a identidade passa a ser
       conhecida — e, até aqui, o único que não escrevia nada no Fechamento. A

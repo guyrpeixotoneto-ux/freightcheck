@@ -1,5 +1,4 @@
 import { createInterface } from "node:readline/promises";
-import { empresaPrincipal } from "@workspace/db";
 import { db } from "@workspace/db";
 import {
   describeEmailProblem,
@@ -69,11 +68,7 @@ try {
     o que valia antes do cadastro.
   */
   const papel = await papelDoSistema(db, true);
-  /* O terminal não tem sessão: a empresa é a única que existe, e
-     `empresaPrincipal` reprova alto se um dia houver duas. */
-  const empresa = await empresaPrincipal(db);
   const user = await createUser(db, {
-    empresaId: empresa.id,
     name: name!,
     email: email!,
     password,
