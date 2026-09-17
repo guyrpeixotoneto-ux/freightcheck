@@ -39,7 +39,7 @@ export function OQuePuxou({
 
   return (
     <section
-      className={cn("superficie px-6 py-5", className)}
+      className={cn("superficie px-6 py-5 flex flex-col", className)}
       aria-label="O que puxou a janela"
     >
       <h2 className="text-base font-bold">O que puxou a janela</h2>
@@ -79,10 +79,13 @@ export function OQuePuxou({
             : "Nenhum parâmetro tem valor apurado nesta janela — não há o que ranquear."}
         </p>
       ) : (
-        <ol className="mt-1 divide-y">
+        /* A lista preenche o cartão, que acompanha a altura do gráfico ao lado
+           — a mesma regra do ranking da dobra 3. */
+        <ol className="mt-1 divide-y flex-1 flex flex-col justify-center">
           {janela.linhas.map((linha, indice) => (
             <LinhaDeLista
               key={linha.chave}
+              className="flex-1 max-h-28 flex items-center"
               posicao={indice + 1}
               nome={linha.nome}
               contexto={linha.contexto}
