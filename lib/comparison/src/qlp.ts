@@ -1324,9 +1324,56 @@ export function resumirQuadro(
 // Exportação
 // ---------------------------------------------------------------------------
 
-/** O cabeçalho do CSV — a ordem das colunas da tela. */
-export const COLUNAS_DO_CSV_DE_QLP = [
-  "Cargo",
+/**
+ * A identidade de uma linha do quadro, repartida como a chave legível a traz.
+ *
+ * A chave legível é a emenda das colunas de identidade do tipo, na ordem em que
+ * elas compõem a chave (`lib/ingest/src/tipos.ts`): unidade + cargo no
+ * administrativo, unidade + cargo + turno no operacional. Repartir aqui — e não
+ * na tela — é o que deixa a tabela e o CSV usarem a **mesma** regra: um arquivo
+ * exportado com uma divisão e uma tela com outra seriam duas verdades sobre a
+ * mesma linha.
+ *
+ * Um quarto pedaço (um tipo novo, ou uma versão da chave com mais colunas) fica
+ * junto do turno em vez de sumir: esconder parte da identidade é pior do que
+ * escrevê-la sem nome próprio. E a chave **normalizada** nunca se reparte: ela é
+ * uma coisa só, o que o resto do produto usa para se referir à linha.
+ */
+export function partesDaChaveLegivel(legivel: string): {
+  unidade: string;
+  cargo: string;
+  turno: string;
+} {
+  const partes = legivel.split(" · ");
+  if (partes.length === 1) return { unidade: "", cargo: legivel, turno: "" };
+  return { unidade: partes[0], cargo: partes[1], turno: partes.slice(2).join(" · ") };
+}
+
+/**
+ * O `Cargo:` que a origem repete dentro do próprio valor, fora.
+ *
+ * O export do quadro operacional escreve `Cargo: MOTORISTA 28` na coluna do
+ * cargo e `Cargo: EQUIPE ATIVA 8x16` na do turno. Sob os cabeçalhos "Cargo" e
+ * "Turno" — na tabela e na planilha exportada — esse prefixo repete o nome de
+ * uma coluna e mente o nome da outra.
+ *
+ * O que ele **não** faz: mexer no dado. O valor importado continua inteiro no
+ * banco, a chave normalizada vai inteira ao lado, e a busca casa com as duas
+ * formas. É apresentação, e a `Chave` na mesma linha é o que permite voltar à
+ * origem.
+ *
+ * Só o prefixo exato sai, e só quando sobra alguma coisa depois dele: um cargo
+ * que se chamasse "Cargo:" continuaria se chamando assim, porque apagá-lo
+ * deixaria a célula vazia — e célula vazia quer dizer "não veio", que é outra
+ * coisa.
+ */
+export function semPrefixoDeCargo(valor: string): string {
+  const semPrefixo = valor.replace(/^\s*cargo\s*:\s*/i, "");
+  return semPrefixo === "" ? valor : semPrefixo;
+}
+
+/** As colunas do CSV que valem para qualquer quadro. */
+const COLUNAS_FIXAS_DO_CSV_DE_QLP = [
   "Chave",
   "Conta",
   "Forma",
@@ -1335,6 +1382,40 @@ export const COLUNAS_DO_CSV_DE_QLP = [
   "Diferença",
   "Leitura",
 ] as const;
+
+/** Quais colunas de identidade este recorte tem para escrever. */
+export interface FormatoDoCsvDeQlp {
+  comUnidade: boolean;
+  comTurno: boolean;
+}
+
+/**
+ * O cabeçalho do CSV, decidido pelas linhas que ele vai escrever.
+ *
+ * Unidade e turno só entram quando alguma linha os traz. O QLP Administrativo
+ * não tem turno, e uma coluna "Turno" vazia em toda linha convidaria quem abre a
+ * planilha a procurar o dado que falta — quando o que existe é um quadro cuja
+ * identidade tem duas partes, e não três.
+ */
+export function formatoDoCsvDeQlp(
+  linhas: readonly ConferenciaDaLinha[],
+): FormatoDoCsvDeQlp {
+  const partes = linhas.map((l) => partesDaChaveLegivel(l.nome ?? l.chave));
+  return {
+    comUnidade: partes.some((p) => p.unidade !== ""),
+    comTurno: partes.some((p) => p.turno !== ""),
+  };
+}
+
+/** O cabeçalho do CSV — a ordem das colunas da tela. */
+export function colunasDoCsvDeQlp(formato: FormatoDoCsvDeQlp): string[] {
+  return [
+    ...(formato.comUnidade ? ["Unidade"] : []),
+    "Cargo",
+    ...(formato.comTurno ? ["Turno"] : []),
+    ...COLUNAS_FIXAS_DO_CSV_DE_QLP,
+  ];
+}
 
 /** Como o CSV escreve o veredito de cada conta, por extenso. */
 function leituraNoCsv(confere: boolean | null): string {
@@ -1351,9 +1432,23 @@ function leituraNoCsv(confere: boolean | null): string {
  */
 export function celulasDoCsvDeQlp(
   conferencia: ConferenciaDaLinha,
+  formato: FormatoDoCsvDeQlp,
 ): (string | number | null)[][] {
-  return conferencia.contas.map((c) => [
+  /*
+    A identidade em colunas, e a chave inteira ao lado.
+
+    O arquivo se lê como a tabela: mesma divisão e mesmo prefixo aparado. O que
+    sustenta isso é a coluna `Chave`, que vai na mesma linha e sem se repartir —
+    é por ela que se volta ao que foi importado, e é ela que o resto do produto
+    usa para se referir à linha.
+  */
+  const { unidade, cargo, turno } = partesDaChaveLegivel(
     conferencia.nome ?? conferencia.chave,
+  );
+  return conferencia.contas.map((c) => [
+    ...(formato.comUnidade ? [unidade] : []),
+    semPrefixoDeCargo(cargo),
+    ...(formato.comTurno ? [semPrefixoDeCargo(turno)] : []),
     conferencia.chave,
     c.rotulo,
     c.forma === "PRODUTO" ? "quantidade × valor" : "soma das parcelas",

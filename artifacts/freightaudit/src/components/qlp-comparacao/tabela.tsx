@@ -11,7 +11,7 @@ import {
   ROTULO_DO_ESTADO,
   SELO_DO_ESTADO,
   corDaDiferenca,
-  escreverCargo,
+  escreverCargoNaTela,
   escreverDiferenca,
   escreverValor,
   escreverVariacao,
@@ -87,7 +87,7 @@ export function TabelaDaComparacaoDeQlp({
         </thead>
         <tbody>
           {linhas.map((linha, indice) => {
-            const { unidade, cargo } = escreverCargo(linha.entityLabel, rotulos);
+            const { unidade, cargo, turno } = escreverCargoNaTela(linha.entityLabel, rotulos);
             return (
               <tr
                 key={`${linha.entityLabel}-${linha.variavel}-${linha.id ?? indice}`}
@@ -105,6 +105,13 @@ export function TabelaDaComparacaoDeQlp({
               >
                 <td className="px-3 py-2">
                   <div className="font-medium">{cargo}</div>
+                  {/*
+                    O turno numa linha própria, e não emendado no cargo: no
+                    quadro operacional ele é metade da identidade — o mesmo
+                    cargo existe no 8x16 e no 12x36 —, e escrever os dois juntos
+                    faria a coluna "Cargo" mostrar duas coisas com nome de uma.
+                  */}
+                  {turno && <div className="text-[0.7rem] text-muted-foreground">{turno}</div>}
                   {unidade && (
                     <div className="font-mono text-[0.7rem] text-muted-foreground">
                       {unidade}

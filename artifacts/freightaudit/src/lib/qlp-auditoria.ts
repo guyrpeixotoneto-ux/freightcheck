@@ -3,7 +3,8 @@ import {
   ROTULO_DO_QUADRO,
   ROTULO_DO_VEREDITO_DA_LINHA,
   celulasDoCsvDeQlp,
-  COLUNAS_DO_CSV_DE_QLP,
+  colunasDoCsvDeQlp,
+  formatoDoCsvDeQlp,
   type ConferenciaDaLinha,
   type ConferenciaDoAbono,
   type ConferenciaDoBenchmark,
@@ -159,12 +160,18 @@ export function contagemPorVeredito(
  * em texto do Excel brasileiro. Um arquivo com uma linha por cargo teria de
  * espremer seis vereditos numa célula, e ninguém filtra planilha por texto
  * concatenado.
+ *
+ * A identidade sai repartida — Unidade, Cargo, Turno —, como na tabela, e pela
+ * mesma razão: numa planilha, um campo com três coisas emendadas não filtra nem
+ * ordena. Unidade e turno só entram quando o recorte os tem, e a `Chave` inteira
+ * vai ao lado, sem se repartir: ela é o identificador técnico da linha.
  */
 export function linhasDoCsv(linhas: readonly ConferenciaDaLinha[]): string[][] {
+  const formato = formatoDoCsvDeQlp(linhas);
   return [
-    [...COLUNAS_DO_CSV_DE_QLP],
+    colunasDoCsvDeQlp(formato),
     ...linhas.flatMap((l) =>
-      celulasDoCsvDeQlp(l).map((celulas) =>
+      celulasDoCsvDeQlp(l, formato).map((celulas) =>
         celulas.map((celula) => {
           if (celula === null || celula === undefined) return "";
           if (typeof celula === "number") return numeroParaCsv(celula);

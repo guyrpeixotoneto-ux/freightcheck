@@ -123,4 +123,30 @@ describe("o CSV", () => {
     expect(linhas[1][4]).toBe("");
     expect(linhas[1][7]).toBe("Base insuficiente");
   });
+
+  /*
+    A identidade no arquivo exportado segue a da tabela: uma coluna por pedaço e
+    o prefixo `Cargo:` aparado. O que liga a planilha ao que foi importado é a
+    coluna `Chave`, que vai inteira ao lado.
+  */
+  it("reparte a identidade em colunas, e mantém a chave inteira ao lado", () => {
+    const operacional = linha(
+      "07526557001505CARGOMOTORISTA28CARGOEQUIPEATIVA8X16",
+      "07526557001505_CERV · Cargo: MOTORISTA 28 · Cargo: EQUIPE ATIVA 8x16",
+      [conta("piso", true)],
+    );
+    const linhas = linhasDoCsv([operacional]);
+    expect(linhas[0].slice(0, 4)).toEqual(["Unidade", "Cargo", "Turno", "Chave"]);
+    expect(linhas[1].slice(0, 4)).toEqual([
+      "07526557001505_CERV",
+      "MOTORISTA 28",
+      "EQUIPE ATIVA 8x16",
+      "07526557001505CARGOMOTORISTA28CARGOEQUIPEATIVA8X16",
+    ]);
+  });
+
+  it("não escreve colunas de unidade e de turno num quadro que não as tem", () => {
+    expect(linhasDoCsv([QUADRO[0]])[0]).not.toContain("Turno");
+    expect(linhasDoCsv([QUADRO[0]])[0]).not.toContain("Unidade");
+  });
 });

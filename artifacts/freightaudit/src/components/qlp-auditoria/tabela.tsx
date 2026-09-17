@@ -2,6 +2,7 @@ import { Fragment, useState } from "react";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatNumber } from "@/lib/format";
+import { identidadeNaTela } from "@/components/qlp/apresentacao";
 import {
   ROTULO_DO_VEREDITO_DA_LINHA,
   SELO_DO_VEREDITO,
@@ -23,25 +24,60 @@ import {
  * **Cada conta mostra o esperado ao lado do declarado**, sempre os dois. Mostrar
  * só a diferença deixaria "−R$ 2.400,00" sem escala: sobre uma despesa de
  * R$ 4.800 é metade da rubrica, e sobre uma de R$ 480 mil é ruído.
+ *
+ * **A identidade vem em colunas, e não numa frase.** A chave legível do quadro é
+ * a emenda das colunas de identidade do tipo — unidade + cargo no
+ * administrativo, unidade + cargo + turno no operacional —, e mostrá-la inteira
+ * numa célula só produzia títulos como
+ * `07526557001505_CERV · Cargo: MOTORISTA 28 · Cargo: EQUIPE ATIVA 8x16`: três
+ * campos diferentes sob o cabeçalho "Cargo", impossíveis de varrer com o olho e
+ * de comparar entre linhas. Cada pedaço agora tem a sua coluna.
+ *
+ * As colunas de unidade e de turno **aparecem quando existem**, e por isso o
+ * administrativo não ganha uma coluna "Turno" vazia: a lista é dos dois quadros,
+ * e o que decide é o que as linhas trazem, não o que o quadro poderia trazer.
+ *
+ * **O prefixo `Cargo:` que a origem repete dentro do valor sai só daqui.** Sob os
+ * cabeçalhos "Cargo" e "Turno" ele é ruído — repete o nome da coluna numa e mente
+ * o nome dela na outra —, mas o dado importado, a chave normalizada embaixo do
+ * cargo e o CSV continuam com o valor como ele veio. Ver `semPrefixoDeCargo`.
  */
 export function TabelaDeCargos({ linhas }: { linhas: ConferenciaDaLinha[] }) {
   const [aberto, setAberto] = useState<string | null>(null);
 
+  const identidades = linhas.map((l) => identidadeNaTela(l.nome ?? l.chave));
+  const temUnidade = identidades.some((i) => i.unidade !== "");
+  const temTurno = identidades.some((i) => i.turno !== "");
+  const colunas = [
+    "",
+    ...(temUnidade ? ["Unidade"] : []),
+    "Cargo",
+    ...(temTurno ? ["Turno"] : []),
+    "Fecham",
+    "Não fecham",
+    "Sem base",
+    "Leitura",
+  ];
+  /* Onde começam as três colunas numéricas, que são as alinhadas à direita. */
+  const primeiraNumerica = colunas.indexOf("Fecham");
+
   return (
     <div className="superficie overflow-x-auto">
-      <table className="w-full min-w-[52rem] border-collapse text-sm">
+      <table className="w-full min-w-[58rem] border-collapse text-sm">
         <caption className="sr-only">
           Cargos do quadro e o resultado das contas que a tabela declara para cada um.
         </caption>
         <thead>
           <tr className="border-b bg-muted/60">
-            {["", "Cargo", "Fecham", "Não fecham", "Sem base", "Leitura"].map((titulo, i) => (
+            {colunas.map((titulo, i) => (
               <th
                 key={titulo || `vazio-${i}`}
                 scope="col"
                 className={cn(
                   "whitespace-nowrap px-3 py-2.5 text-[0.65rem] font-bold uppercase tracking-[0.07em] text-muted-foreground",
-                  i >= 2 && i <= 4 ? "text-right" : "text-left",
+                  i >= primeiraNumerica && i <= primeiraNumerica + 2
+                    ? "text-right"
+                    : "text-left",
                 )}
               >
                 {titulo}
@@ -50,8 +86,9 @@ export function TabelaDeCargos({ linhas }: { linhas: ConferenciaDaLinha[] }) {
           </tr>
         </thead>
         <tbody>
-          {linhas.map((l) => {
+          {linhas.map((l, indice) => {
             const estaAberto = aberto === l.chave;
+            const { unidade, cargo, turno } = identidades[indice];
             return (
               <Fragment key={l.chave}>
                 <tr
@@ -77,15 +114,25 @@ export function TabelaDeCargos({ linhas }: { linhas: ConferenciaDaLinha[] }) {
                       <ChevronRight className="h-4 w-4" aria-hidden="true" />
                     )}
                   </td>
+                  {temUnidade && (
+                    <td className="whitespace-nowrap px-3 py-2 font-mono text-[0.75rem] text-muted-foreground">
+                      {unidade || "—"}
+                    </td>
+                  )}
                   <td className="px-3 py-2">
                     {/*
                       O nome legível manda, e a chave normalizada fica embaixo em
                       letra menor: a chave identifica, mas
                       `20618821000799AUXILIARADM` não se lê, e uma lista de trinta
                       delas é uma lista que ninguém distingue.
+
+                      A chave inteira fica sob o cargo, e não repartida entre as
+                      colunas: ela é uma coisa só — o que o resto do produto usa
+                      para se referir a esta linha — e cortá-la em pedaços
+                      inventaria três chaves que não existem.
                     */}
                     <span className="flex flex-col">
-                      <span className="font-semibold">{l.nome ?? l.chave}</span>
+                      <span className="font-semibold">{cargo}</span>
                       {l.nome && (
                         <span className="font-mono text-[0.7rem] text-muted-foreground">
                           {l.chave}
@@ -93,6 +140,11 @@ export function TabelaDeCargos({ linhas }: { linhas: ConferenciaDaLinha[] }) {
                       )}
                     </span>
                   </td>
+                  {temTurno && (
+                    <td className="whitespace-nowrap px-3 py-2 text-muted-foreground">
+                      {turno || "—"}
+                    </td>
+                  )}
                   <td className="px-3 py-2 text-right font-mono tabular-nums text-success">
                     {formatNumber(l.conferem, 0)}
                   </td>
@@ -121,42 +173,55 @@ export function TabelaDeCargos({ linhas }: { linhas: ConferenciaDaLinha[] }) {
 
                 {estaAberto && (
                   <tr className="border-b border-superficie-borda bg-muted/20">
-                    <td colSpan={6} className="px-3 py-3">
+                    <td colSpan={colunas.length} className="px-3 py-3">
+                      {/*
+                        As colunas da gaveta respiram: sem folga lateral, o número
+                        da diferença encostava na leitura e as duas se liam como
+                        uma palavra só ("—Base insuficiente"). A primeira e a
+                        última ficam rentes às bordas, para a gaveta alinhar com a
+                        linha que a abriu.
+                      */}
                       <table className="w-full border-collapse text-xs">
                         <thead>
                           <tr className="text-[0.65rem] uppercase tracking-[0.07em] text-muted-foreground">
-                            <th scope="col" className="py-1 text-left font-bold">Conta</th>
-                            <th scope="col" className="py-1 text-left font-bold">Forma</th>
-                            <th scope="col" className="py-1 text-right font-bold">Esperado</th>
-                            <th scope="col" className="py-1 text-right font-bold">Declarado</th>
-                            <th scope="col" className="py-1 text-right font-bold">Diferença</th>
-                            <th scope="col" className="py-1 text-left font-bold">Leitura</th>
+                            <th scope="col" className="py-1 pr-4 text-left font-bold">Conta</th>
+                            <th scope="col" className="py-1 px-4 text-left font-bold">Forma</th>
+                            <th scope="col" className="whitespace-nowrap py-1 px-4 text-right font-bold">
+                              Esperado
+                            </th>
+                            <th scope="col" className="whitespace-nowrap py-1 px-4 text-right font-bold">
+                              Declarado
+                            </th>
+                            <th scope="col" className="whitespace-nowrap py-1 px-4 text-right font-bold">
+                              Diferença
+                            </th>
+                            <th scope="col" className="py-1 pl-4 text-left font-bold">Leitura</th>
                           </tr>
                         </thead>
                         <tbody>
                           {l.contas.map((c) => (
                             <tr key={c.conta} className="border-t border-superficie-borda">
-                              <td className="py-1.5 font-semibold">{c.rotulo}</td>
-                              <td className="py-1.5 text-muted-foreground">
+                              <td className="py-1.5 pr-4 font-semibold">{c.rotulo}</td>
+                              <td className="whitespace-nowrap py-1.5 px-4 text-muted-foreground">
                                 {c.forma === "PRODUTO"
                                   ? "quantidade × valor"
                                   : "soma das parcelas"}
                               </td>
-                              <td className="py-1.5 text-right font-mono tabular-nums">
+                              <td className="whitespace-nowrap py-1.5 px-4 text-right font-mono tabular-nums">
                                 {escreverConta(c.esperado)}
                               </td>
-                              <td className="py-1.5 text-right font-mono tabular-nums">
+                              <td className="whitespace-nowrap py-1.5 px-4 text-right font-mono tabular-nums">
                                 {escreverConta(c.declarado)}
                               </td>
                               <td
                                 className={cn(
-                                  "py-1.5 text-right font-mono tabular-nums",
+                                  "whitespace-nowrap py-1.5 px-4 text-right font-mono tabular-nums",
                                   c.confere === false && "text-warning-foreground",
                                 )}
                               >
                                 {escreverDiferenca(c.diferenca)}
                               </td>
-                              <td className="py-1.5">
+                              <td className="whitespace-nowrap py-1.5 pl-4">
                                 {c.confere === null ? (
                                   <span className="text-muted-foreground">Base insuficiente</span>
                                 ) : c.confere ? (

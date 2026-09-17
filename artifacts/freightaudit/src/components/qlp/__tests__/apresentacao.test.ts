@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   agruparMovimentos,
   formatarValor,
+  identidadeNaTela,
+  semPrefixoDeCargo,
   rotuloDaVigencia,
   separarRotulo,
 } from "../apresentacao";
@@ -70,11 +72,66 @@ describe("separarRotulo", () => {
     expect(separarRotulo("07.526.557/0015-05 · ANALISTA ADM")).toEqual({
       unidade: "07.526.557/0015-05",
       cargo: "ANALISTA ADM",
+      turno: "",
+    });
+  });
+
+  it("o quadro operacional tem três partes, e o turno é uma delas", () => {
+    expect(
+      separarRotulo("07526557001505_CERV · Cargo: MOTORISTA 28 · Cargo: EQUIPE ATIVA 8x16"),
+    ).toEqual({
+      unidade: "07526557001505_CERV",
+      cargo: "Cargo: MOTORISTA 28",
+      turno: "Cargo: EQUIPE ATIVA 8x16",
+    });
+  });
+
+  it("uma quarta parte fica junto do turno, em vez de sumir", () => {
+    expect(separarRotulo("UN · CARGO · TURNO · EXTRA")).toEqual({
+      unidade: "UN",
+      cargo: "CARGO",
+      turno: "TURNO · EXTRA",
     });
   });
 
   it("sem separador, tudo é cargo — melhor do que inventar uma unidade", () => {
-    expect(separarRotulo("ANALISTA ADM")).toEqual({ unidade: "", cargo: "ANALISTA ADM" });
+    expect(separarRotulo("ANALISTA ADM")).toEqual({
+      unidade: "",
+      cargo: "ANALISTA ADM",
+      turno: "",
+    });
+  });
+});
+
+describe("o prefixo `Cargo:` da origem", () => {
+  it("sai da apresentação, e só dela", () => {
+    expect(semPrefixoDeCargo("Cargo: MOTORISTA 28")).toBe("MOTORISTA 28");
+    expect(semPrefixoDeCargo("cargo:EQUIPE ATIVA 8x16")).toBe("EQUIPE ATIVA 8x16");
+  });
+
+  it("não mexe em quem não tem o prefixo", () => {
+    expect(semPrefixoDeCargo("ANALISTA ADM")).toBe("ANALISTA ADM");
+    expect(semPrefixoDeCargo("Encarregado de cargo: pátio")).toBe("Encarregado de cargo: pátio");
+  });
+
+  it("não esvazia a célula: um valor que é só o prefixo fica como está", () => {
+    expect(semPrefixoDeCargo("Cargo:")).toBe("Cargo:");
+  });
+
+  it("a tela apara cargo e turno, e não toca na unidade", () => {
+    expect(
+      identidadeNaTela("07526557001505_CERV · Cargo: MOTORISTA 28 · Cargo: EQUIPE ATIVA 8x16"),
+    ).toEqual({
+      unidade: "07526557001505_CERV",
+      cargo: "MOTORISTA 28",
+      turno: "EQUIPE ATIVA 8x16",
+    });
+  });
+
+  it("separarRotulo continua devolvendo o valor como o arquivo o escreveu", () => {
+    expect(
+      separarRotulo("07526557001505_CERV · Cargo: MOTORISTA 28 · Cargo: EQUIPE ATIVA 8x16").cargo,
+    ).toBe("Cargo: MOTORISTA 28");
   });
 });
 

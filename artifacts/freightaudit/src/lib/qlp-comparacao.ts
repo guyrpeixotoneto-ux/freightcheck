@@ -12,7 +12,7 @@ import {
 } from "@workspace/comparison/qlp-comparacao";
 import { numeroParaCsv } from "@/lib/csv";
 import { formatBrl, formatNumber } from "@/lib/format";
-import { separarRotulo } from "@/components/qlp/apresentacao";
+import { semPrefixoDeCargo, separarRotulo } from "@/components/qlp/apresentacao";
 
 /**
  * A metade de tela da Comparação do QLP — apresentação, e só.
@@ -41,7 +41,10 @@ export interface ComparacaoDeQlp {
 }
 
 /**
- * O cargo como se lê — unidade de um lado, cargo do outro.
+ * O cargo como se lê — cada pedaço da identidade no seu campo.
+ *
+ * Unidade, cargo e turno (o operacional tem os três; o administrativo, os dois
+ * primeiros) voltam separados para a tabela poder dar uma coluna a cada um.
  *
  * O motor rotula a linha com a chave normalizada
  * (`07526557001505CARGOGERENTE…`); o dicionário de `rotulos` devolve a forma
@@ -51,11 +54,28 @@ export interface ComparacaoDeQlp {
 export function escreverCargo(
   chave: string | null,
   rotulos: Record<string, string>,
-): { unidade: string; cargo: string } {
-  if (!chave) return { unidade: "", cargo: "—" };
+): { unidade: string; cargo: string; turno: string } {
+  if (!chave) return { unidade: "", cargo: "—", turno: "" };
   const legivel = rotulos[chave];
-  if (!legivel) return { unidade: "", cargo: chave };
+  if (!legivel) return { unidade: "", cargo: chave, turno: "" };
   return separarRotulo(legivel);
+}
+
+/**
+ * O mesmo cargo, como a **tela** o escreve: sem o prefixo `Cargo:` que a origem
+ * repete dentro do valor. Ver `semPrefixoDeCargo` — o dado não muda, a busca
+ * continua sobre a forma importada, e o CSV também.
+ */
+export function escreverCargoNaTela(
+  chave: string | null,
+  rotulos: Record<string, string>,
+): { unidade: string; cargo: string; turno: string } {
+  const { unidade, cargo, turno } = escreverCargo(chave, rotulos);
+  return {
+    unidade,
+    cargo: semPrefixoDeCargo(cargo),
+    turno: turno === "" ? "" : semPrefixoDeCargo(turno),
+  };
 }
 
 /** O cargo numa linha só, para a busca e para o CSV. */
@@ -63,8 +83,8 @@ export function cargoEmUmaLinha(
   chave: string | null,
   rotulos: Record<string, string>,
 ): string {
-  const { unidade, cargo } = escreverCargo(chave, rotulos);
-  return unidade ? `${unidade} · ${cargo}` : cargo;
+  const { unidade, cargo, turno } = escreverCargo(chave, rotulos);
+  return [unidade, cargo, turno].filter(Boolean).join(" · ");
 }
 
 /**

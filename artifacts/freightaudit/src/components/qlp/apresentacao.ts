@@ -1,3 +1,4 @@
+import { partesDaChaveLegivel, semPrefixoDeCargo } from "@workspace/comparison/qlp";
 import { formatBrl, formatNumber } from "@/lib/format";
 import type { ChangeRow } from "@/components/changes/change-table";
 import type { AtributoDoQuadro, ValorDeFato } from "./tipos";
@@ -47,13 +48,45 @@ export function formatarValor(
   return formatNumber(valor, Number.isInteger(valor) ? 0 : 2);
 }
 
-/** `"07.526.557/0015-05 · ANALISTA ADM"` → as duas metades. */
-export function separarRotulo(entityLabel: string): { unidade: string; cargo: string } {
-  const posicao = entityLabel.indexOf(" · ");
-  if (posicao < 0) return { unidade: "", cargo: entityLabel };
+/**
+ * `"07.526.557/0015-05 · ANALISTA ADM"` → as partes da identidade, cada uma no
+ * seu campo.
+ *
+ * A regra mora no núcleo (`partesDaChaveLegivel`), que o CSV também usa: a
+ * tabela e o arquivo exportado repartem a mesma chave do mesmo jeito. Aqui fica
+ * só o nome com que a tela chama isso.
+ *
+ * O valor sai **como o arquivo o escreveu**. Quem apara o prefixo `Cargo:` para
+ * a leitura é {@link identidadeNaTela}.
+ */
+export function separarRotulo(entityLabel: string): {
+  unidade: string;
+  cargo: string;
+  turno: string;
+} {
+  return partesDaChaveLegivel(entityLabel);
+}
+
+/**
+ * O `Cargo:` que a origem repete dentro do próprio valor, fora.
+ *
+ * A regra mora no núcleo, e o CSV usa a mesma: o arquivo exportado se lê como a
+ * tabela. Ver `semPrefixoDeCargo` em `@workspace/comparison/qlp` — o dado
+ * importado, a chave normalizada e a busca continuam sobre a forma que veio.
+ */
+export { semPrefixoDeCargo };
+
+/** A identidade como a tela a desenha: repartida e sem o prefixo da origem. */
+export function identidadeNaTela(entityLabel: string): {
+  unidade: string;
+  cargo: string;
+  turno: string;
+} {
+  const { unidade, cargo, turno } = separarRotulo(entityLabel);
   return {
-    unidade: entityLabel.slice(0, posicao),
-    cargo: entityLabel.slice(posicao + " · ".length),
+    unidade,
+    cargo: semPrefixoDeCargo(cargo),
+    turno: turno === "" ? "" : semPrefixoDeCargo(turno),
   };
 }
 
@@ -108,7 +141,16 @@ export function agruparMovimentos(
   );
 
   const legibilizar = (entityLabel: string): { unidade: string; cargo: string } => {
-    if (entityLabel.includes(" · ")) return separarRotulo(entityLabel);
+    if (entityLabel.includes(" · ")) {
+      /*
+        A lista de entradas e saídas é de cargos, numa linha só: o turno volta
+        para junto do cargo porque um "MOTORISTA 28" que entrou no 8x16 e outro
+        que entrou no 12x36 são duas entradas, e escrever as duas como
+        "MOTORISTA 28" faria a lista repetir o mesmo nome sem dizer por quê.
+      */
+      const { unidade, cargo, turno } = identidadeNaTela(entityLabel);
+      return { unidade, cargo: turno ? `${cargo} · ${turno}` : cargo };
+    }
     const chave = entityLabel.match(/^(\d{14})([A-Z0-9]*)$/);
     if (!chave) return { unidade: "", cargo: entityLabel };
     const conhecido = conhecidos.get(entityLabel);
