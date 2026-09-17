@@ -6,6 +6,7 @@ import {
   remuneracaoPlanilhaTable,
   remuneracaoUnidadeTable,
   type Database,
+  empresaPrincipal,
 } from "@workspace/db";
 import { runMigrations } from "@workspace/db/migrate";
 import {
@@ -276,7 +277,7 @@ describe.skipIf(!temBanco)("o cadastro à mão, sem lastro nenhum", () => {
   });
 
   it("com identidade nas duas pontas, as duas quinzenas respondem", async () => {
-    const u = await cadastrarUnidade(db, { nome: "CDD BELEM", cnpj: CNPJ_MASCARADO });
+    const u = await cadastrarUnidade(db, (await empresaPrincipal(db)).id, { nome: "CDD BELEM", cnpj: CNPJ_MASCARADO });
     await db
       .update(remuneracaoUnidadeTable)
       .set({ unidadeId: u.id })

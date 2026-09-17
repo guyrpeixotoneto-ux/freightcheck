@@ -53,22 +53,25 @@ beforeAll(async () => {
   ctx = await createTestDatabase("visualizar_como");
   process.env.DATABASE_URL = ctx.url;
 
-  const { db } = await import("@workspace/db");
+  const { db, empresaPrincipal } = await import("@workspace/db");
   const { createUser, setUserDisabled } = await import("../../lib/session");
 
   chefe = await createUser(db, {
+    empresaId: (await empresaPrincipal(db)).id,
     name: "Guy",
     email: "chefe@x.com",
     password: SENHA_DO_CHEFE,
     role: "ADMIN",
   });
   operador = await createUser(db, {
+    empresaId: (await empresaPrincipal(db)).id,
     name: "Bruno Henrique",
     email: "bruno@x.com",
     password: SENHA_DO_OPERADOR,
     role: "OPERADOR",
   });
   afastado = await createUser(db, {
+    empresaId: (await empresaPrincipal(db)).id,
     name: "Quem saiu",
     email: "saiu@x.com",
     password: "senha-de-quem-saiu",

@@ -321,6 +321,19 @@ router.post("/assistant/ask", tetoDoAssistente, async (req, res): Promise<void> 
       */
       agente: agenteParaUsuario(req.user?.id),
       recorte: {
+        /*
+          O `scopeHash` do corpo é **pedido**, e não concessão.
+
+          `req.escopo` é o escopo efetivo desta sessão, calculado a partir dela
+          e de mais nada (`lib/escopo-efetivo.ts`), e é o mesmo objeto que as
+          rotas normais recebem — é isso que garante que o Assistente não tem
+          caminho paralelo. Enquanto o corte não está ligado, o pedido segue
+          como sempre seguiu e o que esta linha faz é **registrar** o veredito
+          no rastro; quando ele ligar, a recusa entra aqui, num lugar só.
+
+          Ver `middlewares/escopo-em-observacao.ts` para por que medir vem antes
+          de cortar.
+        */
         ...(typeof scopeHash === "string" ? { scopeHash } : {}),
         ...(typeof canal === "string" ? { channel: canal } : {}),
         ...(typeof period === "string" ? { period } : {}),

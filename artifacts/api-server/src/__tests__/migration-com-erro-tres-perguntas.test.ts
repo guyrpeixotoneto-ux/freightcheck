@@ -99,8 +99,8 @@ beforeAll(async () => {
 
   const { hashPassword } = await import("../lib/auth");
   const { rows } = await poolDoTeste.query<{ id: string }>(
-    `INSERT INTO "app_user" ("name","email","password_hash","role")
-     VALUES ('Guy','guy@freightcheck',$1,'OPERADOR') RETURNING id`,
+    `INSERT INTO "app_user" ("name","email","password_hash","role","empresa_id")
+     VALUES ('Guy','guy@freightcheck',$1,'OPERADOR',(SELECT "id" FROM "empresa" ORDER BY "criada_em" LIMIT 1)) RETURNING id`,
     [await hashPassword(SENHA)],
   );
   /*

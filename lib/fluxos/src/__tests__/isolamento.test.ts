@@ -1,3 +1,4 @@
+import { empresaPrincipal } from "@workspace/db";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import pg from "pg";
 import { drizzle } from "drizzle-orm/node-postgres";
@@ -117,11 +118,11 @@ describe.skipIf(!temBanco)("Fluxos Operacionais sobre o banco", () => {
 
     const [a] = await db
       .insert(unidadeTable)
-      .values({ nome: "Transportes A", cnpj: "11111111000191" })
+      .values({ empresaId: (await empresaPrincipal(db)).id, nome: "Transportes A", cnpj: "11111111000191" })
       .returning();
     const [b] = await db
       .insert(unidadeTable)
-      .values({ nome: "Transportes B", cnpj: "22222222000172" })
+      .values({ empresaId: (await empresaPrincipal(db)).id, nome: "Transportes B", cnpj: "22222222000172" })
       .returning();
     empresaA = a.id;
     empresaB = b.id;
@@ -995,7 +996,12 @@ describe.skipIf(!temBanco)("Fluxos Operacionais sobre o banco", () => {
         .returning();
       const [u] = await db
         .insert(appUserTable)
-        .values({ email: "ana@exemplo.com", name: "Ana Souza", passwordHash: "x" })
+        .values({
+          empresaId: (await empresaPrincipal(db)).id,
+          email: "ana@exemplo.com",
+          name: "Ana Souza",
+          passwordHash: "x",
+        })
         .returning();
       departamento = d.id;
       cargo = c.id;

@@ -1,4 +1,5 @@
 import { Router, type IRouter } from "express";
+import { escopoEfetivo } from "../lib/escopo-efetivo";
 import { cargoPorId, db, unidadePorId } from "@workspace/db";
 import {
   describeEmailProblem,
@@ -280,7 +281,15 @@ router.post("/users", async (req, res): Promise<void> => {
       ? corpo.telefone.trim()
       : null;
 
+  /*
+    A empresa da conta nova é a **de quem a cria**, lida da sessão. O corpo não
+    tem voz nisto: aceitar `empresaId` do cliente deixaria um administrador de
+    uma empresa criar conta dentro de outra, que é a fronteira inteira.
+  */
+  const empresaDeQuemCria =
+    req.escopo?.empresaId ?? (await escopoEfetivo(req.user!.id)).empresaId;
   const user = await createUser(db, {
+    empresaId: empresaDeQuemCria,
     name: nomeCompleto,
     email,
     password: senha,

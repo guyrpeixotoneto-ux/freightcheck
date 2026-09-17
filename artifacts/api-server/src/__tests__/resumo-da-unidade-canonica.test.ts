@@ -10,6 +10,7 @@ import {
   remuneracaoUnidadeTable,
   unidadeTable,
   type Database,
+  empresaPrincipal,
 } from "@workspace/db";
 import { runMigrations } from "@workspace/db/migrate";
 import {
@@ -275,7 +276,7 @@ describe.skipIf(!temBanco)("o Resumo, depois da unidade canônica", () => {
    * sair. Um nome não é identidade, e dois CDDs podem chamar-se igual.
    */
   it("a unidade cadastrada com o nome da competência vira sugestão — e só isso", async () => {
-    const u = await cadastrarUnidade(db, { nome: "CDD Belém", cnpj: "11.222.333/0001-81" });
+    const u = await cadastrarUnidade(db, (await empresaPrincipal(db)).id, { nome: "CDD Belém", cnpj: "11.222.333/0001-81" });
     unidadeId = u.id;
 
     const rota = (await oResumo()).canais.find((c) => c.canal === "ROTA")!;

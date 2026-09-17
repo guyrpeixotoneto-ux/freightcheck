@@ -18,6 +18,7 @@
  */
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { empresaPrincipal } from "@workspace/db";
 import { and, eq } from "drizzle-orm";
 import {
   appUserTable,
@@ -74,7 +75,13 @@ describe("Etapa 0 — o rastro sobrevive ao processo", () => {
 
     const [pessoa] = await db
       .insert(appUserTable)
-      .values({ email: "rastro@teste", name: "Rastro", passwordHash: "x", role: "ADMIN" })
+      .values({
+        empresaId: (await empresaPrincipal(db)).id,
+        email: "rastro@teste",
+        name: "Rastro",
+        passwordHash: "x",
+        role: "ADMIN",
+      })
       .returning();
 
     /*

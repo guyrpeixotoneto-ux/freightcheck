@@ -12,6 +12,7 @@ export * from "./auth";
 export * from "./book";
 export * from "./assistant";
 export * from "./tickets";
+export * from "./empresa";
 export * from "./unidade";
 export * from "./cadastro";
 export * from "./fechamento";

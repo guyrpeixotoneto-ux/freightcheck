@@ -288,6 +288,16 @@ export async function createUser(
      * à `0082`.
      */
     papelId?: string | null;
+    /**
+     * A empresa da conta — o tenant, desde a `0101`.
+     *
+     * Obrigatório, e nunca lido do corpo de uma requisição: quem cria conta
+     * pela tela informa a empresa **da própria sessão** (`escopoEfetivo`), e o
+     * `create-user` do terminal informa a única que existe. Um campo opcional
+     * aqui viraria, no primeiro caminho que o esquecesse, uma conta sem tenant
+     * — e conta sem tenant é conta que alcança o que ninguém decidiu.
+     */
+    empresaId: string;
   },
 ): Promise<SessionUser> {
   const passwordHash = await hashPassword(input.password);
@@ -295,6 +305,7 @@ export async function createUser(
     const [user] = await db
       .insert(appUserTable)
       .values({
+        empresaId: input.empresaId,
         name: input.name.trim(),
         email: normalizeEmail(input.email),
         passwordHash,

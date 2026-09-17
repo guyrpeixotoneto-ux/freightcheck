@@ -1,4 +1,5 @@
 import type { Server } from "node:http";
+import { empresaPrincipal } from "@workspace/db";
 import express from "express";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
@@ -171,6 +172,7 @@ beforeAll(async () => {
     primeira versão deste arquivo — as escritas voltavam 500.
   */
   await ctx.db.insert(appUserTable).values({
+    empresaId: (await empresaPrincipal(ctx.db)).id,
     id: SESSAO.id,
     email: SESSAO.email,
     name: "Gestor",

@@ -7,6 +7,7 @@ import {
   fechamentoCompetenciaTable,
   unidadeTable,
   type Database,
+  empresaPrincipal,
 } from "@workspace/db";
 import { runMigrations } from "@workspace/db/migrate";
 
@@ -102,7 +103,7 @@ describe.skipIf(!temBanco)("a unidade canônica", () => {
 
   it("cadastra com CNPJ válido, guardando só os dígitos", async () => {
     await limpar();
-    const u = await cadastrarUnidade(db, { nome: "CDD Belém", cnpj: "11.222.333/0001-81" });
+    const u = await cadastrarUnidade(db, (await empresaPrincipal(db)).id, { nome: "CDD Belém", cnpj: "11.222.333/0001-81" });
     expect(u.cnpj).toBe(CNPJ_BELEM);
     expect(u.nome).toBe("CDD Belém");
     expect(u.id).toMatch(/^[0-9a-f-]{36}$/);
@@ -110,7 +111,7 @@ describe.skipIf(!temBanco)("a unidade canônica", () => {
 
   it("recusa CNPJ inválido", async () => {
     await limpar();
-    await expect(cadastrarUnidade(db, { nome: "X", cnpj: "11222333000182" })).rejects.toThrow(
+    await expect(cadastrarUnidade(db, (await empresaPrincipal(db)).id, { nome: "X", cnpj: "11222333000182" })).rejects.toThrow(
       /verificadores/i,
     );
   });
@@ -118,15 +119,15 @@ describe.skipIf(!temBanco)("a unidade canônica", () => {
   it("recusa CPF no campo de CNPJ da unidade", async () => {
     await limpar();
     await expect(
-      cadastrarUnidade(db, { nome: "X", cnpj: "529.982.247-25" }),
+      cadastrarUnidade(db, (await empresaPrincipal(db)).id, { nome: "X", cnpj: "529.982.247-25" }),
     ).rejects.toThrow(/CPF/i);
   });
 
   it("impede duas unidades com o mesmo CNPJ, e diz qual é a outra", async () => {
     await limpar();
-    await cadastrarUnidade(db, { nome: "CDD Belém", cnpj: CNPJ_BELEM });
+    await cadastrarUnidade(db, (await empresaPrincipal(db)).id, { nome: "CDD Belém", cnpj: CNPJ_BELEM });
     await expect(
-      cadastrarUnidade(db, { nome: "BELEM (2)", cnpj: "11.222.333/0001-81" }),
+      cadastrarUnidade(db, (await empresaPrincipal(db)).id, { nome: "BELEM (2)", cnpj: "11.222.333/0001-81" }),
     ).rejects.toThrow(/já é da unidade "CDD Belém"/);
   });
 
@@ -143,7 +144,7 @@ describe.skipIf(!temBanco)("a unidade canônica", () => {
     */
     const erro = await db
       .insert(unidadeTable)
-      .values({ nome: "X", cnpj: "443" })
+      .values({ empresaId: (await empresaPrincipal(db)).id, nome: "X", cnpj: "443" })
       .then(() => null)
       .catch((e: unknown) => e as { cause?: { code?: string; constraint?: string } });
 
@@ -181,7 +182,7 @@ describe.skipIf(!temBanco)("a unidade canônica", () => {
   it("associar não altera o código legado nem qualquer outro campo", async () => {
     await limpar();
     const c = await competenciaLegada();
-    const u = await cadastrarUnidade(db, { nome: "CDD Belém", cnpj: CNPJ_BELEM });
+    const u = await cadastrarUnidade(db, (await empresaPrincipal(db)).id, { nome: "CDD Belém", cnpj: CNPJ_BELEM });
 
     const [antes] = await db
       .select()
@@ -209,7 +210,7 @@ describe.skipIf(!temBanco)("a unidade canônica", () => {
   it("a competência encerrada é recusada pela regra oficial, não contornada", async () => {
     await limpar();
     const c = await competenciaLegada();
-    const u = await cadastrarUnidade(db, { nome: "CDD Belém", cnpj: CNPJ_BELEM });
+    const u = await cadastrarUnidade(db, (await empresaPrincipal(db)).id, { nome: "CDD Belém", cnpj: CNPJ_BELEM });
     /*
       Encerrar exige apuração; este teste não a tem, então o encerramento é
       forçado direto na coluna. O que se prova é a guarda de
@@ -227,7 +228,7 @@ describe.skipIf(!temBanco)("a unidade canônica", () => {
 
   it("a mesma unidade tem várias competências — a chave não é o CNPJ", async () => {
     await limpar();
-    const u = await cadastrarUnidade(db, { nome: "CDD Belém", cnpj: CNPJ_BELEM });
+    const u = await cadastrarUnidade(db, (await empresaPrincipal(db)).id, { nome: "CDD Belém", cnpj: CNPJ_BELEM });
 
     const primeira = await abrirCompetencia(db, {
       ano: 2026, mes: 8, quinzena: 1, tipoDeOperacao: "ROTA",
@@ -261,7 +262,7 @@ describe.skipIf(!temBanco)("a unidade canônica", () => {
   it("a FK impede apagar uma unidade que responde por competência", async () => {
     await limpar();
     const c = await competenciaLegada();
-    const u = await cadastrarUnidade(db, { nome: "CDD Belém", cnpj: CNPJ_BELEM });
+    const u = await cadastrarUnidade(db, (await empresaPrincipal(db)).id, { nome: "CDD Belém", cnpj: CNPJ_BELEM });
     await associarUnidadeDaCompetencia(db, c.id, u.id);
 
     await expect(db.delete(unidadeTable).where(eq(unidadeTable.id, u.id))).rejects.toThrow();
@@ -271,7 +272,7 @@ describe.skipIf(!temBanco)("a unidade canônica", () => {
 
   it("abre a competência **selecionando** a unidade — nenhum código digitado", async () => {
     await limpar();
-    const u = await cadastrarUnidade(db, { nome: "CDD Belém", cnpj: CNPJ_BELEM });
+    const u = await cadastrarUnidade(db, (await empresaPrincipal(db)).id, { nome: "CDD Belém", cnpj: CNPJ_BELEM });
 
     const c = await abrirCompetencia(db, {
       ano: 2026,
@@ -309,8 +310,8 @@ describe.skipIf(!temBanco)("a unidade canônica", () => {
 
   it("duas unidades diferentes convivem", async () => {
     await limpar();
-    const a = await cadastrarUnidade(db, { nome: "CDD Belém", cnpj: CNPJ_BELEM });
-    const b = await cadastrarUnidade(db, { nome: "CAMAÇARI", cnpj: CNPJ_OUTRA });
+    const a = await cadastrarUnidade(db, (await empresaPrincipal(db)).id, { nome: "CDD Belém", cnpj: CNPJ_BELEM });
+    const b = await cadastrarUnidade(db, (await empresaPrincipal(db)).id, { nome: "CAMAÇARI", cnpj: CNPJ_OUTRA });
     expect(a.id).not.toBe(b.id);
   });
 });

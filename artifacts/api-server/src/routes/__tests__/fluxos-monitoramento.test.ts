@@ -31,6 +31,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Server } from "node:http";
 import { createTestDatabase, type TestDb } from "@workspace/ingest/testing";
 import { createDb, encerrarPoolDoProcesso, unidadeTable } from "@workspace/db";
+import { empresaPrincipal } from "@workspace/db";
 import {
   CTE_ATE_RECEBIMENTO,
   coletorFixo,
@@ -97,6 +98,7 @@ beforeAll(async () => {
 
   const { createUser, startSession, SESSION_COOKIE } = await import("../../lib/session");
   const pessoa = await createUser(ctx.db, {
+    empresaId: (await empresaPrincipal(ctx.db)).id,
     name: "Monitoramento",
     email: "monitoramento@teste.local",
     password: "SenhaDeTeste#12345",
@@ -106,11 +108,11 @@ beforeAll(async () => {
 
   const [a] = await ctx.db
     .insert(unidadeTable)
-    .values({ nome: "Transportes A", cnpj: "11111111000191" })
+    .values({ empresaId: (await empresaPrincipal(ctx.db)).id, nome: "Transportes A", cnpj: "11111111000191" })
     .returning();
   const [b] = await ctx.db
     .insert(unidadeTable)
-    .values({ nome: "Transportes B", cnpj: "22222222000172" })
+    .values({ empresaId: (await empresaPrincipal(ctx.db)).id, nome: "Transportes B", cnpj: "22222222000172" })
     .returning();
   empresaA = a.id;
   empresaB = b.id;
@@ -404,7 +406,7 @@ describe("o endereço do painel cruzado", () => {
   it("o painel de uma empresa sem fluxo é uma lista vazia, e não um erro", async () => {
     const [c] = await ctx.db
       .insert(unidadeTable)
-      .values({ nome: "Transportes C", cnpj: "33333333000153" })
+      .values({ empresaId: (await empresaPrincipal(ctx.db)).id, nome: "Transportes C", cnpj: "33333333000153" })
       .returning();
     const r = await chamar(`/api/monitoramento/fluxos?empresaId=${c.id}`);
     expect(r.status).toBe(200);

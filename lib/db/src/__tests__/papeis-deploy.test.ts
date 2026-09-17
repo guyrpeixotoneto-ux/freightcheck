@@ -150,8 +150,8 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
     await migradoAte(prod.pool, "0036_funcoes_restauraveis");
     for (const email of ["a@x.com", "b@x.com", "c@x.com"]) {
       await prod.pool.query(
-        `INSERT INTO "app_user" ("name","email","password_hash","created_by")
-         VALUES ($1,$1,'scrypt$original','fixture')`,
+        `INSERT INTO "app_user" ("name","email","password_hash","created_by","empresa_id")
+     VALUES ($1,$1,'scrypt$original','fixture',(SELECT "id" FROM "empresa" ORDER BY "criada_em" LIMIT 1))`,
         [email],
       );
     }

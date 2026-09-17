@@ -26,6 +26,7 @@ import overviewRouter from "./overview";
 import versionsRouter from "./versions";
 import bookRouter from "./book";
 import assistantRouter from "./assistant";
+import escopoRouter from "./escopo";
 import balanceRouter from "./balance";
 import compositionRouter from "./composition";
 import coverageRouter from "./coverage";
@@ -221,6 +222,9 @@ router.use(overviewRouter);
 router.use(versionsRouter);
 router.use(bookRouter);
 router.use(assistantRouter);
+/* A janela do modo de observação da ACL por empresa e unidade. Ver
+   `routes/escopo.ts` e `middlewares/escopo-em-observacao.ts`. */
+router.use(escopoRouter);
 router.use(balanceRouter);
 router.use(compositionRouter);
 router.use(coverageRouter);

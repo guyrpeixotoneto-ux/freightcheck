@@ -1,5 +1,6 @@
-import { pgTable, text, timestamp, uuid, uniqueIndex, check } from "drizzle-orm/pg-core";
+import { index, pgTable, text, timestamp, uuid, uniqueIndex, check } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
+import { empresaTable } from "./empresa";
 
 /**
  * A UNIDADE CANÔNICA — a autoridade única sobre "qual unidade é esta".
@@ -35,6 +36,17 @@ export const unidadeTable = pgTable(
   "unidade",
   {
     id: uuid("id").primaryKey().defaultRandom(),
+    /**
+     * A empresa dona desta unidade — o tenant, desde a `0101`.
+     *
+     * `NOT NULL` porque unidade sem dono é exatamente o estado que a coluna
+     * existe para acabar: enquanto uma linha pudesse não ter empresa, todo
+     * isolamento teria um caso em que ele não vale, e seria esse o caso a
+     * aparecer em produção. Ver `schema/empresa.ts`.
+     */
+    empresaId: uuid("empresa_id")
+      .notNull()
+      .references(() => empresaTable.id, { onDelete: "restrict" }),
     /** O nome legível — descrição, nunca identidade. `CDD BELÉM`. */
     nome: text("nome").notNull(),
     /**
@@ -69,6 +81,7 @@ export const unidadeTable = pgTable(
     criadaEm: timestamp("criada_em", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
+    index("unidade_empresa_idx").on(t.empresaId),
     uniqueIndex("unidade_cnpj_uq").on(t.cnpj),
     uniqueIndex("unidade_codigo_gerencial_uq").on(t.codigoGerencial),
     check("unidade_cnpj_canonico", sql`${t.cnpj} IS NULL OR ${t.cnpj} ~ '^[0-9]{14}$'`),

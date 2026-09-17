@@ -34,8 +34,8 @@ const CONTAS: Record<string, SessionUser> = {};
 
 async function criarConta(email: string, role: string): Promise<SessionUser> {
   const { rows } = await ctx.pool.query<{ id: string }>(
-    `INSERT INTO "app_user" ("name","email","password_hash","role")
-     VALUES ($1,$1,'scrypt$x',$2) RETURNING id`,
+    `INSERT INTO "app_user" ("name","email","password_hash","role","empresa_id")
+     VALUES ($1,$1,'scrypt$x',$2,(SELECT "id" FROM "empresa" ORDER BY "criada_em" LIMIT 1)) RETURNING id`,
     [email, role],
   );
   const user = { id: rows[0].id, name: email, email, role };
