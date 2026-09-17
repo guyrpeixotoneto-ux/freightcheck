@@ -313,6 +313,21 @@ export function MenuDeVigencias({
                     {formatBrlShort(opcao.impacto)}
                   </span>
                 )}
+                {/*
+                  A linha que tem contagem mas não tem dinheiro **na régua da
+                  coluna** diz isso onde o dinheiro estaria. Sem a nota, o
+                  espaço em branco acima da contagem é lido como "não saiu
+                  preço de nada aqui" — e a vigência que apurou R$/mês numa
+                  coluna escrita em R$/ano fica igual à que não apurou nada.
+                */}
+                {opcao.impacto == null && opcao.semNumeros && (
+                  <span
+                    title={opcao.semNumeros.porque}
+                    className="text-xs font-normal italic text-muted-foreground"
+                  >
+                    {opcao.semNumeros.curto}
+                  </span>
+                )}
                 {opcao.alteracoes !== null && (
                   <span className="text-xs font-normal text-muted-foreground tabular-nums">
                     {opcao.alteracoes.toLocaleString("pt-BR")}{" "}
