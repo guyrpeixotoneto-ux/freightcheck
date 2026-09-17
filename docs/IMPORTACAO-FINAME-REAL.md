@@ -67,6 +67,20 @@ O terceiro caso não é decidido pelo software, e é por isso que ele aparece na
 tela com o valor em jogo à vista: somar cobraria duas vezes o mesmo pagamento;
 descartar perderia um pagamento que talvez exista.
 
+**Como se decide.** Na tela do Finame Real, cada duplicata retida traz as duas
+saídas — "é repetição do export" e "são dois pagamentos" — e um motivo
+obrigatório. A decisão é **gravada, não aplicada**: o consolidado só muda quando
+aquele mês for reimportado, porque a apuração é função pura das linhas mais as
+decisões conhecidas. Aplicar no clique seria mexer numa vigência fechada sem
+passar pela pré-visualização.
+
+A decisão é endereçada pela **impressão digital da linha** (todas as células,
+inclusive `DATATU`), e não pela chave contábil: aquela agrupa principal e juros
+do mesmo documento, e uma confirmação endereçada por ela apagaria o juro junto
+com a repetição. Um lançamento lido antes de a coluna existir (`0104`) não tem
+endereço, e a tela diz isso em vez de oferecer um botão que não teria onde
+gravar — reimportar aquela competência o devolve.
+
 **O sinal** — `VLRREA` é negativo (é débito). O consolidado é apresentado em
 positivo e o valor original fica gravado ao lado, porque a reconciliação contra o
 razão se faz por ele.
@@ -125,6 +139,9 @@ regra.
 O dinheiro das placas na fila não some nem entra: ele aparece na tela como
 pendente, e a reconciliação o conta. No extrato de 2026 são 8 placas e
 R$ 174.826,25.
+
+Classificar é o mesmo gesto das duplicatas: escolher o tipo, escrever como se
+sabe, e reimportar o mês para o valor entrar.
 
 ---
 
@@ -186,6 +203,17 @@ Três camadas, e cada uma responde antes da seguinte:
 Corrigir um mês é reenviar aquele mês: ele entra como revisão, e os outros não
 são tocados.
 
+**Reprocessar** (reler o mesmo arquivo porque o leitor mudou) é outra coisa, e
+ela herda as declarações do arquivo — tipo, acervo, granularidade, competência e
+unidade. Reler nunca desdeclara: a declaração é do arquivo, e a releitura pega a
+mais recente que existe na corrente, mesmo que a leitura imediatamente anterior
+tenha falhado antes de declarar qualquer coisa.
+
+Quando a releitura conclui que o conteúdo normalizado é o mesmo
+(`SKIPPED_DUPLICATE_DATA`), nenhuma revisão é aberta — e as telas passam a ler os
+lançamentos **dessa** leitura, que é a mais recente do arquivo que sustenta a
+vigência ativa. É o que faz reler com um leitor melhor servir para alguma coisa.
+
 ---
 
 ## 9. Onde as coisas moram
@@ -199,7 +227,7 @@ são tocados.
 | Consultas da comparação | `lib/comparison/src/finame-real-query.ts` |
 | Rotas | `artifacts/api-server/src/routes/financiamento-real.ts` |
 | Tela | `artifacts/freightaudit/src/pages/custo-fixo-finame-real.tsx` |
-| Schema | `lib/db/src/schema/financiamento-real.ts`, migration `0103` |
+| Schema | `lib/db/src/schema/financiamento-real.ts`, migrations `0103` e `0104` |
 
 Os testes rodam sobre o **extrato real** (`attached_assets/Finames_Real_2026.xlsx`),
 e não sobre planilha sintética: as três situações da §3 foram contadas naquele
