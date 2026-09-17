@@ -208,6 +208,27 @@ export const importRunTable = pgTable(
      */
     declaredCompetence: date("declared_competence", { mode: "string" }),
     /**
+     * A unidade que o envio declarou, como CNPJ só de dígitos.
+     *
+     * O extrato do ERP **não traz CNPJ**: traz `UNIDADE` por extenso
+     * ("TRANSFERÊNCIA URBANA - EMPURRADA") e `CODUNN`. E o escopo UNIDADE é o
+     * que fecha a identidade de uma vigência — sem ele, duas unidades
+     * diferentes teriam a mesma chave, e a promoção recusa (com razão) por
+     * `ESCOPO_OBRIGATORIO_AUSENTE`.
+     *
+     * Quem sabe o CNPJ é quem envia, escolhendo a unidade do cadastro na hora
+     * do envio — a mesma autoridade da `0094`, ato explícito de uma pessoa, e
+     * não uma heurística sobre o texto do arquivo. O que o arquivo diz continua
+     * inteiro em `raw_cell` e vira a evidência contra a qual a declaração é
+     * conferida: um extrato cujo `CODUNN` não bate com a unidade escolhida é
+     * recusado antes de qualquer fato entrar.
+     *
+     * Nula em todo envio que não precisa dela — o export de remuneração traz a
+     * coluna `Unidade - CNPJ` em cada linha, e ali o escopo sai do próprio
+     * arquivo, como sempre saiu.
+     */
+    declaredUnidade: text("declared_unidade"),
+    /**
      * O run que este aqui releu — nulo em toda importação que é a primeira
      * leitura do seu arquivo.
      *

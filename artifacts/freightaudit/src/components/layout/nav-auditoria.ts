@@ -531,6 +531,7 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
         { href: "/monitor-custo-fixo", label: "Monitor Custo Fixo", icon: LineChart },
         { href: "/custo-fixo-aquisicao", label: "Aquisição", icon: ShoppingCart },
         { href: "/custo-fixo-finame", label: "Finame", icon: Banknote },
+        { href: "/custo-fixo-finame-real", label: "Finame Real", icon: Scale },
         { href: "/custo-fixo-aluguel", label: "Aluguel de Frota", icon: Key },
         { href: "/custo-fixo-ipva", label: "IPVA", icon: Receipt },
         { href: "/custo-fixo-lucro-fixo", label: "Lucro Fixo", icon: TrendingUp },

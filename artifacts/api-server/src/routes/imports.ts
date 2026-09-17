@@ -8,6 +8,8 @@ import {
   type Response,
 } from "express";
 import { codigoDoPostgres, db } from "@workspace/db";
+import { eq } from "drizzle-orm";
+import { importRunTable, unidadeTable } from "@workspace/db/schema";
 import {
   ImportDeletionRefused,
   ImportacaoCancelada,
@@ -42,6 +44,12 @@ import {
   setImportRunHidden,
   stage,
 } from "@workspace/ingest";
+import {
+  DATASET_FAMILY_FINANCIAMENTO_REAL,
+  estagiarExtratoReal,
+  ExtratoRecusado,
+  vincularLancamentosAosFatos,
+} from "@workspace/ingest/financiamento-real";
 import { semearContrato } from "@workspace/coverage";
 import {
   garantirComparacoesDaPromocao,
@@ -84,6 +92,10 @@ export type DecodedUpload = {
   declaredFamily: string | null;
   /** A quinzena que a linha da tela declarou, ou `null` quando não veio. */
   declaredPeriod: string | null;
+  /** A competência que o envio do acervo Real afirma cobrir — `YYYY-MM-01`. */
+  declaredCompetence: string | null;
+  /** A unidade que o envio declara, em dígitos. Obrigatória no acervo Real. */
+  declaredUnidade: string | null;
 };
 
 export type DecodeResult =
@@ -102,7 +114,15 @@ export function decodeUpload(body: unknown): DecodeResult {
   if (typeof body !== "object" || body === null) {
     return { ok: false, error: "Envie um JSON com filename e contentBase64." };
   }
-  const { filename, contentBase64, declaredType, declaredFamily, declaredPeriod } =
+  const {
+    filename,
+    contentBase64,
+    declaredType,
+    declaredFamily,
+    declaredPeriod,
+    declaredCompetence,
+    declaredUnidade,
+  } =
     body as Record<string, unknown>;
 
   /*
@@ -194,6 +214,72 @@ export function decodeUpload(body: unknown): DecodeResult {
     }
   }
 
+  /*
+    As duas declarações do acervo Real.
+
+    A competência é conferida contra `MES`/`ANO` das linhas, e a unidade contra
+    o que o arquivo escreve — as duas dentro do pipeline, onde o arquivo está.
+    Aqui só se confere a **forma**: um mês que não é o primeiro dia do mês, ou
+    um CNPJ que não tem 14 dígitos, são erro de quem chamou, e respondê-los aqui
+    poupa uma leitura inteira.
+  */
+  if (
+    declaredCompetence !== undefined &&
+    declaredCompetence !== null &&
+    typeof declaredCompetence !== "string"
+  ) {
+    return { ok: false, error: "declaredCompetence, quando enviado, precisa ser texto." };
+  }
+  const competenciaDeclarada =
+    typeof declaredCompetence === "string" && declaredCompetence.trim() !== ""
+      ? declaredCompetence.trim()
+      : null;
+  if (competenciaDeclarada !== null && !/^\d{4}-\d{2}-01$/.test(competenciaDeclarada)) {
+    return {
+      ok: false,
+      error:
+        `A competência precisa ser o primeiro dia do mês (2026-03-01), e veio "${competenciaDeclarada}". ` +
+        `Ela nomeia o mês inteiro: o extrato do financiamento fecha por competência, não por dia.`,
+    };
+  }
+
+  if (
+    declaredUnidade !== undefined &&
+    declaredUnidade !== null &&
+    typeof declaredUnidade !== "string"
+  ) {
+    return { ok: false, error: "declaredUnidade, quando enviado, precisa ser texto." };
+  }
+  const unidadeDeclarada =
+    typeof declaredUnidade === "string" && declaredUnidade.trim() !== ""
+      ? declaredUnidade.replace(/\D/g, "")
+      : null;
+  if (unidadeDeclarada !== null && unidadeDeclarada.length !== 14) {
+    return {
+      ok: false,
+      error:
+        `A unidade declarada precisa ser um CNPJ de 14 dígitos, e veio com ${unidadeDeclarada.length}. ` +
+        `Escolha a unidade no cadastro em vez de digitar o documento.`,
+    };
+  }
+
+  /*
+    E a declaração que o acervo Real **exige**: sem unidade, a vigência não tem
+    identidade, e a promoção recusaria depois de ler o arquivo inteiro
+    (`ESCOPO_OBRIGATORIO_AUSENTE`). Recusar aqui é a mesma recusa, alguns
+    minutos antes e com a frase certa — o extrato do ERP não traz CNPJ nenhum
+    para o pipeline achar sozinho.
+  */
+  if (familiaDeclarada === DATASET_FAMILY_FINANCIAMENTO_REAL && unidadeDeclarada === null) {
+    return {
+      ok: false,
+      error:
+        "O acervo Real precisa da unidade declarada no envio: o extrato do financiamento traz o " +
+        "nome da unidade por extenso, nunca o CNPJ, e é o CNPJ que identifica de quem é a vigência. " +
+        "Escolha a unidade antes de enviar.",
+    };
+  }
+
   if (typeof filename !== "string" || filename.trim() === "") {
     return { ok: false, error: "filename é obrigatório." };
   }
@@ -235,6 +321,8 @@ export function decodeUpload(body: unknown): DecodeResult {
       declaredType: tipoDeclarado,
       declaredFamily: familiaDeclarada,
       declaredPeriod: quinzenaDeclarada,
+      declaredCompetence: competenciaDeclarada,
+      declaredUnidade: unidadeDeclarada,
     },
   };
 }
@@ -533,6 +621,23 @@ export async function readInBackground(importRunId: string, log: Log): Promise<v
   try {
     await captureRaw(db, importRunId);
     /*
+      Dois estágios, um pipeline.
+
+      O acervo Real chega como razão contábil — a linha é um lançamento, não um
+      equipamento —, e quem o consolida em `staged_fact` é `estagiarExtratoReal`.
+      Do `preview` em diante os dois caminhos voltam a ser um só, e é essa a
+      razão de a bifurcação estar aqui, numa linha, em vez de dentro do
+      pipeline: o que muda é **quem lê o arquivo**, e nada do que vem depois.
+    */
+    const acervoReal = await ehAcervoReal(importRunId);
+    if (acervoReal !== null) {
+      await conferirCancelamento(db, importRunId);
+      await estagiarExtratoReal(db, importRunId, acervoReal);
+      await conferirCancelamento(db, importRunId);
+      await preview(db, importRunId);
+      return;
+    }
+    /*
       Entre as etapas, a pergunta "ainda querem isto?".
 
       Dentro de cada etapa quem pergunta é a publicação de progresso, que já ia
@@ -576,6 +681,48 @@ export async function readInBackground(importRunId: string, log: Log): Promise<v
 }
 
 /**
+ * As opções do estágio do Real, ou `null` quando este run não é do acervo Real.
+ *
+ * A unidade vem **declarada no envio** e o nome dela sai do cadastro, quando o
+ * CNPJ estiver lá: é ele que faz o escopo nascer legível na tela em vez de um
+ * número de catorze dígitos. Sem cadastro correspondente, o escopo entra com o
+ * CNPJ e nada se perde — o nome é descrição, nunca identidade.
+ */
+async function ehAcervoReal(
+  importRunId: string,
+): Promise<{ unidadeCnpj: string; unidadeNome: string | null } | null> {
+  const [run] = await db
+    .select({
+      familia: importRunTable.declaredFamily,
+      unidade: importRunTable.declaredUnidade,
+    })
+    .from(importRunTable)
+    .where(eq(importRunTable.id, importRunId));
+
+  if (run?.familia !== DATASET_FAMILY_FINANCIAMENTO_REAL) return null;
+  if (!run.unidade) {
+    /*
+      Não deveria acontecer — o envio recusa o acervo Real sem unidade —, mas
+      um run criado por outro caminho (a API de integração, um reprocessamento
+      antigo) chegaria aqui sem ela. Recusar com a frase certa é melhor do que
+      estagiar com o escopo em branco e deixar a promoção falhar depois.
+    */
+    throw new ExtratoRecusado(
+      "UNIDADE_NAO_DECLARADA",
+      "Esta importação do acervo Real não tem unidade declarada, e o extrato do financiamento " +
+        "não traz CNPJ para deduzi-la. Envie o arquivo de novo escolhendo a unidade.",
+    );
+  }
+
+  const [unidade] = await db
+    .select({ nome: unidadeTable.nome })
+    .from(unidadeTable)
+    .where(eq(unidadeTable.cnpj, run.unidade));
+
+  return { unidadeCnpj: run.unidade, unidadeNome: unidade?.nome ?? null };
+}
+
+/**
  * O histórico de importações — recortado pela operação de quem pergunta.
  *
  * Uma importação não tem canal; ela **produz** vigências que têm, e o recorte é
@@ -604,7 +751,15 @@ router.post("/imports", async (req, res, next): Promise<void> => {
   }
 
   try {
-    const { filename, bytes, declaredType, declaredFamily, declaredPeriod } =
+    const {
+      filename,
+      bytes,
+      declaredType,
+      declaredFamily,
+      declaredPeriod,
+      declaredCompetence,
+      declaredUnidade,
+    } =
       decoded.value;
     // O nome em disco é o próprio sha256: dois envios do mesmo conteúdo
     // apontam para o mesmo arquivo, e nomes vindos do cliente nunca viram
@@ -623,6 +778,16 @@ router.post("/imports", async (req, res, next): Promise<void> => {
       declaredType,
       declaredFamily,
       declaredPeriod,
+      declaredCompetence,
+      declaredUnidade,
+      /*
+        A granularidade não vem do cliente: ela é do acervo, e o acervo já está
+        declarado na família. Aceitá-la do corpo abriria a porta para um envio
+        dizer "mensal" sobre o acervo quinzenal — uma terceira resposta para uma
+        pergunta que já tem duas fontes que não podem discordar.
+      */
+      declaredGranularity:
+        declaredFamily === DATASET_FAMILY_FINANCIAMENTO_REAL ? "MENSAL" : "QUINZENAL",
     });
 
     if (received.isDuplicate) {
@@ -933,6 +1098,14 @@ async function promoverEmSegundoPlano(
 ): Promise<void> {
   try {
     const result = await promote(db, importRunId, { ...opcoes, reservado: true });
+
+    /*
+      O acervo Real fecha o rastreio aqui: os lançamentos passam a apontar para
+      o fato que compõem, o que só é possível depois de o fato existir. Fora do
+      Real a chamada não acha linha nenhuma e custa uma consulta — é o preço de
+      não ter dois caminhos de aprovação.
+    */
+    await vincularLancamentosAosFatos(db, importRunId);
 
     /*
       O contrato de cobertura acompanha o dicionário.

@@ -37,7 +37,7 @@
  * depois.
  */
 
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import type { Database } from "@workspace/db";
 import {
   entityIdentifierTable,
@@ -81,6 +81,28 @@ export interface EstagioDoExtrato {
   reconciliacao: ReturnType<typeof reconciliar>;
 }
 
+/**
+ * A recusa do estágio, com o código que a tela mostra.
+ *
+ * Erro com nome, e não `Error` solto, pela mesma razão das recusas do pipeline:
+ * quem opera precisa saber **qual** conferência falhou para saber o que
+ * corrigir, e um texto livre obriga a tela a adivinhar por substring.
+ */
+export class ExtratoRecusado extends Error {
+  constructor(
+    readonly codigo:
+      | "COMPETENCIA_DIVERGE_DA_DECLARACAO"
+      | "UNIDADE_AMBIGUA_NO_ARQUIVO"
+      | "UNIDADE_NAO_DECLARADA"
+      | "RECONCILIACAO_NAO_FECHA",
+    message: string,
+    readonly detalhe: Record<string, unknown> = {},
+  ) {
+    super(message);
+    this.name = "ExtratoRecusado";
+  }
+}
+
 export interface OpcoesDoEstagio {
   /** O canal da vigência. O acervo remunerado é EMPURRADA, e o real o segue. */
   canal?: string;
@@ -115,6 +137,57 @@ export async function estagiarExtratoReal(
   const { linhas, celulas } = await lerLinhasDoRaw(db, importRunId);
   const leitura = lerExtrato(linhas);
 
+  /*
+    A unidade declarada, conferida contra o que o arquivo escreve.
+
+    Não dá para traduzir "TRANSFERÊNCIA URBANA - EMPURRADA" em CNPJ — e é por
+    isso que quem envia declara. O que **dá** para conferir é se o arquivo fala
+    de uma unidade só: um extrato com duas unidades dentro, enviado sob uma
+    declaração única, carimbaria metade dos lançamentos com o CNPJ errado, e o
+    erro só apareceria como um custo aparecendo na unidade que não o teve.
+  */
+  const unidadesNoArquivo = new Set(
+    leitura.linhas
+      .map((l) => `${l.codunn ?? ""}|${l.unidadeRaw ?? ""}`)
+      .filter((u) => u !== "|"),
+  );
+  if (unidadesNoArquivo.size > 1) {
+    throw new ExtratoRecusado(
+      "UNIDADE_AMBIGUA_NO_ARQUIVO",
+      `O extrato fala de ${unidadesNoArquivo.size} unidades diferentes, e o envio declarou uma só. ` +
+        `Carimbar todas com o mesmo CNPJ colocaria custo na unidade que não o teve. ` +
+        `Envie um arquivo por unidade. Encontradas: ${[...unidadesNoArquivo].join("; ")}.`,
+      { unidades: [...unidadesNoArquivo] },
+    );
+  }
+
+  /*
+    A competência declarada, conferida contra `MES`/`ANO` das linhas.
+
+    É a conferência que a `0101` fez para a quinzena, no acervo Real: sem ela,
+    mandar o extrato de agosto achando que se manda o de setembro entra calado,
+    e quem enviou descobre semanas depois, na comparação, que um mês tem duas
+    leituras e outro nunca chegou. Ausente a declaração, o arquivo entra pelas
+    competências que trouxer — é o caso da carga histórica.
+  */
+  const competenciasNoArquivo = [
+    ...new Set(leitura.linhas.map((l) => l.competencia)),
+  ].sort();
+  const declarada = run.declaredCompetence;
+  if (declarada !== null && declarada !== undefined) {
+    const forasteiras = competenciasNoArquivo.filter((c) => c !== declarada);
+    if (forasteiras.length > 0) {
+      throw new ExtratoRecusado(
+        "COMPETENCIA_DIVERGE_DA_DECLARACAO",
+        `O envio declarou a competência ${declarada}, e o arquivo traz ` +
+          `${competenciasNoArquivo.length === 1 ? "outra" : `${competenciasNoArquivo.length} competências`}: ` +
+          `${competenciasNoArquivo.join(", ")}. Nada foi importado — confira se o mês escolhido no ` +
+          `envio é mesmo o do arquivo.`,
+        { declarada, encontradas: competenciasNoArquivo },
+      );
+    }
+  }
+
   const resolverTipo = await montarResolvedorDeTipo(
     db,
     [...new Set(leitura.linhas.map((l) => l.placa))],
@@ -137,12 +210,14 @@ export async function estagiarExtratoReal(
   */
   const reconciliacao = reconciliar(apuracao);
   if (!reconciliacao.fecha) {
-    throw new Error(
+    throw new ExtratoRecusado(
+      "RECONCILIACAO_NAO_FECHA",
       `A apuração do financiamento real não fecha com o extrato de origem: ` +
         `razão R$ ${reconciliacao.totalDoExtrato}, apurado R$ ${reconciliacao.totalConsolidado} ` +
         `+ retido R$ ${reconciliacao.totalEmDuplicatas} + rejeitado R$ ${reconciliacao.totalRejeitado} ` +
         `+ pendente R$ ${reconciliacao.totalPendente} (diferença de R$ ${reconciliacao.diferenca}). ` +
         `Nenhum fato foi gravado.`,
+      { ...reconciliacao },
     );
   }
 
@@ -270,6 +345,53 @@ export async function estagiarExtratoReal(
     ].sort(),
     reconciliacao,
   };
+}
+
+/**
+ * Liga cada lançamento ao fato que ele compõe — depois da promoção.
+ *
+ * ---------------------------------------------------------------------------
+ * Por que é um passo separado, e não parte do estágio
+ * ---------------------------------------------------------------------------
+ * Porque no estágio os fatos ainda não existem. O consolidado vira `staged_fact`,
+ * e é a promoção que o transforma em `fact`, com id, snapshot e entidade — só
+ * então há a que apontar. Deixar `fact_id` nulo para sempre seria guardar o
+ * rastreio pela metade: a tela mostraria "R$ 15.478,60" sem conseguir dizer que
+ * são dois documentos, e o número voltaria a ser uma soma sem origem.
+ *
+ * O vínculo é feito pelo par (entidade, competência), que é o grão do
+ * consolidado dos dois lados — do lançamento pela placa e pela competência, e
+ * do fato pela entidade e pela data da vigência mensal. Refazê-lo é idempotente:
+ * a mesma consulta rodada duas vezes escreve o mesmo id.
+ *
+ * Os lançamentos que **não** entraram em soma nenhuma — duplicata provável,
+ * placa sem classificação — continuam com `fact_id` nulo, e é assim que se
+ * distingue "ficou de fora" de "não foi ligado ainda".
+ */
+export async function vincularLancamentosAosFatos(
+  db: Database,
+  importRunId: string,
+): Promise<number> {
+  const { rowCount } = await db.execute(sql`
+    UPDATE finame_real_lancamento l
+       SET fact_id = f.id,
+           snapshot_id = f.snapshot_id,
+           entity_id = f.entity_id
+      FROM fact f
+      JOIN attribute a ON a.id = f.attribute_id AND a.code LIKE '%.finame_real'
+      JOIN snapshot s ON s.id = f.snapshot_id
+      JOIN entity_identifier ident
+        ON ident.entity_id = f.entity_id
+       AND ident.identifier_type = 'PLACA'
+       AND ident.is_current
+     WHERE l.import_run_id = ${importRunId}::uuid
+       AND l.status = 'ACEITO'
+       AND ident.identifier_value = l.placa
+       AND s.effective_date = l.competencia
+       AND s.dataset_family = 'FINANCIAMENTO_REAL'
+       AND s.status <> 'SUPERSEDED'
+  `);
+  return rowCount ?? 0;
 }
 
 /**

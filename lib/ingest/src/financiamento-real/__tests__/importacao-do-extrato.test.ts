@@ -8,7 +8,7 @@ import * as XLSX from "xlsx";
 import { captureRaw, preview, promote, receiveFile, stage } from "../../pipeline";
 import { createTestDatabase, type TestDb } from "../../testing";
 import { DATASET_FAMILY_FINANCIAMENTO_REAL } from "../../tipos";
-import { estagiarExtratoReal } from "../estagio";
+import { estagiarExtratoReal, vincularLancamentosAosFatos } from "../estagio";
 
 /**
  * O extrato de verdade atravessando o pipeline oficial, do arquivo ao fato.
@@ -107,6 +107,7 @@ describe("o extrato do ERP entra pelo pipeline oficial", () => {
     importRunId = resultado.importRunId;
     estagio = resultado.estagio!;
     await promote(ctx.db, importRunId);
+    await vincularLancamentosAosFatos(ctx.db, importRunId);
   }, 600_000);
 
   it("captura as duas abas em RAW, inclusive a que não participa da apuração", async () => {
@@ -259,6 +260,36 @@ describe("o extrato do ERP entra pelo pipeline oficial", () => {
          AND status = 'DUPLICATA_PROVAVEL' AND fact_id IS NOT NULL
     `);
     expect(soltas[0].n).toBe("0");
+  });
+
+  it("cada lançamento aceito aponta para o fato que compõe", async () => {
+    /*
+      O rastreio só fecha depois da promoção: no estágio o fato ainda não
+      existe. Sem este passo a tela mostraria o consolidado sem conseguir dizer
+      de quantos documentos ele veio — a soma sem origem que este produto não
+      entrega. O defeito apareceu na tela, e não no teste: a expansão da placa
+      dizia "0 lançamentos" ao lado de um valor que tinha dois.
+    */
+    const { rows } = await ctx.db.execute<{ n: string }>(sql`
+      SELECT count(*)::text AS n
+        FROM finame_real_lancamento
+       WHERE import_run_id = ${importRunId}::uuid
+         AND status = 'ACEITO' AND fact_id IS NULL
+    `);
+    expect(rows[0].n).toBe("0");
+
+    /* E o inverso: todo fato do Real tem pelo menos um lançamento por trás. */
+    const { rows: orfaos } = await ctx.db.execute<{ n: string }>(sql`
+      SELECT count(*)::text AS n
+        FROM fact f
+        JOIN attribute a ON a.id = f.attribute_id AND a.code LIKE '%.finame_real'
+        JOIN snapshot s ON s.id = f.snapshot_id
+       WHERE s.import_run_id = ${importRunId}::uuid
+         AND NOT EXISTS (
+           SELECT 1 FROM finame_real_lancamento l WHERE l.fact_id = f.id
+         )
+    `);
+    expect(orfaos[0].n).toBe("0");
   });
 
   it("a reconciliação fecha com o razão de origem", () => {

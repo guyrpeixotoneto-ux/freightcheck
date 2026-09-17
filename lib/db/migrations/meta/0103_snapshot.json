@@ -1,5 +1,5 @@
 {
-  "id": "c02058ab-ac8b-481f-b4ca-f9e0790cda29",
+  "id": "3b4acfb9-bde5-4cf3-8fa7-99c019aa4c7a",
   "prevId": "d5aa56b8-1f41-4453-87c3-a9ff51d28175",
   "version": "7",
   "dialect": "postgresql",
@@ -456,6 +456,12 @@
         "declared_competence": {
           "name": "declared_competence",
           "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "declared_unidade": {
+          "name": "declared_unidade",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         },

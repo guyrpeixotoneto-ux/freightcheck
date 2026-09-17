@@ -758,6 +758,13 @@ export interface ReceiveResult {
   contentSha256: string;
 }
 
+/** Uma declaração vazia é ausência de declaração, e não string vazia. */
+function normalizarDeclaracao(valor: string | null | undefined): string | null {
+  if (valor === null || valor === undefined) return null;
+  const limpo = valor.trim();
+  return limpo === "" ? null : limpo;
+}
+
 export interface ReceiveOptions {
   filePath: string;
   filename?: string;
@@ -794,6 +801,34 @@ export interface ReceiveOptions {
    * {@link exigirQuinzenaDeclarada}.
    */
   declaredPeriod?: string | null;
+  /**
+   * A granularidade do acervo por onde o arquivo entrou — `QUINZENAL` ou
+   * `MENSAL`.
+   *
+   * Opcional como as demais declarações. Ela não muda a leitura: a
+   * granularidade de cada vigência continua saindo do rótulo (`MENSAL` no
+   * rótulo mensal, `QUINZENAL` no quinzenal). O que ela permite é a
+   * conferência — um extrato mensal enviado pela linha da quinzena é recusado
+   * antes de qualquer fato entrar, em vez de virar uma vigência quinzenal com a
+   * segunda metade do mês vazia.
+   */
+  declaredGranularity?: string | null;
+  /**
+   * A competência que o envio afirma cobrir, como o primeiro dia do mês.
+   *
+   * É o `declaredPeriod` do acervo Real: o extrato do ERP não traz rótulo de
+   * vigência nenhum, então quem diz de que mês ele é é quem envia — e a
+   * importação confere contra `MES`/`ANO` das linhas.
+   */
+  declaredCompetence?: string | null;
+  /**
+   * A unidade que o envio declara, como CNPJ.
+   *
+   * Obrigatória no acervo Real, e ausente no remunerado: lá a coluna
+   * `Unidade - CNPJ` vem em cada linha do arquivo, e o escopo sai dela. O
+   * extrato não traz CNPJ, e sem UNIDADE a vigência não tem identidade.
+   */
+  declaredUnidade?: string | null;
 }
 
 /**
@@ -983,6 +1018,16 @@ export async function receiveFile(
       declaredType: declarado?.code ?? null,
       declaredFamily: familiaDeclarada,
       declaredPeriod: quinzenaDeclarada,
+      declaredGranularity: normalizarDeclaracao(options.declaredGranularity),
+      declaredCompetence: normalizarDeclaracao(options.declaredCompetence),
+      /*
+        Só os dígitos: o CNPJ chega ora mascarado, ora como número — e como
+        número ele perde o zero da frente. É a mesma normalização que
+        `normalizeScopeCode` aplica ao escopo, e guardá-la já normalizada aqui é
+        o que faz a conferência ser uma igualdade, sem tradução no meio.
+      */
+      declaredUnidade:
+        normalizarDeclaracao(options.declaredUnidade)?.replace(/\D/g, "") ?? null,
     })
     .returning();
 

@@ -60,6 +60,17 @@
 -- descartáveis, a segunda entre as que exigem tabela vazia.
 --
 -- ---------------------------------------------------------------------------
+-- A unidade declarada no envio
+-- ---------------------------------------------------------------------------
+--
+-- `import_run.declared_unidade` existe porque o extrato não traz CNPJ, e o
+-- escopo UNIDADE é o que fecha a identidade de uma vigência. Quem sabe o CNPJ é
+-- quem envia, escolhendo a unidade do cadastro — a mesma autoridade da `0094`,
+-- ato explícito de uma pessoa, e não uma quinta heurística sobre o texto do
+-- arquivo. O que o arquivo escreve (`UNIDADE`, `CODUNN`) continua inteiro em
+-- `raw_cell` e vira a evidência contra a qual a declaração é conferida.
+--
+-- ---------------------------------------------------------------------------
 -- Idempotente de ponta a ponta
 -- ---------------------------------------------------------------------------
 --
@@ -110,6 +121,7 @@ CREATE TABLE IF NOT EXISTS "financiamento_real_decisao" (
 --> statement-breakpoint
 ALTER TABLE "import_run" ADD COLUMN IF NOT EXISTS "declared_granularity" text;--> statement-breakpoint
 ALTER TABLE "import_run" ADD COLUMN IF NOT EXISTS "declared_competence" date;--> statement-breakpoint
+ALTER TABLE "import_run" ADD COLUMN IF NOT EXISTS "declared_unidade" text;--> statement-breakpoint
 ALTER TABLE "snapshot" ADD COLUMN IF NOT EXISTS "granularidade" text;--> statement-breakpoint
 DO $$
 BEGIN

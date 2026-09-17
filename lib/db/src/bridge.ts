@@ -421,17 +421,19 @@ export const ALLOWLIST: {
     aindaPodeNaoExistir: true,
   },
   /*
-    As três da `0103`, todas aditivas e nulas como as de cima.
+    As quatro da `0103`, todas aditivas e nulas como as de cima.
 
     `snapshot.granularidade` é a que carrega o peso: a competência mensal do
     acervo Real e a 1ª quinzena do mesmo mês começam no mesmo dia, e é ela que
     diz qual das duas um snapshot é. Nula nas vigências anteriores, que são
     todas quinzenais — e lê-se assim, por regra, sem backfill.
 
-    As duas de `import_run` são a declaração do envio correspondente: a
-    granularidade pela qual a planilha entrou, e a competência que quem enviou
-    afirmou. Nulas em todo envio anterior, pela mesma razão de `declared_family`
-    e `declared_period`.
+    As três de `import_run` são a declaração do envio correspondente: a
+    granularidade pela qual a planilha entrou, a competência que quem enviou
+    afirmou, e a unidade que ele escolheu do cadastro — esta última porque o
+    extrato do ERP não traz CNPJ, e sem UNIDADE a vigência não tem identidade.
+    Nulas em todo envio anterior, pela mesma razão de `declared_family` e
+    `declared_period`.
   */
   {
     tabela: "snapshot",
@@ -449,6 +451,12 @@ export const ALLOWLIST: {
     tabela: "import_run",
     coluna: "declared_competence",
     tipo: "date",
+    aindaPodeNaoExistir: true,
+  },
+  {
+    tabela: "import_run",
+    coluna: "declared_unidade",
+    tipo: "text",
     aindaPodeNaoExistir: true,
   },
 ];

@@ -38,7 +38,8 @@
     "./tipos": "./src/tipos.ts",
     "./tipos-da-vigencia": "./src/tipos-da-vigencia.ts",
     "./visao-geral-de-parametros": "./src/visao-geral-de-parametros.ts",
-    "./finame-real": "./src/finame-real.ts"
+    "./finame-real": "./src/finame-real.ts",
+    "./finame-real-query": "./src/finame-real-query.ts"
   },
   "scripts": {
     "test": "vitest run",

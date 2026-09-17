@@ -11,6 +11,8 @@ export * from "./consolidated";
 export * from "./composition";
 export * from "./recorte-de-rubrica";
 export * from "./finame";
+export * from "./finame-real";
+export * from "./finame-real-query";
 export * from "./ipva";
 export * from "./aquisicao";
 export * from "./aluguel";
