@@ -12,7 +12,8 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { TriangleAlert } from "lucide-react";
+import { Info, TriangleAlert } from "lucide-react";
+import { VALOR_DECLARADO_SEM_CONFIRMACAO } from "@workspace/comparison/politica-do-impacto";
 import { formatBrl, formatBrlShort, formatNumber } from "@/lib/format";
 import {
   ROTULO_DO_TRIBUTO,
@@ -485,10 +486,24 @@ export function EvolucaoEntreVigencias({
   totais,
   rotuloBase,
   rotuloComparada,
+  leitura,
 }: {
   totais: TotaisDeImpostos["totais"];
   rotuloBase: string;
   rotuloComparada: string;
+  /**
+   * A leitura da política do impacto — ver `politica-do-impacto`.
+   *
+   * Este painel soma a **coluna declarada** de cada ponta, e por isso continua
+   * publicando reais quando o motor não conseguiu precificar um centavo do que
+   * mudou: era o cartão dizendo "Sem impacto precificável" e este painel,
+   * embaixo, dizendo `+R$ 2.318,77`. Os dois números estavam certos e
+   * respondiam a perguntas diferentes, sem nada na tela dizendo isso.
+   *
+   * A soma não muda — a ressalva é que passa a existir. `null` para quem ainda
+   * não passa a leitura.
+   */
+  leitura?: { declaradoSemConfirmacao: boolean } | null;
 }) {
   const linhas = (["PIS_COFINS", "ICMS"] as const).flatMap((tributo) =>
     porTipo(totais, tributo).map((l) => ({ ...l, tributo })),
@@ -546,6 +561,21 @@ export function EvolucaoEntreVigencias({
             );
           })}
         </ul>
+      )}
+      {/*
+        A ressalva da política, e só quando ela vale.
+
+        O painel soma a coluna declarada de cada ponta; no estado
+        `NAO_PRECIFICAVEL` esse dinheiro é movimento que o motor não pôde
+        precificar, e publicá-lo sem uma palavra é o que fazia esta tela
+        contradizer o próprio cartão. O número fica — quem audita precisa vê-lo
+        —, e a frase diz o que ele é.
+      */}
+      {leitura?.declaradoSemConfirmacao && (
+        <p className="mt-4 flex items-start gap-2 border-l-2 border-amber-300 pl-2.5 text-xs text-amber-900 dark:border-amber-900/60 dark:text-amber-200">
+          <Info className="mt-0.5 h-3.5 w-3.5 flex-none" aria-hidden="true" />
+          <span>{VALOR_DECLARADO_SEM_CONFIRMACAO}</span>
+        </p>
       )}
     </Painel>
   );

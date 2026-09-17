@@ -18,6 +18,7 @@ import {
   vigenciasQueCobrem,
 } from "@workspace/comparison/recorte-de-rubrica";
 import { TIPO_DO_QUADRO, ROTULO_DO_QUADRO } from "@workspace/comparison/qlp";
+import { useParNaUrl } from "@/lib/par-de-vigencias";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -109,17 +110,30 @@ export function ComparacaoDoQuadro({
   rubrica?: string;
 }) {
   /*
-    O par que o endereço traz, quando traz.
+    O par mora no endereço — a mesma decisão das dezesseis auditorias de rubrica
+    (`useParNaUrl`, em `lib/par-de-vigencias.ts`).
 
-    É o que faz um link para esta comparação abrir no mesmo par que quem o
-    mandou estava vendo — a mesma decisão das seis auditorias de rubrica
-    (`parDaUrl`, em `lib/par-de-vigencias.ts`). Sem os parâmetros, as duas
-    pontas nascem vazias e o par de partida entra pelo efeito abaixo.
+    Ele já **abria** no par do link, e é isso que fazia um link para esta
+    comparação chegar no mesmo par de quem o mandou. O que faltava era a volta:
+    trocar o par aqui não mexia no endereço, então o link de quem trocou não
+    carregava a troca e um recarregamento perdia a comparação. Sem os
+    parâmetros, as duas pontas nascem vazias e o par de partida entra pelo
+    efeito abaixo, como sempre entrou.
   */
-  const [par, setPar] = useState(() => ({
-    base: query.get("base") ?? "",
-    comparada: query.get("comparada") ?? "",
-  }));
+  const [base, setBase] = useParNaUrl("base");
+  const [comparada, setComparada] = useParNaUrl("comparada");
+  const par = { base, comparada };
+  /* Aceita as duas formas do `useState` que ele substitui — o valor e a
+     função —, porque o efeito de reconciliação abaixo usa a segunda. */
+  const setPar = (
+    proximo:
+      | { base: string; comparada: string }
+      | ((atual: { base: string; comparada: string }) => { base: string; comparada: string }),
+  ) => {
+    const valor = typeof proximo === "function" ? proximo({ base, comparada }) : proximo;
+    setBase(valor.base);
+    setComparada(valor.comparada);
+  };
   const [filtros, setFiltros] = useState<FiltrosDeComparacaoDeQlp>(FILTROS_VAZIOS);
   const [rubricaEscolhida, setRubrica] = useState("TODAS");
   const rubrica = rubricaFixa ?? rubricaEscolhida;

@@ -3,6 +3,10 @@ import { db } from "@workspace/db";
 import { financiamentoRealDecisaoTable } from "@workspace/db/schema";
 import { lerLancamentosDaPlaca, lerPendenciasDoReal } from "@workspace/comparison";
 import { somarCentavos } from "@workspace/ingest/dinheiro";
+import {
+  aplicarDecisaoDoReal,
+  AplicacaoRecusada,
+} from "@workspace/ingest/financiamento-real";
 import { operacaoDaConsulta } from "../lib/operacao";
 
 /**
@@ -105,11 +109,12 @@ router.get("/financiamento-real/lancamentos", async (req, res, next): Promise<vo
       competencia,
       placa,
       lancamentos,
-      total: Number(
-        lancamentos
-          .filter((l) => l.status === "ACEITO")
-          .reduce((soma, l) => soma + l.valor, 0)
-          .toFixed(2),
+      /* A mesma regra única do resto do produto. Este `total` é o que a expansão
+         da placa confere contra o consolidado da vigência, e um `toFixed` aqui
+         voltaria a discordar dele no meio centavo. Ver
+         `@workspace/ingest/dinheiro`. */
+      total: somarCentavos(
+        lancamentos.filter((l) => l.status === "ACEITO").map((l) => l.valor),
       ),
     });
   } catch (err) {
@@ -118,18 +123,26 @@ router.get("/financiamento-real/lancamentos", async (req, res, next): Promise<vo
 });
 
 /**
- * Registrar uma decisão sobre o que ficou de fora da soma.
+ * Registrar uma decisão sobre o que ficou de fora da soma — **sem** aplicá-la.
+ *
+ * Quem clica "Classificar e aplicar" na tela não passa por aqui: passa por
+ * `/financiamento-real/decisoes/aplicar`, abaixo, que grava a decisão e publica
+ * a revisão da vigência no mesmo ato. Esta rota continua existindo para o caso
+ * em que registrar é o que se quer — anotar a conclusão sem mexer no acervo —,
+ * e o texto abaixo descreve exatamente esse caso.
  *
  * ---------------------------------------------------------------------------
  * Por que a decisão é gravada, e não aplicada
  * ---------------------------------------------------------------------------
  * Esta rota escreve uma linha em `financiamento_real_decisao` e nada mais: ela
  * **não** refaz o consolidado. A apuração é função pura das linhas do arquivo
- * mais as decisões conhecidas, então aplicar a decisão é reimportar aquele mês —
- * que é um ato com dono, com pré-visualização e com revisão, e não um efeito
- * colateral de um clique.
+ * mais as decisões conhecidas, e a decisão gravada aqui passa a valer na próxima
+ * leitura daquele extrato — a de quem reimportar o mês, ou a que a rota de
+ * aplicação abre sozinha.
  *
- * A resposta diz isso com todas as letras, para que a tela possa dizer também.
+ * Publicar é o que ela não faz, e é o corte entre as duas: anotar uma conclusão
+ * não pede o mesmo de quem chama que abrir revisão de vigência. A resposta diz
+ * isso com todas as letras, para que a tela possa dizer também.
  *
  * Append-only: uma decisão revista não apaga a anterior. Quem lê pega a mais
  * recente da chave, e o histórico continua legível — "foi confirmada como
@@ -193,10 +206,62 @@ router.post("/financiamento-real/decisoes", async (req, res, next): Promise<void
       decisao: gravada,
       efeito:
         "A decisão ficou registrada e vale na próxima leitura deste extrato. O valor " +
-        "consolidado só muda quando o mês for reimportado — aplicar por aqui seria mexer " +
-        "numa vigência fechada sem passar pela pré-visualização.",
+        "consolidado não mudou agora: esta rota grava a decisão e não publica. Para " +
+        "que ela vire número, use /financiamento-real/decisoes/aplicar — ou reimporte " +
+        "o mês.",
     });
   } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * Registrar a decisão **e aplicá-la** — o que a tela chama de "Classificar e
+ * aplicar".
+ *
+ * ---------------------------------------------------------------------------
+ * Por que é outra rota, e não um campo na de cima
+ * ---------------------------------------------------------------------------
+ * Porque as duas pedem coisas diferentes de quem chama. Registrar é anotar o
+ * que alguém concluiu; aplicar publica no acervo — abre revisão nova da
+ * vigência, com os mesmos poderes de aprovar uma importação. O portão de
+ * permissão deste servidor é por caminho (`ESCRITAS_POR_MODULO`), então dar à
+ * aplicação um caminho próprio é o que permite exigir dela o nível do módulo
+ * Importações sem cobrar o mesmo de quem só anota.
+ *
+ * O trabalho acontece **dentro** da requisição, ao contrário da aprovação de
+ * uma importação. A diferença é de tamanho: aquela lê um arquivo inteiro do
+ * zero e leva minutos; esta relê um RAW já capturado e promove as competências
+ * que a decisão alcança — segundos, no extrato real de 2026. Responder 202 e
+ * mandar a tela perguntar depois custaria à pessoa a única coisa que este botão
+ * existe para entregar: ver o número mudar no clique.
+ */
+router.post("/financiamento-real/decisoes/aplicar", async (req, res, next): Promise<void> => {
+  try {
+    const corpo = req.body as Record<string, unknown>;
+    const resultado = await aplicarDecisaoDoReal(
+      db,
+      {
+        tipo: String(corpo["tipo"] ?? ""),
+        chave: String(corpo["chave"] ?? ""),
+        valor: typeof corpo["valor"] === "string" ? corpo["valor"] : null,
+        motivo: String(corpo["motivo"] ?? ""),
+        decididoPor: req.user?.email ?? "desconhecido",
+      },
+      { canal: operacaoDaConsulta(req.query as Record<string, unknown>) },
+    );
+    res.status(201).json(resultado);
+  } catch (err) {
+    /*
+      A recusa nomeada vira 422 com o código: quem opera precisa saber **qual**
+      conferência barrou — uma leitura aberta se resolve em Importações, uma
+      decisão sem motivo se resolve no campo ao lado, e as duas viram a mesma
+      tela inútil se a resposta for só "não deu".
+    */
+    if (err instanceof AplicacaoRecusada) {
+      res.status(422).json({ error: err.message, codigo: err.codigo, ...err.detalhe });
+      return;
+    }
     next(err);
   }
 });

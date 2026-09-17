@@ -17,7 +17,7 @@ import {
   vigenciasDaUnidade,
   vigenciasQueCobrem,
 } from "@workspace/comparison/recorte-de-rubrica";
-import { avisoDoParImpossivel, parDaUrl } from "@/lib/par-de-vigencias";
+import { avisoDoParImpossivel, useParNaUrl } from "@/lib/par-de-vigencias";
 import { Layout } from "@/components/layout/layout";
 import { CabecalhoDePagina } from "@/components/layout/cabecalho-de-pagina";
 import { ApiErrorNotice } from "@/components/api-error";
@@ -134,11 +134,18 @@ export default function AuditoriaDeLucroFixo() {
    * É só o valor inicial: `parReconciliado`, abaixo, continua mandando, e um
    * par que não pertença à unidade aberta é descartado como qualquer outro.
    * Sem os parâmetros no endereço, as duas pontas nascem vazias — o estado que
-   * esta tela sempre teve. Ver `parDaUrl`, em `lib/par-de-vigencias.ts`.
+   * esta tela sempre teve. Ver `useParNaUrl`, em `lib/par-de-vigencias.ts`.
    */
-  const parInicial = parDaUrl(useSearch());
-  const [base, setBase] = useState(parInicial.base);
-  const [comparada, setComparada] = useState(parInicial.comparada);
+  /*
+    As duas pontas moram no endereço — ver `useParNaUrl`.
+
+    Eram `useState`, e o par não sobrevivia a um recarregamento nem cabia num
+    link: copiar o endereço depois de comparar junho com setembro mandava o
+    outro para o par de partida desta tela. O hook entra no lugar do `useState`
+    sem mudar mais nada — o seletor continua recebendo os mesmos dois setters.
+  */
+  const [base, setBase] = useParNaUrl("base");
+  const [comparada, setComparada] = useParNaUrl("comparada");
   const [filtros, setFiltros] = useState<FiltrosDeLucroFixo>(FILTROS_VAZIOS);
   const [comSemAlteracao, setComSemAlteracao] = useState(false);
   const [pagina, setPagina] = useState(1);

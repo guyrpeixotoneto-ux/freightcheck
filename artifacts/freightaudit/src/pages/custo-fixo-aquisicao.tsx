@@ -38,7 +38,7 @@ import {
   type RecorteDeTipo,
 } from "@/components/comparacao/recorte-de-equipamento";
 import { useCandidatosDoPar } from "@/hooks/use-candidatos-do-par";
-import { avisoDoParImpossivel } from "@/lib/par-de-vigencias";
+import { avisoDoParImpossivel, useParNaUrl } from "@/lib/par-de-vigencias";
 import { CartoesDeAquisicao } from "@/components/aquisicao/cartoes";
 import {
   AlteracoesPorVariavel,
@@ -129,8 +129,16 @@ const ROTA = "/custo-fixo-aquisicao";
 const trocarNoEndereco = trocaNaRota(ROTA);
 
 export default function AuditoriaDeAquisicao() {
-  const [base, setBase] = useState("");
-  const [comparada, setComparada] = useState("");
+  /*
+    As duas pontas moram no endereço — ver `useParNaUrl`.
+
+    Eram `useState`, e o par não sobrevivia a um recarregamento nem cabia num
+    link: copiar o endereço depois de comparar junho com setembro mandava o
+    outro para o par de partida desta tela. O hook entra no lugar do `useState`
+    sem mudar mais nada — o seletor continua recebendo os mesmos dois setters.
+  */
+  const [base, setBase] = useParNaUrl("base");
+  const [comparada, setComparada] = useParNaUrl("comparada");
   const [filtros, setFiltros] = useState<FiltrosDeAquisicao>(FILTROS_VAZIOS);
   /*
     Ligado por padrão, e é a única tela do produto em que isso acontece.

@@ -3444,6 +3444,16 @@ export interface PromoteResult {
    */
   taxonomia: { nosCriados: number; nosExistentes: number };
   /**
+   * As vigências que o arquivo reescreveria e que já estavam idênticas.
+   *
+   * Sai na resposta porque "nenhuma revisão foi aberta" e "nada foi promovido"
+   * se parecem e não são a mesma coisa: a primeira é a idempotência
+   * funcionando — o mesmo conteúdo normalizado já está ativo —, e quem chamou
+   * precisa poder dizer isso com as palavras certas. O estado do run já
+   * distinguia as duas (`SKIPPED_DUPLICATE_DATA`); a lista nomeia **quais**.
+   */
+  duplicadasPorDados: string[];
+  /**
    * O que o registro canônico de semânticas deixou aplicado nesta promoção.
    *
    * Sai na resposta da promoção porque uma aplicação silenciosa é
@@ -4667,6 +4677,7 @@ export async function promote(
           nosCriados: taxonomia.created,
           nosExistentes: taxonomia.existing,
         },
+        duplicadasPorDados,
         semanticasConfirmadas: {
           aplicadas: confirmacoes.applied.length,
           jaConfirmadas: confirmacoes.unchanged.length,

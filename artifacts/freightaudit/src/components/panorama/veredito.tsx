@@ -7,6 +7,7 @@ import { escreverVariacao } from "@/lib/visao-geral";
 import { formatBrlShort, periodicitySuffix } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { MedidaDoPlacar, Veredito as DadosDoVeredito } from "@/lib/panorama";
+import type { NomeDaLeitura } from "@/lib/par-do-panorama";
 
 /**
  * Dobra 1 — a manchete. *"Quanto custou esta vigência?"*
@@ -66,12 +67,21 @@ export function Veredito({
   veredito,
   medidas,
   verDetalhes,
+  nome,
 }: {
   veredito: DadosDoVeredito;
   /** As medidas de contexto da vigência — a régua não desenha a do líquido. */
   medidas: MedidaDoPlacar[];
   /** O endereço das alterações sem preço — `null` quando nenhuma tela responde por elas. */
   verDetalhes: string | null;
+  /**
+   * Como este cartão chama o que está lendo — ver `nomeDaLeitura`.
+   *
+   * "Nenhuma alteração foi detectada nesta vigência", debaixo de um par
+   * junho→setembro, afirma sobre setembro o que foi medido entre as duas
+   * pontas. A frase passou a nomear o par quando é um par que está em tela.
+   */
+  nome: NomeDaLeitura;
 }) {
   const { situacao } = veredito;
   const lados = situacao.estado === "com_movimento" ? situacao.lados : null;
@@ -125,8 +135,8 @@ export function Veredito({
                 */}
                 <p className="text-sm text-muted-foreground mt-2 leading-relaxed max-w-md">
                   {situacao.estado === "sem_alteracao"
-                    ? "Nenhuma alteração foi detectada nesta vigência — não há resultado a apurar."
-                    : "Não há impacto financeiro apurado para esta vigência no momento."}
+                    ? `Nenhuma alteração foi detectada ${nome.nesta} — não há resultado a apurar.`
+                    : `Não há impacto financeiro apurado para ${nome.esta} no momento.`}
                 </p>
               </>
             )}
@@ -176,7 +186,7 @@ export function Veredito({
               />
             </div>
 
-            <Balanca fatiaDeGanho={lados.fatiaDeGanho} />
+            <Balanca fatiaDeGanho={lados.fatiaDeGanho} nome={nome} />
           </div>
         )}
       </div>
@@ -307,7 +317,13 @@ function Parcela({
  * `emerald`/`red` cru das outras balanças, que dentro deste cartão leria como
  * um terceiro verde.
  */
-function Balanca({ fatiaDeGanho }: { fatiaDeGanho: number | null }) {
+function Balanca({
+  fatiaDeGanho,
+  nome,
+}: {
+  fatiaDeGanho: number | null;
+  nome: NomeDaLeitura;
+}) {
   if (fatiaDeGanho === null) return null;
   const verde = Math.round(Math.max(0, Math.min(1, fatiaDeGanho)) * 100);
 
@@ -315,7 +331,7 @@ function Balanca({ fatiaDeGanho }: { fatiaDeGanho: number | null }) {
     <div
       className="mt-5 flex h-1.5 w-full gap-1"
       aria-hidden="true"
-      title={`Do que se mexeu nesta vigência, ${verde}% foi para cima.`}
+      title={`Do que se mexeu ${nome.nesta}, ${verde}% foi para cima.`}
     >
       {/*
         A fatia de 0% não vira um traço de 1px: ela não é desenhada. Uma vigência

@@ -269,7 +269,16 @@ export {
 export const ESCRITAS_POR_MODULO: ReadonlyArray<readonly [string, readonly string[]]> = [
   ["/categorias", ["/curation/categorias"]],
   ["/curadoria", ["/curation"]],
-  ["/importacoes", ["/imports"]],
+  /*
+    Aplicar uma decisão do financiamento real publica no acervo: abre revisão
+    nova da vigência, exatamente como aprovar uma importação. Por isso ela
+    responde ao módulo de Importações, e não ao da tela onde o botão mora —
+    quem só audita continua podendo **registrar** a decisão (a rota sem
+    `/aplicar`, que não é reivindicada por módulo nenhum), e publicá-la é poder
+    de quem aprova importação. Mais específica que `/imports` não é: são
+    prefixos disjuntos, e a ordem entre elas não desempata nada.
+  */
+  ["/importacoes", ["/imports", "/financiamento-real/decisoes/aplicar"]],
   ["/fluxos", ["/fluxos"]],
   ["/book-operador", ["/book"]],
   ["/assistente", ["/assistant"]],

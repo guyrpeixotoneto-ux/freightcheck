@@ -76,10 +76,13 @@ import {
   aoEscolherDe,
   aoEscolherPara,
   aoInverter,
-  baseNoEndereco,
   consultaDoPar,
+  enderecoDoPanorama,
   opcoesDoPar,
+  nomeDaLeitura,
   parEmTela,
+  type MudancaDoPar,
+  type NomeDaLeitura,
 } from "@/lib/par-do-panorama";
 import { FaixaSemAlteracao } from "@/components/impacto-apurado/faixa-de-cobertura";
 import { PonteDoImpactoGrafico } from "@/components/impacto-apurado/ponte-do-impacto";
@@ -165,32 +168,40 @@ export default function Panorama() {
   const visaoGeral = parametros.get("visaoGeral") === "1";
 
   /*
-    A volta — e por que ela é a única coisa que troca de rota.
+    O par que troca de rota — e por que a presença da chave basta para decidir.
 
     `?base=` guarda a ponta de partida (ver `lib/par-do-panorama.ts`; o nome não
-    é `de` porque `?de=` já é o recorte de janela do contexto, do lado da API).
-    Enquanto ela for anterior ao `?period=`, o par é o natural e a tela continua
-    lendo `/changes/families`, na mesma chave de cache em que o Impacto Apurado
-    e o Dashboard já o têm — ir e voltar entre os módulos continua não custando
+    é `de` porque `?de=` já é o recorte de janela do contexto, do lado da API), e
+    ela **só é escrita quando o par não é o canônico** (`baseNoEndereco`). Sem a
+    chave, o par é Para contra a anterior imediata dela e a tela continua lendo
+    `/changes/families`, na mesma chave de cache em que o Impacto Apurado e o
+    Dashboard já o têm — ir e voltar entre os módulos continua não custando
     requisição nenhuma.
 
-    Quando ela é **posterior**, o par é a volta: um par que a importação não
-    gravou e que nenhuma régua de data alcança. Aí a leitura sai por
-    `/changes/families/par`, que manda o motor calcular B×A e responde o mesmo
-    corpo. A comparação da ida e a da volta são duas chaves diferentes porque
-    são duas respostas diferentes — não simétricas, que é o motivo de o botão
-    existir.
+    Com a chave, o par é um que a importação não gravou: a volta (setembro×
+    agosto) ou o salteado (junho×setembro). Os dois saem por
+    `/changes/families/par`, que manda o motor calcular e responde o mesmo corpo,
+    cada par na sua chave de cache — porque são respostas diferentes, e a da
+    volta não é a da ida com o sinal trocado.
 
-    A conta é textual de propósito (`base > period`, ISO): ela decide **qual
-    consulta sai**, e depender da lista de vigências para isso faria a primeira
-    leitura esperar por outra leitura. As duas chaves só são escritas juntas —
-    quem inverte escreve as duas —, e um `?base=` sem `?period=` é ignorado,
-    como qualquer endereço que descreva meio par.
+    A conta era `base > period`, o que mandava o par salteado **para frente**
+    pela rota de sempre: a leitura caía na comparação canônica de setembro, e a
+    tela publicava o par de agosto→setembro sob as caixas que diziam
+    junho→setembro. A presença da chave é o que decide agora, e continua sem
+    depender da lista de vigências — a primeira leitura não espera por outra
+    leitura. Um `?base=` sem `?period=` segue ignorado, como qualquer endereço
+    que descreva meio par.
   */
   const dePedido = parametros.get("base");
   const paraPedido = parametros.get("period");
   const emPar =
-    !visaoGeral && dePedido !== null && paraPedido !== null && dePedido > paraPedido;
+    !visaoGeral &&
+    dePedido !== null &&
+    paraPedido !== null &&
+    dePedido !== paraPedido;
+
+  /* Como os andares chamam o que estão lendo — ver `nomeDaLeitura`. */
+  const nome = nomeDaLeitura(emPar);
 
   const vigencia = useQuery({ ...opcoesDaVigencia(consulta), enabled: !visaoGeral && !emPar });
   const invertida = useQuery({
@@ -245,13 +256,18 @@ export default function Panorama() {
     vez, e "a anterior de cada unidade" não é uma competência — somá-las daria
     uma base que nenhuma unidade tem.
 
-    **E não existe no par invertido.** A variação do andar 1 é "esta vigência
+    **E não existe fora do par canônico.** A variação do andar 1 é "esta vigência
     custou mais ou menos que a anterior" — uma comparação entre dois passos
     consecutivos na direção em que o histórico anda. Lida a volta, o número em
-    tela é o desfazimento de um passo, e a vigência anterior à de chegada não é
-    a base de nada: publicá-la ali daria uma variação entre duas leituras que
-    não se sucedem. O andar mostra o líquido do par, sem a linha de variação,
+    tela é o desfazimento de um passo; lido um par salteado (junho→setembro), ele
+    é o que dois passos somaram. Nos dois casos a vigência anterior à de chegada
+    não é a base de nada: publicá-la ali daria uma variação entre duas leituras
+    que não se sucedem. O andar mostra o líquido do par, sem a linha de variação,
     que é o que ele já faz na primeira vigência de um histórico.
+
+    É esta a única conta do Panorama que depende de vigências vizinhas, e ela
+    não foi generalizada: ela se cala, como sempre se calou, em vez de passar a
+    responder sobre um intervalo com a frase de um passo.
   */
   const anterior = useMemo(() => {
     if (!view || emPar) return null;
@@ -367,23 +383,10 @@ export default function Panorama() {
     visaoGeral && !overviewQuery.isLoading,
   );
 
-  /*
-    Trocar qualquer coisa que não seja o par **apaga o par**.
-
-    `?base=` só faz sentido ao lado do `?period=` com que foi escrito: levá-lo
-    numa troca de unidade apontaria para uma data que a outra unidade pode não
-    ter, e numa troca de competência montaria um par salteado. Quem escolhe o
-    par escreve as duas chaves na mesma troca — e é só nesse caso que `base`
-    sobrevive, porque veio na própria mudança.
-  */
+  /* A regra do endereço — inclusive a de quando `?base=` sobrevive a uma troca
+     — mora em `enderecoDoPanorama`, com a razão inteira. */
   const trocarPara = (mudancas: Record<string, string | null>) => {
-    const proxima = new URLSearchParams(search);
-    if (!("base" in mudancas)) proxima.delete("base");
-    for (const [chave, valor] of Object.entries(mudancas)) {
-      if (valor === null) proxima.delete(chave);
-      else proxima.set(chave, valor);
-    }
-    const texto = proxima.toString();
+    const texto = enderecoDoPanorama(search, mudancas);
     navegar(texto ? `${PANORAMA}?${texto}` : PANORAMA);
   };
 
@@ -441,7 +444,16 @@ export default function Panorama() {
           "posso confiar nisto" é a última pergunta de quem vai levar o
           número para uma reunião.
         */
-        descricao="A leitura executiva inteira desta competência: quanto custou, de onde vem, como chegou aqui, onde aconteceu e o quanto dá para confiar no número."
+        /*
+          A frase é o índice dos andares, e por isso ela nomeia o que está sendo
+          lido: "desta competência" é verdade no par canônico e deixa de ser no
+          par salteado, em que o número é o que dois passos somaram — ver
+          `nomeDaLeitura`. Na Visão Geral não há par: a leitura é de uma
+          competência mesmo.
+        */
+        descricao={`A leitura executiva inteira ${
+          visaoGeral ? "desta competência" : nome.desta
+        }: quanto custou, de onde vem, como chegou aqui, onde aconteceu e o quanto dá para confiar no número.`}
         contexto={<UltimaAtualizacao quando={atualizadoEm} />}
         acoes={
           <>
@@ -495,6 +507,7 @@ export default function Panorama() {
                   recorte={recorte}
                   consulta={consulta}
                   anterior={null}
+                  nome={nomeDaLeitura(false)}
                   pontos={serieGeral}
                   periodicityDaSerie={null}
                   serieCarregando={overviewQuery.isLoading}
@@ -552,6 +565,7 @@ export default function Panorama() {
                     "−R$ 11.917/mês" com "+2% vs vigência anterior" embaixo.
                   */
                   anterior={emPar ? null : (comparacao.data ?? null)}
+                  nome={nome}
                   pontos={serieDaUnidade.pontos}
                   periodicityDaSerie={serieDaUnidade.periodicity}
                   serieCarregando={serieDaUnidade.carregando}
@@ -643,20 +657,17 @@ function ParDaLeitura({
   const datas = useMemo(() => opcoes.map((o) => o.data), [opcoes]);
   const par = parEmTela(datas, { para: view?.period ?? paraPedido, de: dePedido });
 
-  /* Uma vigência só no histórico não é falha: é o acervo dizendo que ainda não
-     há o que comparar, e a frase diz o que falta. */
-  const indisponivel =
-    datas.length === 1
-      ? "Esta unidade tem uma vigência só no histórico — não há par a comparar. Importe a vigência seguinte para ler o que mudou entre as duas."
-      : null;
+  /*
+    Uma ponta por gesto — e nada mais.
 
-  /* Escrever `?base=` só quando ele muda alguma coisa — ver `baseNoEndereco`. */
-  const irPara = (destino: { period: string; de: string } | null) => {
+    As três funções já devolvem o endereço inteiro (`period` e `base`), e a
+    única coisa que sobra para cá é entregá-lo. Era aqui que o `de` de cada
+    gesto virava um `period` recalculado, e é por isso que a tradução saiu: uma
+    página não é lugar de ter opinião sobre qual par é legítimo.
+  */
+  const irPara = (destino: MudancaDoPar | null) => {
     if (!destino) return;
-    onTrocar({
-      period: destino.period,
-      base: baseNoEndereco(datas, { para: destino.period, de: destino.de }),
-    });
+    onTrocar({ period: destino.period, base: destino.base });
   };
 
   return (
@@ -665,10 +676,9 @@ function ParDaLeitura({
       par={par}
       periodicidade={resumo.periodicidade}
       carregando={carregando}
-      indisponivel={indisponivel}
-      onEscolherDe={(data) => irPara(aoEscolherDe(datas, data))}
-      onEscolherPara={(data) => irPara(aoEscolherPara(datas, data))}
-      onInverter={() => irPara(aoInverter(par))}
+      onEscolherDe={(data) => irPara(aoEscolherDe(datas, par, data))}
+      onEscolherPara={(data) => irPara(aoEscolherPara(datas, par, data))}
+      onInverter={() => irPara(aoInverter(datas, par))}
     />
   );
 }
@@ -691,6 +701,7 @@ function Corpo({
   recorte,
   consulta,
   anterior,
+  nome,
   pontos,
   periodicityDaSerie,
   serieCarregando,
@@ -709,6 +720,8 @@ function Corpo({
   consulta: URLSearchParams;
   /** A vigência anterior, para a variação do andar 1. `null` sem anterior. */
   anterior: GroupedView | null;
+  /** Como os andares chamam o que estão lendo — ver `nomeDaLeitura`. */
+  nome: NomeDaLeitura;
   pontos: ReturnType<typeof useSerieDeImpacto>["pontos"];
   periodicityDaSerie: string | null;
   serieCarregando: boolean;
@@ -858,6 +871,7 @@ function Corpo({
       <Veredito
         veredito={veredito}
         medidas={placar}
+        nome={nome}
         verDetalhes={
           comDestino
             ? linkDasSemPreco(daVigencia)
@@ -1016,7 +1030,7 @@ function Corpo({
         <Superficie className="px-6 py-5 min-w-0 xl:col-span-3">
           <CabecalhoDaSuperficie
             titulo="Composição do impacto líquido"
-            descricao="De onde vem o resultado apurado desta vigência"
+            descricao={`De onde vem o resultado apurado ${nome.desta}`}
             acao={<span className={cn(BOTAO_DE_TROCA, "cursor-default")}>{DECOMPOSICOES.familia}</span>}
           />
           {ponte && ponte.degraus.length > 0 ? (
@@ -1043,7 +1057,7 @@ function Corpo({
             */
             <EstadoVazio
               icone={BarChart3}
-              titulo="Nenhuma família tem valor apurado nesta vigência"
+              titulo={`Nenhuma família tem valor apurado ${nome.nesta}`}
               descricao="Quando houver alterações com impacto financeiro, a composição aparece aqui por família da remuneração, com o quanto cada uma somou ou tirou do resultado."
             />
           )}

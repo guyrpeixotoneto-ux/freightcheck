@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   impactoDeSeguro,
   linhaDeSeguroDaAlteracao,
+  leituraDoImpacto,
+  SEM_IMPACTO_PRECIFICAVEL_DE_IMPOSTOS,
   SEM_IMPACTO_PRECIFICAVEL_DE_SEGURO,
   type AlteracaoDoMotor,
   type LinhaDeSeguro,
@@ -255,5 +257,58 @@ describe("o que uma candidata pode afirmar sobre dinheiro", () => {
       },
     });
     expect(Object.keys(numeros)).toEqual(["impacto"]);
+  });
+
+  /**
+   * A decisão é **do domínio**, e esta função é só a tradução dela.
+   *
+   * Ela desceu para `politica-do-impacto` em 17/09/2026 porque quatro
+   * superfícies respondem pela mesma comparação — o menu, o cartão de impacto,
+   * a tabela e o painel de evolução — e as outras três decidiam sozinhas. O que
+   * se prende aqui é que as duas pontas continuam dizendo a mesma coisa.
+   */
+  it("concorda com a política do domínio, estado por estado", () => {
+    const casos: [Record<string, number>, number][] = [
+      [{ MENSAL: 7238.85 }, 0],
+      [{ MENSAL: 250 }, 7],
+      [{}, 0],
+      [{}, 12],
+    ];
+    for (const [porPeriodicidade, naoPublicadas] of casos) {
+      const numeros = impactoPublicavel(porPeriodicidade, {
+        naoPublicadas,
+        semImpacto: "a frase da rubrica",
+      });
+      const leitura = leituraDoImpacto(porPeriodicidade, naoPublicadas);
+      expect("semImpacto" in numeros).toBe(!leitura.publicaValor);
+    }
+  });
+});
+
+/**
+ * A Auditoria de Impostos entrou na mesma política.
+ *
+ * Ela montava o impacto em cru (`baldesDoImpacto`) e escrevia `R$ 0,00` no menu
+ * mesmo quando havia montante declarado que o motor recusou precificar — o
+ * estado 3 que o Seguro já respeitava, na tela irmã, com o cartão dizendo o
+ * contrário ao lado. Duas rubricas, a mesma comparação, duas respostas.
+ */
+describe("impostos, na mesma régua", () => {
+  it("sem montante somado e com movimento recusado, cala a coluna", () => {
+    const numeros = impactoPublicavel(
+      {},
+      { naoPublicadas: 4, semImpacto: SEM_IMPACTO_PRECIFICAVEL_DE_IMPOSTOS },
+    );
+    expect(numeros.impacto.baldes).toEqual([]);
+    expect(numeros.semImpacto).toBe(SEM_IMPACTO_PRECIFICAVEL_DE_IMPOSTOS);
+  });
+
+  it("sem montante somado e sem nada recusado, continua sendo R$ 0,00", () => {
+    const numeros = impactoPublicavel(
+      {},
+      { naoPublicadas: 0, semImpacto: SEM_IMPACTO_PRECIFICAVEL_DE_IMPOSTOS },
+    );
+    expect(numeros.impacto.baldes).toEqual([]);
+    expect(numeros.semImpacto).toBeUndefined();
   });
 });

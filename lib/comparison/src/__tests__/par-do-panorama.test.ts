@@ -1,9 +1,10 @@
 // As recusas do par do Panorama, e o que ele manda calcular.
 //
-// O que se prende aqui é a régua — vigências vizinhas — e a economia: a ida já
-// está gravada e não pode ser recalculada por ninguém abrir a tela; a volta é
-// calculada uma vez e reaproveitada nas seguintes. O resto (escopo, cobertura,
-// canal) é recusa do motor, e este módulo só a deixa passar inteira.
+// O que se prende aqui é a régua — qualquer par da unidade, menos a mesma
+// vigência dos dois lados — e a economia: o par canônico já está gravado e não
+// pode ser recalculado por ninguém abrir a tela; a volta e o par salteado são
+// calculados uma vez e reaproveitados nas seguintes. O resto (escopo,
+// cobertura, canal) é recusa do motor, e este módulo só a deixa passar inteira.
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const calculadas: [string, string][] = [];
@@ -71,21 +72,55 @@ describe("a régua do par", () => {
   });
 
   /*
-    Um par salteado é um **intervalo**, e intervalo tem duas leituras legítimas
-    que não são as que os seis andares do Panorama desenham. A recusa nomeia a
-    tela que responde por ele em vez de deixar quem pediu sem saída.
+    E **não** recusa o par salteado: julho contra setembro, com agosto no meio,
+    é o par que a pessoa montou no seletor — o motor o calcula como calcula a
+    volta. Era aqui que morava a trava que fazia o seletor da tela arrastar o
+    Para a cada escolha no De.
   */
-  it("recusa um par salteado, e diz onde ler o intervalo", async () => {
-    await expect(
-      prepararParDoPanorama(bancoCom([]), CONTEXTO, {
-        de: "2026-07-01",
-        para: "2026-09-01",
-      }, PERIODOS),
-    ).rejects.toThrow(/vigências vizinhas[\s\S]*Linha do Tempo/);
+  it("aceita o par salteado e manda calculá-lo", async () => {
+    const db = bancoCom([
+      snapshot("jul", "2026-07-01"),
+      snapshot("set", "2026-09-01"),
+    ]);
+
+    const par = await prepararParDoPanorama(
+      db,
+      CONTEXTO,
+      { de: "2026-07-01", para: "2026-09-01" },
+      PERIODOS,
+    );
+
+    expect(par).toEqual({
+      de: "2026-07-01",
+      para: "2026-09-01",
+      invertido: false,
+      calculadas: 1,
+    });
+    /* A ordem é De × Para: o lado A do motor é a ponta de partida. */
+    expect(calculadas).toEqual([["jul", "set"]]);
+  });
+
+  /* A volta salteada — setembro contra julho — é o mesmo caminho, ao contrário. */
+  it("aceita a volta salteada", async () => {
+    const db = bancoCom([
+      snapshot("set", "2026-09-01"),
+      snapshot("jul", "2026-07-01"),
+    ]);
+
+    const par = await prepararParDoPanorama(
+      db,
+      CONTEXTO,
+      { de: "2026-09-01", para: "2026-07-01" },
+      PERIODOS,
+    );
+
+    expect(par.invertido).toBe(true);
+    expect(par.calculadas).toBe(1);
+    expect(calculadas).toEqual([["set", "jul"]]);
   });
 });
 
-describe("a ida", () => {
+describe("o par canônico", () => {
   it("não calcula nada: é a comparação que a importação gravou", async () => {
     const db = bancoCom([]);
     const par = await prepararParDoPanorama(
@@ -153,9 +188,9 @@ describe("a volta", () => {
   });
 
   /*
-    A volta só existe onde a ida existe. Sem o mesmo conjunto de equipamento dos
-    dois lados não há par a inverter, e a frase diz isso em vez de deixar a tela
-    montar uma leitura vazia.
+    Sem o mesmo conjunto de equipamento dos dois lados não há o que comparar, e
+    a frase diz isso em vez de deixar a tela montar uma leitura vazia — ou, pior,
+    de alguém aqui trocar a ponta pedida por uma que casasse.
   */
   it("recusa quando nenhuma série tem as duas pontas", async () => {
     const db = bancoCom([
