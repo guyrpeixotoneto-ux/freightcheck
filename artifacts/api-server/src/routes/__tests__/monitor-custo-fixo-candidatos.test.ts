@@ -28,11 +28,13 @@ import { listComparableSnapshots } from "@workspace/comparison";
  * O que este arquivo guarda é o que **só o Monitor** tem, e as duas coisas são
  * as que faltavam na tela:
  *
- * 1. **as duas naturezas, separadas.** É o único recorte do produto em que
- *    custo e receita chegam juntos, e o menu tem de dizer de qual lado fala.
- *    Um número só, somando os dois, é o "impacto líquido" que os cartões desta
- *    tela recusam publicar — e o menu não pode ser a porta dos fundos por onde
- *    ele entra;
+ * 1. **o menu é o consolidado, campo a campo.** O Monitor lê cinco módulos de
+ *    uma vez, e o menu tem de publicar o mesmo líquido por periodicidade que a
+ *    tela publica depois do clique — nunca uma segunda conta. Houve aqui uma
+ *    separação por natureza, custo de um lado e receita do outro, e ela saiu
+ *    junto com a natureza: os cinco falam o idioma de quem recebe, positivo é
+ *    ganho e negativo é perda. O que **não** pode acontecer é uma
+ *    periodicidade somar com outra, e é isso que o segundo caso guarda;
  * 2. **o filtro vale no menu.** O número ao lado de cada vigência é o que
  *    aquele par mostraria **com os filtros ligados**. Sem isso, o menu
  *    prometeria "289 alterações" ao lado de uma vigência que, escolhida,
@@ -162,35 +164,33 @@ describe("GET /monitor-custo-fixo/candidatos", () => {
 
     expect(candidata.numeros.alteracoes).toBe(tela.resumo.alteracoes);
     expect(candidata.numeros.impacto.baldes).toEqual(
-      tela.resumo.baldes.flatMap((b: any) => [
-        { periodicidade: b.periodicidade, natureza: "CUSTO", valor: b.custo.liquido },
-        { periodicidade: b.periodicidade, natureza: "RECEITA", valor: b.receita.liquido },
-      ]),
+      tela.resumo.baldes.map((b: any) => ({
+        periodicidade: b.periodicidade,
+        valor: b.liquido,
+      })),
     );
   }, 300_000);
 
   /**
-   * As duas naturezas viajam separadas, sempre — e é isto que impede a soma.
+   * Periodicidade nunca se mistura — a recusa que sobreviveu à saída da
+   * natureza.
    *
-   * Cada periodicidade produz exatamente duas entradas, uma por lado da DRE.
-   * Uma resposta com uma entrada só por periodicidade seria a soma feita no
-   * servidor, e o cliente não teria como desfazê-la.
+   * Cada periodicidade produz **uma** entrada, e duas periodicidades nunca
+   * viram uma. Uma resposta que juntasse R$/mês com R$/ano seria a soma que o
+   * produto recusa, feita no servidor, e o cliente não teria como desfazê-la.
    */
-  it("abre cada periodicidade em custo e receita, e nunca num número só", async () => {
+  it("uma entrada por periodicidade, e nunca duas periodicidades somadas", async () => {
     const lista = await vigencias();
     const { body } = await get(`/monitor-custo-fixo/candidatos?para=${lista[0].id}`);
 
     for (const candidato of body.candidatos) {
       if (candidato.numeros === null) continue;
-      const porPeriodicidade = new Map<string, string[]>();
+      const periodicidades = candidato.numeros.impacto.baldes.map(
+        (b: any) => b.periodicidade,
+      );
+      expect(new Set(periodicidades).size).toBe(periodicidades.length);
       for (const balde of candidato.numeros.impacto.baldes) {
-        porPeriodicidade.set(balde.periodicidade, [
-          ...(porPeriodicidade.get(balde.periodicidade) ?? []),
-          balde.natureza,
-        ]);
-      }
-      for (const naturezas of porPeriodicidade.values()) {
-        expect(naturezas.sort()).toEqual(["CUSTO", "RECEITA"]);
+        expect(Object.keys(balde).sort()).toEqual(["periodicidade", "valor"]);
       }
     }
   }, 300_000);

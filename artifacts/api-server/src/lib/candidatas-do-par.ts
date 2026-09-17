@@ -7,7 +7,6 @@ import {
   listChanges,
   listComparableSnapshots,
   vigenciasQueCobrem,
-  type NaturezaEconomica,
   type Operacao,
 } from "@workspace/comparison";
 
@@ -53,30 +52,20 @@ export const ORCAMENTO_DE_CANDIDATAS_MS = 8_000;
 export const TETO_DE_CANDIDATAS_MS = 12_000;
 
 /**
- * Um balde de dinheiro de um par — a periodicidade, a natureza e o líquido.
+ * Um balde de dinheiro de um par — a periodicidade e o líquido dela.
  *
- * `natureza` é `null` no recorte de uma rubrica só, e é isso que mantém a linha
- * do menu das quatro auditorias exatamente como sempre foi: `+R$ 7.238,85/mês`,
- * sem prefixo. FINAME, IPVA e Impostos são custo inteiro; Lucro Fixo é receita
- * inteira. Dizer "Custo" ao lado de um número numa tela cujo nome já é o da
- * rubrica é repetir o que a tela inteira diz.
+ * Houve aqui um terceiro campo, `natureza`, que separava `CUSTO` de `RECEITA`.
+ * Ele existia por um recorte só — o Monitor Custo Fixo, que lê os cinco módulos
+ * de uma vez —, e saiu junto com a natureza: as cinco rubricas falam o idioma
+ * de quem recebe, positivo é ganho e negativo é perda, e por isso uma
+ * periodicidade volta a ter **um** líquido.
  *
- * Ela deixa de ser `null` no primeiro recorte que mistura as duas — o Monitor
- * Custo Fixo, que lê os quatro módulos de uma vez. Ali o prefixo é obrigatório:
- * um número só, somando o custo que subiu com a receita que subiu, é
- * exatamente o escalar que `CartoesDoMonitor` recusa publicar ("não há cartão
- * de Impacto líquido"), e o menu não pode ser a porta dos fundos por onde ele
- * entra.
- *
- * Por que uma lista e não um `Record<string, number>`: porque a chave passou a
- * ser **dupla** — periodicidade e natureza —, e um objeto de chave composta
- * (`CUSTO:MENSAL`) seria um formato que só o cliente sabe abrir. Uma lista diz
- * os dois campos com o nome de cada um.
+ * Continua sendo uma lista, e não um `Record<string, number>`, porque é assim
+ * que ela atravessa o JSON dizendo o nome de cada campo — e porque a chave
+ * seguiu sendo a periodicidade, que nunca se mistura com outra.
  */
 export interface BaldeDoImpacto {
   periodicidade: string;
-  /** `null` quando o recorte é de uma natureza só — as quatro rubricas. */
-  natureza: NaturezaEconomica | null;
   valor: number;
 }
 
@@ -103,17 +92,15 @@ export interface NumerosDoPar {
 /**
  * O impacto de uma rubrica — `Record<periodicidade, líquido>` — como baldes.
  *
- * As quatro auditorias publicam o impacto nesse formato desde sempre
- * (`impactoPorPeriodicidade` e irmãs), e nenhuma delas tem duas naturezas para
- * separar. Esta é a tradução de uma ponta à outra, num lugar só, para que as
- * quatro não escrevam quatro vezes o mesmo `Object.entries`.
+ * Todas as auditorias publicam o impacto nesse formato desde sempre
+ * (`impactoPorPeriodicidade` e irmãs). Esta é a tradução de uma ponta à outra,
+ * num lugar só, para que elas não escrevam o mesmo `Object.entries` cada uma.
  */
-export function baldesDeUmaNatureza(
+export function baldesDoImpacto(
   porPeriodicidade: Record<string, number>,
 ): BaldeDoImpacto[] {
   return Object.entries(porPeriodicidade).map(([periodicidade, valor]) => ({
     periodicidade,
-    natureza: null,
     valor,
   }));
 }

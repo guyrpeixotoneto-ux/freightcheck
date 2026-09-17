@@ -22,21 +22,35 @@
  *    — não uma compensação escondida aqui.
  * 3. **Periodicidade nunca se mistura.** Não existe um escalar de impacto em
  *    lugar nenhum deste arquivo: o que existe é um balde por periodicidade, e
- *    dentro dele o custo e a receita separados.
+ *    dentro dele o líquido, aberto em ganho e perda.
  *
  * ---------------------------------------------------------------------------
- * Por que custo e receita não se somam
+ * Ganho e perda — e por que "custo" e "receita" saíram daqui
  * ---------------------------------------------------------------------------
- * Lucro Fixo é receita (`lucro-fixo.ts`: `DIRECAO_ECONOMICA = "RECEITA"`), e um
- * valor positivo ali é mais dinheiro **entrando**. Os outros três são custo, e
- * um valor positivo é mais dinheiro saindo. Somá-los num total só daria, nas
- * palavras do próprio módulo, "um número que não é de lado nenhum da DRE".
+ * Todas as cinco rubricas são linhas da **tabela de frete que a transportadora
+ * recebe**, e não despesas da casa. `docs/PROVA-DA-EVOLUCAO-DE-FINAME.md` já
+ * havia escrito isso sobre o FINAME e removido a "leitura de custo" que
+ * invertia a cor daquela tela: `finame_cavalo` indo de R$ 10.578,03 para R$ 0
+ * grava −10.578,03 porque é isso que **deixa de entrar**.
  *
- * Então o balde tem os dois em campos diferentes, com o sinal **como o módulo o
- * publicou** — nada é invertido para caber no painel —, e um terceiro campo,
- * `resultado`, que é a leitura de quem olha a DRE: `receita − custo`. Ele é
- * derivado à vista, com os dois componentes sempre ao lado, e não substitui
- * nenhum deles.
+ * Então o sinal é o idioma, e é o mesmo nos cinco módulos:
+ *
+ * > **positivo é ganho, negativo é perda, zero não é nem um nem outro.**
+ *
+ * Isso é o que dispensa a natureza. Enquanto o balde separava `CUSTO` de
+ * `RECEITA`, a mesma pergunta — "este número é bom ou ruim?" — tinha duas
+ * respostas conforme o módulo, e a tela precisava inverter a cor de um lado
+ * para dizer a mesma coisa que o outro dizia sem inverter. Era daí que saía a
+ * leitura que o cliente recusou: `−R$ 144.874,50/ano` em **verde**, porque
+ * "custo que cai é bom" — um número negativo pintado de positivo.
+ *
+ * Com um idioma só, os cinco somam, e o balde volta a ter um líquido. Ele não
+ * vem sozinho: `ganho` e `perda` são as duas metades do mesmo líquido
+ * (`ganho + perda === liquido`, sob teste), e não um número novo.
+ *
+ * O que **não** mudou é a recusa que importa: periodicidade continua sem se
+ * misturar. R$/mês e R$/ano seguem em baldes diferentes, e não existe escalar
+ * nenhum que os junte.
  *
  * ---------------------------------------------------------------------------
  * Por que o Aluguel está aqui, e a Aquisição não
@@ -75,9 +89,10 @@
  * valoração — ruído, e não monitoramento financeiro.
  *
  * O lugar dele está guardado, e guardado de um jeito que não deixa esquecer:
- * {@link ModuloDoMonitor} é o tipo que se estende, e {@link NATUREZA_DO_MODULO}
- * e {@link ROTA_DO_MODULO} são mapas totais sobre ele. Quem acrescentar um
- * quinto módulo sem dizer de que lado da DRE ele está não compila.
+ * {@link ModuloDoMonitor} é o tipo que se estende, e {@link ROTULO_DO_MODULO},
+ * {@link ROTA_DO_MODULO} e {@link impactoDoModulo} são totais sobre ele. Quem
+ * acrescentar um quinto módulo sem dizer como ele se chama, onde ele se audita
+ * e quem calcula o impacto dele não compila.
  *
  * Sem SQL e sem React, como os quatro recortes que ele compõe: é sobre estas
  * funções que os testes rodam sem um Postgres de pé.
@@ -164,28 +179,6 @@ export const ROTA_DO_MODULO: Record<ModuloDoMonitor, string> = {
   IMPOSTOS: "/custo-fixo-impostos",
 };
 
-/**
- * De que lado da DRE o módulo está.
- *
- * Não é rótulo: é o que impede a soma. Ver o cabeçalho deste arquivo.
- */
-export type NaturezaEconomica = "CUSTO" | "RECEITA";
-
-export const NATUREZA_DO_MODULO: Record<ModuloDoMonitor, NaturezaEconomica> = {
-  FINAME: "CUSTO",
-  /* O aluguel é o que a operação paga pelo implemento que não financiou — custo,
-     e não a remuneração que o lucro fixo é. */
-  ALUGUEL: "CUSTO",
-  IPVA: "CUSTO",
-  IMPOSTOS: "CUSTO",
-  LUCRO_FIXO: "RECEITA",
-};
-
-export const ROTULO_DA_NATUREZA: Record<NaturezaEconomica, string> = {
-  CUSTO: "Custo",
-  RECEITA: "Receita",
-};
-
 // ---------------------------------------------------------------------------
 // A situação de uma alteração diante do dinheiro
 // ---------------------------------------------------------------------------
@@ -234,13 +227,17 @@ export const ROTULO_DA_SITUACAO: Record<SituacaoDoImpacto, string> = {
 };
 
 /**
- * Para que lado a **rubrica** se moveu — nunca para que lado o resultado foi.
+ * Para que lado o dinheiro foi — e é **só** o sinal do valor apurado.
  *
- * Num módulo de receita, `AUMENTO` é mais receita. Quem diz se isso é bom é
- * {@link NATUREZA_DO_MODULO}, ao lado; inverter o sinal aqui para que "aumento"
- * significasse sempre "pior" apagaria o número que a fonte declarou.
+ * `direcaoDe` lê `impactoAmount` e mais nada, de modo que a palavra, o sinal e
+ * a cor saiam sempre da mesma conta. Positivo é `GANHO`, negativo é `PERDA`,
+ * zero é `NEUTRO` — zero não é nem um nem outro, e continua sendo uma medição.
+ *
+ * Chamava-se `AUMENTO`/`REDUCAO` enquanto a tela precisava saber de que lado da
+ * DRE a rubrica estava para decidir se subir era bom. Não precisa mais: as
+ * cinco rubricas falam o idioma de quem recebe, e subir é ganhar.
  */
-export type DirecaoDaRubrica = "AUMENTO" | "REDUCAO" | "NEUTRO";
+export type DirecaoDaRubrica = "GANHO" | "PERDA" | "NEUTRO";
 
 /**
  * O que a linha identifica.
@@ -344,8 +341,6 @@ export interface LinhaDoMonitor {
     valor: number | null;
     /** Só em `VALORADO`. */
     periodicidade: string | null;
-    /** De que lado da DRE este valor está. */
-    natureza: NaturezaEconomica;
     /** Por que não virou número, na frase de quem decidiu. */
     motivo: string | null;
   };
@@ -441,8 +436,8 @@ function situacaoDaLinha(
 }
 
 function direcaoDe(valor: number): DirecaoDaRubrica {
-  if (valor > 0) return "AUMENTO";
-  if (valor < 0) return "REDUCAO";
+  if (valor > 0) return "GANHO";
+  if (valor < 0) return "PERDA";
   return "NEUTRO";
 }
 
@@ -555,7 +550,6 @@ export function normalizarLinhas(
         direcao: valorado ? direcaoDe(l.impactoAmount as number) : null,
         valor: valorado ? l.impactoAmount : null,
         periodicidade: valorado ? (l.impactoPeriodicidade ?? SEM_PERIODICIDADE) : null,
-        natureza: NATUREZA_DO_MODULO[modulo],
         motivo,
       },
       prioridade: prioridadeDaLinha(l, situacao),
@@ -614,22 +608,27 @@ const zeradoPorSituacao = (): Record<SituacaoDoImpacto, number> =>
 
 const centavos = (n: number) => Number(n.toFixed(2));
 
-/** A parte positiva e a negativa de um líquido, dentro de uma periodicidade. */
+/**
+ * As duas metades de um líquido, dentro de uma periodicidade.
+ *
+ * `ganho` é a soma das linhas positivas; `perda`, a das negativas — **com o
+ * sinal delas**, de modo que `ganho + perda` reconstrua o líquido sem nenhuma
+ * inversão pelo caminho.
+ */
 export interface DecomposicaoDoBalde {
-  aumentos: number;
-  reducoes: number;
+  ganho: number;
+  perda: number;
 }
 
 export interface ResumoDoModulo {
   modulo: ModuloDoMonitor;
   rotulo: string;
-  natureza: NaturezaEconomica;
   rota: string;
   alteracoes: number;
   porSituacao: Record<SituacaoDoImpacto, number>;
-  /** Contagens, não dinheiro: quantas alterações subiram e quantas desceram. */
-  aumentos: number;
-  reducoes: number;
+  /** Contagens, não dinheiro: quantas alterações ganharam e quantas perderam. */
+  ganhos: number;
+  perdas: number;
   /** As entidades distintas tocadas. A lista, e não só o tamanho — ver {@link consolidar}. */
   entidades: string[];
   /** O impacto **do módulo**, balde a balde, exatamente como ele o publicou. */
@@ -637,7 +636,7 @@ export interface ResumoDoModulo {
   /**
    * A parte positiva e a negativa de cada balde acima.
    *
-   * `aumentos + reducoes === porPeriodicidade[balde]` é invariante e está sob
+   * `ganho + perda === porPeriodicidade[balde]` é invariante e está sob
    * teste. Não é um número novo: é o mesmo líquido, aberto — e se a identidade
    * deixar de valer, alguma linha está entrando na abertura sem estar no líquido
    * do módulo, que é defeito e não arredondamento.
@@ -672,32 +671,31 @@ export function resumirModulo(
   const porSituacao = zeradoPorSituacao();
   const entidades = new Set<string>();
   const decomposicao: Record<string, DecomposicaoDoBalde> = {};
-  let aumentos = 0;
-  let reducoes = 0;
+  let ganhos = 0;
+  let perdas = 0;
 
   for (const l of linhas) {
     porSituacao[l.impacto.situacao]++;
     entidades.add(`${l.entidade.tipo}${SEP}${l.entidade.rotulo}`);
-    if (l.impacto.direcao === "AUMENTO") aumentos++;
-    if (l.impacto.direcao === "REDUCAO") reducoes++;
+    if (l.impacto.direcao === "GANHO") ganhos++;
+    if (l.impacto.direcao === "PERDA") perdas++;
 
     if (l.impacto.situacao !== "VALORADO" || l.impacto.valor === null) continue;
     const balde = l.impacto.periodicidade ?? SEM_PERIODICIDADE;
-    const atual = decomposicao[balde] ?? { aumentos: 0, reducoes: 0 };
-    if (l.impacto.valor > 0) atual.aumentos = centavos(atual.aumentos + l.impacto.valor);
-    else atual.reducoes = centavos(atual.reducoes + l.impacto.valor);
+    const atual = decomposicao[balde] ?? { ganho: 0, perda: 0 };
+    if (l.impacto.valor > 0) atual.ganho = centavos(atual.ganho + l.impacto.valor);
+    else atual.perda = centavos(atual.perda + l.impacto.valor);
     decomposicao[balde] = atual;
   }
 
   return {
     modulo,
     rotulo: ROTULO_DO_MODULO[modulo],
-    natureza: NATUREZA_DO_MODULO[modulo],
     rota: ROTA_DO_MODULO[modulo],
     alteracoes: linhas.length,
     porSituacao,
-    aumentos,
-    reducoes,
+    ganhos,
+    perdas,
     entidades: [...entidades],
     porPeriodicidade: impacto.porPeriodicidade,
     decomposicao,
@@ -706,41 +704,37 @@ export function resumirModulo(
   };
 }
 
-/** O impacto de uma natureza dentro de uma periodicidade. */
-export interface LadoDoBalde {
-  /** O líquido — **o número dos módulos**, agrupado, nunca recomposto. */
-  liquido: number;
-  /** A parte positiva do líquido. `aumentos + reducoes === liquido`. */
-  aumentos: number;
-  /** A parte negativa do líquido, com o sinal dela. */
-  reducoes: number;
-}
-
 /**
- * Uma periodicidade, com os dois lados da DRE separados.
+ * Uma periodicidade, com o líquido e as duas metades dele.
  *
- * Nunca há um campo que some `custo` com `receita`. `resultado` é
- * `receita.liquido − custo.liquido`, e existe porque é a leitura de quem olha o
- * resultado — com os dois componentes sempre à vista, de modo que ninguém
- * precise acreditar nele sozinho.
+ * `liquido` é a soma dos `porPeriodicidade` dos módulos daquele balde — e ela
+ * só existe porque os cinco falam o mesmo idioma: positivo é dinheiro que
+ * entra. Ver "Ganho e perda" no cabeçalho deste arquivo.
+ *
+ * `ganho` e `perda` não são números novos. São o mesmo líquido aberto pelo
+ * sinal, e `ganho + perda === liquido` está sob teste — se deixar de valer, há
+ * linha entrando na abertura sem estar no líquido do módulo, que é defeito.
+ *
+ * O que continua **não** existindo é um campo que some dois baldes. R$/mês e
+ * R$/ano não se juntam, aqui nem na tela.
  */
 export interface BaldeDoMonitor {
   periodicidade: string;
-  custo: LadoDoBalde;
-  receita: LadoDoBalde;
-  resultado: number;
+  liquido: number;
+  /** A parte positiva do líquido. */
+  ganho: number;
+  /** A parte negativa do líquido, com o sinal dela. */
+  perda: number;
 }
-
-const ladoVazio = (): LadoDoBalde => ({ liquido: 0, aumentos: 0, reducoes: 0 });
 
 export interface ResumoDoMonitor {
   alteracoes: number;
   porSituacao: Record<SituacaoDoImpacto, number>;
   /** Contagens de alterações, não dinheiro. */
-  aumentos: number;
-  reducoes: number;
+  ganhos: number;
+  perdas: number;
   entidadesAfetadas: number;
-  /** Um balde por periodicidade, com custo e receita separados. */
+  /** Um balde por periodicidade, cada um com o líquido aberto em ganho e perda. */
   baldes: BaldeDoMonitor[];
   porModulo: ResumoDoModulo[];
 }
@@ -749,9 +743,9 @@ export interface ResumoDoMonitor {
  * O consolidado — a composição dos resumos de módulo, e nada além disso.
  *
  * O dinheiro de cada balde vem de `ResumoDoModulo.porPeriodicidade`, que veio de
- * `impactoDeX`. A única aritmética aqui é **agrupar por periodicidade e por
- * natureza** números que os módulos já publicaram — o que `deduplicacao.ts`
- * chama de somar resumos já decididos, e que não re-decide nada.
+ * `impactoDeX`. A única aritmética aqui é **agrupar por periodicidade** números
+ * que os módulos já publicaram — o que `deduplicacao.ts` chama de somar resumos
+ * já decididos, e que não re-decide nada.
  *
  * `entidadesAfetadas` sai da **união** dos conjuntos de entidades, e não da soma
  * das contagens: o mesmo cavalo aparece no FINAME e no IPVA, e somar daria mais
@@ -763,48 +757,38 @@ export function consolidar(resumos: readonly ResumoDoModulo[]): ResumoDoMonitor 
   const entidades = new Set<string>();
   const baldes = new Map<string, BaldeDoMonitor>();
   let alteracoes = 0;
-  let aumentos = 0;
-  let reducoes = 0;
+  let ganhos = 0;
+  let perdas = 0;
 
   const baldeDe = (periodicidade: string): BaldeDoMonitor => {
     const existente = baldes.get(periodicidade);
     if (existente) return existente;
-    const novo: BaldeDoMonitor = {
-      periodicidade,
-      custo: ladoVazio(),
-      receita: ladoVazio(),
-      resultado: 0,
-    };
+    const novo: BaldeDoMonitor = { periodicidade, liquido: 0, ganho: 0, perda: 0 };
     baldes.set(periodicidade, novo);
     return novo;
   };
 
   for (const r of resumos) {
     alteracoes += r.alteracoes;
-    aumentos += r.aumentos;
-    reducoes += r.reducoes;
+    ganhos += r.ganhos;
+    perdas += r.perdas;
     for (const s of SITUACOES_DO_IMPACTO) porSituacao[s] += r.porSituacao[s];
     for (const e of r.entidades) entidades.add(e);
 
     for (const [periodicidade, liquido] of Object.entries(r.porPeriodicidade)) {
       const balde = baldeDe(periodicidade);
-      const lado = r.natureza === "RECEITA" ? balde.receita : balde.custo;
-      const aberto = r.decomposicao[periodicidade] ?? { aumentos: 0, reducoes: 0 };
-      lado.liquido = centavos(lado.liquido + liquido);
-      lado.aumentos = centavos(lado.aumentos + aberto.aumentos);
-      lado.reducoes = centavos(lado.reducoes + aberto.reducoes);
+      const aberto = r.decomposicao[periodicidade] ?? { ganho: 0, perda: 0 };
+      balde.liquido = centavos(balde.liquido + liquido);
+      balde.ganho = centavos(balde.ganho + aberto.ganho);
+      balde.perda = centavos(balde.perda + aberto.perda);
     }
-  }
-
-  for (const balde of baldes.values()) {
-    balde.resultado = centavos(balde.receita.liquido - balde.custo.liquido);
   }
 
   return {
     alteracoes,
     porSituacao,
-    aumentos,
-    reducoes,
+    ganhos,
+    perdas,
     entidadesAfetadas: entidades.size,
     /* Ordem estável, para que a tela não reordene os blocos a cada resposta. */
     baldes: [...baldes.values()].sort((a, b) =>

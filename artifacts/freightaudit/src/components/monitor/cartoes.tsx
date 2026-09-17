@@ -1,11 +1,11 @@
 import { ArrowDownRight, ArrowUpRight, CircleSlash, Layers, ListChecks, Users } from "lucide-react";
-import type { ResumoDoMonitor } from "@workspace/comparison/monitor-custo-fixo";
-import { ROTULO_DA_NATUREZA } from "@workspace/comparison/monitor-custo-fixo";
+import type { BaldeDoMonitor, ResumoDoMonitor } from "@workspace/comparison/monitor-custo-fixo";
 import { CartaoDeIndicador } from "@/components/ui/cartao-de-indicador";
 import { Superficie } from "@/components/ui/superficie";
 import { formatBrl, formatNumber } from "@/lib/format";
 import {
   baldesVisiveis,
+  corDoValor,
   rotuloDaPeriodicidade,
   SUFIXO_DA_PERIODICIDADE,
 } from "@/lib/monitor-custo-fixo";
@@ -17,8 +17,7 @@ import { cn } from "@/lib/utils";
  * Não há cartão de "Impacto líquido". Ele seria um escalar, e um escalar aqui
  * teria de escolher entre somar R$/mês com R$/ano — que é mentira — ou escolher
  * uma periodicidade e chamá-la de total — que é mentira mais silenciosa. O
- * impacto mora no bloco abaixo dos cartões, um quadro por periodicidade, e cada
- * quadro separa custo de receita.
+ * impacto mora no bloco abaixo dos cartões, um quadro por periodicidade.
  *
  * Os cartões de contagem ficam: eles contam alterações, e alteração soma com
  * alteração em qualquer periodicidade.
@@ -36,18 +35,18 @@ export function CartoesDoMonitor({ resumo }: { resumo: ResumoDoMonitor }) {
           destaque
         />
         <CartaoDeIndicador
-          rotulo="Aumentos"
-          valor={formatNumber(resumo.aumentos, 0)}
-          nota="Alterações em que a rubrica subiu"
+          rotulo="Ganhos"
+          valor={formatNumber(resumo.ganhos, 0)}
+          nota="Alterações com valor positivo"
           icone={ArrowUpRight}
-          corDoIcone="bg-destructive/10 text-destructive"
+          corDoIcone="bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
         />
         <CartaoDeIndicador
-          rotulo="Reduções"
-          valor={formatNumber(resumo.reducoes, 0)}
-          nota="Alterações em que a rubrica caiu"
+          rotulo="Perdas"
+          valor={formatNumber(resumo.perdas, 0)}
+          nota="Alterações com valor negativo"
           icone={ArrowDownRight}
-          corDoIcone="bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+          corDoIcone="bg-destructive/10 text-destructive"
         />
         <CartaoDeIndicador
           rotulo="Sem valoração"
@@ -72,15 +71,27 @@ export function CartoesDoMonitor({ resumo }: { resumo: ResumoDoMonitor }) {
 }
 
 /**
- * O impacto, um quadro por periodicidade, com custo e receita separados.
+ * O impacto, um quadro por periodicidade — o líquido, aberto em ganho e perda.
  *
  * **É aqui que a tela recusa o número único.** Cada quadro diz a sua
- * periodicidade no título e repete o sufixo em cada valor, de modo que nem a
- * leitura rápida nem a cópia para uma planilha consigam juntar dois quadros
- * sem perceber.
+ * periodicidade no título e repete o sufixo no valor, de modo que nem a leitura
+ * rápida nem a cópia para uma planilha consigam juntar dois quadros sem
+ * perceber.
  *
- * Dentro do quadro, custo e receita são duas linhas, e `resultado` é a terceira
- * — com a conta escrita ao lado, em vez de pedir confiança.
+ * Dentro do quadro há **um** número em corpo grande: o líquido daquela
+ * periodicidade. Ele lê-se pelo sinal e pela cor, pela mesma régua do resto do
+ * produto — positivo é ganho e sai em verde, negativo é perda e sai em
+ * vermelho, zero não é nem um nem outro e sai sem cor de direção.
+ *
+ * Houve aqui duas linhas, "Custo" e "Receita", e uma terceira somando as duas.
+ * A linha do custo invertia a cor — custo que cai é bom —, e o que aparecia na
+ * tela era `−R$ 144.874,50/ano` em verde: um número negativo pintado de
+ * positivo, exatamente a leitura que o produto removeu do FINAME em
+ * `docs/PROVA-DA-EVOLUCAO-DE-FINAME.md`. Com um idioma só, a inversão não tem
+ * mais o que fazer e o quadro volta a ter um número.
+ *
+ * A abertura em ganho e perda fica logo abaixo, em corpo pequeno, e ela não é
+ * um número novo: `ganho + perda` é o próprio líquido acima.
  */
 function BlocosDePeriodicidade({
   resumo,
@@ -101,103 +112,40 @@ function BlocosDePeriodicidade({
 
   return (
     <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3">
-      {baldes.map((balde) => {
-        const sufixo = SUFIXO_DA_PERIODICIDADE[balde.periodicidade] ?? "";
-        const temReceita = balde.receita.liquido !== 0;
-        return (
-          <Superficie key={balde.periodicidade} className="flex flex-col gap-2 px-4 py-3">
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-              Impacto {rotuloDaPeriodicidade(balde.periodicidade).toLowerCase()}
-            </h3>
-
-            <LinhaDoQuadro
-              rotulo={ROTULO_DA_NATUREZA.CUSTO}
-              valor={balde.custo.liquido}
-              sufixo={sufixo}
-              aumentos={balde.custo.aumentos}
-              reducoes={balde.custo.reducoes}
-              /* Mais custo é pior: o vermelho é legítimo aqui. */
-              inverso={false}
-            />
-
-            {temReceita && (
-              <LinhaDoQuadro
-                rotulo={ROTULO_DA_NATUREZA.RECEITA}
-                valor={balde.receita.liquido}
-                sufixo={sufixo}
-                aumentos={balde.receita.aumentos}
-                reducoes={balde.receita.reducoes}
-                /* Mais receita é melhor: o mesmo sinal, o outro sentido. */
-                inverso
-              />
-            )}
-
-            {temReceita && (
-              <div className="mt-1 border-t pt-2">
-                <div className="flex items-baseline justify-between gap-2">
-                  <span className="text-xs font-medium">Efeito no resultado</span>
-                  <span className="font-mono text-sm font-semibold tabular-nums">
-                    {formatBrl(balde.resultado)}
-                    {sufixo}
-                  </span>
-                </div>
-                <p className="mt-0.5 text-[0.7rem] leading-snug text-muted-foreground">
-                  Receita − custo, nesta periodicidade. Os dois componentes estão
-                  acima; esta linha não substitui nenhum deles.
-                </p>
-              </div>
-            )}
-          </Superficie>
-        );
-      })}
+      {baldes.map((balde) => (
+        <QuadroDaPeriodicidade key={balde.periodicidade} balde={balde} />
+      ))}
     </div>
   );
 }
 
-function LinhaDoQuadro({
-  rotulo,
-  valor,
-  sufixo,
-  aumentos,
-  reducoes,
-  inverso,
-}: {
-  rotulo: string;
-  valor: number;
-  sufixo: string;
-  aumentos: number;
-  reducoes: number;
-  inverso: boolean;
-}) {
-  /*
-    A cor diz se o movimento é bom ou ruim, e o sentido depende do lado da DRE:
-    custo que sobe é vermelho, receita que sobe é verde. O sinal do número não
-    é tocado — o que muda é só a cor, e nunca sozinha: o rótulo "Custo" ou
-    "Receita" está ao lado, e a decomposição abaixo diz para que lado foi.
-  */
-  const ruim = inverso ? valor < 0 : valor > 0;
-  const bom = inverso ? valor > 0 : valor < 0;
+function QuadroDaPeriodicidade({ balde }: { balde: BaldeDoMonitor }) {
+  const sufixo = SUFIXO_DA_PERIODICIDADE[balde.periodicidade] ?? "";
   return (
-    <div>
+    <Superficie className="flex flex-col gap-2 px-4 py-3">
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        Impacto {rotuloDaPeriodicidade(balde.periodicidade).toLowerCase()}
+      </h3>
+
       <div className="flex items-baseline justify-between gap-2">
-        <span className="text-xs font-medium text-muted-foreground">{rotulo}</span>
+        <span className="text-xs font-medium text-muted-foreground">Impacto líquido</span>
         <span
           className={cn(
             "font-mono text-base font-semibold tabular-nums",
-            ruim && "text-destructive",
-            bom && "text-emerald-700 dark:text-emerald-400",
+            corDoValor(balde.liquido),
           )}
         >
-          {formatBrl(valor)}
+          {formatBrl(balde.liquido)}
           {sufixo}
         </span>
       </div>
+
       <p className="mt-0.5 flex items-center gap-2 text-[0.7rem] text-muted-foreground">
         <Layers className="h-3 w-3" aria-hidden="true" />
         <span>
-          {formatBrl(aumentos)} de aumentos e {formatBrl(reducoes)} de reduções
+          {formatBrl(balde.ganho)} de ganhos e {formatBrl(balde.perda)} de perdas
         </span>
       </p>
-    </div>
+    </Superficie>
   );
 }

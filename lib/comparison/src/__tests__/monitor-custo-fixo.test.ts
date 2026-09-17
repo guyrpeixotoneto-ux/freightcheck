@@ -6,7 +6,6 @@ import { impactoDeImpostos, linhasDeImpostos } from "../impostos";
 import { impactoDeLucroFixo, linhasDeLucroFixo } from "../lucro-fixo";
 import {
   MODULOS_DO_MONITOR,
-  NATUREZA_DO_MODULO,
   ROTA_DO_MODULO,
   SITUACOES_DO_IMPACTO,
   consolidar,
@@ -307,12 +306,10 @@ describe("a identidade dos baldes", () => {
     }
   });
 
-  it("abre cada líquido em aumentos e reduções sem inventar dinheiro", () => {
+  it("abre cada líquido em ganho e perda sem inventar dinheiro", () => {
     const consolidado = consolidadoDoAcervo();
     for (const balde of consolidado.baldes) {
-      for (const lado of [balde.custo, balde.receita]) {
-        expect(lado.aumentos + lado.reducoes).toBeCloseTo(lado.liquido, 2);
-      }
+      expect(balde.ganho + balde.perda).toBeCloseTo(balde.liquido, 2);
     }
   });
 });
@@ -327,7 +324,7 @@ describe("o que nunca pode acontecer", () => {
     expect(consolidado).not.toHaveProperty("impactoTotal");
   });
 
-  it("nunca soma custo com receita", () => {
+  it("soma os cinco módulos no líquido da periodicidade, e abre as metades", () => {
     const consolidado = consolidadoDoAcervo();
     const mensal = consolidado.baldes.find((b) => b.periodicidade === "MENSAL")!;
     /*
@@ -336,21 +333,20 @@ describe("o que nunca pode acontecer", () => {
       parcelas. Se ela tivesse entrado, este número seria 790, e o Monitor
       estaria publicando o dobro do aumento de um contrato de locação.
 
-      Lucro Fixo: +600, e ele é receita — por isso não entra no custo.
+      Lucro Fixo: +600. Ele soma com os outros porque todos falam o mesmo
+      idioma — o de quem recebe —, e não porque alguém inverteu um sinal.
     */
-    expect(mensal.custo.liquido).toBe(490);
-    expect(mensal.receita.liquido).toBe(600);
-    // O resultado é derivado à vista, com os dois componentes ao lado.
-    expect(mensal.resultado).toBe(110);
+    expect(mensal.ganho).toBe(1210);
+    expect(mensal.perda).toBe(-120);
+    expect(mensal.liquido).toBe(1090);
   });
 
-  it("preserva o sinal do módulo de receita, sem invertê-lo", () => {
+  it("não inverte o sinal de nenhum módulo — o valor é o que a fonte declarou", () => {
     const { normalizadas } = resumoDe("LUCRO_FIXO", ACERVO.LUCRO_FIXO);
     const linha = normalizadas.find((l) => l.impacto.situacao === "VALORADO")!;
-    // Mais receita é `AUMENTO` da rubrica. Quem diz que isso é bom é a natureza.
+    // Positivo é ganho, e a direção é o sinal do valor — e nada além dele.
     expect(linha.impacto.valor).toBe(600);
-    expect(linha.impacto.direcao).toBe("AUMENTO");
-    expect(linha.impacto.natureza).toBe("RECEITA");
+    expect(linha.impacto.direcao).toBe("GANHO");
   });
 
   it("nunca transforma ausência de valor em R$ 0,00", () => {
@@ -394,7 +390,6 @@ describe("a rastreabilidade até a origem", () => {
       expect(l.origem.rota).toBe(ROTA_DO_MODULO[l.modulo]);
       expect(l.origem.changeSetId).toBe("cs-1");
       expect(l.changeId).not.toBeNull();
-      expect(l.impacto.natureza).toBe(NATUREZA_DO_MODULO[l.modulo]);
     }
   });
 

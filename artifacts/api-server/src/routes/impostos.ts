@@ -27,7 +27,7 @@ import {
 } from "@workspace/comparison";
 import { classificarFalha } from "../lib/classificar-falha";
 import {
-  baldesDeUmaNatureza,
+  baldesDoImpacto,
   candidatasDoPar,
   TETO_DE_CANDIDATAS_MS,
 } from "../lib/candidatas-do-par";
@@ -428,11 +428,9 @@ router.get("/impostos/candidatos", async (req, res, next): Promise<void> => {
               novos: 0,
               ausentes: 0,
             });
-            /* Uma natureza só — a linha do menu sai sem prefixo, como as das
-               outras três. Ver `BaldeDoImpacto`. */
             return {
               alteracoes: variaveisAlteradas,
-              impacto: { baldes: baldesDeUmaNatureza(impacto.porPeriodicidade) },
+              impacto: { baldes: baldesDoImpacto(impacto.porPeriodicidade) },
             };
           },
         },

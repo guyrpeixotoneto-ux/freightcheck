@@ -1,5 +1,4 @@
 import { periodicitySuffix } from "@workspace/comparison/labels";
-import type { NaturezaEconomica } from "@workspace/comparison/monitor-custo-fixo";
 import { formatBrl, formatNumber } from "@/lib/format";
 
 /**
@@ -20,21 +19,17 @@ import { formatBrl, formatNumber } from "@/lib/format";
  */
 
 /**
- * Um balde de dinheiro de um par — a periodicidade, a natureza e o líquido.
+ * Um balde de dinheiro de um par — a periodicidade e o líquido dela.
  *
- * `natureza` é `null` no recorte de uma rubrica só, e a linha sai como sempre
- * saiu: `+R$ 7.238,85/mês`, sem prefixo. Numa tela cujo nome já é o da rubrica,
- * dizer "Custo" ao lado do número é repetir o que a tela inteira diz.
- *
- * Ela vem preenchida do único recorte que mistura as duas naturezas — o Monitor
- * Custo Fixo —, e ali o prefixo é obrigatório: um número só, com o custo que
- * subiu somado à receita que subiu, é o "impacto líquido" que os cartões
- * daquela tela recusam publicar em letra grande. O espelho do tipo que a rota
- * publica (`api-server/src/lib/candidatas-do-par.ts`).
+ * Teve um terceiro campo, `natureza`, enquanto o Monitor Custo Fixo separava
+ * custo de receita e uma periodicidade chegava aqui em duas linhas. Não chega
+ * mais: as rubricas falam o idioma de quem recebe, positivo é ganho e negativo
+ * é perda, e a linha do menu volta a ser uma por periodicidade — `+R$
+ * 7.238,85/mês`, o sinal e a cor dizendo a direção. O espelho do tipo que a
+ * rota publica (`api-server/src/lib/candidatas-do-par.ts`).
  */
 export interface BaldeDoImpacto {
   periodicidade: string;
-  natureza: NaturezaEconomica | null;
   valor: number;
 }
 
@@ -166,12 +161,7 @@ export function numerosDaLinha(
 
   const valores = numeros.impacto.baldes
     .filter((b) => b.valor !== 0)
-    .sort(
-      (a, b) =>
-        a.periodicidade.localeCompare(b.periodicidade) ||
-        /* Custo antes de receita, a ordem dos quadros do Monitor. */
-        (a.natureza ?? "").localeCompare(b.natureza ?? ""),
-    )
+    .sort((a, b) => a.periodicidade.localeCompare(b.periodicidade))
     .map((b) => ({
       /*
         O sinal no lugar da palavra — `+` e `−`, e não "Ganho" e "Perda".
@@ -185,9 +175,9 @@ export function numerosDaLinha(
         O valor sai com o sinal e em módulo: o prefixo é quem carrega a direção,
         de modo que nenhuma linha escreva `−` duas vezes.
 
-        A régua é o sinal do líquido, e ela é a mesma em todas as linhas — no
-        Monitor, onde uma periodicidade traz dois baldes, os dois se leem pelo
-        mesmo sinal.
+        A régua é o sinal do líquido, e ela é a mesma em todas as linhas e em
+        todas as telas: positivo é ganho e sai em verde, negativo é perda e sai
+        em vermelho.
       */
       texto: `${SINAL_DA_LEITURA[leituraDoValor(b.valor)]}${formatBrl(
         Math.abs(b.valor),

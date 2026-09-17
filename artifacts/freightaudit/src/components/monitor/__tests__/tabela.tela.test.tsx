@@ -44,11 +44,10 @@ function linha(over: Partial<LinhaDoMonitor> = {}): LinhaDoMonitor {
     variacao: 3.67,
     impacto: {
       situacao: "VALORADO",
-      direcao: "AUMENTO",
+      direcao: "GANHO",
       valor: 310,
       periodicidade: "MENSAL",
-      natureza: "CUSTO",
-      motivo: null,
+        motivo: null,
     },
     prioridade: { nivel: "MEDIO", score: 35, motivos: [] },
     origem: {
@@ -76,7 +75,6 @@ const semValoracao = linha({
     direcao: null,
     valor: null,
     periodicidade: null,
-    natureza: "CUSTO",
     motivo: "Um dos lados não é numérico.",
   },
   origem: { modulo: "IMPOSTOS", rotulo: "Impostos", rota: "/custo-fixo-impostos", changeSetId: "cs-1" },
@@ -89,7 +87,6 @@ const foraDoTotal = linha({
     direcao: null,
     valor: null,
     periodicidade: null,
-    natureza: "CUSTO",
     motivo: "Rubrica do módulo Impostos.",
   },
 });
@@ -124,7 +121,7 @@ describe("a célula de impacto", () => {
   it("diz a direção em palavras, e não só pela cor", () => {
     montar([linha()]);
     // O texto existe para leitor de tela e sobrevive à impressão em cinza.
-    expect(screen.getByText("Aumento de")).toBeTruthy();
+    expect(screen.getByText("Ganho de")).toBeTruthy();
   });
 });
 
