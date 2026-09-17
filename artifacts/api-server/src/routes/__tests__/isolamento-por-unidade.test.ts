@@ -354,6 +354,72 @@ describe("quando o enforcement for ligado", () => {
   });
 });
 
+// ── Quem pode ler o mapa ────────────────────────────────────────────────────
+
+describe("o relatório de observação é material de administração", () => {
+  /*
+    Ele devolve o mapa de autorização da casa: que contas existem, quantas
+    unidades cada uma alcança, quem está sem concessão e por quais rotas. Dar
+    isso a qualquer sessão seria entregar a quem quer atravessar a fronteira
+    exatamente o mapa dela — onde o acesso é pouco, quais rotas ainda não
+    recusam, e onde a curadoria está frouxa.
+
+    O portão não cobre: ele recusa escrita, e leitura passa de propósito porque
+    as telas compartilham endpoints. Uma rota GET que precisa de administrador
+    diz isso no próprio handler.
+  */
+  let app2: express.Express;
+  let base2 = "";
+  let servidor2: Server;
+
+  beforeAll(async () => {
+    const { default: escopoRouter } = await import("../escopo");
+    app2 = express();
+    app2.use(express.json());
+    app2.use((req, _res, next) => {
+      (req as unknown as { log: unknown }).log = { error: () => {}, warn: () => {}, info: () => {} };
+      const quem = req.header("x-teste-como");
+      const papel = req.header("x-teste-papel") ?? "OPERADOR";
+      if (quem && CONTAS[quem]) req.user = { ...CONTAS[quem]!, role: papel };
+      next();
+    });
+    app2.use(escopoRouter);
+    servidor2 = await new Promise<Server>((resolve) => {
+      const s = app2.listen(0, "127.0.0.1", () => resolve(s));
+    });
+    const e = servidor2.address();
+    if (e === null || typeof e === "string") throw new Error("sem porta");
+    base2 = `http://127.0.0.1:${e.port}`;
+  }, 60_000);
+
+  afterAll(async () => {
+    await new Promise((r) => servidor2?.close(r));
+  }, 30_000);
+
+  it("um operador não lê o relatório", async () => {
+    const res = await fetch(`${base2}/escopo/observacao`, {
+      headers: { "x-teste-como": "ana@a.com", "x-teste-papel": "OPERADOR" },
+    });
+    expect(res.status).toBe(403);
+  });
+
+  it("um administrador lê", async () => {
+    const res = await fetch(`${base2}/escopo/observacao`, {
+      headers: { "x-teste-como": "ana@a.com", "x-teste-papel": "ADMIN" },
+    });
+    expect(res.status).toBe(200);
+  });
+
+  it("mas o próprio escopo qualquer conta consulta — é sobre ela mesma", async () => {
+    const res = await fetch(`${base2}/escopo/meu`, {
+      headers: { "x-teste-como": "ana@a.com", "x-teste-papel": "OPERADOR" },
+    });
+    expect(res.status).toBe(200);
+    const corpo = (await res.json()) as { unidadesPermitidas: string[] };
+    expect(corpo.unidadesPermitidas).toEqual([unidadeA]);
+  });
+});
+
 // ── A fronteira desta fase, dita em voz alta ────────────────────────────────
 
 describe("o que ainda NÃO está ligado — e este caso é o marcador", () => {
