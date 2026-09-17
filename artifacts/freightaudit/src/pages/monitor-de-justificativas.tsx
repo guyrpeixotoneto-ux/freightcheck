@@ -1,8 +1,11 @@
-import { Fragment, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useLocation, useSearch } from "wouter";
 import {
   CalendarRange,
   Check,
+  ChevronDown,
+  ChevronUp,
+  ChevronsUpDown,
   CheckCircle2,
   ClipboardCopy,
   CircleHelp,
@@ -10,6 +13,7 @@ import {
   Download,
   FileCheck2,
   Fuel,
+  Info,
   Landmark,
   Lightbulb,
   ListChecks,
@@ -61,6 +65,7 @@ import {
   usePainelDeJustificativas,
   vigenciasDoPainel,
   type LinhaDoPainel,
+  type RubricaDoPainel,
   type VigenciaDoPainel,
 } from "@/lib/painel-de-justificativas";
 import {
@@ -176,10 +181,11 @@ const ABAS = [
 type Aba = (typeof ABAS)[number]["chave"];
 
 /**
- * O selo e o ícone de cada módulo.
+ * O ícone e a cor de cada seção.
  *
- * A cor é a mesma nas duas leituras — a barra de "Cobertura por seção" e o selo
- * da tabela —, e é ela que permite descer de uma para a outra sem reler o nome.
+ * A mesma cor no cabeçalho do painel da seção, na barra dele e no ícone: é ela
+ * que diz, de relance, de que seção é o bloco de linhas que está na tela — o
+ * selo repetido linha a linha, que fazia esse papel, saiu com o agrupamento.
  */
 const DESENHO_DO_MODULO: Record<
   ChaveDeModulo,
@@ -274,6 +280,83 @@ function BarraDaCobertura({ cobertura }: { cobertura: number }) {
       />
     </span>
   );
+}
+
+/**
+ * As colunas da tabela por rubrica, e por que valor cada uma ordena.
+ *
+ * A tabela abre pela pendência — é a leitura de por onde começar — e o
+ * cabeçalho existe para as outras perguntas que a mesma lista responde: *quem
+ * está escrevendo*, ordenando por autor; *o que está parado há mais tempo*,
+ * ordenando pela última justificativa. Sem elas, cada pergunta dessas pedia um
+ * CSV e uma planilha.
+ *
+ * `null` no valor é ausência, e ausência **nunca** sobe: quem ordena por "quem
+ * escreveu" procura um nome, e uma coluna de traços no topo é a resposta que
+ * ele já tinha antes de clicar.
+ */
+type ChaveDeColuna =
+  | "rubrica"
+  | "alteracoes"
+  | "justificadas"
+  | "cobertura"
+  | "autor"
+  | "ultima";
+
+const COLUNAS_DA_TABELA: readonly {
+  chave: ChaveDeColuna;
+  rotulo: string;
+  classe: string;
+  valor: (linha: RubricaDoPainel) => string | number | null;
+}[] = [
+  { chave: "rubrica", rotulo: "Rubrica", classe: "text-left", valor: (l) => l.rotulo },
+  {
+    chave: "alteracoes",
+    rotulo: "Alterações",
+    classe: "text-right",
+    valor: (l) => l.alteracoes,
+  },
+  {
+    chave: "justificadas",
+    rotulo: "Justificadas",
+    classe: "text-right",
+    valor: (l) => l.justificadas,
+  },
+  { chave: "cobertura", rotulo: "Cobertura", classe: "text-left", valor: (l) => l.cobertura },
+  { chave: "autor", rotulo: "Quem escreveu", classe: "text-left", valor: (l) => l.ultimoAutor },
+  {
+    chave: "ultima",
+    rotulo: "Última justificativa",
+    classe: "text-left",
+    valor: (l) => l.ultimaEm,
+  },
+];
+
+/**
+ * A lista na ordem que o cabeçalho pede — e, sem pedido, na que ela já vinha.
+ *
+ * Ordenar aqui e agrupar depois é o que permite as duas coisas conviverem: o
+ * agrupamento por seção é estável, então a régua escolhida vale **dentro** de
+ * cada painel, e nenhuma linha troca de seção por causa de um clique.
+ */
+function ordenarRubricas(
+  linhas: readonly RubricaDoPainel[],
+  ordem: { coluna: ChaveDeColuna; desc: boolean } | null,
+): RubricaDoPainel[] {
+  if (!ordem) return [...linhas];
+  const coluna = COLUNAS_DA_TABELA.find((c) => c.chave === ordem.coluna);
+  if (!coluna) return [...linhas];
+  return [...linhas].sort((a, b) => {
+    const x = coluna.valor(a);
+    const y = coluna.valor(b);
+    if (x === null) return 1;
+    if (y === null) return -1;
+    const comparacao =
+      typeof x === "number" && typeof y === "number"
+        ? x - y
+        : String(x).localeCompare(String(y), "pt-BR", { numeric: true });
+    return ordem.desc ? -comparacao : comparacao;
+  });
 }
 
 /** A rubrica de uma alteração do CSV — o mesmo mapa que a tabela usa. */
@@ -371,6 +454,11 @@ export default function MonitorDeJustificativas() {
   */
   const [vigenciaEscolhida, setVigenciaEscolhida] = useState<string | null>(null);
   const [moduloFiltrado, setModuloFiltrado] = useState<ChaveDeModulo | null>(null);
+  /* `null` é a ordem natural da tabela: da rubrica mais pendente para a menos,
+     dentro de cada seção. Clicar num cabeçalho troca a régua para todas as
+     seções de uma vez — são painéis da mesma tabela, e duas réguas diferentes
+     na mesma tela fariam "a maior" querer dizer duas coisas. */
+  const [ordem, setOrdem] = useState<{ coluna: ChaveDeColuna; desc: boolean } | null>(null);
   const [pagina, setPagina] = useState(1);
   const [porPagina, setPorPagina] = useState(10);
   const [exportando, setExportando] = useState(false);
@@ -447,8 +535,8 @@ export default function MonitorDeJustificativas() {
      lendo a outra — quem cola num chat quer a rubrica mais atrasada na primeira
      linha, e não um cabeçalho de seção. */
   const linhasAgrupadas = useMemo(
-    () => rubricasAgrupadasPorSecao(linhasDeRubrica),
-    [linhasDeRubrica],
+    () => rubricasAgrupadasPorSecao(ordenarRubricas(linhasDeRubrica, ordem)),
+    [linhasDeRubrica, ordem],
   );
   /* A tabela é paginada em tela, e não no servidor: a cobertura por rubrica já
      está inteira em mãos — são dezenas de linhas, não milhares —, e uma ida ao
@@ -457,6 +545,32 @@ export default function MonitorDeJustificativas() {
     () => linhasAgrupadas.slice((pagina - 1) * porPagina, pagina * porPagina),
     [linhasAgrupadas, pagina, porPagina],
   );
+  /* Um painel por seção presente **nesta página**. A paginação é de linhas, e
+     não de seções: uma seção que se parte em duas páginas vira um painel em
+     cada, cada um dizendo quantas das suas linhas estão ali. */
+  const gruposDaPagina = useMemo(() => {
+    const grupos: { modulo: ChaveDeModulo; linhas: typeof paginaDeRubricas }[] = [];
+    for (const linha of paginaDeRubricas) {
+      const ultimo = grupos[grupos.length - 1];
+      if (ultimo && ultimo.modulo === linha.modulo) ultimo.linhas.push(linha);
+      else grupos.push({ modulo: linha.modulo, linhas: [linha] });
+    }
+    return grupos;
+  }, [paginaDeRubricas]);
+  /* Os números dos cartões da tabela. São os **da tabela**, e por isso obedecem
+     ao filtro de seção — os quatro cartões do topo é que são do recorte inteiro,
+     e é contra eles que esta soma se confere quando não há filtro. */
+  const somaDaTabela = useMemo(() => {
+    const alteracoes = linhasDeRubrica.reduce((s, l) => s + l.alteracoes, 0);
+    const justificadas = linhasDeRubrica.reduce((s, l) => s + l.justificadas, 0);
+    return {
+      rubricas: linhasDeRubrica.length,
+      alteracoes,
+      justificadas,
+      pendentes: alteracoes - justificadas,
+      cobertura: alteracoes === 0 ? 0 : (justificadas / alteracoes) * 100,
+    };
+  }, [linhasDeRubrica]);
   /* O subtotal que cada cabeçalho de grupo escreve. É o da seção **no recorte
      inteiro**, e não o das linhas desta página: um grupo que se parte entre
      duas páginas diria dois números, e nenhum dos dois seria o da barra logo
@@ -715,176 +829,290 @@ export default function MonitorDeJustificativas() {
 
   const carregando = consulta.carregando && !cobertura;
 
+  /** O cabeçalho ordenável de uma coluna — o mesmo nos painéis de toda seção. */
+  const cabecalhoDaColuna = (coluna: (typeof COLUNAS_DA_TABELA)[number]) => {
+    const ativa = ordem?.coluna === coluna.chave;
+    const Seta = !ativa ? ChevronsUpDown : ordem.desc ? ChevronDown : ChevronUp;
+    return (
+      <th key={coluna.chave} className={cn("px-3 py-2.5 font-semibold", coluna.classe)}>
+        <button
+          type="button"
+          onClick={() =>
+            setOrdem((atual) =>
+              atual?.coluna === coluna.chave
+                ? /* Terceiro clique devolve a ordem natural: sem isso, quem
+                     ordenou por nome não tinha como voltar à leitura de por
+                     onde começar sem recarregar a tela. */
+                  atual.desc
+                  ? null
+                  : { coluna: coluna.chave, desc: true }
+                : { coluna: coluna.chave, desc: false },
+            )
+          }
+          title={`Ordenar por ${coluna.rotulo}`}
+          className={cn(
+            "inline-flex items-center gap-1.5 uppercase tracking-wide",
+            ativa ? "text-foreground" : "hover:text-foreground",
+          )}
+        >
+          {coluna.rotulo}
+          <Seta className={cn("h-3.5 w-3.5 shrink-0", !ativa && "opacity-40")} />
+        </button>
+      </th>
+    );
+  };
+
   /** A tabela por rubrica — a mesma nas abas que a mostram. */
   const tabelaDeRubricas = (
-    <section className="superficie min-w-0 overflow-hidden">
-      <div className="px-6 py-4 flex flex-wrap items-baseline justify-between gap-2">
-        <h2 className="text-lg font-bold">Onde está a pendência</h2>
-        <p className="text-sm text-muted-foreground">
-          Uma linha por rubrica, agrupada por seção. Nenhuma se justifica aqui — o botão leva
-          à tela que grava.
-        </p>
-      </div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead className="border-y bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
-            <tr>
-              <th className="px-4 py-2.5 text-left font-semibold">Rubrica</th>
-              <th className="px-3 py-2.5 text-right font-semibold">Alterações</th>
-              <th className="px-3 py-2.5 text-right font-semibold">Justificadas</th>
-              <th className="px-3 py-2.5 text-left font-semibold w-64">Cobertura</th>
-              <th className="px-3 py-2.5 text-left font-semibold">Quem escreveu</th>
-              <th className="px-3 py-2.5 text-left font-semibold">Última justificativa</th>
-              <th className="px-3 py-2.5 text-right font-semibold">Ações</th>
-            </tr>
-          </thead>
-          <tbody>
-            {linhasDeRubrica.length === 0 && (
-              <tr>
-                <td colSpan={7} className="px-4 py-10 text-center text-muted-foreground">
-                  Nenhuma rubrica neste recorte.
-                </td>
-              </tr>
-            )}
-            {paginaDeRubricas.map((linha, i) => {
-              const desenho = DESENHO_DO_MODULO[linha.modulo];
-              const Icone = desenho.icone;
-              /* O selo era uma coluna, e virou este cabeçalho. Repetido em doze
-                 linhas seguidas ele escrevia "Custo Variável" doze vezes para
-                 dizer o que o agrupamento já diz — e gastava, no celular, a
-                 largura que a rubrica precisa. A cor é a mesma da barra de
-                 "Cobertura por seção": é ela que liga as duas leituras. */
-              const abreSecao = i === 0 || paginaDeRubricas[i - 1].modulo !== linha.modulo;
-              const secao = totalDaSecao.get(linha.modulo);
-              return (
-                <Fragment key={linha.chave}>
-                  {abreSecao && (
-                    <tr className={cn("border-b", desenho.fundo)}>
-                      <th scope="colgroup" colSpan={7} className="px-4 py-2.5 text-left">
-                        {/* Grudado à esquerda, e da largura da **tela** e não
-                            da tabela: ela rola de lado no celular, e um
-                            cabeçalho que acompanha a rolagem some junto com a
-                            primeira coluna — ou, largo como a tabela, não
-                            quebra linha e some pela direita. No desktop o
-                            `max-w-full` devolve a largura da tabela, que aí é
-                            a menor das duas. */}
-                        <span className="sticky left-4 flex w-[calc(100vw-6rem)] max-w-full flex-wrap items-baseline gap-x-3 gap-y-1">
-                          <span
-                            className={cn(
-                              "flex items-center gap-2 text-sm font-bold",
-                              desenho.tinta,
-                            )}
-                          >
-                            <Icone className="h-4 w-4 shrink-0" />
-                            {linha.moduloRotulo}
-                          </span>
-                          {/* "No recorte" vem **primeiro**, e não no fim: é o
-                              que impede ler o subtotal como o das linhas desta
-                              página, e é a parte que a tela estreita corta se
-                              estiver no fim da frase. */}
-                          {secao && (
-                            <span className="flex flex-wrap items-baseline gap-x-2 text-xs font-medium text-muted-foreground tabular-nums">
-                              {/* Cada número é um item do flex, e não um trecho
-                                  de uma frase só: assim a linha quebra entre
-                                  eles na tela estreita, em vez de sumir pela
-                                  direita com o último deles. */}
-                              <span>No recorte:</span>
-                              <span>
-                                {secao.rubricas.length.toLocaleString("pt-BR")}{" "}
-                                {secao.rubricas.length === 1 ? "rubrica" : "rubricas"} ·
-                              </span>
-                              <span>
-                                {secao.alteracoes.toLocaleString("pt-BR")} alterações ·
-                              </span>
-                              <span className="text-amber-700">
-                                {secao.pendentes.toLocaleString("pt-BR")} pendentes ·
-                              </span>
-                              <span>{pct(secao.cobertura)} explicado</span>
-                            </span>
-                          )}
-                        </span>
-                      </th>
-                    </tr>
-                  )}
-                  <tr className="border-b last:border-0 hover:bg-muted/30">
-                    <td className="px-4 py-3 font-medium">{linha.rotulo}</td>
-                    <td className="px-3 py-3 text-right tabular-nums">
-                      {linha.alteracoes.toLocaleString("pt-BR")}
-                    </td>
-                    <td className="px-3 py-3 text-right tabular-nums text-emerald-700">
-                      {linha.justificadas.toLocaleString("pt-BR")}
-                    </td>
-                    <td className="px-3 py-3">
-                      <BarraDaCobertura cobertura={linha.cobertura} />
-                      <span className="mt-1.5 block text-xs text-muted-foreground tabular-nums">
-                        {pct(linha.cobertura)} ·{" "}
-                        <span className="text-amber-700">
-                          {linha.pendentes.toLocaleString("pt-BR")} pendentes
-                        </span>
-                      </span>
-                    </td>
-                    <td className="px-3 py-3">
-                      {linha.ultimoAutor === null ? (
-                        /* Ninguém — e não "sem responsável": a rubrica não tem
-                           dono a quem cobrar, tem trabalho a fazer. */
-                        <span className="text-xs text-muted-foreground">—</span>
-                      ) : (
-                        <span className="flex items-center gap-2 text-xs">
-                          <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-bold">
-                            {iniciaisDoResponsavel(linha.ultimoAutor)}
-                          </span>
-                          <span className="truncate max-w-[12rem]">{linha.ultimoAutor}</span>
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-3 py-3 text-xs text-muted-foreground">
-                      {linha.ultimaEm === null
-                        ? "Nenhuma ainda"
-                        : tempoRelativo(new Date(linha.ultimaEm))}
-                    </td>
-                    <td className="px-3 py-3 text-right">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-primary font-semibold"
-                        onClick={() =>
-                          navegar(
-                            /*
-                              A tela da rubrica quando ela tem uma; a fila quando
-                              não — e a fila justifica qualquer alteração. Nenhum
-                              dos dois caminhos abre um diálogo daqui: quem grava
-                              é a tela de destino.
-                            */
-                            `${linha.rota ?? "/justificativas"}?${recorteDoEndereco(
-                              changeSetId ? { changeSetId } : {},
-                            )}`,
-                          )
-                        }
-                      >
-                        {linha.rota ? `Abrir em ${linha.moduloRotulo}` : "Abrir na fila"} →
-                      </Button>
-                    </td>
-                  </tr>
-                </Fragment>
-              );
-            })}
-          </tbody>
-        </table>
+    <section className="space-y-4">
+      <div className="flex flex-wrap items-start justify-between gap-x-6 gap-y-3">
+        <div className="min-w-0">
+          <h2 className="text-lg font-bold">Onde está a pendência</h2>
+          <p className="text-sm text-muted-foreground">
+            Veja por rubrica quantas alterações precisam de justificativa, quem escreveu e a
+            última justificativa.
+          </p>
+        </div>
+        {/* A regra da tela, e não uma dica: quem chega aqui pela primeira vez
+            procura onde escrever, e a resposta é que não se escreve aqui. */}
+        <div className="flex max-w-md gap-2.5 rounded-lg border bg-accent/60 px-4 py-3 text-sm">
+          <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+          <p>
+            Uma linha por rubrica, agrupada por seção.
+            <br />
+            Nenhuma se justifica aqui — o botão leva à tela que grava.
+          </p>
+        </div>
       </div>
 
-      {linhasDeRubrica.length > 0 && (
-        <Paginacao
-          pagina={pagina}
-          porPagina={porPagina}
-          total={linhasDeRubrica.length}
-          onPagina={setPagina}
-          onPorPagina={(n) => {
-            setPorPagina(n);
-            setPagina(1);
-          }}
-          tamanhos={[10, 25, 50, 100]}
-          unidade="rubricas"
+      {/* Os quatro números **desta tabela**. Com um filtro de seção ligado eles
+          são os da seção, e é isso que se quer: os do recorte inteiro estão nos
+          cartões do topo, que o filtro não mexe. */}
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <Cartao
+          titulo="Rubricas"
+          valor={somaDaTabela.rubricas.toLocaleString("pt-BR")}
+          rodape="no total"
+          icon={ListChecks}
+          tom="azul"
         />
+        <Cartao
+          titulo="Pendências"
+          valor={somaDaTabela.pendentes.toLocaleString("pt-BR")}
+          rodape={`${pct(100 - somaDaTabela.cobertura)} das alterações`}
+          icon={Clock}
+          tom="ambar"
+        />
+        <Cartao
+          titulo="Justificadas"
+          valor={somaDaTabela.justificadas.toLocaleString("pt-BR")}
+          rodape={`${pct(somaDaTabela.cobertura)} do total`}
+          icon={CheckCircle2}
+          tom="verde"
+        />
+        <section className="superficie min-w-0 px-5 py-4">
+          <p className="text-sm text-muted-foreground">Progresso geral</p>
+          <div className="mt-3 flex items-center gap-3">
+            <BarraDaCobertura cobertura={somaDaTabela.cobertura} />
+            <span className="shrink-0 text-sm font-bold tabular-nums">
+              {pct(somaDaTabela.cobertura)}
+            </span>
+          </div>
+          <p className="mt-2 text-xs text-muted-foreground tabular-nums">
+            {somaDaTabela.justificadas.toLocaleString("pt-BR")} de{" "}
+            {somaDaTabela.alteracoes.toLocaleString("pt-BR")} alterações justificadas
+          </p>
+        </section>
+      </div>
+
+      {gruposDaPagina.length === 0 && (
+        <section className="superficie px-6 py-10 text-center text-muted-foreground">
+          Nenhuma rubrica neste recorte.
+        </section>
+      )}
+
+      {gruposDaPagina.map((grupo) => {
+        const desenho = DESENHO_DO_MODULO[grupo.modulo];
+        const Icone = desenho.icone;
+        const secao = totalDaSecao.get(grupo.modulo);
+        /* O painel é da seção; as linhas são as desta página. Quando a seção
+           não coube inteira, o cabeçalho diz isso — os números dele são os do
+           recorte, e sem essa frase eles pareceriam a soma das linhas à vista. */
+        const partida = secao ? grupo.linhas.length < secao.rubricas.length : false;
+        return (
+          <section key={grupo.modulo} className="superficie min-w-0 overflow-hidden">
+            <div
+              className={cn(
+                "flex flex-wrap items-center justify-between gap-x-6 gap-y-3 border-b px-5 py-3.5",
+                desenho.fundo,
+              )}
+            >
+              <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
+                <span className={cn("flex items-center gap-2 text-base font-bold", desenho.tinta)}>
+                  <Icone className="h-5 w-5 shrink-0" />
+                  {moduloDeJustificativa(grupo.modulo).rotulo}
+                </span>
+                {secao && (
+                  <span className="flex flex-wrap items-baseline gap-x-2 text-xs font-medium text-muted-foreground tabular-nums">
+                    <span>
+                      {secao.rubricas.length.toLocaleString("pt-BR")}{" "}
+                      {secao.rubricas.length === 1 ? "rubrica" : "rubricas"} ·
+                    </span>
+                    <span>{secao.alteracoes.toLocaleString("pt-BR")} alterações ·</span>
+                    <span className="text-amber-700">
+                      {secao.pendentes.toLocaleString("pt-BR")} pendentes ·
+                    </span>
+                    <span>{pct(secao.cobertura)} justificado</span>
+                    {partida && (
+                      <span className="italic">
+                        · {grupo.linhas.length.toLocaleString("pt-BR")} nesta página
+                      </span>
+                    )}
+                  </span>
+                )}
+              </div>
+              <div className="flex shrink-0 items-center gap-3">
+                {secao && (
+                  <>
+                    <span className="hidden w-40 sm:block">
+                      <BarraDaCobertura cobertura={secao.cobertura} />
+                    </span>
+                    <span
+                      className={cn(
+                        "w-14 text-right text-sm font-bold tabular-nums",
+                        secao.cobertura >= 50 ? "text-emerald-700" : "text-amber-600",
+                      )}
+                    >
+                      {pct(secao.cobertura)}
+                    </span>
+                  </>
+                )}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="bg-card font-semibold text-primary"
+                  onClick={() =>
+                    navegar(
+                      /*
+                        A tela que reúne a seção quando ela tem uma — o Monitor
+                        Custo Fixo, o quadro do QLP. O Custo Variável e o que a
+                        curadoria não classificou não têm, e aí o botão troca de
+                        nome em vez de prometer um filtro de seção que a fila
+                        não sabe aplicar: ela recorta por tipo de ativo e por
+                        vigência, nunca por seção.
+                      */
+                      `${secao?.rota ?? "/justificativas"}?${recorteDoEndereco(
+                        changeSetId ? { changeSetId } : {},
+                      )}`,
+                    )
+                  }
+                >
+                  {secao?.rota ? "Justificar todas" : "Abrir na fila"} →
+                </Button>
+              </div>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="border-b bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
+                  <tr>
+                    {COLUNAS_DA_TABELA.map(cabecalhoDaColuna)}
+                    <th className="px-3 py-2.5 text-right font-semibold">Ação</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {grupo.linhas.map((linha) => (
+                    <tr key={linha.chave} className="border-b last:border-0 hover:bg-muted/30">
+                      <td className="px-3 py-3 font-medium">{linha.rotulo}</td>
+                      <td className="px-3 py-3 text-right tabular-nums">
+                        {linha.alteracoes.toLocaleString("pt-BR")}
+                      </td>
+                      <td className="px-3 py-3 text-right tabular-nums text-emerald-700">
+                        {linha.justificadas.toLocaleString("pt-BR")}
+                      </td>
+                      <td className="px-3 py-3">
+                        <span className="flex items-center gap-2">
+                          <span className="w-28 shrink-0">
+                            <BarraDaCobertura cobertura={linha.cobertura} />
+                          </span>
+                          <span className="text-xs text-muted-foreground tabular-nums">
+                            {pct(linha.cobertura)} (
+                            <span className="text-amber-700">
+                              {linha.pendentes.toLocaleString("pt-BR")} pendentes
+                            </span>
+                            )
+                          </span>
+                        </span>
+                      </td>
+                      <td className="px-3 py-3">
+                        {linha.ultimoAutor === null ? (
+                          /* Ninguém — e não "sem responsável": a rubrica não tem
+                             dono a quem cobrar, tem trabalho a fazer. */
+                          <span className="text-xs text-muted-foreground">—</span>
+                        ) : (
+                          <span className="flex items-center gap-2 text-xs">
+                            <span className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-[10px] font-bold">
+                              {iniciaisDoResponsavel(linha.ultimoAutor)}
+                            </span>
+                            <span className="truncate max-w-[12rem]">{linha.ultimoAutor}</span>
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-3 py-3 text-xs text-muted-foreground">
+                        {linha.ultimaEm === null
+                          ? "Nenhuma ainda"
+                          : tempoRelativo(new Date(linha.ultimaEm))}
+                      </td>
+                      <td className="px-3 py-3 text-right">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="font-semibold text-primary"
+                          /* O rótulo é um só, e o destino não: a tela da rubrica
+                             quando ela tem uma, a fila quando não. Quem precisa
+                             saber para onde vai antes de clicar lê o `title` —
+                             escrever os dois destinos no botão fazia a coluna
+                             inteira ser o nome da seção, repetido. */
+                          title={
+                            linha.rota
+                              ? `Abrir ${linha.rotulo} em ${linha.moduloRotulo}`
+                              : "Abrir na fila de Justificativas"
+                          }
+                          onClick={() =>
+                            navegar(
+                              `${linha.rota ?? "/justificativas"}?${recorteDoEndereco(
+                                changeSetId ? { changeSetId } : {},
+                              )}`,
+                            )
+                          }
+                        >
+                          Justificar →
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        );
+      })}
+
+      {linhasDeRubrica.length > 0 && (
+        <section className="superficie min-w-0 overflow-hidden">
+          <Paginacao
+            pagina={pagina}
+            porPagina={porPagina}
+            total={linhasDeRubrica.length}
+            onPagina={setPagina}
+            onPorPagina={(n) => {
+              setPorPagina(n);
+              setPagina(1);
+            }}
+            tamanhos={[10, 25, 50, 100]}
+            unidade="rubricas"
+          />
+        </section>
       )}
     </section>
   );
@@ -1209,106 +1437,13 @@ export default function MonitorDeJustificativas() {
 
             {aba === "modulo" && (
               <>
-                <div className="grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
-                  {/*
-                    A leitura que esta tela existe para dar: onde está a
-                    pendência, por seção. Clicar na linha recorta a tabela
-                    abaixo — que é a continuação da mesma pergunta, um nível mais
-                    fundo —, e "Abrir" vai para a tela da seção inteira.
-                  */}
-                  <section className="superficie min-w-0 px-6 py-5">
-                    <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-                      <h2 className="text-lg font-bold">Cobertura por seção</h2>
-                      <p className="text-xs text-muted-foreground">
-                        A barra diz onde mandar a cobrança. Clique para recortar a tabela.
-                      </p>
-                    </div>
-                    {modulos.length === 0 ? (
-                      <p className="text-sm text-muted-foreground mt-3">
-                        A cobertura por seção não veio nesta resposta.
-                      </p>
-                    ) : (
-                      <ul className="mt-2 divide-y">
-                        {modulos.map((m) => {
-                          const desenho = DESENHO_DO_MODULO[m.modulo];
-                          const Icone = desenho.icone;
-                          return (
-                            <li key={m.modulo} className="py-3">
-                              <div className="flex items-start gap-3">
-                                <span
-                                  className={cn(
-                                    "mt-0.5 shrink-0 rounded-xl p-2",
-                                    desenho.fundo,
-                                    desenho.tinta,
-                                  )}
-                                >
-                                  <Icone className="h-4 w-4" />
-                                </span>
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    trocar(() =>
-                                      setModuloFiltrado(
-                                        m.modulo === moduloFiltrado ? null : m.modulo,
-                                      ),
-                                    )
-                                  }
-                                  aria-pressed={moduloFiltrado === m.modulo}
-                                  className={cn(
-                                    "min-w-0 flex-1 rounded-md px-2 py-1 text-left hover:bg-muted/60 transition-colors",
-                                    moduloFiltrado === m.modulo && "bg-muted",
-                                  )}
-                                >
-                                  <span className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                                    <span className="font-bold">{m.rotulo}</span>
-                                    <span className="text-xs text-muted-foreground tabular-nums">
-                                      {m.justificadas.toLocaleString("pt-BR")} justificadas ·{" "}
-                                      {m.pendentes.toLocaleString("pt-BR")} pendentes ·{" "}
-                                      {m.alteracoes.toLocaleString("pt-BR")} alterações
-                                    </span>
-                                  </span>
-                                  <span className="mt-2 block">
-                                    <BarraDaCobertura cobertura={m.cobertura} />
-                                  </span>
-                                  {/* As rubricas deste recorte, e não uma lista
-                                      fixa — ver `modulosDoPainel`. */}
-                                  <span className="mt-1.5 block truncate text-xs text-muted-foreground">
-                                    {m.rubricas.slice(0, 5).join(", ")}
-                                    {m.rubricas.length > 5
-                                      ? ` e mais ${m.rubricas.length - 5}`
-                                      : ""}
-                                  </span>
-                                </button>
-                                <span className="flex shrink-0 items-center gap-3 pt-1">
-                                  <span
-                                    className={cn(
-                                      "w-14 text-right text-sm font-bold tabular-nums",
-                                      m.cobertura >= 50 ? "text-emerald-700" : "text-amber-600",
-                                    )}
-                                  >
-                                    {pct(m.cobertura)}
-                                  </span>
-                                  {m.rota && (
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      className="text-primary font-semibold"
-                                      onClick={() => navegar(`${m.rota}?${recorteDoEndereco()}`)}
-                                    >
-                                      Abrir →
-                                    </Button>
-                                  )}
-                                </span>
-                              </div>
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    )}
-                  </section>
-
-                  {graficoDeVigencias}
-                </div>
+                {/* O gráfico por vigência ocupa a largura inteira desde que as
+                    barras de "Cobertura por seção" saíram daqui: a barra e o
+                    % de cada seção agora moram no cabeçalho do painel dela, na
+                    tabela, que é onde as linhas daquela seção estão. Duas
+                    leituras da mesma soma, uma acima da outra, faziam a de
+                    baixo parecer outra conta. */}
+                {graficoDeVigencias}
 
                 <section className="superficie min-w-0 px-6 py-4">
                   <div className="flex flex-wrap items-end gap-3">

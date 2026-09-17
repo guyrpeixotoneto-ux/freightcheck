@@ -153,6 +153,26 @@ const RUBRICAS = [
   },
 ];
 
+/** Uma rubrica do Custo Fixo — a seção não muda, e o que se lê é a ordem. */
+function rubricaDoPainel(
+  rubrica: string,
+  alteracoes: number,
+  justificadas: number,
+  ultimaEm: string | null = null,
+  ultimoAutor: string | null = null,
+) {
+  return {
+    changeSetId: "cs-julho",
+    entityType: "CAVALO",
+    modulo: "CUSTO_FIXO",
+    rubrica,
+    alteracoes,
+    justificadas,
+    ultimaEm,
+    ultimoAutor,
+  };
+}
+
 const AUTORES = [
   {
     changeSetId: "cs-julho",
@@ -186,7 +206,10 @@ const CHANGE_SETS = [
 ];
 
 /** Guarda os endereços pedidos, para conferir o recorte que a lista recebeu. */
-function servidor(cobertura: typeof COBERTURA = COBERTURA) {
+function servidor(
+  cobertura: typeof COBERTURA = COBERTURA,
+  porRubrica: readonly ReturnType<typeof rubricaDoPainel>[] = RUBRICAS,
+) {
   const pedidos: string[] = [];
   vi.stubGlobal(
     "fetch",
@@ -195,7 +218,7 @@ function servidor(cobertura: typeof COBERTURA = COBERTURA) {
       pedidos.push(url);
       if (url.includes("/change-sets")) return resposta(CHANGE_SETS);
       if (url.includes("/justificativas/painel"))
-        return resposta({ cobertura, autores: AUTORES, rubricas: RUBRICAS });
+        return resposta({ cobertura, autores: AUTORES, rubricas: porRubrica });
       if (url.includes("/justificativas/pendencias"))
         return resposta({ total: 0, linhas: [] });
       return resposta({});
@@ -305,17 +328,25 @@ describe("o cabeçalho do Monitor de Justificativas", () => {
 });
 
 describe("o que o Monitor deixou de fazer", () => {
-  it("não oferece justificar em lugar nenhum da tela", async () => {
+  it("não grava justificativa nenhuma: o botão leva embora, e não abre caixa", async () => {
     servidor();
     montar();
 
-    await screen.findByText("Onde está a pendência");
+    const tabela = (await screen.findByText("Onde está a pendência")).closest("section")!;
     /*
-      Nem botão de linha, nem "Justificar selecionadas", nem a aba de situação
-      que separava pendentes de justificadas para a lista que saiu. Quem grava
-      são as telas de rubrica e a fila.
+      O botão da linha voltou a se chamar "Justificar", e o que ele faz continua
+      sendo **sair daqui**: quem grava são as telas de rubrica e a fila. O que
+      este teste prende não é o rótulo — é que clicar nele troca de endereço em
+      vez de abrir a caixa de escrever. Um diálogo de justificar nesta tela é a
+      regressão que este arquivo existe para pegar.
     */
-    expect(screen.queryByRole("button", { name: /Justificar/ })).toBeNull();
+    const doFiname = within(tabela).getByText("Finame").closest("tr")!;
+    fireEvent.click(within(doFiname).getByRole("button", { name: /Justificar/ }));
+    await waitFor(() => expect(window.location.pathname).toBe("/custo-fixo-finame"));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    /* Nem "Justificar selecionadas", nem a aba de situação que separava
+       pendentes de justificadas para a lista que saiu. */
+    expect(screen.queryByRole("button", { name: /selecionadas/i })).toBeNull();
     expect(screen.queryByText("Pendentes de justificativa")).toBeNull();
   });
 
@@ -334,14 +365,18 @@ describe("a leitura por seção", () => {
     servidor();
     montar();
 
-    const modulos = (await screen.findByText("Cobertura por seção")).closest("section")!;
-    /* 400 alterações e 100 justificadas: 300 pendentes no Custo Variável. */
-    const variavel = within(modulos).getByText("Custo Variável").closest("button")!;
+    const tabela = (await screen.findByText("Onde está a pendência")).closest("section")!;
+    /* 400 alterações e 100 justificadas: 300 pendentes no Custo Variável. O
+       número mora no cabeçalho do painel da seção, que é onde as linhas dela
+       estão — não há mais uma segunda leitura da mesma soma acima da tabela. */
+    const variavel = within(tabela).getByText("Custo Variável").closest("div")!;
     expect(variavel.textContent).toContain("300 pendentes");
-    expect(variavel.textContent).toContain("100 justificadas");
+    /* 100 de 400: a porcentagem é o que o cabeçalho escreve, e a contagem de
+       justificadas está na coluna da linha e no cartão da tabela. */
+    expect(variavel.textContent).toContain("25% justificado");
     /* O que a curadoria não classificou aparece com esse nome, e não somado ao
        módulo maior. */
-    expect(within(modulos).getByText("Sem classe de custo")).toBeTruthy();
+    expect(within(tabela).getByText("Sem classe de custo")).toBeTruthy();
   });
 
   it("conta as rubricas com pendência, que é quantas telas alguém vai abrir", async () => {
@@ -363,30 +398,109 @@ describe("a leitura por seção", () => {
     expect(within(tabela).queryByText(/parametro:/)).toBeNull();
   });
 
-  it("agrupa as linhas por seção, e o cabeçalho do grupo soma o recorte", async () => {
+  it("dá um painel a cada seção, na ordem do catálogo", async () => {
     /*
-      A seção era um selo repetido em cada linha; virou o cabeçalho do grupo,
-      que é o único lugar da tabela onde o total da seção se lê. O número é o do
-      recorte inteiro — o mesmo da barra acima —, e não o das linhas desta
-      página: um grupo partido em duas páginas diria dois números.
+      A seção era um selo repetido em cada linha, virou cabeçalho de grupo e
+      agora é o painel inteiro: cabeçalho com o subtotal, colunas próprias e as
+      linhas dela. A ordem é a do catálogo, e não a da pendência — Manutenção
+      tem 300 pendentes e vem depois do Finame, que tem 30.
     */
     servidor();
     montar();
 
     const tabela = (await screen.findByText("Onde está a pendência")).closest("section")!;
-    const daSecao = [...tabela.querySelectorAll('th[scope="colgroup"]')].find((th) =>
-      th.textContent!.includes("Custo Variável"),
-    )!;
-    expect(daSecao.textContent).toContain("400 alterações");
-    expect(daSecao.textContent).toContain("300 pendentes");
-
-    /* A ordem é a do catálogo, e não a da pendência: Manutenção tem 300
-       pendentes e vem depois do Finame, que tem 30. */
-    const grupos = [...tabela.querySelectorAll('th[scope="colgroup"]')].map(
-      /* O primeiro span é o invólucro; o segundo é o nome da seção. */
-      (th) => th.querySelectorAll("span")[1]!.textContent!.trim(),
+    const paineis = [...tabela.querySelectorAll("table")].map(
+      (t) => t.closest("section")!.querySelector("span")!.textContent!.trim(),
     );
-    expect(grupos).toEqual(["Custo Fixo", "Custo Variável", "Sem classe de custo"]);
+    expect(paineis).toEqual(["Custo Fixo", "Custo Variável", "Sem classe de custo"]);
+  });
+
+  it("o cabeçalho do painel soma a seção no recorte, e não as linhas da página", async () => {
+    servidor();
+    montar();
+
+    const tabela = (await screen.findByText("Onde está a pendência")).closest("section")!;
+    const doVariavel = within(tabela).getByText("Custo Variável").closest("div")!;
+    expect(doVariavel.textContent).toContain("400 alterações");
+    expect(doVariavel.textContent).toContain("300 pendentes");
+    expect(doVariavel.textContent).toContain("1 rubrica");
+  });
+
+  it("ordena a tabela pela coluna, e o terceiro clique devolve a ordem natural", async () => {
+    /*
+      A tabela abre pela pendência — a leitura de por onde começar. O cabeçalho
+      existe para as outras perguntas da mesma lista, e voltar tem de ser
+      possível sem recarregar: crescente, decrescente, e de volta ao natural.
+
+      As três rubricas são da mesma seção e têm as três ordens diferentes entre
+      si — sem isso o teste passaria sem provar qual régua está valendo.
+    */
+    const daMesmaSecao = [
+      rubricaDoPainel("finame", 100, 99),
+      rubricaDoPainel("ipva", 20, 1),
+      rubricaDoPainel("seguro", 50, 25),
+    ];
+    servidor(COBERTURA, daMesmaSecao);
+    montar();
+
+    const tabela = (await screen.findByText("Onde está a pendência")).closest("section")!;
+    const rubricas = () =>
+      [...tabela.querySelectorAll("tbody tr")].map(
+        (tr) => tr.querySelector("td")!.textContent!.trim(),
+      );
+    /* Pendência: Seguro 25, IPVA 19, Finame 1. */
+    expect(rubricas()).toEqual(["Seguro e Aparato", "IPVA", "Finame"]);
+
+    const porAlteracoes = within(tabela).getByRole("button", { name: /Alterações/ });
+    fireEvent.click(porAlteracoes);
+    expect(rubricas()).toEqual(["IPVA", "Seguro e Aparato", "Finame"]);
+    fireEvent.click(porAlteracoes);
+    expect(rubricas()).toEqual(["Finame", "Seguro e Aparato", "IPVA"]);
+    fireEvent.click(porAlteracoes);
+    expect(rubricas()).toEqual(["Seguro e Aparato", "IPVA", "Finame"]);
+  });
+
+  it("ordena por quem escreveu sem levar as ausências para o topo", async () => {
+    /*
+      Quem ordena por "quem escreveu" procura um nome. Uma coluna de traços no
+      topo é a resposta que ele já tinha antes de clicar — e é o que acontece
+      quando `null` entra na comparação como texto vazio.
+    */
+    const comEsemAutor = [
+      rubricaDoPainel("finame", 10, 5, "2026-07-01T10:00:00.000Z", "zelia@x.com"),
+      rubricaDoPainel("ipva", 10, 0),
+      rubricaDoPainel("seguro", 10, 5, "2026-07-02T10:00:00.000Z", "ana@x.com"),
+    ];
+    servidor(COBERTURA, comEsemAutor);
+    montar();
+
+    const tabela = (await screen.findByText("Onde está a pendência")).closest("section")!;
+    fireEvent.click(within(tabela).getByRole("button", { name: /Quem escreveu/ }));
+    const autores = [...tabela.querySelectorAll("tbody tr")].map((tr) =>
+      tr.querySelectorAll("td")[4].textContent!.trim(),
+    );
+    expect(autores[0]).toContain("ana@x.com");
+    expect(autores[1]).toContain("zelia@x.com");
+    expect(autores[2]).toBe("—");
+  });
+
+  it("promete a tela de conjunto só onde ela existe", async () => {
+    /*
+      Custo Fixo tem o Monitor; Custo Variável e o que a curadoria não
+      classificou não têm tela de conjunto, e a fila recorta por tipo de ativo e
+      vigência, nunca por seção. O botão troca de nome em vez de prometer um
+      filtro que não existe.
+    */
+    servidor();
+    montar();
+
+    const tabela = (await screen.findByText("Onde está a pendência")).closest("section")!;
+    const doFixo = within(tabela).getByText("Custo Fixo").closest("div")!.parentElement!;
+    expect(within(doFixo).getByRole("button", { name: /Justificar todas/ })).toBeTruthy();
+
+    const doVariavel = within(tabela).getByText("Custo Variável").closest("div")!.parentElement!;
+    expect(within(doVariavel).queryByRole("button", { name: /Justificar todas/ })).toBeNull();
+    expect(within(doVariavel).getByRole("button", { name: /Abrir na fila/ })).toBeTruthy();
   });
 
   it("não repete o nome da seção em cada linha da tabela", async () => {
@@ -405,7 +519,7 @@ describe("a leitura por seção", () => {
 
     const tabela = (await screen.findByText("Onde está a pendência")).closest("section")!;
     const doFiname = within(tabela).getByText("Finame").closest("tr")!;
-    fireEvent.click(within(doFiname).getByRole("button", { name: /Abrir em Custo Fixo/ }));
+    fireEvent.click(within(doFiname).getByRole("button", { name: /Justificar/ }));
     await waitFor(() => expect(window.location.pathname).toBe("/custo-fixo-finame"));
   });
 
@@ -415,22 +529,35 @@ describe("a leitura por seção", () => {
 
     const tabela = (await screen.findByText("Onde está a pendência")).closest("section")!;
     const semTela = within(tabela).getByText("Frota emprestada").closest("tr")!;
-    fireEvent.click(within(semTela).getByRole("button", { name: /Abrir na fila/ }));
+    fireEvent.click(within(semTela).getByRole("button", { name: /Justificar/ }));
     await waitFor(() => expect(window.location.pathname).toBe("/justificativas"));
   });
 
-  it("recorta a tabela ao clicar numa seção, sem mexer nos cartões", async () => {
+  it("recorta a tabela pelo filtro de seção, sem mexer nos cartões", async () => {
+    /*
+      O recorte por seção era um clique na barra de "Cobertura por seção", que
+      saiu quando a barra virou o cabeçalho do painel de cada seção. O filtro
+      continua, na caixa "Seção" — e o que ele recorta é a tabela: os cartões
+      do topo seguem sendo os do recorte inteiro, que é contra o que a tabela
+      se confere.
+    */
     servidor();
     montar();
 
-    const modulos = (await screen.findByText("Cobertura por seção")).closest("section")!;
-    fireEvent.click(within(modulos).getByText("Custo Fixo").closest("button")!);
+    const tabela = (await screen.findByText("Onde está a pendência")).closest("section")!;
+    expect(within(tabela).getByText("Manutenção")).toBeTruthy();
 
-    const tabela = screen.getByText("Onde está a pendência").closest("section")!;
+    const filtros = screen.getByText("Tipo de ativo").closest("section")!;
+    const caixa = within(filtros)
+      .getByText("Seção")
+      .parentElement!.querySelector('[role="combobox"]') as HTMLElement;
+    /* O Radix abre o menu pelo teclado no jsdom — a mesma porta de
+       `unidade-do-envio.tela.test.tsx`. */
+    fireEvent.keyDown(caixa, { key: "Enter" });
+    fireEvent.click(await screen.findByRole("option", { name: /Custo Fixo/ }));
+
     await waitFor(() => expect(within(tabela).queryByText("Manutenção")).toBeNull());
     expect(within(tabela).getByText("Finame")).toBeTruthy();
-    /* O cartão continua sendo o do recorte inteiro — é contra ele que a tabela
-       se confere. */
     expect(within(cartao("Alterações no recorte")).getByText("500")).toBeTruthy();
   });
 });
@@ -457,7 +584,7 @@ describe("as quatro leituras", () => {
     servidor();
     montar();
 
-    await screen.findByText("Cobertura por seção");
+    await screen.findByText("Onde está a pendência");
     expect(window.location.search).not.toContain("aba=");
   });
 
@@ -502,7 +629,7 @@ describe("as quatro leituras", () => {
     window.history.replaceState({}, "", "/painel-de-justificativas?tipo=CARRETA");
     montar();
 
-    await screen.findByText("Cobertura por seção");
+    await screen.findByText("Onde está a pendência");
     expect(screen.getByText(/fala só das carretas/)).toBeTruthy();
     /* 60 alterações da carreta de julho, e não as 500 do acervo. */
     expect(within(cartao("Alterações no recorte")).getByText("60")).toBeTruthy();
@@ -512,7 +639,7 @@ describe("as quatro leituras", () => {
 describe("copiar a cobrança", () => {
   /** O botão, já com a cobertura em mãos — antes dela ele está desligado. */
   async function botaoDeCobranca(): Promise<HTMLElement> {
-    await screen.findByText("Cobertura por seção");
+    await screen.findByText("Onde está a pendência");
     return await waitFor(() => {
       const botao = screen.getByRole("button", { name: /Copiar cobrança/ });
       if (botao.hasAttribute("disabled")) throw new Error("ainda desligado");
@@ -580,7 +707,7 @@ describe("copiar a cobrança", () => {
     servidor(tudoJustificado);
     montar();
 
-    await screen.findByText("Cobertura por seção");
+    await screen.findByText("Onde está a pendência");
     expect(
       (await screen.findByRole("button", { name: /Copiar cobrança/ })).hasAttribute("disabled"),
     ).toBe(true);
