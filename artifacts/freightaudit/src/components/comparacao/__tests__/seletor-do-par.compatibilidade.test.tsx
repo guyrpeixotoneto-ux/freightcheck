@@ -134,16 +134,41 @@ describe("o campo Para, com um De escolhido", () => {
     expect(oferecidas.some((t) => t.includes("trechos"))).toBe(false);
   });
 
-  it("oferece as compatíveis, e continua oferecendo todas elas", () => {
+  /*
+    A ordem é **da mais recente para a mais antiga**, e é a mesma do resto do
+    produto.
+
+    Era a de `/snapshots` — `ORDER BY effective_date`, crescente —, porque este
+    componente nunca ordenou nada: herdava a ordem do SQL. Todo seletor que
+    escolhe uma ordem escolhe a inversa (o par do Panorama, o do cabeçalho, o da
+    Visão Geral, o mestre de Alterações por Módulo, e o `listPeriods` do
+    servidor), e dezessete telas abriam com dezembro/2025 no topo e a vigência
+    recente fora da vista.
+  */
+  it("oferece as compatíveis da mais recente para a mais antiga", () => {
     montar("jul-ambos", "ago1-ambos");
     abrir("Para (vigência de destino)");
 
     expect(opcoes()).toEqual([
-      "junho/2026",
-      "agosto/2026 · 1ª quinzena",
-      "agosto/2026 · 2ª quinzena",
       "setembro/2026",
+      "agosto/2026 · 2ª quinzena",
+      "agosto/2026 · 1ª quinzena",
+      "junho/2026",
     ]);
+  });
+
+  /*
+    E a régua vale para o campo De, que oferece o acervo inteiro da unidade.
+
+    A asserção é sobre o **primeiro grupo** — as compatíveis. Abaixo dele vem
+    "Trocar para outra série", com as de outra composição, e ele tem a sua
+    própria ordem: os dois são listas, e cada uma desce da mais recente.
+  */
+  it("o campo De abre na vigência mais recente", () => {
+    montar("jul-ambos", "ago1-ambos");
+    abrir("De (vigência de origem)");
+
+    expect(opcoes()[0]).toContain("setembro/2026");
   });
 
   /* A recusa por escopo, que o motor trata igual à de cobertura. */
