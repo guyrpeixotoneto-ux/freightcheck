@@ -1,5 +1,5 @@
-import { ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { LinhaDeLista } from "@/components/panorama/linha-de-lista";
 import { formatBrlShort, periodicitySuffix } from "@/lib/format";
 import {
   FILTROS_DE_MUDANCA,
@@ -74,7 +74,7 @@ export function Ranking({
 
   return (
     <section
-      className={cn("superficie px-6 py-5 flex flex-col", className)}
+      className={cn("superficie px-6 py-5", className)}
       aria-label="Onde o dinheiro se mexeu"
     >
       <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -128,7 +128,7 @@ export function Ranking({
             : "Nenhuma linha neste recorte."}
         </p>
       ) : (
-        <ol className="mt-1 divide-y flex-1">
+        <ol className="mt-1 divide-y">
           {linhas.map((linha, indice) => (
             <Linha
               key={linha.chave}
@@ -208,16 +208,14 @@ const TOM_DA_LINHA: Record<
 };
 
 /**
- * Uma linha — e ela é a **mesma** nos dois grãos.
+ * Uma linha — e ela é a **mesma** nos dois grãos, e a mesma do cartão ao lado.
  *
  * Nome, contexto, barra e valor: o que troca entre família e parâmetro é o que
  * `LinhaDoRanking` já resolveu lá na leitura. Dois desenhos de linha, um por
- * grão, é onde os três cartões antigos começaram a divergir.
- *
- * A linha inteira é o alvo do clique quando há gaveta, e não uma seta na borda:
- * o que se quer clicar aqui é o número. Sem destino ela deixa de ser `<button>`
- * de propósito — um botão desabilitado ainda para o foco de quem navega por
- * teclado em algo que nunca vai responder.
+ * grão, é onde os três cartões antigos começaram a divergir — e o desenho em si
+ * saiu deste arquivo por causa do terceiro ranking da tela, o dos tipos de
+ * ativo: `LinhaDeLista` é a forma, e cada lista decide o que entra em cada
+ * lugar dela.
  */
 function Linha({
   posicao,
@@ -233,74 +231,28 @@ function Linha({
   onAbrir: ((chave: string) => void) | null;
 }) {
   const tom = TOM_DA_LINHA[linha.classificacao];
-  const conteudo = (
-    <>
-      <span className="w-4 shrink-0 text-xs tabular-nums text-muted-foreground">{posicao}</span>
-      <span className="min-w-0 flex-1">
-        <span className="flex items-center gap-2">
-          <span className="text-sm font-semibold truncate" title={linha.nome}>
-            {linha.nome}
-          </span>
-          <span
-            className={cn(
-              "rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide shrink-0",
-              tom.selo,
-            )}
-          >
-            {tom.rotulo}
-          </span>
-        </span>
-        <span className="block text-xs text-muted-foreground truncate mt-0.5">
-          {linha.contexto}
-        </span>
-        <span className="mt-1.5 block h-1.5 rounded-full bg-muted overflow-hidden">
-          <span
-            className={cn("block h-full rounded-full", tom.barra)}
-            style={{ width: `${Math.max(2, linha.proporcao * 100)}%` }}
-          />
-        </span>
-      </span>
-      <span className="shrink-0 text-right">
-        <span className={cn("block text-sm font-extrabold tabular-nums", tom.valor)}>
-          {formatBrlShort(linha.valor)}
-        </span>
-        {/*
-          O líquido embaixo só nos recortes de um lado, onde o número de cima é
-          uma parcela: a família que somou R$ 40 mil e tirou R$ 39 mil se leria,
-          sem ele, como dois acontecimentos enormes e independentes. No recorte
-          inteiro o de cima já **é** o líquido, e repeti-lo diria duas vezes a
-          mesma coisa — sobra o sufixo da periodicidade, que nunca some.
-        */}
-        <span className="block text-[0.6875rem] tabular-nums leading-tight text-muted-foreground">
-          {linha.liquido !== null ? `líquido ${formatBrlShort(linha.liquido)}` : sufixo}
-        </span>
-      </span>
-      {onAbrir && (
-        <ChevronRight className="w-4 h-4 shrink-0 text-muted-foreground opacity-40 group-hover:opacity-100 transition-opacity" />
-      )}
-    </>
-  );
 
-  const forma = "flex w-full items-center gap-3 py-2.5 text-left";
   return (
-    <li>
-      {onAbrir ? (
-        <button
-          type="button"
-          onClick={() => onAbrir(linha.chave)}
-          title={`De onde vem o impacto de ${linha.nome}`}
-          aria-expanded={aberta}
-          className={cn(
-            forma,
-            "group rounded-lg px-2 -mx-2 hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand transition-colors",
-            aberta && "bg-accent/60",
-          )}
-        >
-          {conteudo}
-        </button>
-      ) : (
-        <div className={cn(forma, "px-2 -mx-2")}>{conteudo}</div>
-      )}
-    </li>
+    <LinhaDeLista
+      posicao={posicao}
+      nome={linha.nome}
+      contexto={linha.contexto}
+      selo={{ rotulo: tom.rotulo, classe: tom.selo }}
+      proporcao={linha.proporcao}
+      corDaBarra={tom.barra}
+      valor={formatBrlShort(linha.valor)}
+      corDoValor={tom.valor}
+      /*
+        O líquido embaixo só nos recortes de um lado, onde o número de cima é
+        uma parcela: a família que somou R$ 40 mil e tirou R$ 39 mil se leria,
+        sem ele, como dois acontecimentos enormes e independentes. No recorte
+        inteiro o de cima já **é** o líquido, e repeti-lo diria duas vezes a
+        mesma coisa — sobra o sufixo da periodicidade, que nunca some.
+      */
+      subvalor={linha.liquido !== null ? `líquido ${formatBrlShort(linha.liquido)}` : sufixo}
+      aberta={aberta}
+      titulo={onAbrir ? `De onde vem o impacto de ${linha.nome}` : undefined}
+      onAbrir={onAbrir ? () => onAbrir(linha.chave) : null}
+    />
   );
 }

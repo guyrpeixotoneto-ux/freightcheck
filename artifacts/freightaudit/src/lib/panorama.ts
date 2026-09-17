@@ -1,5 +1,4 @@
 import {
-  equipamentoMaisTocado,
   escreverImpacto,
   escreverPercentual,
   frotaTotal,
@@ -25,7 +24,7 @@ import {
   type MudancaRelevante,
   type SituacaoDaApuracao,
 } from "./impacto-apurado";
-import { linkDeAlteracoes, type Recorte } from "./recorte";
+import { linkDeAlteracoes, RECORTE_VAZIO, type Recorte } from "./recorte";
 import type { ItemCockpit } from "./cockpit";
 import type { BalancoDoRecorte } from "@/components/balanco/tipos";
 import type { FamiliesOverview, FamiliesView } from "@/components/inicio/types";
@@ -140,7 +139,14 @@ export function leituraDaUnidade(view: FamiliesView): LeituraDoPanorama {
     tiposDeAlteracao: view.totals.groups,
     veiculos: view.totals.vehiclesTouched,
     veiculosDeduplicados: true,
-    frota: frotaTotal(view),
+    /*
+      `?? null` porque `CockpitKpis.fleet` é declarado `number` e pode chegar
+      ausente de uma resposta anterior ainda em cache. O campo daqui promete
+      `number | null` — "`null` sem denominador confiável" —, e `undefined`
+      passando por ele fazia todo consumidor que testa `=== null` tratar a
+      ausência como um número.
+    */
+    frota: frotaTotal(view) ?? null,
     ativosNaFrota: view.cockpit.kpis.ativosNaFrota ?? 0,
     inativosNaFrota: view.cockpit.kpis.inativosNaFrota ?? 0,
     entraram: view.totals.entitiesAdded,
@@ -163,7 +169,7 @@ export function leituraDaVisaoGeral(overview: FamiliesOverview): LeituraDoPanora
     tiposDeAlteracao: overview.consolidado.gruposNoTotal,
     veiculos: distinto ?? overview.summary.vehiclesTouched,
     veiculosDeduplicados: distinto !== undefined,
-    frota: overview.consolidado.totals.fleet,
+    frota: overview.consolidado.totals.fleet ?? null,
     ativosNaFrota: overview.consolidado.totals.ativosNaFrota ?? 0,
     inativosNaFrota: overview.consolidado.totals.inativosNaFrota ?? 0,
     entraram: overview.consolidado.totals.entitiesAdded,
@@ -598,7 +604,7 @@ function classificar(
 }
 
 // ---------------------------------------------------------------------------
-// Andar 5 — o mapa
+// Dobra 3 — o mapa: onde aconteceu
 // ---------------------------------------------------------------------------
 
 /** Uma unidade no ranking da Visão Geral. */
@@ -610,26 +616,80 @@ export interface LinhaDoMapa {
   /** O sinal, para o tom. `null` quando não há impacto. */
   negativo: boolean | null;
   alteracoes: number;
+  /** Do maior impacto do ranking: 0 a 1. É o comprimento da barra, e nada mais. */
+  proporcao: number;
+}
+
+/**
+ * Um tipo de ativo na vigência — cavalo, carreta, trecho.
+ *
+ * É o que responde *onde isso aconteceu* dentro de uma unidade, e o dado
+ * sempre esteve na resposta: `cockpit.panorama.byEquipment` traz, por tipo,
+ * quantas alterações, quantos parâmetros e de que tamanho é a frota daquele
+ * tipo. O cartão antigo lia **um** balde desta lista — o mais tocado — e o
+ * publicava como um número solto ao lado de três que não respondiam a pergunta
+ * do andar.
+ */
+export interface LinhaDoTipo {
+  /** O `entityType` — `CAVALO`, `CARRETA`. É ele que viaja no filtro da URL. */
+  chave: string;
+  /** Como se lê — "Cavalo". O servidor manda os dois, e são dois vocabulários. */
+  nome: string;
+  alteracoes: number;
+  /** Parâmetros da remuneração tocados neste tipo. */
+  parametros: number;
+  /** A frota deste tipo — `null` quando a resposta não a declara. */
+  frota: number | null;
+  /**
+   * A linha de baixo, já escrita — parâmetros tocados e tamanho da frota.
+   *
+   * É a razão entre os dois que qualifica a contagem de alterações: 244
+   * alterações em 15 parâmetros de uma frota de 62 é uma vigência que mexeu em
+   * quase tudo do cavalo; o mesmo número em 1 parâmetro seria uma correção de
+   * uma coluna só. Vazia quando a resposta não soube dizer nem um nem outro.
+   */
+  contexto: string;
+  /** Do tipo mais tocado: 0 a 1. */
+  proporcao: number;
+  /** A lista de alterações deste tipo — `null` na Visão Geral. */
+  href: string | null;
+}
+
+/**
+ * A movimentação da frota — **o rodapé do cartão, e não o corpo dele.**
+ *
+ * Estes quatro números eram quatro tiles do tamanho de um KPI, e nenhum deles
+ * responde "onde aconteceu": eles dizem como a população mudou, que é contexto
+ * do recorte e não o assunto do andar. Numa vigência sem entrada nem saída, dois
+ * deles anunciavam `+0` e `−0` em corpo grande.
+ *
+ * **E um deles estava errado.** O tile dizia "Veículos ativos" e publicava
+ * `frota` — a frota inteira que a vigência entregou, não os que respondem
+ * `ATIVO` na coluna. Eram 133 equipamentos entregues e 46 em ATIVO, e a tela
+ * chamava 133 de ativos, ao lado de uma régua que já publicava os dois números
+ * com os nomes certos. Aqui as duas pontas viajam separadas e nomeadas, com a
+ * mesma recusa de {@link LeituraDoPanorama}: quem não trouxe a coluna não é
+ * parado, é sem resposta.
+ */
+export interface MovimentoDaFrota {
+  frota: number | null;
+  ativos: number;
+  inativos: number;
+  entraram: number;
+  sairam: number;
 }
 
 /**
  * Onde a vigência aconteceu — **o único andar que troca de forma entre as duas
  * leituras**.
  *
- * A soma de unidades não tem uma frota a movimentar (o `byEquipment` mora no
+ * A soma de unidades não tem tipos de ativo a ranquear (o `byEquipment` mora no
  * cockpit de uma vigência, e o overview não mescla cockpits), e uma unidade não
  * tem um ranking de unidades. Fingir simetria aqui produziria um cartão vazio
  * numa das duas leituras — e cartão sem dado não aparece.
  */
 export type MapaDoPanorama =
-  | {
-      eixo: "frota";
-      entraram: number;
-      sairam: number;
-      ativos: number | null;
-      /** O equipamento mais tocado — `null` quando o cockpit não sabe dizer. */
-      equipamento: { nome: string; entityType: string | null; mudancas: number } | null;
-    }
+  | { eixo: "tipos"; tipos: LinhaDoTipo[]; movimento: MovimentoDaFrota }
   | { eixo: "unidades"; linhas: LinhaDoMapa[] };
 
 export function mapaDoPanorama(
@@ -638,8 +698,19 @@ export function mapaDoPanorama(
   view: FamiliesView | null,
   /** As unidades já ranqueadas — `unidadesPorImpacto`. Vazio na unidade. */
   unidades: { chave: string; label: string; impacto: { periodicity: string; amount: number } | null; alteracoes: number }[],
+  {
+    recorte,
+    /**
+     * Se as linhas podem apontar para uma tela — falso na Visão Geral, pela
+     * mesma razão do placar: um endereço sem `scopeHash` cai na unidade padrão
+     * do servidor, e a linha abriria a lista de **uma** unidade debaixo de um
+     * número que somou todas.
+     */
+    comDestino,
+  }: { recorte: Recorte; comDestino: boolean } = { recorte: RECORTE_VAZIO, comDestino: false },
 ): MapaDoPanorama {
   if (view === null) {
+    const teto = unidades.reduce((maior, u) => Math.max(maior, Math.abs(u.impacto?.amount ?? 0)), 0);
     return {
       eixo: "unidades",
       linhas: unidades.map((u) => ({
@@ -648,24 +719,90 @@ export function mapaDoPanorama(
         impacto: u.impacto ? escreverImpacto(u.impacto) : null,
         negativo: u.impacto ? u.impacto.amount < 0 : null,
         alteracoes: u.alteracoes,
+        proporcao: teto === 0 ? 0 : Math.abs(u.impacto?.amount ?? 0) / teto,
       })),
     };
   }
 
   return {
-    eixo: "frota",
-    entraram: leitura.entraram,
-    sairam: leitura.sairam,
-    ativos: leitura.frota,
-    equipamento: equipamentoMaisTocado(view),
+    eixo: "tipos",
+    tipos: tiposDaVigencia(view, { recorte, comDestino }),
+    movimento: {
+      frota: leitura.frota,
+      ativos: leitura.ativosNaFrota,
+      inativos: leitura.inativosNaFrota,
+      entraram: leitura.entraram,
+      sairam: leitura.sairam,
+    },
   };
+}
+
+/**
+ * Os tipos de ativo, do mais tocado para o menos.
+ *
+ * **Ordena por alteração, e não por frota.** A pergunta é onde a vigência
+ * mexeu: uma frota de 71 carretas com 23 alterações mexeu menos que uma de 62
+ * cavalos com 244, e ranquear por tamanho de frota responderia uma pergunta que
+ * ninguém fez — a frota é a mesma de vigência em vigência.
+ *
+ * Tipo sem alteração não entra: ele não é um tipo de zero alterações, é um tipo
+ * que esta vigência não tocou, e uma linha de barra vazia no ranking do "onde"
+ * diria que ali aconteceu algo de tamanho nenhum.
+ *
+ * O `contexto` da linha é montado aqui, e não no desenho, porque **quais**
+ * cláusulas ele tem depende do que a resposta soube dizer.
+ */
+function tiposDaVigencia(
+  view: FamiliesView,
+  { recorte, comDestino }: { recorte: Recorte; comDestino: boolean },
+): LinhaDoTipo[] {
+  const baldes = view.cockpit.panorama.byEquipment.filter((b) => b.changes > 0);
+  const ordenados = [...baldes].sort(
+    (a, b) => b.changes - a.changes || a.equipment.localeCompare(b.equipment, "pt-BR"),
+  );
+  const teto = ordenados.reduce((maior, b) => Math.max(maior, b.changes), 0);
+
+  return ordenados.map((balde) => ({
+    /* Sem `entityType` a linha ainda se lê, e é o nome que a identifica: o que
+       ela perde é o link, porque é o código que o filtro da URL entende. */
+    chave: balde.entityType ?? balde.equipment,
+    nome: balde.equipment,
+    alteracoes: balde.changes,
+    /*
+      `?? 0` e `?? null` porque a resposta pode ser de uma versão anterior, ainda
+      em cache, que não trazia os dois campos — e o tipo não protege contra o que
+      já está gravado no navegador de quem abre a tela. Zero parâmetros e frota
+      nula são os dois casos em que a linha **cala** sobre a cláusula, em vez de
+      publicar "0 parâmetros" para um tipo que teve 244 alterações.
+    */
+    parametros: balde.groups ?? 0,
+    frota: balde.fleet ?? null,
+    contexto: contextoDoTipo(balde.groups ?? 0, balde.fleet ?? null),
+    proporcao: teto === 0 ? 0 : balde.changes / teto,
+    href:
+      comDestino && balde.entityType
+        ? linkDeAlteracoes({ recorte, filtros: { entityType: balde.entityType } })
+        : null,
+  }));
+}
+
+/** As cláusulas que a resposta sustenta — nunca um zero de enfeite. */
+function contextoDoTipo(parametros: number, frota: number | null): string {
+  const partes: string[] = [];
+  if (parametros > 0) {
+    partes.push(
+      `${parametros.toLocaleString("pt-BR")} ${parametros === 1 ? "parâmetro" : "parâmetros"}`,
+    );
+  }
+  if (frota !== null) partes.push(`frota de ${frota.toLocaleString("pt-BR")}`);
+  return partes.join(" · ");
 }
 
 /**
  * Se o mapa tem o que desenhar.
  *
  * O cartão já se apagava sozinho nos dois vazios — nenhuma unidade no ranking,
- * ou uma frota que não se moveu e não tem ativo a contar. O que mudou é que ele
+ * ou uma frota que não se moveu e não tem nada a contar. O que mudou é que ele
  * passou a dividir uma dobra de duas colunas com o gráfico da trajetória, e um
  * cartão que se apaga por dentro deixa **a coluna** dele em branco: o gráfico
  * fica com metade da faixa e a outra metade fica vazia. Quem decide a grade é a
@@ -676,7 +813,13 @@ export function mapaDoPanorama(
  */
 export function mapaVazio(mapa: MapaDoPanorama): boolean {
   if (mapa.eixo === "unidades") return mapa.linhas.length === 0;
-  return mapa.entraram === 0 && mapa.sairam === 0 && mapa.ativos === null && mapa.equipamento === null;
+  const { movimento } = mapa;
+  return (
+    mapa.tipos.length === 0 &&
+    movimento.entraram === 0 &&
+    movimento.sairam === 0 &&
+    movimento.frota === null
+  );
 }
 
 // ---------------------------------------------------------------------------

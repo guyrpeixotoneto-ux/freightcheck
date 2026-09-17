@@ -685,6 +685,9 @@ function Corpo({
           alteracoes: unidade.summary.changes,
         }))
       : [],
+    /* O recorte é o mesmo dos outros cartões, e o destino segue a regra do
+       placar: na Visão Geral a linha não aponta para tela de unidade. */
+    { recorte: daVigencia, comDestino },
   );
 
   const familiaAberta = parametros.get("familia");
@@ -779,13 +782,15 @@ function Corpo({
         às duas faria a escada apertar para sobrar espaço em branco na lista.
       */}
       {/*
-        As colunas esticam juntas (`items-stretch`, o padrão da grade) em vez de
-        pararem cada uma na sua altura: uma lista de duas linhas ao lado de um
-        gráfico de 300px terminaria 200px acima dele, e o que sobra à direita não
-        é espaço em branco — é fundo de página no meio de uma faixa de conteúdo,
-        que se lê como cartão que não carregou.
+        Cada cartão para na altura do próprio conteúdo (`items-start`).
+
+        Esticá-los juntos foi a primeira tentativa, e ela troca um vazio por
+        outro pior: a lista de duas linhas ao lado de um gráfico de 300px ganha
+        um vão de 200px **dentro** da própria borda, e vão dentro de caixa se lê
+        como conteúdo que não carregou. Fundo de página embaixo de um cartão que
+        terminou não é vazio — é o fim do cartão.
       */}
-      <div className="grid gap-5 xl:grid-cols-5">
+      <div className="grid gap-5 items-start xl:grid-cols-5">
         <Superficie className="px-6 py-5 min-w-0 xl:col-span-3">
           <CabecalhoDaSuperficie
             titulo="Composição do impacto líquido"
@@ -857,7 +862,7 @@ function Corpo({
         Sem mapa a desenhar a faixa vira uma coluna só (`mapaVazio`): metade de
         uma dobra em branco se lê como cartão que não carregou.
       */}
-      <div className={cn("grid gap-5", !semMapa && "xl:grid-cols-2")}>
+      <div className={cn("grid gap-5 items-start", !semMapa && "xl:grid-cols-2")}>
         <Superficie className="px-6 py-5 min-w-0">
           {/*
             Barras divergentes, e não a linha do líquido sozinha.
@@ -1054,7 +1059,7 @@ function Carregando() {
           </div>
         </div>
       </div>
-      <div aria-hidden className="grid gap-5 xl:grid-cols-5">
+      <div aria-hidden className="grid gap-5 items-start xl:grid-cols-5">
         <div className="superficie px-6 py-5 space-y-4 xl:col-span-3">
           <div className="h-3 w-48 rounded bg-muted animate-pulse" />
           <div className="h-[220px] rounded-md bg-muted/40 animate-pulse" />

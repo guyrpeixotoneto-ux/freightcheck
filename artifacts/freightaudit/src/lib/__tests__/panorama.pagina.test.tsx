@@ -181,7 +181,14 @@ const VIGENCIA = {
     panorama: {
       bySeverity: [],
       byBadge: [],
-      byEquipment: [{ equipment: "Carreta", entityType: "CARRETA", changes: 61 }],
+      /*
+        Dois tipos, e o menos tocado com a frota maior: é o par que prova que o
+        ranking do "onde" ordena por alteração e não por tamanho de frota.
+      */
+      byEquipment: [
+        { equipment: "Carreta", entityType: "CARRETA", changes: 61, groups: 9, fleet: 71 },
+        { equipment: "Cavalo", entityType: "CAVALO", changes: 23, groups: 4, fleet: 62 },
+      ],
       pricing: {
         calculatedChanges: 7,
         excludedChanges: 0,
@@ -308,8 +315,22 @@ describe("a página do Panorama", () => {
     // 3 — quando e onde: a trajetória e o mapa, lado a lado
     expect(screen.getByText("Impacto das alterações por vigência")).toBeTruthy();
     expect(screen.getByText("abra a Linha do Tempo")).toBeTruthy();
-    expect(screen.getByText("Movimentação da frota")).toBeTruthy();
-    expect(screen.getByText("Carreta — o mais tocado")).toBeTruthy();
+    expect(screen.getByText("Onde aconteceu")).toBeTruthy();
+    /*
+      O ranking dos tipos, e não quatro tiles. O de baixo tem a frota maior e
+      aparece depois — a ordem é por alteração, que é a pergunta do andar.
+    */
+    const tipos = screen.getAllByRole("listitem").filter((li) => /frota de/.test(li.textContent!));
+    expect(tipos.map((li) => li.textContent)).toEqual([
+      expect.stringContaining("Carreta"),
+      expect.stringContaining("Cavalo"),
+    ]);
+    expect(tipos[0]!.textContent).toContain("9 parâmetros");
+    expect(tipos[0]!.textContent).toContain("frota de 71");
+    /* E a movimentação da frota virou rodapé, com o rótulo certo: 1.284 é a
+       frota entregue, e o cartão antigo a chamava de "Veículos ativos". */
+    expect(screen.getByText(/na frota/)).toBeTruthy();
+    expect(screen.queryByText("Veículos ativos")).toBeNull();
 
     // o rodapé — a procedência
     await waitFor(() => expect(screen.getByText("De onde vêm estes números")).toBeTruthy());

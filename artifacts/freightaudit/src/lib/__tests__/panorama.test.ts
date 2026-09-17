@@ -632,31 +632,28 @@ describe("o mapa vazio", () => {
     faixa em branco. Quem monta a grade precisa saber disto antes de desenhar —
     e precisa saber pela **mesma** regra que o cartão usa.
   */
-  it("uma frota que não se moveu e não tem ativo a contar não tem mapa", () => {
-    const leitura = leituraDaUnidade(
-      vigencia({
-        totals: {
-          changes: 0,
-          formatOnlyChanges: 0,
-          groups: 0,
-          vehiclesTouched: 0,
-          entitiesAdded: 0,
-          entitiesRemoved: 0,
-          unchanged: 0,
-          inconclusive: 0,
-        },
-        cockpit: {
-          baseline: { hasBaseline: true, seriesWithoutBaseline: [] },
-          kpis: {},
-          panorama: { byEquipment: [] },
-        } as unknown as CockpitView,
-      }),
-    );
-
-    expect(mapaVazio(mapaDoPanorama(leitura, null, []))).toBe(true);
+  it("uma vigência sem tipo tocado e sem frota declarada não tem mapa", () => {
+    const vazia = vigencia({
+      totals: {
+        changes: 0,
+        formatOnlyChanges: 0,
+        groups: 0,
+        vehiclesTouched: 0,
+        entitiesAdded: 0,
+        entitiesRemoved: 0,
+        unchanged: 0,
+        inconclusive: 0,
+      },
+      cockpit: {
+        baseline: { hasBaseline: true, seriesWithoutBaseline: [] },
+        kpis: {},
+        panorama: { byEquipment: [] },
+      } as unknown as CockpitView,
+    });
+    expect(mapaVazio(mapaDoPanorama(leituraDaUnidade(vazia), vazia, []))).toBe(true);
   });
 
-  it("com movimento de frota, tem", () => {
+  it("com tipo tocado ou frota declarada, tem", () => {
     const leitura = leituraDaUnidade(vigencia());
     expect(mapaVazio(mapaDoPanorama(leitura, vigencia(), []))).toBe(false);
   });
@@ -686,35 +683,143 @@ describe("as duas leituras", () => {
 // ---------------------------------------------------------------------------
 
 describe("o mapa", () => {
-  it("dentro de uma unidade fala de frota, com o equipamento mais tocado", () => {
+  const comTipos = (baldes: { equipment: string; entityType: string | null; changes: number; groups?: number; fleet?: number | null }[]) =>
+    vigencia({
+      cockpit: {
+        baseline: { hasBaseline: true, seriesWithoutBaseline: [] },
+        kpis: { fleet: 144, ativosNaFrota: 120, inativosNaFrota: 24 },
+        panorama: { byEquipment: baldes },
+      } as unknown as CockpitView,
+    });
+
+  const DESTINO = { recorte: RECORTE, comDestino: true };
+
+  it("dentro de uma unidade ranqueia os tipos de ativo, e por alteração", () => {
+    /*
+      A carreta tem a frota maior e mexeu menos. Ranquear por frota responderia
+      uma pergunta que ninguém fez — a frota é a mesma de vigência em vigência;
+      o que muda, e o que o andar pergunta, é onde esta vigência mexeu.
+    */
+    const view = comTipos([
+      { equipment: "Carreta", entityType: "CARRETA", changes: 23, groups: 5, fleet: 71 },
+      { equipment: "Cavalo", entityType: "CAVALO", changes: 244, groups: 15, fleet: 62 },
+    ]);
+    const mapa = mapaDoPanorama(leituraDaUnidade(view), view, [], DESTINO);
+
+    expect(mapa.eixo).toBe("tipos");
+    if (mapa.eixo !== "tipos") throw new Error("eixo errado");
+    expect(mapa.tipos.map((t) => t.nome)).toEqual(["Cavalo", "Carreta"]);
+    expect(mapa.tipos[0].alteracoes).toBe(244);
+    expect(mapa.tipos[0].proporcao).toBe(1);
+    expect(mapa.tipos[1].proporcao).toBeCloseTo(23 / 244, 5);
+    /* A linha diz em quantos parâmetros, e de que frota — é a razão entre os
+       dois que qualifica a contagem. */
+    expect(mapa.tipos[0].contexto).toBe("15 parâmetros · frota de 62");
+  });
+
+  it("a linha leva à lista de alterações daquele tipo, pelo código e não pelo nome", () => {
+    const view = comTipos([
+      { equipment: "Cavalo", entityType: "CAVALO", changes: 244, groups: 15, fleet: 62 },
+    ]);
+    const mapa = mapaDoPanorama(leituraDaUnidade(view), view, [], DESTINO);
+    if (mapa.eixo !== "tipos") throw new Error("eixo errado");
+
+    expect(mapa.tipos[0].href).toContain("entityType=CAVALO");
+    expect(mapa.tipos[0].href).toContain("scopeHash=hash-pe");
+  });
+
+  it("na Visão Geral a linha do tipo não aponta para tela de unidade", () => {
+    /*
+      A mesma recusa do placar: um endereço sem `scopeHash` cai na unidade
+      padrão do servidor, e a linha abriria a lista de **uma** debaixo de
+      números que somaram todas. (Aqui o eixo é o de unidades, e o de tipos nem
+      existe — o teste do destino vale para o caminho de unidade sem destino.)
+    */
+    const view = comTipos([
+      { equipment: "Cavalo", entityType: "CAVALO", changes: 244, groups: 15, fleet: 62 },
+    ]);
+    const mapa = mapaDoPanorama(leituraDaUnidade(view), view, [], {
+      recorte: RECORTE,
+      comDestino: false,
+    });
+    if (mapa.eixo !== "tipos") throw new Error("eixo errado");
+    expect(mapa.tipos[0].href).toBeNull();
+  });
+
+  it("um tipo sem alteração não entra na lista", () => {
+    /* Não é um tipo de zero alterações: é um tipo que esta vigência não tocou. */
+    const view = comTipos([
+      { equipment: "Cavalo", entityType: "CAVALO", changes: 244, groups: 15, fleet: 62 },
+      { equipment: "Trecho", entityType: "TRECHO", changes: 0, groups: 0, fleet: 9 },
+    ]);
+    const mapa = mapaDoPanorama(leituraDaUnidade(view), view, [], DESTINO);
+    if (mapa.eixo !== "tipos") throw new Error("eixo errado");
+    expect(mapa.tipos.map((t) => t.nome)).toEqual(["Cavalo"]);
+  });
+
+  it("uma resposta sem os dois campos novos não quebra a linha — ela cala", () => {
+    /*
+      `groups` e `fleet` podem faltar numa resposta de versão anterior ainda em
+      cache, e o tipo não protege contra o que já está gravado no navegador.
+      Zero parâmetros e frota nula são os dois casos em que a cláusula some, em
+      vez de publicar "0 parâmetros" para um tipo que teve 244 alterações.
+    */
+    const view = comTipos([{ equipment: "Cavalo", entityType: "CAVALO", changes: 244 }]);
+    const mapa = mapaDoPanorama(leituraDaUnidade(view), view, [], DESTINO);
+    if (mapa.eixo !== "tipos") throw new Error("eixo errado");
+
+    expect(mapa.tipos[0].alteracoes).toBe(244);
+    expect(mapa.tipos[0].contexto).toBe("");
+    expect(mapa.tipos[0].frota).toBeNull();
+  });
+
+  it("a movimentação da frota vem separada, e com a frota nomeada como frota", () => {
+    /*
+      O cartão antigo publicava `ativos: leitura.frota` debaixo do rótulo
+      "Veículos ativos" — 144 entregues onde os que respondem ATIVO eram 120.
+      Aqui as duas pontas viajam nomeadas, e a terceira (quem não trouxe a
+      coluna) não é inventada pela subtração.
+    */
     const view = vigencia();
-    const mapa = mapaDoPanorama(leituraDaUnidade(view), view, []);
-    expect(mapa.eixo).toBe("frota");
-    if (mapa.eixo !== "frota") throw new Error("eixo errado");
-    expect(mapa.entraram).toBe(3);
-    expect(mapa.sairam).toBe(1);
-    expect(mapa.ativos).toBe(144);
-    expect(mapa.equipamento?.nome).toBe("Carreta");
+    const mapa = mapaDoPanorama(leituraDaUnidade(view), view, [], DESTINO);
+    if (mapa.eixo !== "tipos") throw new Error("eixo errado");
+
+    expect(mapa.movimento).toEqual({
+      frota: 144,
+      ativos: 120,
+      inativos: 24,
+      entraram: 3,
+      sairam: 1,
+    });
   });
 
   it("na Visão Geral fala de unidades, e não desenha uma frota que não existe", () => {
-    const mapa = mapaDoPanorama(leituraDaVisaoGeral(overviewDe()), null, [
-      {
-        chave: "hash-pe",
-        label: "Pernambuco",
-        impacto: { periodicity: "MENSAL", amount: -18420 },
-        alteracoes: 61,
-      },
-      { chave: "hash-ba", label: "Bahia", impacto: null, alteracoes: 12 },
-    ]);
+    const mapa = mapaDoPanorama(
+      leituraDaVisaoGeral(overviewDe()),
+      null,
+      [
+        {
+          chave: "hash-pe",
+          label: "Pernambuco",
+          impacto: { periodicity: "MENSAL", amount: -18420 },
+          alteracoes: 61,
+        },
+        { chave: "hash-ba", label: "Bahia", impacto: null, alteracoes: 12 },
+      ],
+      { recorte: RECORTE, comDestino: false },
+    );
     expect(mapa.eixo).toBe("unidades");
     if (mapa.eixo !== "unidades") throw new Error("eixo errado");
     expect(mapa.linhas[0].negativo).toBe(true);
     expect(mapa.linhas[0].impacto).toContain("/mês");
+    /* A barra da unidade mede contra a maior do ranking — a mesma régua das
+       outras duas listas da tela. */
+    expect(mapa.linhas[0].proporcao).toBe(1);
     /* Sem valor apurado é `null`, e não R$ 0: a unidade pode ter alterações
        das quais nenhuma virou dinheiro. */
     expect(mapa.linhas[1].impacto).toBeNull();
     expect(mapa.linhas[1].negativo).toBeNull();
+    expect(mapa.linhas[1].proporcao).toBe(0);
   });
 });
 
