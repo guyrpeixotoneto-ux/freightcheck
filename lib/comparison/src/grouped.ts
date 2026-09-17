@@ -36,6 +36,7 @@ import {
 import { buildCockpit, type CockpitView } from "./cockpit";
 import { listPeriods } from "./consolidated";
 import {
+  anteriorDoSnapshot,
   channelSql,
   contextFilter,
   direcaoDoHistorico,
@@ -1153,11 +1154,31 @@ export async function getGroupedViewComDados(
     comparação abaixo, e por isso é escrita uma vez: as duas contam o mesmo par
     (uma por conjunto, outra por componente), e uma delas com outra régua faria
     a frota de um grupo ser a de uma comparação que a outra não enxergou.
+
+    Sem ponta pedida, vale **só a comparação canônica** de cada série: aquela
+    cujo lado A é a anterior dela. `direcaoDoHistorico` sozinho não bastava, e
+    a diferença entre os dois não é teórica.
+
+    Quem grava comparações não consecutivas é o próprio produto: o menu de par
+    das dezesseis auditorias calcula, e persiste, cada candidata contra o
+    "Para" aberto (`candidatas-do-par.ts`), de modo que abrir o menu uma vez
+    deixa no banco dezembro->agosto, janeiro->agosto, fevereiro->agosto... Todas
+    legítimas, nenhuma consecutiva. Somadas sob o mesmo `sb.effective_date`,
+    elas viravam alterações da vigência: medido em 17/09/2026, no banco de
+    prova, o total de uma vigência saiu de 267 para 1.169 depois de **uma**
+    candidata gravada, e o Panorama de Camaçari publicava 5.882 alterações onde
+    a leitura de intervalo — que já tinha esta régua — contava 267.
+    O total da vigência, o líquido, a cobertura e os veículos afetados passavam
+    a depender de alguém ter aberto um menu noutra tela.
+
+    É a mesma régua, escrita na mesma função, que `janela-de-comparacoes.ts`
+    aplica desde 16/09 — ali ela nasceu para a série da Linha do Tempo, e a
+    leitura da vigência ficou de fora.
   */
   const ladoA =
     de !== undefined
       ? sql`AND sa.effective_date = ${de}::date`
-      : sql`AND ${direcaoDoHistorico()}`;
+      : sql`AND cs.snapshot_a_id = ${anteriorDoSnapshot("sb")}`;
 
   // As comparações que terminam nesta vigência, uma por série.
   const { rows: sets } = await db.execute<{
@@ -1488,6 +1509,10 @@ export async function getAccumulatedImpact(
       CROSS JOIN LATERAL unnest(string_to_array(sb.entity_type_set, '+')) AS t
      WHERE ${contextFilter("sb", context)}
        AND ${direcaoDoHistorico()}
+       -- E só a canônica de cada vigência: um acumulado que somasse também as
+       -- comparações salteadas que o menu de par grava contaria o mesmo trecho
+       -- do histórico uma vez por candidata já aberta. Ver ladoA, acima.
+       AND cs.snapshot_a_id = ${anteriorDoSnapshot("sb")}
        AND t <> 'TRECHO'
   `);
   const { rows: span } = await db.execute<{ from: string | null; to: string | null }>(sql`
@@ -1497,6 +1522,9 @@ export async function getAccumulatedImpact(
       JOIN snapshot sa ON sa.id = cs.snapshot_a_id
      WHERE ${contextFilter("sb", context)}
        AND ${direcaoDoHistorico()}
+       -- As mesmas comparações que a consulta acima conta — as pontas do
+       -- acumulado são as do que ele soma, e não as de um conjunto maior.
+       AND cs.snapshot_a_id = ${anteriorDoSnapshot("sb")}
   `);
   const ids = [...new Set(sets.map((s) => s.id))];
   const rows = await loadChanges(db, ids);
