@@ -102,6 +102,9 @@ function relatarModelo(): void {
     }`,
   );
   console.log(`   Cabeçalho beta: nenhum — as duas ferramentas são GA`);
+  console.log(
+    `   Teto de tempo : ${Math.round(TETO_MS / 1000)}s (COMPRAS_BUSCA_TIMEOUT_MS)`,
+  );
 }
 
 function relatarOferta(o: OfertaAnalisada, i: number): void {
@@ -318,6 +321,14 @@ async function principal(): Promise<void> {
     descricao: argumento("descricao", "Pneu 295/80 R22.5 rodoviário"),
     quantidade: Number(argumento("quantidade", "40")),
     regiao: argumento("regiao", "Camaçari/BA"),
+    /*
+      Menos páginas é a válvula para o teto de tempo, e ela é a primeira a se
+      abrir: cada página é um download real, e seis delas são a maior parte dos
+      minutos que esta chamada leva. Três já produzem mediana e faixa — o que
+      se perde é pluralidade de fontes, e a confiança cai dizendo isso, que é o
+      comportamento certo.
+    */
+    maximoDePaginas: Number(argumento("paginas", "0")) || undefined,
     precoAtual: Number(argumento("preco-atual", "0")) || null,
     remuneracaoUnitaria: Number(argumento("remuneracao", "0")) || null,
     tetoEconomico: Number(argumento("teto", "0")) || null,
