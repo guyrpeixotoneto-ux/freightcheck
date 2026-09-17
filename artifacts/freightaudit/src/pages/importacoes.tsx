@@ -65,11 +65,19 @@ import {
 import { useAmbiente } from "@/lib/ambiente-aberto";
 import { hojeEm, MES_LONGO } from "@/lib/calendario";
 import {
+  EXPLICACAO_DA_SITUACAO,
+  NOME_DA_SITUACAO,
   quinzenasDoAcervo,
   semEnvio,
+  situacaoDaQuinzena,
   tipoJaEntrou,
   type LinhaDaQuinzena,
 } from "@/lib/quinzenas-do-acervo";
+import {
+  APARENCIA_DA_SITUACAO,
+  GradeDeQuinzenas,
+  LegendaDasSituacoes,
+} from "@/components/importacoes/quinzenas";
 import { useContextosDaCasca } from "@/lib/contextos";
 import { escopoDaTela } from "@/lib/escopo-da-tela";
 import { nomeDaUnidade } from "@/lib/recorte";
@@ -326,20 +334,20 @@ function QuinzenasDoTipo({
   linhas: LinhaDaQuinzena<ImportRun>[];
   tipo: DefinicaoDeTipo;
   onAbrir: (importRunId: string) => void;
-  /** Enviar **por esta linha** — é ela que declara a quinzena. */
+  /** Enviar **por esta casa** — é ela que declara a quinzena. */
   onEnviar: (inicioDaQuinzena: string) => void;
   enviando: boolean;
 }) {
   /*
     Duas ausências que parecem a mesma, e só uma é falta — ver `tipoJaEntrou`.
-    Numa unidade que nunca entregou Trecho, a coluna vazia não afirma nada que o
+    Numa unidade que nunca entregou Trecho, a casa vazia não afirma nada que o
     produto saiba; o alarme fica para o que ela entrega e faltou.
   */
   const jaEntrou = tipoJaEntrou(linhas, tipo.code);
   const faltando = jaEntrou ? semEnvio(linhas, tipo.code) : [];
   return (
-    <div className="superficie px-6 py-5 space-y-3">
-      <div className="flex items-start justify-between gap-4">
+    <div className="superficie px-6 py-5 space-y-4">
+      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
         <div className="min-w-0">
           <h2 className="text-sm font-bold">
             {tipo.rotulo} — quinzena a quinzena, nesta unidade
@@ -347,117 +355,43 @@ function QuinzenasDoTipo({
           <p className="text-xs text-muted-foreground mt-0.5">
             {jaEntrou ? (
               <>
-                As quinzenas do calendário, com o que entrou em cada uma. A
-                quinzena sem envio não é uma pendência declarada: é o calendário
-                dizendo que ela existe, e o acervo dizendo que nada de{" "}
+                As quinzenas do calendário, com o que entrou em cada uma. A casa
+                sem envio não é uma pendência declarada: é o calendário dizendo
+                que ela existe, e o acervo dizendo que nada de{" "}
                 {tipo.rotulo.toLowerCase()} entrou nela.
               </>
             ) : (
               <>
                 Nenhuma planilha de {tipo.rotulo.toLowerCase()} entrou nesta
-                unidade — nem nesta janela, nem antes dela. As quinzenas abaixo
-                são o calendário, e não uma cobrança: o produto não sabe se esta
+                unidade — nem nesta janela, nem antes dela. As casas abaixo são o
+                calendário, e não uma cobrança: o produto não sabe se esta
                 operação entrega {tipo.rotulo.toLowerCase()}.
               </>
             )}
           </p>
         </div>
-        {faltando.length > 0 && (
-          <span className={cn("shrink-0 rounded-full border px-3 py-1 text-xs font-medium", TONS.espera)}>
-            {plural(faltando.length, "quinzena sem envio", "quinzenas sem envio")}
-          </span>
-        )}
-      </div>
-
-      <div className="space-y-2">
-        {linhas.map((linha) => {
-          const envios = linha.porTipo.get(tipo.code) ?? [];
-          const vazia = envios.length === 0;
-          return (
-            <div
-              key={linha.periodo.chave}
+        <div className="flex flex-col items-end gap-2">
+          {faltando.length > 0 && (
+            <span
               className={cn(
-                "flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border px-4 py-2.5",
-                vazia && !linha.emCurso && jaEntrou
-                  ? "border-amber-200 bg-amber-50/60 border-dashed"
-                  : "bg-white",
-                vazia && !jaEntrou && "border-dashed",
+                "shrink-0 rounded-full border px-3 py-1 text-xs font-medium",
+                TONS.espera,
               )}
             >
-              <span className="text-sm font-semibold w-56 shrink-0">
-                {rotuloDaQuinzena(linha.periodo)}
-              </span>
-              {linha.emCurso && (
-                <span className="text-[0.6875rem] text-muted-foreground">
-                  em curso ({emDia(linha.periodo.inicio)}–{emDia(linha.periodo.fim)})
-                </span>
-              )}
-              {vazia && (
-                <span
-                  className={cn(
-                    "text-xs",
-                    jaEntrou ? "text-amber-900" : "text-muted-foreground",
-                  )}
-                >
-                  {linha.emCurso
-                    ? `nada de ${tipo.rotulo.toLowerCase()} entrou ainda nesta quinzena`
-                    : `nenhuma planilha de ${tipo.rotulo.toLowerCase()} entrou nesta quinzena`}
-                </span>
-              )}
-              {vazia && (
-                /*
-                  O envio da linha — e é o botão que declara a quinzena.
-
-                  Enviar por aqui diz "esta quinzena", do mesmo jeito que a aba
-                  diz "este tipo", e a importação confere as duas contra o
-                  conteúdo antes de deixar entrar: o arquivo cujo rótulo diz
-                  outra quinzena é recusado por `QUINZENA_DIVERGE_DA_DECLARACAO`,
-                  em vez de entrar calado na vigência que ele nomeia.
-                */
-                <button
-                  onClick={() => onEnviar(linha.periodo.inicio)}
-                  disabled={enviando}
-                  className={cn(
-                    "ml-auto shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium",
-                    "bg-foreground text-background hover:opacity-90",
-                    enviando && "opacity-50 cursor-not-allowed",
-                  )}
-                >
-                  <Upload className="w-3.5 h-3.5 inline-block mr-1.5 -mt-0.5" />
-                  Enviar esta quinzena
-                </button>
-              )}
-              {!vazia && (
-                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                  {envios.map(({ run, label }) => (
-                    <button
-                      key={run.importRunId}
-                      onClick={() => onAbrir(run.importRunId)}
-                      className="inline-flex items-center gap-2 text-xs text-left hover:underline"
-                      title={`Abrir o cartão de ${run.filename}`}
-                    >
-                      <span
-                        className={cn(
-                          "rounded-full border px-2 py-0.5 text-[0.6875rem] font-medium",
-                          TONS.ok,
-                        )}
-                      >
-                        entrou
-                      </span>
-                      <span className="font-mono text-[0.6875rem] text-muted-foreground">
-                        {label}
-                      </span>
-                      <span className="text-muted-foreground truncate max-w-[22rem]">
-                        {run.filename}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })}
+              {plural(faltando.length, "quinzena sem envio", "quinzenas sem envio")}
+            </span>
+          )}
+          <LegendaDasSituacoes />
+        </div>
       </div>
+
+      <GradeDeQuinzenas
+        linhas={linhas}
+        tipo={tipo}
+        onAbrir={onAbrir}
+        onEnviar={onEnviar}
+        enviando={enviando}
+      />
     </div>
   );
 }
@@ -485,14 +419,15 @@ function GradeDasQuinzenas({
   );
   return (
     <div className="superficie px-6 py-5 space-y-3">
-      <div>
-        <h2 className="text-sm font-bold">Quinzena × tipo, nesta unidade</h2>
+      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+        <div className="min-w-0">
+          <h2 className="text-sm font-bold">Quinzena × tipo, nesta unidade</h2>
         <p className="text-xs text-muted-foreground mt-0.5">
-          As quinzenas do calendário e os tipos que esta operação recebe. Em
-          amarelo, a quinzena sem envio de um tipo que esta unidade entrega; em
-          cinza, o tipo que ela nunca entregou — que é ausência, não falta.
-          Clique numa coluna para abrir a aba dela, que é de onde se envia.
+          As quinzenas do calendário e os tipos que esta operação recebe. Clique
+          numa coluna para abrir a aba dela, que é de onde se envia.
         </p>
+        </div>
+        <LegendaDasSituacoes />
       </div>
       <div className="overflow-x-auto">
         <table className="w-full text-xs border-separate border-spacing-y-1">
@@ -524,27 +459,31 @@ function GradeDasQuinzenas({
                 </td>
                 {tipos.map((tipo) => {
                   const envios = linha.porTipo.get(tipo.code) ?? [];
-                  const vazia = envios.length === 0;
-                  /* A coluna de um tipo que nunca entrou não é falta — é
-                     desconhecimento, e ele é dito em cinza. */
-                  const alarme = vazia && !linha.emCurso && entregues.has(tipo.code);
+                  /*
+                    A mesma situação da grade, e as mesmas cores: `Todas` e a
+                    aba do tipo mostram o mesmo acervo, e duas paletas fariam a
+                    mesma casa mudar de significado ao trocar de aba.
+                  */
+                  const situacao = situacaoDaQuinzena(
+                    linha,
+                    tipo.code,
+                    entregues.has(tipo.code),
+                  );
                   return (
                     <td key={tipo.code} className="px-1">
                       <button
                         onClick={() => onEscolher(tipo)}
                         className={cn(
                           "w-full rounded-lg border px-2 py-1.5 text-[0.6875rem] font-medium",
-                          vazia && !alarme && "border-dashed text-muted-foreground",
-                          alarme && `border-dashed ${TONS.espera}`,
-                          !vazia && TONS.ok,
+                          APARENCIA_DA_SITUACAO[situacao].celula,
                         )}
                         title={
-                          vazia
-                            ? `Nada de ${tipo.rotulo.toLowerCase()} entrou nesta quinzena`
-                            : envios.map((e) => e.run.filename).join(", ")
+                          envios.length > 0
+                            ? envios.map((e) => e.run.filename).join(", ")
+                            : EXPLICACAO_DA_SITUACAO[situacao]
                         }
                       >
-                        {vazia ? "sem envio" : "entrou"}
+                        {NOME_DA_SITUACAO[situacao].toLowerCase()}
                       </button>
                     </td>
                   );
@@ -1970,11 +1909,32 @@ function Dropzone({
       </div>
       <div className="min-w-0">
         <p className="font-semibold">
-          {busy ? "Lendo…" : `Escolher planilhas de ${tipo.rotulo}`}
+          {busy
+            ? "Lendo…"
+            : `Escolher planilhas de ${tipo.rotulo} — uma quinzena ou o acumulado`}
         </p>
         <p className="text-sm text-muted-foreground">
-          {tipo.descricao} Pode enviar mais de uma de uma vez. O arquivo é lido
-          e conferido contra o tipo desta aba, mas
+          {tipo.descricao} Pode enviar mais de uma de uma vez.{" "}
+          {/*
+            O envio do topo é o do **acumulado**, e isso passou a ser dito.
+
+            Ele sempre aceitou o arquivo com várias quinzenas dentro — o pipeline
+            abre uma vigência por rótulo, e a grade acima acende sozinha a casa de
+            cada quinzena que o arquivo cobrir. O que faltava era a tela dizer
+            isso: sem a frase, quem quer mandar o consolidado do mês inteiro fica
+            procurando um botão que já estava aqui, e quem manda pela casa de uma
+            quinzena leva uma recusa sem entender por onde o consolidado entra.
+
+            E é por isso que ele **não** declara quinzena: um arquivo de cinco
+            quinzenas não é de nenhuma delas em particular, e declarar uma seria
+            afirmar o que não é verdade — a conferência da quinzena vale para o
+            envio que escolheu uma, na casa dela.
+          */}
+          Um arquivo com <strong className="text-foreground">várias
+          quinzenas</strong> dentro entra por aqui: cada quinzena que ele cobrir
+          acende sozinha na grade abaixo. Para mandar uma quinzena só, e ter a
+          conferência de que o arquivo é dela mesmo, use o envio da casa dela.{" "}
+          O arquivo é lido e conferido contra o tipo desta aba, mas
           <strong className="text-foreground"> nada entra</strong> antes de você
           ver o resumo e aprovar.
         </p>

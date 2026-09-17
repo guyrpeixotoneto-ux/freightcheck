@@ -23,6 +23,16 @@ export interface LinhaSpec {
   /** O turno, só nas abas de QLP Operacional, onde ele completa a chave. */
   turno?: string;
   /**
+   * A vigência desta linha, quando ela não é a do arquivo.
+   *
+   * Existe para escrever o **acumulado**: um arquivo só, com mais de uma
+   * quinzena dentro. `Vigencia` é coluna de linha no export de verdade, e é
+   * assim que o consolidado chega — não como um arquivo por quinzena, e sim
+   * como linhas de quinzenas diferentes na mesma aba. Sem isto, um teste sobre
+   * acumulado teria de fingir o formato que o cliente não manda.
+   */
+  vigencia?: string;
+  /**
    * A unidade desta linha, quando ela não é a do arquivo.
    *
    * Existe para escrever o único caso que a chave do QLP precisa sustentar:
@@ -143,7 +153,7 @@ export function escreverPlanilha(spec: PlanilhaSpec, nomeArquivo?: string): stri
 
     for (const linha of aba.linhas) {
       linhas.push([
-        spec.vigencia,
+        linha.vigencia ?? spec.vigencia,
         linha.unidadeCnpj ??
           (spec.unidadeCnpj === null ? "" : (spec.unidadeCnpj ?? "07.526.557/0015-05")),
         linha.unidadeNome ?? spec.unidadeNome ?? "CAMACARI",

@@ -172,6 +172,67 @@ function recuar(periodo: PeriodoDaQuinzena, passos: number): PeriodoDaQuinzena {
 }
 
 /**
+ * AS QUATRO SITUAÇÕES DE UMA QUINZENA, num tipo — o vocabulário da grade.
+ *
+ * A forma é a das Visões Gerenciais da Auditoria e do Fechamento, de propósito:
+ * quem lê as três não deve ter de reaprender o que uma casa do calendário diz.
+ * O que muda é o significado de cada uma, e isso não pode ser partilhado — lá a
+ * casa cheia é a competência encerrada ou a vigência comparada; aqui é a
+ * planilha que entrou.
+ *
+ * **Só uma é alarme, e a distinção é o cuidado desta tela.** `SEM_ENVIO` é a
+ * quinzena terminada de um tipo que esta unidade **entrega** e em que nada
+ * entrou — a única em que há motivo para alguém olhar. `NUNCA_ENTREGUE` é a
+ * outra ausência, a do tipo que a unidade nunca entregou: pode ser que a
+ * operação não o tenha, pode ser que ninguém nunca tenha mandado, e o produto
+ * não registra qual das duas. Pintar as duas igual seria gritar sobre o que não
+ * se sabe.
+ */
+export type SituacaoDaQuinzena =
+  /** Uma planilha daquele tipo entrou nesta quinzena. */
+  | "ENTROU"
+  /** A quinzena terminou, a unidade entrega este tipo, e nada entrou. */
+  | "SEM_ENVIO"
+  /** A quinzena ainda está correndo — o que falta nela pode não ser falta. */
+  | "EM_CURSO"
+  /** Esta unidade nunca entregou este tipo. Ausência, e não falta. */
+  | "NUNCA_ENTREGUE";
+
+export const NOME_DA_SITUACAO: Record<SituacaoDaQuinzena, string> = {
+  ENTROU: "Entrou",
+  SEM_ENVIO: "Sem envio",
+  EM_CURSO: "Em curso",
+  NUNCA_ENTREGUE: "Nunca entregue",
+};
+
+export const EXPLICACAO_DA_SITUACAO: Record<SituacaoDaQuinzena, string> = {
+  ENTROU: "Uma planilha deste tipo entrou nesta quinzena e virou vigência.",
+  SEM_ENVIO:
+    "A quinzena terminou e nada deste tipo entrou nela — e esta unidade entrega este tipo nas outras.",
+  EM_CURSO: "A quinzena ainda está correndo; o que não entrou pode ainda entrar.",
+  NUNCA_ENTREGUE:
+    "Nada deste tipo entrou nesta unidade, em quinzena nenhuma. O produto não sabe se ela deveria entregá-lo.",
+};
+
+/**
+ * Em que situação está uma quinzena, para um tipo.
+ *
+ * A ordem das perguntas é o desenho: o envio manda sobre tudo (uma quinzena em
+ * curso que já recebeu planilha está cheia, não correndo), e "nunca entregue" é
+ * a última — ela descreve a coluna inteira, e só vale dizer quando aquela
+ * quinzena não tem nada para dizer por si.
+ */
+export function situacaoDaQuinzena<T extends RunComVigencias>(
+  linha: LinhaDaQuinzena<T>,
+  tipo: string,
+  jaEntrou: boolean,
+): SituacaoDaQuinzena {
+  if ((linha.porTipo.get(tipo) ?? []).length > 0) return "ENTROU";
+  if (linha.emCurso) return "EM_CURSO";
+  return jaEntrou ? "SEM_ENVIO" : "NUNCA_ENTREGUE";
+}
+
+/**
  * Esta unidade já entregou este tipo alguma vez?
  *
  * **É a diferença entre duas ausências que parecem a mesma.** Uma quinzena de

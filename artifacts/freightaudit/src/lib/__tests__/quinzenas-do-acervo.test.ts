@@ -3,6 +3,7 @@ import {
   JANELA,
   quinzenasDoAcervo,
   semEnvio,
+  situacaoDaQuinzena,
   tipoJaEntrou,
   tiposDaVigencia,
   type RunComVigencias,
@@ -203,5 +204,65 @@ describe("a ausência que não é falta", () => {
     expect(tipoJaEntrou(linhas, "CAVALO")).toBe(true);
     // Trecho nunca entrou: a coluna vazia não afirma falta nenhuma.
     expect(tipoJaEntrou(linhas, "TRECHO")).toBe(false);
+  });
+});
+
+describe("a situação de cada casa da grade", () => {
+  const casa = (chave: string, runs: RunComVigencias[], hoje = HOJE) =>
+    quinzenasDoAcervo(runs, hoje).find((l) => l.periodo.chave === chave)!;
+
+  it("a quinzena com envio entrou, mesmo estando em curso", () => {
+    // O envio manda sobre tudo: uma quinzena corrente que já recebeu planilha
+    // está cheia, não correndo.
+    const corrente = run({
+      importRunId: "corrente",
+      vigencias: [vigencia("2026-09-16", ["CAVALO"])],
+    });
+
+    expect(situacaoDaQuinzena(casa("2026-09-Q2", [corrente]), "CAVALO", true)).toBe(
+      "ENTROU",
+    );
+  });
+
+  it("a quinzena corrente e vazia está em curso, e não faltando", () => {
+    expect(situacaoDaQuinzena(casa("2026-09-Q2", []), "CAVALO", true)).toBe(
+      "EM_CURSO",
+    );
+  });
+
+  it("a quinzena terminada e vazia de um tipo que a unidade entrega é falta", () => {
+    expect(situacaoDaQuinzena(casa("2026-08-Q1", []), "CAVALO", true)).toBe(
+      "SEM_ENVIO",
+    );
+  });
+
+  it("a mesma casa, num tipo que a unidade nunca entregou, não é falta", () => {
+    expect(situacaoDaQuinzena(casa("2026-08-Q1", []), "TRECHO", false)).toBe(
+      "NUNCA_ENTREGUE",
+    );
+  });
+});
+
+describe("o acumulado", () => {
+  it("um arquivo com duas quinzenas acende as duas casas", () => {
+    // É o que o envio do topo faz: o pipeline abre uma vigência por rótulo, e
+    // cada quinzena que o arquivo cobrir aparece sozinha na grade.
+    const consolidadoDoMes = run({
+      importRunId: "agosto-inteiro",
+      vigencias: [
+        vigencia("2026-08-01", ["CAVALO"], "EMPURRADA_1_8_2026"),
+        vigencia("2026-08-16", ["CAVALO"], "EMPURRADA_2_8_2026"),
+      ],
+    });
+
+    const linhas = quinzenasDoAcervo([consolidadoDoMes], HOJE);
+    const q1 = linhas.find((l) => l.periodo.chave === "2026-08-Q1")!;
+    const q2 = linhas.find((l) => l.periodo.chave === "2026-08-Q2")!;
+
+    expect(situacaoDaQuinzena(q1, "CAVALO", true)).toBe("ENTROU");
+    expect(situacaoDaQuinzena(q2, "CAVALO", true)).toBe("ENTROU");
+    // E o mesmo arquivo aparece nas duas, uma vez em cada.
+    expect(q1.porTipo.get("CAVALO")).toHaveLength(1);
+    expect(q2.porTipo.get("CAVALO")).toHaveLength(1);
   });
 });

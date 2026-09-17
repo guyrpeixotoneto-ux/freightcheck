@@ -197,10 +197,14 @@ function motivoDoImpedimento(
       );
     }
     if (issue.code === "QUINZENA_DIVERGE_DA_DECLARACAO") {
-      return (
-        `${issue.sample} Nada foi importado: envie o arquivo pela linha da quinzena a que ` +
-        `ele pertence, ou confira se este é mesmo o arquivo que você queria enviar.`
-      );
+      /*
+        O texto da recusa já sabe distinguir os dois casos — o arquivo de outra
+        quinzena e o acumulado mandado pela casa de uma —, e a saída de cada um
+        está na própria mensagem (`comoCorrigir`, em `conferirQuinzenaDeclarada`).
+        Repetir aqui uma saída fixa mandaria metade das recusas para o lugar
+        errado, que é o defeito que a frase fixa da duplicidade já causou uma vez.
+      */
+      return `${issue.sample} Nada foi importado.`;
     }
     if (issue.code === "TIPO_DIVERGE_DA_DECLARACAO") {
       return (
@@ -2945,26 +2949,57 @@ async function conferirQuinzenaDeclarada(
   const comoSeLe = (data: string) =>
     `${data.slice(8, 10) === "01" ? "1ª" : "2ª"} quinzena de ${data.slice(5, 7)}/${data.slice(0, 4)}`;
   const achadas = [...new Set(divergentes.map((v) => comoSeLe(v.data as string)))];
-  const resumo =
-    `Este arquivo foi enviado pela ${comoSeLe(declarada)}, e o que ele traz dentro é ` +
-    `${achadas.length === 1 ? "a " : "as "}${achadas.join(", ")} ` +
-    `(${[...new Set(divergentes.map((v) => v.label))].join(", ")}).`;
+  /*
+    Duas recusas diferentes, e a saída de cada uma é outra.
+
+    O arquivo **de outra** quinzena é engano de linha: a saída é a casa da
+    quinzena a que ele pertence. O arquivo que traz a declarada **e mais
+    outras** é um acumulado mandado pela casa de uma — e mandar para outra casa
+    não resolveria nada, porque ele não é de nenhuma delas em particular. A
+    saída dele é o envio do topo, que não declara quinzena e deixa cada quinzena
+    coberta acender sozinha na grade. Uma frase só para os dois casos mandaria
+    metade das pessoas para o lugar errado.
+  */
+  const cobreADeclarada = rotulos.some(
+    (r) => parseVigenciaLabel(r.label).effectiveDate === declarada,
+  );
+  const resumo = cobreADeclarada
+    ? `Este arquivo foi enviado pela ${comoSeLe(declarada)}, e traz ${achadas.length + 1} quinzenas dentro: ` +
+      `a declarada e ${achadas.length === 1 ? "mais a " : "mais as "}${achadas.join(", ")}.`
+    : `Este arquivo foi enviado pela ${comoSeLe(declarada)}, e o que ele traz dentro é ` +
+      `${achadas.length === 1 ? "a " : "as "}${achadas.join(", ")} ` +
+      `(${[...new Set(divergentes.map((v) => v.label))].join(", ")}).`;
+  const comoCorrigir = cobreADeclarada
+    ? "Um arquivo com mais de uma quinzena entra pelo envio do topo da aba, que não " +
+      "declara quinzena — cada quinzena que ele cobrir acende sozinha na grade. A casa " +
+      "de uma quinzena é para o arquivo que é só dela, e é ela que confere isso."
+    : "Envie o arquivo pela casa da quinzena a que ele pertence — ou confira se " +
+      "este é mesmo o arquivo que você queria enviar. Nada foi importado.";
 
   await db.insert(validationIssueTable).values({
     importRunId,
     severity: "ERROR",
     code: "QUINZENA_DIVERGE_DA_DECLARACAO",
-    message: resumo,
+    /*
+      A mensagem leva a saída dentro, e não só o diagnóstico.
+
+      `message` é o que vira `failureReason` do run — o texto que o cartão
+      mostra como motivo da recusa. Deixá-lo só com o diagnóstico mandaria quem
+      lê procurar o que fazer nos apontamentos, um clique adiante; e a saída é
+      justamente a parte que muda entre os dois casos. A `apresentacao` continua
+      com as duas partes separadas, que é como a tela as desenha.
+    */
+    message: `${resumo} ${comoCorrigir}`,
     detail: {
       declarada,
       encontradas: [...new Set(divergentes.map((v) => v.data))],
       rotulos: [...new Set(divergentes.map((v) => v.label))],
       apresentacao: {
-        titulo: "O arquivo não é da quinzena escolhida no envio",
+        titulo: cobreADeclarada
+          ? "O arquivo traz mais de uma quinzena"
+          : "O arquivo não é da quinzena escolhida no envio",
         resumo,
-        comoCorrigir:
-          "Envie o arquivo pela linha da quinzena a que ele pertence — ou confira se " +
-          "este é mesmo o arquivo que você queria enviar. Nada foi importado.",
+        comoCorrigir,
         porQueImporta:
           "A quinzena errada entra calada: o arquivo é da vigência que o rótulo dele diz, " +
           "e o engano só aparece depois, quando uma quinzena tiver sido lida duas vezes e " +
