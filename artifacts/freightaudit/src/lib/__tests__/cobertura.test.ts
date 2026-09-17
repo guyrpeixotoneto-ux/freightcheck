@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { escopoDaCobertura, paramsDaCobertura } from "../cobertura";
+import { paramsDaCobertura } from "../cobertura";
+import { escopoDaTela } from "../escopo-da-tela";
 import type { Contexto } from "../contextos";
 
 /**
@@ -42,7 +43,7 @@ const CONTEXTOS = [PERNAMBUCO, CAMACARI];
 const FILTROS = { vigencias: 6, criticidade: "TODAS", equipamento: "TODOS" };
 
 const escopo = (search: string, contextos = CONTEXTOS, carregando = false) =>
-  escopoDaCobertura({ contextos, carregando, pathname: "/dados", search });
+  escopoDaTela({ contextos, carregando, pathname: "/dados", search });
 
 const consulta = (search: string, filtros = FILTROS) =>
   Object.fromEntries(paramsDaCobertura(escopo(search), filtros));
@@ -85,7 +86,7 @@ describe("de quem é a medição", () => {
     const semCanal = [contexto("MANAUS", "hash-man", null)];
     const query = Object.fromEntries(
       paramsDaCobertura(
-        escopoDaCobertura({
+        escopoDaTela({
           contextos: semCanal,
           carregando: false,
           pathname: "/dados",

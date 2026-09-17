@@ -19,7 +19,8 @@ import type {
   VisaoDaCobertura,
 } from "@/components/cobertura/tipos";
 import { fetchJson } from "@/lib/api";
-import { escopoDaCobertura, paramsDaCobertura } from "@/lib/cobertura";
+import { paramsDaCobertura } from "@/lib/cobertura";
+import { escopoDaTela } from "@/lib/escopo-da-tela";
 import { useContextosDaCasca } from "@/lib/contextos";
 import { enderecoDeVisaoGeral } from "@/lib/navegacao-do-escopo";
 import { nomeDaUnidade } from "@/lib/recorte";
@@ -116,7 +117,7 @@ export default function Dados() {
   const search = useSearch();
   const [pathname] = useLocation();
   const { contextos, carregando: carregandoContextos } = useContextosDaCasca();
-  const escopo = escopoDaCobertura({
+  const escopo = escopoDaTela({
     contextos,
     carregando: carregandoContextos,
     pathname,

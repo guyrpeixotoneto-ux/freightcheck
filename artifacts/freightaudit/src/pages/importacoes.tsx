@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useLocation, useSearch } from "wouter";
+import { Link, useLocation, useSearch } from "wouter";
 import {
   AlertTriangle,
   Ban,
@@ -63,6 +63,10 @@ import {
   type PapelNoArquivo,
 } from "@/lib/importacoes";
 import { useAmbiente } from "@/lib/ambiente-aberto";
+import { useContextosDaCasca } from "@/lib/contextos";
+import { escopoDaTela } from "@/lib/escopo-da-tela";
+import { nomeDaUnidade } from "@/lib/recorte";
+import { enderecoDeVisaoGeral } from "@/lib/navegacao-do-escopo";
 import { type Ambiente } from "@/lib/ambiente";
 import { rotuloDoTipo } from "@/lib/frota";
 import { cn } from "@/lib/utils";
@@ -215,6 +219,39 @@ interface ImportRun {
  * Exportada porque o recorte é um contrato da tela, e o teste dele mora em
  * `__tests__/importacoes-abas.test.ts`.
  */
+/**
+ * Esta importação entra no recorte da unidade aberta na lateral?
+ *
+ * Três respostas, e as três são deliberadas:
+ *
+ * - **sem unidade aberta** (acervo vazio, `/contexts` fora do ar, ou a visão
+ *   geral escolhida por escrito) não há recorte, e tudo entra;
+ * - **importação sem unidade** — a que ainda não promoveu — entra em todas, pela
+ *   mesma razão que a faz aparecer em todas as operações: enquanto o rótulo não
+ *   virou vigência não há de quem ela seja, e escondê-la faria quem acabou de
+ *   enviar o arquivo achar que o envio se perdeu;
+ * - **as demais** entram quando trazem aquela unidade — e o consolidado de cinco
+ *   unidades entra no recorte das cinco, que é o que ele é.
+ *
+ * A comparação é pelo **código**, e crua. Os dois lados leem a mesma linha de
+ * `scope` — `/contexts` para a lateral, `snapshot_scope` para a importação —, de
+ * modo que o mesmo CNPJ chega escrito igual nos dois; e casar por nome traria a
+ * doença que `normalizarUnidade` (`@workspace/comparison`) existe para descrever:
+ * `CAMAÇARI`, `Camaçari` e `camacari ` são a mesma unidade e três palavras. Um
+ * casamento mais frouxo que o do código só se alargaria sozinho, e um recorte
+ * que se alarga sozinho mostra os envios de uma unidade sob o nome de outra.
+ *
+ * Exportada porque o recorte é um contrato da tela, e o teste dele mora em
+ * `__tests__/importacoes-abas.test.ts`.
+ */
+export const importacaoDaUnidade = (
+  run: { unidades: UnidadeDaImportacao[] },
+  code: string | null,
+): boolean =>
+  code === null ||
+  run.unidades.length === 0 ||
+  run.unidades.some((unidade) => unidade.code.trim() === code.trim());
+
 /** Uma unidade como a importação a entregou: o CNPJ da planilha, e o nome. */
 export interface UnidadeDaImportacao {
   code: string;
@@ -441,7 +478,37 @@ interface RunStatus {
  */
 export default function Importacoes() {
   const search = useSearch();
-  const [, navegar] = useLocation();
+  const [pathname, navegar] = useLocation();
+
+  /*
+    De quem é esta tela — a mesma régua das outras que honram escopo
+    (`escopoDaTela`, e `TELAS_QUE_HONRAM_ESCOPO` em `lib/navegacao-do-escopo.ts`).
+
+    O histórico listava os envios de todas as unidades enquanto a caixa "Unidade
+    atual" da lateral, logo ao lado, nomeava uma — o mesmo desencontro que a
+    Cobertura de dados teve, e que aqui vai doer na primeira unidade nova: dois
+    cartões idênticos, de operações diferentes, um embaixo do outro.
+
+    Trocar de unidade na lateral recorta o histórico **sem trocar de tela**, e é
+    isso que estar naquela lista promete. A unidade não vira aba porque ela não
+    é declaração — ver `importacaoDaUnidade`, e a fileira de abas logo abaixo,
+    que continua sendo acervo × tipo.
+  */
+  const { contextos, carregando: carregandoContextos } = useContextosDaCasca();
+  const escopo = escopoDaTela({
+    contextos,
+    carregando: carregandoContextos,
+    pathname,
+    search,
+  });
+  /*
+    O contexto pode existir sem escopo `UNIDADE` cadastrado — e aí não há
+    recorte, em vez de um recorte por um código que ninguém tem. Uma tela sem
+    recorte mostra tudo, que é o comportamento de sempre; uma tela recortada por
+    um código inexistente abriria vazia sobre um acervo cheio.
+  */
+  const unidadeDoRecorte =
+    escopo.contexto?.scopes.find((e) => e.scopeType === "UNIDADE") ?? null;
 
   /*
     Qual execução está aberta mora no endereço.
@@ -591,17 +658,47 @@ export default function Importacoes() {
     aparece aqui na contagem de cada aba, que conta o que o clique abre.
   */
   /*
-    Dois recortes, nesta ordem, e a ordem é a das fileiras: o **acervo** troca a
-    população inteira (o histórico do real não é o do remunerado nem uma parte
-    dele), e a **aba de tipo** recorta dentro do que sobrou.
+    Três recortes, nesta ordem, e a ordem é a do trabalho: a **unidade** troca a
+    população inteira (os envios de Jaguariúna não são uma parte dos de
+    Camaçari), o **acervo** troca de novo (o histórico do real não é o do
+    remunerado), e a **aba de tipo** recorta dentro do que sobrou.
+
+    A unidade vem primeiro de propósito: as contagens ao lado de cada aba contam
+    o que o clique abre, e contá-las sobre o acervo inteiro escreveria "Cavalo 12"
+    numa tela que, aberta, mostra três.
   */
-  const doAcervo = runs.filter(
+  const daUnidade = runs.filter((run) =>
+    importacaoDaUnidade(run, unidadeDoRecorte?.code ?? null),
+  );
+
+  const doAcervo = daUnidade.filter(
     (run) => acervoAberto !== null && acervoDaImportacao(run) === acervoAberto.code,
   );
   const doRecorte =
     aba === null
       ? doAcervo
       : doAcervo.filter((run) => tiposVindosDoArquivo(run).includes(aba));
+
+  /*
+    Quantas importações o recorte de unidade escondeu — do mesmo acervo e da
+    mesma aba, que é a única comparação que significa algo aqui.
+
+    Existe para o vazio poder dizer a verdade inteira. "Nenhuma importação de
+    Cavalo nesta base" é falso quando há oito, de outra unidade: o recorte é que
+    as tirou da tela, e quem lê precisa saber disso e ter o caminho de volta —
+    a mesma recusa de `lib/serie-da-unidade.ts`, que diz que aquela unidade não
+    tem envio em vez de somar todas embaixo do nome de uma.
+  */
+  const deOutrasUnidades =
+    unidadeDoRecorte === null
+      ? 0
+      : runs.filter(
+          (run) =>
+            !importacaoDaUnidade(run, unidadeDoRecorte.code) &&
+            acervoAberto !== null &&
+            acervoDaImportacao(run) === acervoAberto.code &&
+            (aba === null || tiposVindosDoArquivo(run).includes(aba)),
+        ).length;
 
   /*
     Oculta por padrão: é o que faz o botão do cartão cumprir o pedido de
@@ -910,6 +1007,36 @@ export default function Importacoes() {
             <br className="hidden sm:inline" /> Cada aba é um tipo: enviar por
             ela <em>declara</em> o que o arquivo traz, e a importação confere
             essa declaração contra o conteúdo antes de deixar entrar.
+            {/* Na visão geral não há contexto aberto — é a ausência dele que
+                ela é —, então as duas pontas são testadas, e não só uma. */}
+            {!emChamados && (escopo.visaoGeral || escopo.contexto !== undefined) && (
+              <>
+                <br className="hidden sm:inline" />{" "}
+                {escopo.visaoGeral ? (
+                  <>
+                    Mostrando{" "}
+                    <strong className="text-foreground">
+                      todas as unidades
+                    </strong>
+                    .
+                  </>
+                ) : (
+                  <>
+                    Unidade:{" "}
+                    <strong className="text-foreground">
+                      {nomeDaUnidade(escopo.contexto!)}
+                    </strong>{" "}
+                    — a da lateral.{" "}
+                    <Link
+                      href={enderecoDeVisaoGeral(pathname, search)}
+                      className="text-primary hover:underline"
+                    >
+                      ver todas as unidades
+                    </Link>
+                  </>
+                )}
+              </>
+            )}
             <br className="hidden sm:inline" /> O mesmo arquivo reentregue é
             reconhecido pelo SHA-256. O mesmo <em>dado</em>, num arquivo
             diferente, é reconhecido pela identidade da vigência — e nenhum dos
@@ -1126,6 +1253,21 @@ export default function Importacoes() {
                         <strong className="text-foreground">Todas</strong>.
                       </>
                     )}
+                  </>
+                )}
+                {deOutrasUnidades > 0 && (
+                  <>
+                    {" "}
+                    Há{" "}
+                    {plural(deOutrasUnidades, "importação", "importações")} de
+                    outras unidades —{" "}
+                    <Link
+                      href={enderecoDeVisaoGeral(pathname, search)}
+                      className="text-primary hover:underline"
+                    >
+                      ver todas as unidades
+                    </Link>
+                    .
                   </>
                 )}
               </div>
