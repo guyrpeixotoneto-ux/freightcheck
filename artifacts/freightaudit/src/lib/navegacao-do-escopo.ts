@@ -161,6 +161,23 @@ export const TELAS_QUE_HONRAM_ESCOPO = new Set<string>([
   */
   "/conciliacao-de-chamados",
   /*
+    A Auditoria de Aquisição, pelo mesmo mecanismo das outras quatro do Custo
+    Fixo: `/snapshots` devolve o `scope_hash` de cada vigência, e a tela
+    (`pages/custo-fixo-aquisicao.tsx`) recorta a lista do seletor pela unidade
+    aberta antes de escolher o par, com as mesmas três funções de
+    `recorte-de-rubrica.ts`.
+
+    Ela entra aqui no mesmo commit em que nasce, e não depois: estar nesta lista
+    é a promessa de que trocar de unidade troca o dado, e uma tela que lesse
+    `scopeHash` sem estar listada perderia o usuário para Parâmetros na primeira
+    troca de unidade — que é exatamente a reclamação que originou esta lista.
+
+    Fica **fora** de `TELAS_QUE_HONRAM_VISAO_GERAL`, e é o motivo de sempre: o
+    motor recusa comparar vigências de escopos distintos, então "todas as
+    unidades de uma vez" não é uma comparação que exista aqui.
+  */
+  "/custo-fixo-aquisicao",
+  /*
     A Auditoria de FINAME. Entra pela mesma reclamação das três de cima, dita
     uma terceira vez — *"eu tento mudar de PERNAMBUCO para CAMAÇARI e saio do
     módulo"* —, e ela era literal aqui: sem esta linha, trocar de unidade dentro

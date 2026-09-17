@@ -39,6 +39,20 @@
  * nenhum deles.
  *
  * ---------------------------------------------------------------------------
+ * Por que a Aquisição não está aqui
+ * ---------------------------------------------------------------------------
+ * Porque ela não tem número para compor. O valor de nota de compra **não tem
+ * módulo dono** — as três telas que o leem o recusam com a mesma frase, "preço
+ * do ativo não é custo fixo", e `__tests__/posse-da-soma-do-custo-fixo.test.ts`
+ * prende essa recusa —, e a Auditoria de Aquisição, que passou a ser a rubrica
+ * dele, manteve a decisão: `impactoDeAquisicao` conta, e nunca soma.
+ *
+ * Um módulo cujo impacto é vazio por construção entraria aqui como uma coluna
+ * de linhas sem valoração — a mesma razão pela qual o QLP está de fora, logo
+ * abaixo. Quem quer conferir a nota abre a tela dela; o que o Monitor consolida
+ * é dinheiro do período, e a compra do ativo não é.
+ *
+ * ---------------------------------------------------------------------------
  * Por que o QLP não está aqui
  * ---------------------------------------------------------------------------
  * Porque QLP não compara vigências: as duas telas dele conferem a aritmética

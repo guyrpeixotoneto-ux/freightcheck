@@ -23,6 +23,7 @@
     "./qlp-comparacao": "./src/qlp-comparacao.ts",
     "./tma": "./src/tma.ts",
     "./ipva": "./src/ipva.ts",
+    "./aquisicao": "./src/aquisicao.ts",
     "./lucro-fixo": "./src/lucro-fixo.ts",
     "./seguro": "./src/seguro.ts",
     "./manutencao": "./src/manutencao.ts",

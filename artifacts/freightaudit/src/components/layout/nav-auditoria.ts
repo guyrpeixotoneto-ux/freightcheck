@@ -478,14 +478,22 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
         `href` não mudou — nem quando as duas viraram um item só, abaixo.
 
         **O Monitor Custo Fixo abre a seção, e é a única tela dela que não é uma
-        auditoria.** As quatro abaixo são especializadas: cada uma desce a fundo
+        auditoria.** As cinco abaixo são especializadas: cada uma desce a fundo
         numa rubrica, com o catálogo, os gráficos e a conferência dela. O
         Monitor não substitui nenhuma — ele responde a pergunta que nenhuma
         responde, que é *o que mudou hoje no custo fixo inteiro*, e devolve para
         a auditoria de origem assim que a resposta exige profundidade. Quem abre
-        o dia começa nele; quem investiga um número termina numa das quatro.
+        o dia começa nele; quem investiga um número termina numa das cinco.
 
-        Ele consolida **as quatro**, e nunca consolidou o quadro de gente — nem
+        **Aquisição vem primeiro, e não é ordem alfabética**: ela é a base das
+        outras. O valor de nota que ela confere é o denominador do IPVA, do ICMS
+        e do PIS/COFINS, e é o que o FINAME financia — ler a nota antes de ler o
+        que sai dela é a ordem em que a conta se faz. Ela é também a mais quieta
+        das cinco: no acervo inteiro nenhuma coluna de aquisição mudou de valor
+        (`docs/ACHADO-AQUISICAO.md`), e por isso a tela dela é uma conferência de
+        base, e não um painel de alterações.
+
+        Ele consolida **as cinco**, e nunca consolidou o quadro de gente — nem
         no tempo em que ele era linha desta seção: QLP Operacional e
         Administrativo conferem a aritmética dentro de uma vigência, não
         comparam duas, e o quadro de pessoal chega sem semântica confirmada — no
@@ -506,6 +514,7 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
       cor: "text-nav-custo-fixo",
       itens: [
         { href: "/monitor-custo-fixo", label: "Monitor Custo Fixo", icon: LineChart },
+        { href: "/custo-fixo-aquisicao", label: "Aquisição", icon: ShoppingCart },
         { href: "/custo-fixo-finame", label: "Finame", icon: Banknote },
         { href: "/custo-fixo-ipva", label: "IPVA", icon: Receipt },
         { href: "/custo-fixo-lucro-fixo", label: "Lucro Fixo", icon: TrendingUp },

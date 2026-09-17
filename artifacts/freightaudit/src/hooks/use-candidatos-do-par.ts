@@ -72,6 +72,7 @@ export function useTextoAdiado(texto: string, espera = ESPERA_DA_BUSCA_MS) {
 export type TelaComCandidatas =
   | "finame"
   | "ipva"
+  | "aquisicao"
   | "lucro-fixo"
   | "impostos"
   | "seguro"
