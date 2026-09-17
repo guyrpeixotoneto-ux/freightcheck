@@ -202,6 +202,20 @@ export const TELAS_QUE_HONRAM_ESCOPO = new Set<string>([
   */
   "/custo-fixo-aquisicao",
   /*
+    A Auditoria de Aluguel de Frota, pelo mesmo mecanismo das outras cinco do
+    Custo Fixo: a tela (`pages/custo-fixo-aluguel.tsx`) recorta a lista do
+    seletor pela unidade aberta antes de escolher o par.
+
+    Aqui a promessa vale mais do que nas irmãs, e é o motivo de esta tela
+    existir: a proporção de frota alugada é decisão comercial e **varia de
+    unidade para unidade**. Uma tela de aluguel que não trocasse de dado ao
+    trocar de unidade responderia sempre pela mesma operação.
+
+    Fica **fora** de `TELAS_QUE_HONRAM_VISAO_GERAL`, e é o motivo de sempre: o
+    motor recusa comparar vigências de escopos distintos.
+  */
+  "/custo-fixo-aluguel",
+  /*
     A Auditoria de FINAME. Entra pela mesma reclamação das três de cima, dita
     uma terceira vez — *"eu tento mudar de PERNAMBUCO para CAMAÇARI e saio do
     módulo"* —, e ela era literal aqui: sem esta linha, trocar de unidade dentro

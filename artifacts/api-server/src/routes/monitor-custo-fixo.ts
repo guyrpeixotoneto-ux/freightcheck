@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
 import {
   CODIGOS_DO_DETALHE,
+  CODIGOS_DO_DETALHE_DE_ALUGUEL,
   CODIGOS_DO_DETALHE_DE_IPVA,
   CODIGOS_DO_DETALHE_DE_IMPOSTOS,
   CODIGOS_DO_DETALHE_DE_LUCRO_FIXO,
@@ -13,6 +14,7 @@ import {
   impactoDoModulo,
   linhasDeFiname,
   linhasDeImpostos,
+  linhasDeAluguel,
   linhasDeIpva,
   linhasDeLucroFixo,
   listChanges,
@@ -80,7 +82,7 @@ import { comTetoDeRota } from "../lib/timeout-de-rota";
 const router: IRouter = Router();
 
 /**
- * O recorte que se pede ao motor: a união dos quatro catálogos.
+ * O recorte que se pede ao motor: a união dos cinco catálogos.
  *
  * `Set` porque eles se sobrepõem de propósito — a base de compra está nos três
  * de ativo, e é a mesma coluna.
@@ -88,6 +90,7 @@ const router: IRouter = Router();
 const CODIGOS_DO_MONITOR = [
   ...new Set([
     ...CODIGOS_DO_DETALHE,
+    ...CODIGOS_DO_DETALHE_DE_ALUGUEL,
     ...CODIGOS_DO_DETALHE_DE_IPVA,
     ...CODIGOS_DO_DETALHE_DE_IMPOSTOS,
     ...CODIGOS_DO_DETALHE_DE_LUCRO_FIXO,
@@ -100,6 +103,7 @@ const LINHAS_DO_MODULO: Record<
   (linhas: Parameters<typeof linhasDeFiname>[0]) => LinhaDeRubrica[]
 > = {
   FINAME: (rows) => linhasDeFiname(rows),
+  ALUGUEL: (rows) => linhasDeAluguel(rows),
   IPVA: (rows) => linhasDeIpva(rows),
   IMPOSTOS: (rows) => linhasDeImpostos(rows),
   LUCRO_FIXO: (rows) => linhasDeLucroFixo(rows),

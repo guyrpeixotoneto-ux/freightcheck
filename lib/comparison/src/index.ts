@@ -13,6 +13,7 @@ export * from "./recorte-de-rubrica";
 export * from "./finame";
 export * from "./ipva";
 export * from "./aquisicao";
+export * from "./aluguel";
 export * from "./impostos";
 export * from "./km-rodado";
 export * from "./velocidade-media";

@@ -4,6 +4,11 @@ import { criarBancoComModelosCurados } from "../testing";
 import { computeChangeSet } from "../engine";
 import { listChanges, listComparableSnapshots } from "../query";
 import { CODIGOS_DO_DETALHE, impactoPorPeriodicidade, linhasDeFiname } from "../finame";
+import {
+  CODIGOS_DO_DETALHE_DE_ALUGUEL,
+  impactoDeAluguel,
+  linhasDeAluguel,
+} from "../aluguel";
 import { CODIGOS_DO_DETALHE_DE_IPVA, impactoDeIpva, linhasDeIpva } from "../ipva";
 import {
   CODIGOS_DO_DETALHE_DE_IMPOSTOS,
@@ -89,6 +94,7 @@ afterAll(async () => {
 /** O recorte de cada módulo — o mesmo que a rota dele pede ao motor. */
 const CODIGOS: Record<ModuloDoMonitor, readonly string[]> = {
   FINAME: CODIGOS_DO_DETALHE,
+  ALUGUEL: CODIGOS_DO_DETALHE_DE_ALUGUEL,
   IPVA: CODIGOS_DO_DETALHE_DE_IPVA,
   IMPOSTOS: CODIGOS_DO_DETALHE_DE_IMPOSTOS,
   LUCRO_FIXO: CODIGOS_DO_DETALHE_DE_LUCRO_FIXO,
@@ -96,6 +102,7 @@ const CODIGOS: Record<ModuloDoMonitor, readonly string[]> = {
 
 const LINHAS: Record<ModuloDoMonitor, (rows: ChangeRow[]) => LinhaDeRubrica[]> = {
   FINAME: (rows) => linhasDeFiname(rows),
+  ALUGUEL: (rows) => linhasDeAluguel(rows),
   IPVA: (rows) => linhasDeIpva(rows),
   IMPOSTOS: (rows) => linhasDeImpostos(rows),
   LUCRO_FIXO: (rows) => linhasDeLucroFixo(rows),
@@ -103,12 +110,13 @@ const LINHAS: Record<ModuloDoMonitor, (rows: ChangeRow[]) => LinhaDeRubrica[]> =
 
 const IMPACTO_NATIVO = {
   FINAME: (l: LinhaDeRubrica[]) => impactoPorPeriodicidade(l as never),
+  ALUGUEL: (l: LinhaDeRubrica[]) => impactoDeAluguel(l as never),
   IPVA: (l: LinhaDeRubrica[]) => impactoDeIpva(l as never),
   IMPOSTOS: (l: LinhaDeRubrica[]) => impactoDeImpostos(l as never),
   LUCRO_FIXO: (l: LinhaDeRubrica[]) => impactoDeLucroFixo(l as never),
 } satisfies Record<ModuloDoMonitor, (l: LinhaDeRubrica[]) => { porPeriodicidade: Record<string, number> }>;
 
-/** A união dos quatro catálogos — a leitura única que a rota do Monitor faz. */
+/** A união dos cinco catálogos — a leitura única que a rota do Monitor faz. */
 const UNIAO = [...new Set(Object.values(CODIGOS).flat())];
 
 const PAR_FALSO = (base: string, comparada: string): ParDoMonitor => ({
@@ -154,7 +162,7 @@ describe("o acervo tem matéria — este arquivo não pode passar por vacuidade"
     produzem hoje, e são contrato: se algum deles mudar sem que alguém tenha
     mudado uma regra de propósito, a regra mudou sozinha.
   */
-  it("os pares do acervo produzem alterações de custo fixo nos quatro módulos", async () => {
+  it("os pares do acervo produzem alterações de custo fixo nos cinco módulos", async () => {
     const porModulo: Record<string, number> = {};
     let total = 0;
     for (const par of pares) {
@@ -164,9 +172,20 @@ describe("o acervo tem matéria — este arquivo não pode passar por vacuidade"
         total += r.alteracoes;
       }
     }
+    /*
+      Os 22 do Aluguel são **só entradas e saídas de ativo**: o acervo tem 11
+      `ENTITY_ADDED` e 11 `ENTITY_REMOVED`, e toda rubrica os conta, porque uma
+      placa que entra ou sai explica todas as outras linhas dela. Nenhum contrato
+      de locação mudou de valor nas vigências deste acervo — as duas carretas
+      alugadas declaram o mesmo aluguel nas 18 (`docs/ACHADO-ALUGUEL.md`).
+
+      O número é contrato, como os outros quatro: no dia em que um aluguel se
+      mover, ele deixa de ser 22 e alguém precisa ter mexido numa regra de
+      propósito.
+    */
     expect({ total, porModulo }).toEqual({
-      total: 767,
-      porModulo: { FINAME: 219, IPVA: 437, LUCRO_FIXO: 89, IMPOSTOS: 22 },
+      total: 789,
+      porModulo: { FINAME: 219, ALUGUEL: 22, IPVA: 437, LUCRO_FIXO: 89, IMPOSTOS: 22 },
     });
   }, 600_000);
 });

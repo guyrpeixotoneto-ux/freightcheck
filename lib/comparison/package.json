@@ -24,6 +24,7 @@
     "./tma": "./src/tma.ts",
     "./ipva": "./src/ipva.ts",
     "./aquisicao": "./src/aquisicao.ts",
+    "./aluguel": "./src/aluguel.ts",
     "./lucro-fixo": "./src/lucro-fixo.ts",
     "./seguro": "./src/seguro.ts",
     "./manutencao": "./src/manutencao.ts",

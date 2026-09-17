@@ -73,6 +73,7 @@ export type TelaComCandidatas =
   | "finame"
   | "ipva"
   | "aquisicao"
+  | "aluguel"
   | "lucro-fixo"
   | "impostos"
   | "seguro"

@@ -11,16 +11,39 @@ import {
  * ele deliberadamente não declara.
  */
 describe("a composição declarada", () => {
-  it("a parcela do FINAME se abre em juros e amortização, nos dois tipos", () => {
+  it("a parcela do FINAME se abre em juros e amortização nos dois tipos", () => {
     expect(totalDerivado("cavalo.finame_cavalo")).toEqual({
       resultado: "cavalo.finame_cavalo",
       parcelas: ["cavalo.juros_finame_cavalo", "cavalo.amortizacao_cavalo"],
       forma: "SOMA",
     });
+  });
+
+  it("e, na carreta, também no aluguel — a terceira parcela que só ela tem", () => {
+    /*
+      `finameImplemento = amortização + juros + aluguel` fecha em 1.314 de 1.314
+      linhas do acervo, e sem o aluguel falha nas 36 dos implementos alugados
+      (`docs/ACHADO-ALUGUEL.md`). No cavalo ele não entra: a identidade de lá é
+      amortização + juros + lucro fixo.
+    */
     expect(totalDerivado("carreta.finame_implemento")?.parcelas).toEqual([
       "carreta.juros_finame_implemento",
       "carreta.amortizacao_implemento",
+      "carreta.custo_aluguel",
     ]);
+  });
+
+  it("uma parcela que não se aplica a um tipo não derruba a composição dele", () => {
+    /*
+      A regra distingue a parcela que **falta** — chave inexistente, que é erro
+      de escrita e derruba tudo — da que **não se aplica**, como o aluguel no
+      cavalo. Antes desta distinção, declarar a terceira parcela apagava a
+      composição do cavalo inteira, e a justificativa da parcela dele voltava a
+      ser escrita à mão sem que nada reclamasse.
+    */
+    const doCavalo = totalDerivado("cavalo.finame_cavalo");
+    expect(doCavalo?.parcelas).not.toContain("cavalo.custo_aluguel");
+    expect(doCavalo?.parcelas).toHaveLength(2);
   });
 
   it("os trios do QLP são produto, e não soma", () => {

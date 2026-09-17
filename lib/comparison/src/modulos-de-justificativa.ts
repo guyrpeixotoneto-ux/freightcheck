@@ -1,3 +1,4 @@
+import { VARIAVEIS_DE_ALUGUEL, VARIAVEIS_DE_DETALHE_DE_ALUGUEL } from "./aluguel";
 import { VARIAVEIS_DE_AQUISICAO, VARIAVEIS_DE_DETALHE_DE_AQUISICAO } from "./aquisicao";
 import { VARIAVEIS_DE_FINAME } from "./finame";
 import { VARIAVEIS_DE_IMPOSTOS } from "./impostos";
@@ -40,8 +41,8 @@ import { codigosDaRubrica, modulosDoQlp } from "./qlp-comparacao";
  *
  * **Em que rubrica?** Duas origens, nesta ordem:
  *
- * 1. **A rubrica que tem tela** — Aquisição, Finame, IPVA, Lucro Fixo,
- *    Impostos, Seguro, Manutenção, KM rodado, Velocidade média —, quando o código do atributo
+ * 1. **A rubrica que tem tela** — Aquisição, Aluguel de Frota, Finame, IPVA,
+ *    Lucro Fixo, Impostos, Seguro, Manutenção, KM rodado, Velocidade média —, quando o código do atributo
  *    está no catálogo daquela tela (`VARIAVEIS_DE_*`, os mesmos que a tela lê).
  *    É a que importa para cobrar: ela tem endereço, e o endereço é onde a
  *    justificativa se escreve.
@@ -203,6 +204,20 @@ const RUBRICAS_COM_TELA: readonly RubricaComTela[] = [
     /* As cinco colunas da compra do ativo. Três telas as leem como base — e é
        por isso que, antes desta existir, elas não eram rubrica de ninguém. */
     proprios: codigos([...VARIAVEIS_DE_AQUISICAO, ...VARIAVEIS_DE_DETALHE_DE_AQUISICAO]),
+  },
+  {
+    chave: "aluguel",
+    rotulo: "Aluguel de Frota",
+    modulo: "CUSTO_FIXO",
+    rota: "/custo-fixo-aluguel",
+    codigos: codigos([...VARIAVEIS_DE_ALUGUEL, ...VARIAVEIS_DE_DETALHE_DE_ALUGUEL]),
+    /*
+      Só as colunas de aluguel. A parcela FINAME está no catálogo desta tela
+      porque é o que **confere** o aluguel — e continua sendo rubrica do Finame,
+      que é quem a soma. Reivindicá-la aqui mandaria para esta tela a
+      justificativa de toda alteração de parcela da frota financiada.
+    */
+    proprios: ["cavalo.custo_aluguel", "carreta.custo_aluguel"],
   },
   {
     chave: "finame",
