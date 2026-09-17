@@ -57,6 +57,41 @@ export interface SheetPlan {
   identifierColumns: string[];
 }
 
+/**
+ * As colunas sem as quais o razão contábil do ERP não é legível.
+ *
+ * Cinco, e cada uma responde a uma pergunta sem a qual não há lançamento: de
+ * que mês é (`MES`, `ANO`), de que veículo (`Placa`), quanto (`VLRREA`) e sob
+ * que documento (`NUMDOC`). As outras 38 colunas do export são evidência
+ * contábil preservada, e nenhuma delas é exigida — um ERP que pare de exportar
+ * `SITUAC` não pode derrubar a importação de um valor que continua inteiro.
+ *
+ * **Por que esta lista mora aqui**, e não no módulo do financiamento real que a
+ * usa: é aqui que o papel de uma aba é decidido, e "isto é um extrato?" é uma
+ * pergunta de classificação. `financiamento-real/extrato.ts` a reexporta, de
+ * modo que quem lê o extrato continua pedindo ao módulo do extrato — e a
+ * decisão do papel e a leitura nunca discordam sobre o que é um extrato, porque
+ * consultam a mesma lista.
+ */
+export const COLUNAS_DO_EXTRATO = ["mes", "ano", "placa", "vlrrea", "numdoc"] as const;
+
+export interface LayoutDoExtrato {
+  reconhecido: boolean;
+  /** As obrigatórias que faltam. Vazia quando reconhecido. */
+  faltando: string[];
+}
+
+/** Se um cabeçalho é o do razão contábil do ERP. */
+export function reconhecerLayoutDoExtrato(
+  cabecalhos: readonly (string | null)[],
+): LayoutDoExtrato {
+  const presentes = new Set(
+    cabecalhos.filter((c): c is string => c !== null).map((c) => foldText(c)),
+  );
+  const faltando = COLUNAS_DO_EXTRATO.filter((c) => !presentes.has(c));
+  return { reconhecido: faltando.length === 0, faltando: [...faltando] };
+}
+
 export interface ReadWorkbook {
   sheets: SheetPlan[];
   workbook: XLSX.WorkBook;
@@ -226,6 +261,44 @@ function planSheet(
   const folded = headers.map((h) => (h === null ? "" : foldText(h)));
   const temVigencia = folded.includes(COLUNA_DE_VIGENCIA);
   const identidade = identidadeNoCabecalho(folded);
+
+  /*
+    O razão do ERP, reconhecido antes da regra do modelo.
+
+    Sem isto ele cai na recusa abaixo e vira pivô — e o preço não é um erro, é
+    silêncio: a importação termina com zero fato, zero aviso e o carimbo de
+    aprovada. Reconhecido, a aba entra como fonte, a linha de cabeçalho é
+    marcada como cabeçalho (e não lida como lançamento), e quem estagia é o
+    leitor do extrato, que trabalha no grão do lançamento.
+
+    `entityType` fica **nulo** de propósito: o tipo de ativo do extrato não sai
+    do nome da aba ("Planilha1" não é um equipamento) nem da conta contábil —
+    sai do cadastro, placa a placa, e quem não resolver vai para a fila de
+    classificação. Derivá-lo aqui seria inventar um equipamento a partir do nome
+    de um arquivo, que é exatamente o que `deriveEntityType` existe para não
+    fazer sozinho.
+  */
+  const extrato = reconhecerLayoutDoExtrato(headers);
+  if (extrato.reconhecido) {
+    return {
+      name,
+      index,
+      role: "SOURCE",
+      roleReason:
+        `A primeira linha traz ${COLUNAS_DO_EXTRATO.join(" + ")} — o razão contábil do ERP, ` +
+        `no grão do lançamento e não do equipamento. O período vem de MES + ANO, e o tipo de ` +
+        `ativo é resolvido pelo cadastro, placa a placa.`,
+      headerRowIndex: range.s.r + 1,
+      rowCount,
+      columnCount,
+      headers,
+      entityType: null,
+      entityTypeReason:
+        "O extrato não diz o tipo do ativo: ele é resolvido pelo cadastro canônico, " +
+        "pela placa. Sem correspondência, a placa vai para a fila de classificação.",
+      identifierColumns: ["placa"],
+    };
+  }
 
   if (!temVigencia || identidade === null) {
     // A recusa diz o que falta **e** o que serviria: um cabeçalho sem placa

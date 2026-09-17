@@ -36,7 +36,22 @@
  * coisa de cada vez.
  */
 
-import { foldText } from "../workbook";
+import {
+  COLUNAS_DO_EXTRATO,
+  reconhecerLayoutDoExtrato,
+  type LayoutDoExtrato,
+} from "../workbook";
+
+/*
+  As colunas obrigatórias e o reconhecimento do layout moram em `workbook.ts`,
+  junto de quem decide o papel de uma aba, e são reexportados aqui para que quem
+  lê o extrato continue pedindo ao módulo do extrato. Uma segunda lista das
+  mesmas cinco colunas concordaria no dia em que fosse escrita e discordaria no
+  dia em que o ERP acrescentasse uma — e discordar, aqui, é a aba entrar como
+  fonte e o leitor não a reconhecer, ou o contrário.
+*/
+export { reconhecerLayoutDoExtrato, type LayoutDoExtrato };
+export const COLUNAS_OBRIGATORIAS = COLUNAS_DO_EXTRATO;
 
 /** Uma linha do arquivo, como o pipeline a entrega: célula a célula, por cabeçalho. */
 export interface LinhaBrutaDoExtrato {
@@ -45,20 +60,6 @@ export interface LinhaBrutaDoExtrato {
   /** Valor por cabeçalho, na forma de `foldText`. Texto sempre, tipagem aqui. */
   celulas: Record<string, string | null>;
 }
-
-/**
- * As colunas que o extrato precisa trazer para ser lido.
- *
- * Cinco, e são estas porque cada uma responde a uma pergunta sem a qual não há
- * lançamento: de que mês é (`MES`, `ANO`), de que veículo (`Placa`), quanto
- * (`VLRREA`) e qual documento (`NUMDOC`) — este último é o que permite dizer se
- * duas linhas são o mesmo lançamento ou dois.
- *
- * As demais colunas do export são preservadas como evidência, mas nenhuma delas
- * é exigida: um ERP que pare de exportar `SITUAC` não deve derrubar a
- * importação de um valor que continua inteiro.
- */
-export const COLUNAS_OBRIGATORIAS = ["mes", "ano", "placa", "vlrrea", "numdoc"] as const;
 
 /**
  * As colunas preservadas como evidência contábil, com o nome que elas têm no
@@ -139,29 +140,6 @@ export interface LeituraDoExtrato {
   recusadas: LinhaRecusada[];
 }
 
-export interface LayoutDoExtrato {
-  reconhecido: boolean;
-  /** As obrigatórias que o cabeçalho não traz. Vazia quando reconhecido. */
-  faltando: string[];
-}
-
-/**
- * Se um cabeçalho é o do extrato do financiamento.
- *
- * A pergunta é feita sobre as cinco obrigatórias e mais nada: um export que
- * ganhe colunas continua sendo o mesmo extrato, e exigir o conjunto inteiro
- * transformaria toda mudança cosmética do ERP numa recusa.
- */
-export function reconhecerLayoutDoExtrato(
-  cabecalhos: readonly (string | null)[],
-): LayoutDoExtrato {
-  const presentes = new Set(
-    cabecalhos.filter((c): c is string => c !== null).map((c) => foldText(c)),
-  );
-  const faltando = COLUNAS_OBRIGATORIAS.filter((c) => !presentes.has(c));
-  return { reconhecido: faltando.length === 0, faltando: [...faltando] };
-}
-
 /**
  * A placa na forma que casa com o acervo.
  *
@@ -175,7 +153,7 @@ export function normalizarPlaca(raw: string | null | undefined): string {
   if (raw === null || raw === undefined) return "";
   return raw
     .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
+    .replace(/[\u0300-\u036f]/g, "")
     .toUpperCase()
     .replace(/[^A-Z0-9]/g, "");
 }

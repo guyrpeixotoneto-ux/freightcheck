@@ -52,6 +52,7 @@ import {
   sheetRange,
   slugifyColumn,
   type SheetPlan,
+  reconhecerLayoutDoExtrato,
 } from "./workbook";
 import {
   classifyEntityType,
@@ -1847,6 +1848,28 @@ export async function stage(
     const headerRow = rows.find((r) => r.isHeader);
     if (!headerRow) continue;
     const headerCells = cellsByRow.get(headerRow.id) ?? new Map();
+
+    /*
+      O razão contábil do ERP não passa por aqui, e não é omissão.
+
+      Esta staging trabalha no grão do modelo — uma linha por entidade por
+      vigência, uma coluna por atributo — e o extrato do financiamento é outro
+      grão: a linha é um lançamento, e o valor comparável é a **soma** dos
+      lançamentos da placa no mês. Passá-lo por este laço produziria um fato por
+      célula de um arquivo de 43 colunas, com a placa repetida dentro da mesma
+      vigência: chave repetida, que o promote recusa (`ENTIDADE_DUPLICADA_
+      CONFLITANTE`) ou resolve guardando uma linha e perdendo a outra.
+
+      Quem estagia o extrato é `estagiarExtratoReal`
+      (`financiamento-real/estagio.ts`), que escreve nesta mesma
+      `staged_fact` — o consolidado, um por (competência, placa) — e devolve o
+      arquivo ao caminho de sempre a partir daí. A aba fica com role SOURCE
+      porque é fonte de fato mesmo; o que muda é quem a lê.
+    */
+    const cabecalhosDaAba = [...headerCells.values()].map(
+      (cell) => (cell.rawValue ?? "").trim() || null,
+    );
+    if (reconhecerLayoutDoExtrato(cabecalhosDaAba).reconhecido) continue;
 
     /*
       Que equipamento é esta aba — decidido pelas colunas dela.
@@ -3925,6 +3948,16 @@ export async function promote(
             entityTypeSet: tiposDaVigencia.join("+"),
             datasetFamily,
             canal,
+            /*
+              A granularidade sai do rótulo, que é onde ela é declarada.
+
+              `EMPURRADA_MENSAL_3_2026` produz `MENSAL`; `EMPURRADA_1_3_2026`,
+              `QUINZENAL`. Gravá-la é o que distingue duas vigências que caem no
+              **mesmo dia**: a competência de março e a 1ª quinzena de março
+              começam as duas em `2026-03-01`, e sem esta coluna nada no banco
+              diria que uma cobre trinta dias e a outra quinze.
+            */
+            granularidade: vigencia.granularidade,
             canonicalScope,
             revision,
             supersedesSnapshotId: supersedes,
