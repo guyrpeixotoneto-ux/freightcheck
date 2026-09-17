@@ -1,6 +1,6 @@
 import { ArrowDownRight, ArrowUpRight, ChevronRight, Truck } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { MapaDoPanorama } from "@/lib/panorama";
+import { mapaVazio, type MapaDoPanorama } from "@/lib/panorama";
 
 /**
  * Andar 5 — o mapa. *"Onde isso aconteceu?"*
@@ -23,8 +23,10 @@ export function Mapa({
   /** Abre uma unidade no próprio Panorama — `null` quando não há para onde ir. */
   onAbrirUnidade: ((chave: string) => void) | null;
 }) {
+  /* A mesma regra que a página usa para montar a grade — ver `mapaVazio`. */
+  if (mapaVazio(mapa)) return null;
+
   if (mapa.eixo === "unidades") {
-    if (mapa.linhas.length === 0) return null;
     return (
       <section
         className="superficie px-6 py-5"
@@ -83,21 +85,24 @@ export function Mapa({
     );
   }
 
-  /*
-    Dentro de uma unidade: a movimentação da frota. O cartão some inteiro quando
-    nada se moveu e não há ativo a contar — três zeros lado a lado ocupam a
-    altura de um cartão para dizer que não há o que dizer.
-  */
-  const semMovimento = mapa.entraram === 0 && mapa.sairam === 0;
-  if (semMovimento && mapa.ativos === null && mapa.equipamento === null) return null;
-
+  /* Dentro de uma unidade: a movimentação da frota. */
   return (
     <section
-      className="superficie px-6 py-5"
+      className="superficie px-6 py-5 flex flex-col"
       aria-label="Movimentação da frota"
     >
       <h2 className="text-base font-bold mb-4">Movimentação da frota</h2>
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+      {/*
+        Dois por dois, e não quatro em fila.
+
+        O cartão passou a dividir a dobra com o gráfico da trajetória, em meia
+        largura: quatro tiles em fila nessa largura deixam cada um com ~120px, e
+        "Cavalo — o mais tocado" com 4.704 mudanças não cabe em 120px sem
+        quebrar o rótulo no meio. Em duas colunas os quatro números continuam na
+        mesma varredura, e a altura do cartão passa a ser a do gráfico ao lado —
+        que é o que faz os dois fecharem a dobra na mesma linha.
+      */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 content-start">
         <Tile
           icone={ArrowUpRight}
           cor="text-emerald-700"

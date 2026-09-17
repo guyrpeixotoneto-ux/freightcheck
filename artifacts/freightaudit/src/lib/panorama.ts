@@ -7,17 +7,22 @@ import {
   participacao,
   ultimaImportacao,
   variacao,
+  type ImpactoDeFamilia,
   type LadosDoImpacto,
   type Tom,
   type UltimaImportacao,
 } from "./visao-geral";
 import {
   coberturaDaVigencia,
+  filtrarMudancas,
   ondeAgirAgora,
   outrasPeriodicidades,
   situacaoDaApuracao,
+  valorDaMudanca,
   type AcaoAgora,
   type CoberturaApurada,
+  type FiltroDeMudanca,
+  type MudancaRelevante,
   type SituacaoDaApuracao,
 } from "./impacto-apurado";
 import { linkDeAlteracoes, type Recorte } from "./recorte";
@@ -426,6 +431,173 @@ function notaDeVeiculos(leitura: LeituraDoPanorama, fatia: number | null): strin
 }
 
 // ---------------------------------------------------------------------------
+// Dobra 2 — o ranking de onde o dinheiro se mexeu
+// ---------------------------------------------------------------------------
+
+/** Os dois grãos do ranking. A família agrega; o parâmetro é o degrau abaixo. */
+export const GRAOS_DO_RANKING = ["familia", "parametro"] as const;
+
+export type GraoDoRanking = (typeof GRAOS_DO_RANKING)[number];
+
+export function graoValido(valor: string | null): valor is GraoDoRanking {
+  return valor === "familia" || valor === "parametro";
+}
+
+export const ROTULO_DO_GRAO: Record<GraoDoRanking, string> = {
+  familia: "Família",
+  parametro: "Parâmetro",
+};
+
+/**
+ * Uma linha do ranking — **a mesma forma nos dois grãos**, e é isso que ela
+ * existe para garantir.
+ *
+ * O Panorama tinha três blocos lendo a mesma lista de famílias: dois cartões de
+ * pódio (o que somou, o que tirou) e uma lista de parâmetros. Eram três cartões
+ * de largura inteira, com três títulos, três subtítulos e três notas de rodapé,
+ * para responder uma pergunta só em dois grãos — *onde o dinheiro se mexeu, e
+ * quanto?* Empilhados, eles reimprimiam o líquido da vigência quatro vezes e
+ * gastavam duas telas de rolagem para mostrar, num recorte de uma família, três
+ * linhas de conteúdo.
+ *
+ * Aqui é um cartão, com duas chaves: o **grão** (família ou parâmetro) e o
+ * **lado** (todos, ganhos, perdas) — que é o filtro que a lista de parâmetros
+ * já tinha. As quatro leituras que os três cartões davam continuam todas
+ * alcançáveis, e nenhuma delas custa rolagem.
+ *
+ * Tipar as duas por uma forma só é o que impede os dois grãos de divergirem com
+ * o tempo, como os três cartões divergiram: quem monta a linha é este módulo,
+ * testado fora do JSX, e o componente só desenha o que chega.
+ */
+export interface LinhaDoRanking {
+  /** A chave estável do que a linha nomeia — o `code` da família, a `key` do parâmetro. */
+  chave: string;
+  nome: string;
+  /** A linha de baixo: de que família vem, quantas alterações, quantos veículos. */
+  contexto: string;
+  /**
+   * Como a linha se lê — a mesma régua de `MudancaRelevante.classificacao`,
+   * inclusive o "compensado" de quem se mexeu nos dois sentidos e voltou.
+   */
+  classificacao: "ganho" | "perda" | "compensado";
+  /** O número publicado: o líquido no recorte inteiro, o do lado nos recortes de um lado. */
+  valor: number;
+  /**
+   * O líquido embaixo, quando o número de cima é a parcela de um lado —
+   * `null` no recorte "todos", onde o de cima **é** o líquido e repeti-lo diria
+   * duas vezes a mesma coisa.
+   */
+  liquido: number | null;
+  /** Do maior valor da lista: 0 a 1. É o comprimento da barra, e nada mais. */
+  proporcao: number;
+}
+
+/**
+ * O ranking por família — o pódio dos dois cartões antigos, numa lista.
+ *
+ * A ordem é pelo **módulo do valor publicado**, que é a régua dos dois pódios
+ * que esta lista substitui: no recorte de um lado, quanto aquele lado mexeu;
+ * no recorte inteiro, quanto sobrou. Uma família sem nada do lado pedido não
+ * entra na lista — não é uma família de valor zero, é uma família que não
+ * participou daquele lado.
+ */
+export function rankingPorFamilia(
+  familias: ImpactoDeFamilia[],
+  filtro: FiltroDeMudanca,
+  limite: number,
+): LinhaDoRanking[] {
+  const valorDo = (f: ImpactoDeFamilia) =>
+    filtro === "ganhos" ? f.ganhos : filtro === "perdas" ? f.perdas : f.liquido;
+
+  const doLado = familias.filter((f) =>
+    filtro === "ganhos" ? f.ganhos > 0 : filtro === "perdas" ? f.perdas < 0 : f.movimento > 0,
+  );
+
+  const ordenadas = [...doLado]
+    .sort((a, b) => Math.abs(valorDo(b)) - Math.abs(valorDo(a)))
+    .slice(0, limite);
+
+  const teto = ordenadas.reduce((maior, f) => Math.max(maior, Math.abs(valorDo(f))), 0);
+
+  return ordenadas.map((familia) => {
+    const valor = valorDo(familia);
+    /*
+      As alterações **do lado pedido**, e não as da família inteira — a mesma
+      correção que o pódio partido em dois já fazia: repetir "59 alterações" nos
+      dois lados diria que 118 alterações somaram e tiraram nesta vigência.
+    */
+    const contagem =
+      filtro === "todos"
+        ? familia.alteracoes
+        : familia.parametros[filtro].reduce((n, l) => n + l.changes, 0);
+
+    return {
+      chave: familia.code,
+      nome: familia.name,
+      contexto: `${contagem.toLocaleString("pt-BR")} ${contagem === 1 ? "alteração" : "alterações"}`,
+      classificacao: classificar(familia.ganhos, familia.perdas, filtro),
+      valor,
+      /* No recorte inteiro o número de cima já é o líquido. */
+      liquido: filtro === "todos" ? null : familia.liquido,
+      proporcao: teto === 0 ? 0 : Math.abs(valor) / teto,
+    };
+  });
+}
+
+/**
+ * O ranking por parâmetro — o degrau abaixo da família, sobre a mesma lista de
+ * `mudancasRelevantes`.
+ *
+ * Ele não repete o de cima: o grão é outro, e uma família some daqui quando o
+ * movimento dela está espalhado em muitos parâmetros pequenos — que é
+ * exatamente a diferença que se quer ver ao descer um degrau. O filtro de lado
+ * é o mesmo `filtrarMudancas` que a lista já usava, com a reclassificação que
+ * ele faz por dentro.
+ */
+export function rankingPorParametro(
+  mudancas: MudancaRelevante[],
+  filtro: FiltroDeMudanca,
+  limite: number,
+): LinhaDoRanking[] {
+  return filtrarMudancas(mudancas, filtro)
+    .slice(0, limite)
+    .map((linha) => ({
+      chave: linha.key,
+      nome: linha.name,
+      contexto: [
+        linha.familyName,
+        `${linha.alteracoes.toLocaleString("pt-BR")} ${linha.alteracoes === 1 ? "alteração" : "alterações"}`,
+        ...(linha.veiculos > 0
+          ? [`${linha.veiculos.toLocaleString("pt-BR")} ${linha.veiculos === 1 ? "veículo" : "veículos"}`]
+          : []),
+      ].join(" · "),
+      classificacao: linha.classificacao,
+      valor: valorDaMudanca(linha, filtro),
+      liquido: filtro === "todos" ? null : linha.liquido,
+      proporcao: linha.proporcao,
+    }));
+}
+
+/**
+ * A palavra da linha no recorte inteiro, e a do lado nos recortes de um lado.
+ *
+ * "Compensado" é o caso que o saldo esconde: mexeu para os dois lados e voltou
+ * quase ao mesmo lugar. Chamá-lo de ganho ou de perda daria um veredito a um
+ * número que não tem sinal — a mesma recusa de `mudancasRelevantes`.
+ */
+function classificar(
+  ganhos: number,
+  perdas: number,
+  filtro: FiltroDeMudanca,
+): LinhaDoRanking["classificacao"] {
+  if (filtro === "ganhos") return "ganho";
+  if (filtro === "perdas") return "perda";
+  const liquido = ganhos + perdas;
+  if (ganhos > 0 && perdas < 0 && liquido === 0) return "compensado";
+  return liquido < 0 ? "perda" : "ganho";
+}
+
+// ---------------------------------------------------------------------------
 // Andar 5 — o mapa
 // ---------------------------------------------------------------------------
 
@@ -487,6 +659,24 @@ export function mapaDoPanorama(
     ativos: leitura.frota,
     equipamento: equipamentoMaisTocado(view),
   };
+}
+
+/**
+ * Se o mapa tem o que desenhar.
+ *
+ * O cartão já se apagava sozinho nos dois vazios — nenhuma unidade no ranking,
+ * ou uma frota que não se moveu e não tem ativo a contar. O que mudou é que ele
+ * passou a dividir uma dobra de duas colunas com o gráfico da trajetória, e um
+ * cartão que se apaga por dentro deixa **a coluna** dele em branco: o gráfico
+ * fica com metade da faixa e a outra metade fica vazia. Quem decide a grade é a
+ * página, e para decidir ela precisa saber disto antes de desenhar.
+ *
+ * A regra é uma só, aqui, e o componente lê a mesma — dois `if` com a mesma
+ * condição em dois arquivos é onde a grade e o cartão passariam a discordar.
+ */
+export function mapaVazio(mapa: MapaDoPanorama): boolean {
+  if (mapa.eixo === "unidades") return mapa.linhas.length === 0;
+  return mapa.entraram === 0 && mapa.sairam === 0 && mapa.ativos === null && mapa.equipamento === null;
 }
 
 // ---------------------------------------------------------------------------

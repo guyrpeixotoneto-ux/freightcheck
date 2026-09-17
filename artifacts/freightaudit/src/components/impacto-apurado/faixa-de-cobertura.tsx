@@ -101,3 +101,68 @@ export function FaixaSemAlteracao({ temAnterior }: { temAnterior: boolean }) {
     </section>
   );
 }
+
+/**
+ * A cobertura em **uma linha** — a mesma frase e a mesma régua de tom da faixa
+ * acima, sem a caixa.
+ *
+ * A faixa de largura inteira nasceu no Impacto Apurado, onde ela é a segunda
+ * coisa da tela e não divide o espaço com mais nada. No Panorama ela ficava
+ * entre a manchete e o placar, e ali custava três coisas: ~86px de altura, uma
+ * cor de alerta do tamanho da tela competindo com o número que ela qualifica, e
+ * a repetição dos dois números que o placar publica ao lado (as alterações sem
+ * preço e o percentual apurado).
+ *
+ * Aqui ela é a última linha do cartão do veredito: a frase de severidade, no
+ * tom que `qualidadeDaCobertura` decidiu, e o caminho para as alterações sem
+ * preço. **O detalhe não vem** — ele diz quantas alterações ainda não têm preço,
+ * que é exatamente a medida "Sem impacto calculável" da régua logo acima. Ele
+ * continua na dica do mouse, para quem quiser a frase inteira.
+ */
+export function LinhaDeCobertura({
+  cobertura,
+  verDetalhes,
+  className,
+}: {
+  cobertura: CoberturaApurada;
+  /** O endereço das alterações sem preço — `null` quando nenhuma tela responde a esta população. */
+  verDetalhes: string | null;
+  className?: string;
+}) {
+  const { titulo, detalhe } = frasesDaCobertura(cobertura);
+  const Icone = cobertura.parcial ? TriangleAlert : CircleCheck;
+
+  return (
+    <p
+      className={cn(
+        "flex items-start gap-2 flex-wrap text-xs leading-snug",
+        TOM_DO_TEXTO[cobertura.qualidade.tom],
+        className,
+      )}
+      title={detalhe}
+    >
+      <Icone className="w-4 h-4 shrink-0" />
+      <span className="font-semibold min-w-0">{titulo}</span>
+      {cobertura.parcial && verDetalhes && (
+        <Link
+          href={verDetalhes}
+          className="inline-flex items-center gap-1 font-bold text-brand hover:underline shrink-0"
+        >
+          Ver as sem preço
+          <ChevronRight className="w-3.5 h-3.5" />
+        </Link>
+      )}
+    </p>
+  );
+}
+
+/*
+  O tom em texto, e não em caixa. É a mesma régua de `TOM` acima — a diferença é
+  que aqui ela pinta a letra: dentro do cartão do veredito, um fundo de alerta
+  seria a segunda cor de severidade a competir com o número grande.
+*/
+const TOM_DO_TEXTO: Record<Tom, string> = {
+  grave: "text-red-700",
+  atencao: "text-amber-700",
+  ok: "text-emerald-700",
+};

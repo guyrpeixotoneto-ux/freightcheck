@@ -1,15 +1,23 @@
 import { describe, expect, it } from "vitest";
 import {
   estadoDaProcedencia,
+  graoValido,
   leituraDaUnidade,
   leituraDaVisaoGeral,
   mapaDoPanorama,
+  mapaVazio,
   placarDoPanorama,
   procedenciaDoPanorama,
+  rankingPorFamilia,
+  rankingPorParametro,
   vereditoDoPanorama,
 } from "../panorama";
-import { ladosDoImpacto } from "../visao-geral";
-import { coberturaDaVigencia, situacaoDaApuracao } from "../impacto-apurado";
+import { impactoPorFamilia, ladosDoImpacto } from "../visao-geral";
+import {
+  coberturaDaVigencia,
+  mudancasRelevantes,
+  situacaoDaApuracao,
+} from "../impacto-apurado";
 import type { ItemCockpit } from "../cockpit";
 import type { BalancoDoRecorte } from "@/components/balanco/tipos";
 import type {
@@ -487,6 +495,177 @@ describe("o placar", () => {
 // ---------------------------------------------------------------------------
 // 3. As duas leituras, e o que cada uma sabe responder
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// 2b. O ranking — um cartão, dois grãos
+// ---------------------------------------------------------------------------
+
+/*
+  O ranking substituiu três cartões que liam a mesma lista: dois pódios de
+  família e uma lista de parâmetros. O risco da fusão é o oposto do da
+  duplicação — uma régua só que responda errado a um dos recortes —, e é ele que
+  estes testes vigiam: quem participa de cada lado, qual número cada linha
+  publica, e a que a barra se compara.
+*/
+describe("o ranking da dobra 2", () => {
+  /*
+    Uma vigência com três famílias: uma que só somou, uma que só tirou, e uma
+    que fez as duas e voltou ao mesmo lugar — a que o saldo esconde.
+  */
+  const familias = () =>
+    impactoPorFamilia(
+      vigencia({
+        summary: sumario({
+          sides: [
+            {
+              periodicity: "MENSAL",
+              net: 6000,
+              gains: {
+                total: 46000,
+                changes: 7,
+                vehicles: 40,
+                parameters: [
+                  contribuinte("financiamento", "AQUISICAO", 6000, { changes: 2 }),
+                  contribuinte("ipva", "TRIBUTOS", 40000, { changes: 5 }),
+                ],
+              },
+              losses: {
+                total: -40000,
+                changes: 4,
+                vehicles: 9,
+                parameters: [
+                  contribuinte("promocao", "COMERCIAL", -10000, { changes: 1 }),
+                  contribuinte("licenciamento", "TRIBUTOS", -30000, { changes: 3 }),
+                ],
+              },
+            },
+          ],
+        }),
+      }),
+      "MENSAL",
+    );
+
+  it("no recorte inteiro publica o líquido, e não repete o líquido embaixo", () => {
+    const linhas = rankingPorFamilia(familias(), "todos", 6);
+
+    /* TRIBUTOS somou 40 mil e tirou 30 mil: líquido de 10 mil. */
+    const tributos = linhas.find((l) => l.chave === "TRIBUTOS")!;
+    expect(tributos.valor).toBe(10000);
+    expect(tributos.classificacao).toBe("ganho");
+    /* O número de cima já é o líquido — repeti-lo embaixo diria duas vezes o
+       mesmo. */
+    expect(tributos.liquido).toBeNull();
+  });
+
+  it("no recorte de um lado publica a parcela, com o líquido embaixo", () => {
+    const perdas = rankingPorFamilia(familias(), "perdas", 6);
+    const tributos = perdas.find((l) => l.chave === "TRIBUTOS")!;
+
+    expect(tributos.valor).toBe(-30000);
+    expect(tributos.liquido).toBe(10000);
+    expect(tributos.classificacao).toBe("perda");
+  });
+
+  it("a família que não participou do lado pedido não entra na lista", () => {
+    /*
+      AQUISICAO só somou. Nos ganhos ela é linha; nas perdas ela **não é zero**,
+      ela não participou — e uma linha de R$ 0 ali diria que a família perdeu
+      dinheiro e o valor foi nenhum.
+    */
+    expect(rankingPorFamilia(familias(), "ganhos", 6).map((l) => l.chave)).toContain("AQUISICAO");
+    expect(rankingPorFamilia(familias(), "perdas", 6).map((l) => l.chave)).not.toContain(
+      "AQUISICAO",
+    );
+  });
+
+  it("as alterações da linha são as do lado pedido, e nunca as das duas somadas", () => {
+    /*
+      TRIBUTOS tem 5 alterações que somaram e 3 que tiraram. Repetir "8
+      alterações" nos dois lados afirmaria que 16 alterações mexeram nesta
+      família.
+    */
+    const ganhos = rankingPorFamilia(familias(), "ganhos", 6).find((l) => l.chave === "TRIBUTOS")!;
+    const perdas = rankingPorFamilia(familias(), "perdas", 6).find((l) => l.chave === "TRIBUTOS")!;
+
+    expect(ganhos.contexto).toContain("5");
+    expect(perdas.contexto).toContain("3");
+  });
+
+  it("a barra mede contra a maior linha da própria lista", () => {
+    const perdas = rankingPorFamilia(familias(), "perdas", 6);
+
+    /* A maior perda enche a barra; a outra se mede contra ela. */
+    expect(perdas[0]!.proporcao).toBe(1);
+    expect(perdas[1]!.proporcao).toBeCloseTo(10000 / 30000, 5);
+  });
+
+  it("o grão do parâmetro é o degrau abaixo — mesma forma de linha, outro grão", () => {
+    const resumo = vigencia();
+    const linhas = rankingPorParametro(
+      mudancasRelevantes(resumo, "MENSAL"),
+      "todos",
+      6,
+    );
+
+    expect(linhas.map((l) => l.chave)).toEqual(["financiamento", "promocao"]);
+    /* A linha diz de que família o parâmetro vem — é o que a família, no grão
+       de cima, não precisa dizer. */
+    expect(linhas[0]!.contexto).toContain("AQUISICAO");
+  });
+
+  it("o limite é do chamador, e a lista respeita", () => {
+    expect(rankingPorFamilia(familias(), "todos", 2)).toHaveLength(2);
+  });
+
+  it("grão de URL inválido não vira grão", () => {
+    expect(graoValido("familia")).toBe(true);
+    expect(graoValido("parametro")).toBe(true);
+    expect(graoValido("placa")).toBe(false);
+    expect(graoValido(null)).toBe(false);
+  });
+});
+
+describe("o mapa vazio", () => {
+  /*
+    A pergunta é de grade, e não de cartão: o mapa divide a dobra 3 com o
+    gráfico da trajetória, e um cartão que se apaga por dentro deixa metade da
+    faixa em branco. Quem monta a grade precisa saber disto antes de desenhar —
+    e precisa saber pela **mesma** regra que o cartão usa.
+  */
+  it("uma frota que não se moveu e não tem ativo a contar não tem mapa", () => {
+    const leitura = leituraDaUnidade(
+      vigencia({
+        totals: {
+          changes: 0,
+          formatOnlyChanges: 0,
+          groups: 0,
+          vehiclesTouched: 0,
+          entitiesAdded: 0,
+          entitiesRemoved: 0,
+          unchanged: 0,
+          inconclusive: 0,
+        },
+        cockpit: {
+          baseline: { hasBaseline: true, seriesWithoutBaseline: [] },
+          kpis: {},
+          panorama: { byEquipment: [] },
+        } as unknown as CockpitView,
+      }),
+    );
+
+    expect(mapaVazio(mapaDoPanorama(leitura, null, []))).toBe(true);
+  });
+
+  it("com movimento de frota, tem", () => {
+    const leitura = leituraDaUnidade(vigencia());
+    expect(mapaVazio(mapaDoPanorama(leitura, vigencia(), []))).toBe(false);
+  });
+
+  it("na Visão Geral sem unidade no ranking, não tem", () => {
+    const leitura = leituraDaVisaoGeral(overviewDe());
+    expect(mapaVazio(mapaDoPanorama(leitura, null, []))).toBe(true);
+  });
+});
 
 describe("as duas leituras", () => {
   it("a unidade conta ativos distintos; a Visão Geral usa a união quando existe", () => {

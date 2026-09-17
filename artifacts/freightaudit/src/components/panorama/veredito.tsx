@@ -1,19 +1,21 @@
 import { ArrowDownRight, ArrowUpRight, Minus, Receipt } from "lucide-react";
 import { Medalhao, Superficie } from "@/components/ui/superficie";
+import { LinhaDeCobertura } from "@/components/impacto-apurado/faixa-de-cobertura";
+import { Placar } from "@/components/panorama/placar";
 import { comSinal } from "@/lib/impacto-apurado";
 import { escreverVariacao } from "@/lib/visao-geral";
 import { formatBrlShort, periodicitySuffix } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import type { Veredito as DadosDoVeredito } from "@/lib/panorama";
+import type { MedidaDoPlacar, Veredito as DadosDoVeredito } from "@/lib/panorama";
 
 /**
- * Andar 1 — o veredito. *"Quanto custou esta vigência?"*
+ * Dobra 1 — a manchete. *"Quanto custou esta vigência?"*
  *
- * **Um número em corpo grande, e só ele.** É a diferença entre este andar e a
+ * **Um número em corpo grande, e só ele.** É a diferença entre esta dobra e a
  * manchete do Impacto Apurado, que publica o líquido ao lado de quatro
  * indicadores do mesmo tamanho: ali os quatro competem com o número pelo olho
- * de quem abre, e aqui eles descem inteiros para o andar 2, onde são cinco e
- * têm a régua de um placar. Um andar, uma pergunta.
+ * de quem abre, e aqui eles descem para a régua da segunda linha, em corpo
+ * pequeno e sem moldura. Uma dobra, uma pergunta.
  *
  * O que fica ao lado do número são as duas parcelas que o produzem — ganhos e
  * perdas — e a variação contra a vigência anterior. As três em corpo pequeno,
@@ -42,12 +44,35 @@ import type { Veredito as DadosDoVeredito } from "@/lib/panorama";
  * meio. O véu é de 4% — hierarquia, e não decoração; ele não pode competir com
  * o número que existe para destacar.
  *
- * A faixa de confiança não está aqui: é a `FaixaDeCobertura` do Impacto
- * Apurado, desenhada logo abaixo pela tela. Ela já existia, já tinha as frases
- * e já tinha a régua de cor — reescrevê-la seria a duplicação que este módulo
- * veio desfazer.
+ * **E a dobra inteira é este cartão.** Eram três blocos empilhados — o cartão
+ * do veredito, a faixa de cobertura de largura inteira e a fileira de cinco
+ * cartões do placar —, ~700px para responder uma pergunta, e com o mesmo
+ * líquido impresso duas vezes (a manchete e o primeiro cartão do placar) e os
+ * mesmos números de cobertura impressos duas vezes (a faixa e dois cartões).
+ * Aqui eles são três linhas de um cartão só, em ordem de importância:
+ *
+ * 1. **a resposta** — o número, a composição, a variação;
+ * 2. **o contexto** — a régua de medidas (`components/panorama/placar.tsx`),
+ *    sem o líquido, que é a linha de cima;
+ * 3. **a confiança** — a cobertura em uma linha (`LinhaDeCobertura`), no tom
+ *    que a régua de qualidade decidiu.
+ *
+ * As três continuam vindo de fora: este arquivo não escolhe medida nem escreve
+ * frase de cobertura, e as peças que ele compõe são as mesmas que o Impacto
+ * Apurado usa. O que ele decide é a hierarquia — um número grande, e o resto
+ * lido como o que explica esse número.
  */
-export function Veredito({ veredito }: { veredito: DadosDoVeredito }) {
+export function Veredito({
+  veredito,
+  medidas,
+  verDetalhes,
+}: {
+  veredito: DadosDoVeredito;
+  /** As medidas de contexto da vigência — a régua não desenha a do líquido. */
+  medidas: MedidaDoPlacar[];
+  /** O endereço das alterações sem preço — `null` quando nenhuma tela responde por elas. */
+  verDetalhes: string | null;
+}) {
   const { situacao } = veredito;
   const lados = situacao.estado === "com_movimento" ? situacao.lados : null;
 
@@ -155,6 +180,24 @@ export function Veredito({ veredito }: { veredito: DadosDoVeredito }) {
           Ganhos e perdas se compensaram: {formatBrlShort(lados.ganhos)} de um lado e{" "}
           {formatBrlShort(lados.perdas)} do outro.
         </p>
+      )}
+
+      {/*
+        A régua de medidas, na segunda linha do cartão.
+
+        Ela fica **dentro** do véu do destaque de propósito: as quatro medidas
+        são contexto do número da linha de cima, e um cartão branco separado
+        embaixo as promovia a assunto próprio — foi o que fez cinco cartões de
+        KPI virarem a segunda coisa que a tela dizia.
+      */}
+      <Placar medidas={medidas} className="mt-5 pt-4 border-t border-brand/15" />
+
+      {veredito.cobertura && (
+        <LinhaDeCobertura
+          cobertura={veredito.cobertura}
+          verDetalhes={verDetalhes}
+          className="mt-4 pt-3 border-t border-brand/15"
+        />
       )}
 
       {veredito.outras.length > 0 && (

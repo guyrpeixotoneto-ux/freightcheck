@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 //
-// A página inteira, montada — os seis andares de ponta a ponta.
+// A página inteira, montada — as três dobras de ponta a ponta.
 //
 // O Panorama consolida quatro módulos que liam a mesma resposta do servidor, e
 // o risco que ele traz é o inverso da redundância que desfaz: publicar um
@@ -278,45 +278,40 @@ describe("a página do Panorama", () => {
   });
 
   /*
-    Os seis andares, de ponta a ponta. É o único teste que percorre a página
+    As três dobras, de ponta a ponta. É o único teste que percorre a página
     inteira com dado em mãos, e o único que pegaria um erro de montagem que só
     aparece quando há o que desenhar.
   */
-  it("monta os seis andares", async () => {
+  it("monta as três dobras", async () => {
     vi.stubGlobal("fetch", servidor());
     montar();
 
-    // 1 — o veredito
+    // 1 — a manchete: a resposta, o contexto e a confiança, num cartão
     await waitFor(() => expect(screen.getByText("+R$ 21.931")).toBeTruthy());
     expect(screen.getByText("Impacto líquido apurado")).toBeTruthy();
     // a composição do líquido, na coluna ao lado do número
     expect(screen.getByText("Composição")).toBeTruthy();
     expect(screen.getByText("ganhos")).toBeTruthy();
     expect(screen.getByText("perdas")).toBeTruthy();
-    // a faixa de confiança, logo abaixo
-    expect(screen.getByText(/apenas 7 de 102 alterações/)).toBeTruthy();
-
-    // 2 — o placar
+    // a régua de medidas, na segunda linha do mesmo cartão
     expect(screen.getByText("Alterações detectadas")).toBeTruthy();
     expect(screen.getByText("Veículos afetados")).toBeTruthy();
     expect(screen.getByText("Sem impacto calculável")).toBeTruthy();
     expect(screen.getByText("Cobertura da apuração")).toBeTruthy();
+    // e a confiança, na terceira
+    expect(screen.getByText(/apenas 7 de 102 alterações/)).toBeTruthy();
 
-    // 3 — a composição
+    // 2 — de onde vem: a ponte e o ranking, lado a lado
     expect(screen.getByText("Composição do impacto líquido")).toBeTruthy();
+    expect(screen.getByText("Onde o dinheiro se mexeu")).toBeTruthy();
 
-    // 4 — a trajetória, e o funil que desce dela
+    // 3 — quando e onde: a trajetória e o mapa, lado a lado
     expect(screen.getByText("Impacto das alterações por vigência")).toBeTruthy();
-    expect(screen.getByText("Maiores impactos positivos desta vigência")).toBeTruthy();
-    expect(screen.getByText("Maiores impactos negativos desta vigência")).toBeTruthy();
-    expect(screen.getByText("Principais mudanças")).toBeTruthy();
     expect(screen.getByText("abra a Linha do Tempo")).toBeTruthy();
-
-    // 5 — o mapa
     expect(screen.getByText("Movimentação da frota")).toBeTruthy();
     expect(screen.getByText("Carreta — o mais tocado")).toBeTruthy();
 
-    // 6 — a procedência
+    // o rodapé — a procedência
     await waitFor(() => expect(screen.getByText("De onde vêm estes números")).toBeTruthy());
     expect(screen.getByText("Fontes deste recorte")).toBeTruthy();
 
@@ -333,21 +328,77 @@ describe("a página do Panorama", () => {
   });
 
   /*
-    A ordem do andar 4 é o ponto dele, e `getByText` não a vê: os quatro
-    títulos passariam na ordem inversa. A leitura desce um degrau por vez —
-    a vigência no gráfico, a família nos dois cartões, o parâmetro na lista —,
-    e é isso que este teste prende.
+    **O número da vigência aparece uma vez.**
+
+    Este é o teste da refeitura das dobras, e ele vigia o defeito que ela
+    desfez: o líquido apurado estava impresso seis vezes na mesma tela — a
+    manchete, o primeiro cartão do placar, a barra final da ponte, o rodapé dos
+    dois cartões de pódio e a linha da lista de parâmetros. Não era desacordo
+    entre números (eles concordavam, e os outros testes desta suíte garantem
+    isso): era a mesma verdade ocupando cinco telas de rolagem, que é o que
+    fazia a leitura executiva não caber numa leitura.
+
+    A régua é o texto exato da manchete. A ponte desenha o líquido numa barra de
+    SVG, sem nó de texto, e por isso ela não conta aqui — o que este teste
+    proíbe é **reimprimir o número**.
   */
-  it("desce o andar 4 em grão: vigência, família, parâmetro", async () => {
+  it("publica o líquido da vigência uma vez, e não seis", async () => {
     vi.stubGlobal("fetch", servidor());
     montar();
 
-    await waitFor(() => expect(screen.getByText("Impacto das alterações por vigência")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("+R$ 21.931")).toBeTruthy());
+    expect(screen.getAllByText("+R$ 21.931")).toHaveLength(1);
+
+    /* E o par que o produz, idem: ele é da coluna da composição, e de mais
+       ninguém. */
+    expect(screen.getAllByText("+R$ 26.583")).toHaveLength(1);
+  });
+
+  /*
+    O ranking é um cartão com duas chaves, e não três cartões.
+
+    Eram dois pódios de família (o que somou, o que tirou) e uma lista de
+    parâmetros — três blocos de largura inteira sobre a mesma lista. Aqui o grão
+    é uma pastilha, e o que ela troca é a lista **no mesmo cartão**: a família
+    sai, o parâmetro entra, e o título continua sendo um só.
+  */
+  it("o ranking desce de família para parâmetro sem virar outro cartão", async () => {
+    vi.stubGlobal("fetch", servidor());
+    montar();
+
+    await waitFor(() => expect(screen.getByText("Onde o dinheiro se mexeu")).toBeTruthy());
+
+    /* O grão de abertura é a família — o agregado antes do detalhe. */
+    expect(screen.getByText(/por família da remuneração/)).toBeTruthy();
+    expect(screen.getByText("AQUISICAO")).toBeTruthy();
+    expect(screen.queryByText("financiamento")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Parâmetro" }));
+
+    /* O parâmetro que compõe a família — o degrau abaixo, no mesmo cartão. */
+    await waitFor(() => expect(screen.getByText("financiamento")).toBeTruthy());
+    expect(screen.getByText(/por parâmetro/)).toBeTruthy();
+    expect(screen.queryByText("AQUISICAO")).toBeNull();
+    /* Um cartão, e não dois: o título não se multiplicou. */
+    expect(screen.getAllByText("Onde o dinheiro se mexeu")).toHaveLength(1);
+  });
+
+  /*
+    A ordem das dobras é a ordem das perguntas, e `getByText` não a vê: os
+    títulos passariam na ordem inversa. A leitura desce da resposta para a
+    composição e daí para o contexto — e é isso que este teste prende.
+  */
+  it("desce em ordem: a resposta, de onde vem, quando e onde", async () => {
+    vi.stubGlobal("fetch", servidor());
+    montar();
+
+    await waitFor(() => expect(screen.getByText("Onde o dinheiro se mexeu")).toBeTruthy());
 
     const ordem = [
+      "Impacto líquido apurado",
+      "Composição do impacto líquido",
+      "Onde o dinheiro se mexeu",
       "Impacto das alterações por vigência",
-      "Maiores impactos positivos desta vigência",
-      "Principais mudanças",
     ].map((titulo) => screen.getByText(titulo));
 
     for (let i = 1; i < ordem.length; i += 1) {

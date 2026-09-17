@@ -36,13 +36,18 @@ import {
 } from "@/lib/impacto-apurado";
 import {
   estadoDaProcedencia,
+  graoValido,
+  mapaVazio,
   procedenciaDoPanorama,
   leituraDaUnidade,
   leituraDaVisaoGeral,
   mapaDoPanorama,
   placarDoPanorama,
+  rankingPorFamilia,
+  rankingPorParametro,
   vereditoDoPanorama,
   type EstadoDaProcedencia,
+  type GraoDoRanking,
   type LeituraDoPanorama,
   type Veredito as DadosDoVeredito,
 } from "@/lib/panorama";
@@ -65,16 +70,14 @@ import {
   opcoesDoPar,
   parEmTela,
 } from "@/lib/par-do-panorama";
-import { FaixaDeCobertura, FaixaSemAlteracao } from "@/components/impacto-apurado/faixa-de-cobertura";
+import { FaixaSemAlteracao } from "@/components/impacto-apurado/faixa-de-cobertura";
 import { PonteDoImpactoGrafico } from "@/components/impacto-apurado/ponte-do-impacto";
-import { PrincipaisMudancas } from "@/components/impacto-apurado/principais-mudancas";
 import { Veredito } from "@/components/panorama/veredito";
-import { Placar } from "@/components/panorama/placar";
+import { Ranking } from "@/components/panorama/ranking";
 import { Mapa } from "@/components/panorama/mapa";
 import { Procedencia } from "@/components/panorama/procedencia";
 import { GraficoDeImpacto } from "@/components/dashboard/grafico-de-impacto";
 import { DetalheDaFamilia } from "@/components/inicio/detalhe-da-familia";
-import { MaioresImpactos } from "@/components/inicio/maiores-impactos";
 import { DetalheDoImpacto } from "@/components/inicio/detalhe-do-impacto";
 import { unidadesPorImpacto } from "@/components/inicio/visao-geral-consolidada";
 import type { UnidadeDoDrill } from "@/lib/drill-da-familia";
@@ -686,6 +689,34 @@ function Corpo({
 
   const familiaAberta = parametros.get("familia");
   const impactoAberto = parametros.get("impacto");
+
+  /*
+    O ranking da dobra 2 — o grão e o lado, lidos do endereço.
+
+    Os dois são chave de URL porque os dois são leitura, e não preferência de
+    quem está na frente da tela: um link colado abre o mesmo recorte que quem
+    colou estava lendo. `familia` é o padrão e não vai ao endereço — a URL
+    descreve o que foge do padrão, como no resto do produto.
+
+    As contagens saem da **mesma** função que monta a lista, sem limite: é ela
+    que decide quem participa de cada lado, e contar aqui por fora daria um
+    botão habilitado sobre uma lista vazia no dia em que a regra mudasse.
+  */
+  const pedidoDeGrao = parametros.get("grao");
+  const grao: GraoDoRanking = graoValido(pedidoDeGrao) ? pedidoDeGrao : "familia";
+  const filtro = filtroAberto(parametros);
+  const doGrao = (f: FiltroDeMudanca, limite: number) =>
+    grao === "familia"
+      ? rankingPorFamilia(podio, f, limite)
+      : rankingPorParametro(mudancas, f, limite);
+  const linhasDoRanking = doGrao(filtro, LINHAS_DO_RANKING);
+  const contagensDoRanking: Record<FiltroDeMudanca, number> = {
+    todos: doGrao("todos", Infinity).length,
+    ganhos: doGrao("ganhos", Infinity).length,
+    perdas: doGrao("perdas", Infinity).length,
+  };
+
+  const semMapa = mapaVazio(mapa);
   const detalheFamilia = detalheDaFamilia(leitura.resumo, familiaAberta, periodicidade);
   const detalheImpacto = detalheDoImpacto(view, impactoAberto, periodicidade);
 
@@ -702,205 +733,199 @@ function Corpo({
 
   return (
     <>
-      {/* ---- Andar 1 · o veredito ---- */}
-      <Veredito veredito={veredito} />
+      {/* ---- Dobra 1 · a manchete ---- */}
+      {/*
+        Eram três blocos: o cartão do veredito, a faixa de cobertura de largura
+        inteira e a fileira de cinco cartões do placar. O primeiro cartão do
+        placar era o número da manchete outra vez, e dois outros eram os números
+        da faixa outra vez — ~700px, três molduras e o mesmo líquido impresso
+        duas vezes a 200px de distância. Agora é um cartão com três linhas, e
+        `components/panorama/veredito.tsx` explica a hierarquia delas.
+      */}
+      <Veredito
+        veredito={veredito}
+        medidas={placar}
+        verDetalhes={
+          comDestino
+            ? linkDasSemPreco(daVigencia)
+            : /* Na Visão Geral o destino cairia na unidade padrão do servidor. */
+              null
+        }
+      />
 
-      {veredito.cobertura ? (
-        <FaixaDeCobertura
-          cobertura={veredito.cobertura}
-          verDetalhes={
-            comDestino
-              ? linkDasSemPreco(daVigencia)
-              : /* Na Visão Geral o destino cairia na unidade padrão do servidor. */
-                null
-          }
-        />
-      ) : (
+      {/*
+        Sem cobertura a medir a manchete não tem a linha de confiança, e aí a
+        faixa continua: as duas causas disso — nada mudou, ou não há vigência
+        anterior — são a notícia da tela, e não uma nota de pé de cartão.
+      */}
+      {!veredito.cobertura && (
         <FaixaSemAlteracao temAnterior={view ? view.cockpit.baseline.hasBaseline : true} />
       )}
 
-      {/* ---- Andar 2 · o placar ---- */}
-      <Placar medidas={placar} />
-
-      {/* ---- Andar 3 · a composição ---- */}
+      {/* ---- Dobra 2 · de onde vem ---- */}
       {/*
-        A ponte ocupa a faixa inteira, e não dois terços dela.
+        Duas colunas, e cada uma responde uma metade da pergunta: a ponte diz
+        **como o número se formou** (a escada de famílias até o líquido), e o
+        ranking ao lado diz **onde ele se mexeu**, em dois grãos.
 
-        O terço ao lado era das Principais mudanças, que desceram para o andar 4
-        (a razão está lá). O que sobra aqui é um waterfall, e um waterfall
-        espremido perde exatamente o que ele existe para mostrar: com oito ou
-        dez famílias, os degraus do meio viravam fatias de dois pixels com o
-        rótulo cortado.
+        Eram três cartões de largura inteira aqui: a ponte, os dois pódios de
+        família e a lista de parâmetros — quatro blocos, ~1.900px, todos lendo a
+        mesma lista de famílias. Os três últimos viraram um
+        (`components/panorama/ranking.tsx`), porque o que os separava eram duas
+        escolhas, e escolha é chave: `?grao=` e `?mudancas=`.
+
+        3 e 2 de cinco, e não a metade: a ponte é um desenho com escala e
+        rótulos de eixo, e o ranking é uma lista de texto — dar a mesma largura
+        às duas faria a escada apertar para sobrar espaço em branco na lista.
       */}
-      <Superficie className="px-6 py-5 min-w-0">
-        <CabecalhoDaSuperficie
-          titulo="Composição do impacto líquido"
-          descricao="De onde vem o resultado apurado desta vigência"
-          acao={<span className={cn(BOTAO_DE_TROCA, "cursor-default")}>{DECOMPOSICOES.familia}</span>}
+      {/*
+        As colunas esticam juntas (`items-stretch`, o padrão da grade) em vez de
+        pararem cada uma na sua altura: uma lista de duas linhas ao lado de um
+        gráfico de 300px terminaria 200px acima dele, e o que sobra à direita não
+        é espaço em branco — é fundo de página no meio de uma faixa de conteúdo,
+        que se lê como cartão que não carregou.
+      */}
+      <div className="grid gap-5 xl:grid-cols-5">
+        <Superficie className="px-6 py-5 min-w-0 xl:col-span-3">
+          <CabecalhoDaSuperficie
+            titulo="Composição do impacto líquido"
+            descricao="De onde vem o resultado apurado desta vigência"
+            acao={<span className={cn(BOTAO_DE_TROCA, "cursor-default")}>{DECOMPOSICOES.familia}</span>}
+          />
+          {ponte && ponte.degraus.length > 0 ? (
+            <PonteDoImpactoGrafico
+              ponte={ponte}
+              onAbrirFamilia={view ? (code) => onTrocar({ familia: code, impacto: null }) : null}
+              /*
+                A regra de densidade: a altura segue o que há para desenhar.
+
+                300px é a altura de uma escada de oito ou dez degraus. Uma
+                vigência com uma família apurada desenha duas barras — a família
+                e o líquido —, e ali 300px é altura gasta em branco entre o topo
+                das barras e a borda do cartão.
+              */
+              altura={ponte.degraus.length <= 2 ? 220 : 300}
+              className="mt-5"
+            />
+          ) : (
+            /*
+              O vazio deixou de ser uma linha cinza no meio de uma faixa alta de
+              cartão. Uma frase solta em `py-20` é lida como carregamento que não
+              terminou; um bloco com ícone, título e explicação é lido como o que
+              é — a tela inteira, sem dado a desenhar.
+            */
+            <EstadoVazio
+              icone={BarChart3}
+              titulo="Nenhuma família tem valor apurado nesta vigência"
+              descricao="Quando houver alterações com impacto financeiro, a composição aparece aqui por família da remuneração, com o quanto cada uma somou ou tirou do resultado."
+            />
+          )}
+        </Superficie>
+
+        <Ranking
+          className="xl:col-span-2"
+          linhas={linhasDoRanking}
+          grao={grao}
+          filtro={filtro}
+          periodicidade={periodicidade}
+          contagens={contagensDoRanking}
+          chaveAberta={grao === "familia" ? familiaAberta : impactoAberto}
+          onGrao={(g) => onTrocar({ grao: g === "familia" ? null : g })}
+          onFiltro={(f) => onTrocar({ mudancas: f === "todos" ? null : f })}
+          onAbrir={
+            view
+              ? (chave) =>
+                  onTrocar(
+                    grao === "familia"
+                      ? { familia: chave, impacto: null }
+                      : { impacto: chave, familia: null },
+                  )
+              : null
+          }
+          nota={view ? undefined : NOTA_DA_VISAO_GERAL[grao]}
         />
-        {ponte && ponte.degraus.length > 0 ? (
-          <PonteDoImpactoGrafico
-            ponte={ponte}
-            onAbrirFamilia={view ? (code) => onTrocar({ familia: code, impacto: null }) : null}
-            className="mt-5"
+      </div>
+
+      {/* ---- Dobra 3 · quando, e onde ---- */}
+      {/*
+        A trajetória e o mapa dividem a faixa, meio a meio: os dois são
+        contexto do número da dobra 1 — "como chegamos aqui" e "onde isso
+        aconteceu" —, e nenhum dos dois é a resposta. Empilhados de largura
+        inteira eles custavam duas telas de rolagem para publicar um gráfico de
+        seis pontos e quatro contagens de frota.
+
+        Sem mapa a desenhar a faixa vira uma coluna só (`mapaVazio`): metade de
+        uma dobra em branco se lê como cartão que não carregou.
+      */}
+      <div className={cn("grid gap-5", !semMapa && "xl:grid-cols-2")}>
+        <Superficie className="px-6 py-5 min-w-0">
+          {/*
+            Barras divergentes, e não a linha do líquido sozinha.
+
+            A linha respondia "estamos melhorando ou piorando" e parava aí: uma
+            vigência de líquido zero desenhava o mesmo ponto tendo havido R$ 0 de
+            movimento ou R$ 120 mil somados contra R$ 120 mil tirados — e são
+            duas vigências completamente diferentes de se administrar. Aqui os
+            dois lados aparecem inteiros, cada um crescendo do zero para o seu
+            lado, com o líquido passando por cima.
+
+            Uma barra por vigência **entregue**, e não por mês de calendário: duas
+            vigências no mesmo mês aparecem pelo dia, uma ao lado da outra, nunca
+            somadas — somá-las inventaria uma vigência que ninguém entregou.
+
+            É o gráfico do Dashboard, o mesmo componente e a mesma série — esta
+            dobra não é uma quinta verdade sobre o mesmo dado.
+          */}
+          {/*
+            Só o título aqui. O gráfico escreve a própria linha de subtítulo, e a
+            que havia neste lugar começava com as mesmas três palavras.
+          */}
+          <CabecalhoDaSuperficie titulo="Impacto das alterações por vigência" className="mb-1" />
+          <GraficoDeImpacto
+            pontos={pontos}
+            periodicity={periodicityDaSerie ?? periodicidade}
+            carregando={serieCarregando}
+            vigenciaAtiva={vigenciaAberta}
+            onEscolherVigencia={(periodo) => onTrocar({ period: periodo })}
           />
-        ) : (
-          /*
-            O vazio deixou de ser uma linha cinza no meio de uma faixa alta de
-            cartão. Uma frase solta em `py-20` é lida como carregamento que não
-            terminou; um bloco com ícone, título e explicação é lido como o que
-            é — a tela inteira, sem dado a desenhar.
-          */
-          <EstadoVazio
-            icone={BarChart3}
-            titulo="Nenhuma família tem valor apurado nesta vigência"
-            descricao="Quando houver alterações com impacto financeiro, a composição aparece aqui por família da remuneração, com o quanto cada uma somou ou tirou do resultado."
-          />
-        )}
-      </Superficie>
+          {/*
+            A leitura por tipo de ativo — cavalo, carreta, trecho — **não** é um
+            controle deste cartão, e essa é uma correção à proposta original.
 
-      {/* ---- Andar 4 · a trajetória ---- */}
-      <Superficie className="px-6 py-5">
-        {/*
-          Barras divergentes, e não a linha do líquido sozinha.
+            Trocar o tipo troca a **população** de todo número, e não o recorte de
+            um gráfico: com "Carreta" ligado aqui, esta dobra falaria de carretas
+            enquanto o resto da tela continuaria falando da frota inteira, sem
+            nada acusando a divergência — exatamente a classe de defeito que o
+            Panorama existe para desfazer.
 
-          A linha respondia "estamos melhorando ou piorando" e parava aí: uma
-          vigência de líquido zero desenhava o mesmo ponto tendo havido R$ 0 de
-          movimento ou R$ 120 mil somados contra R$ 120 mil tirados — e são
-          duas vigências completamente diferentes de se administrar. Aqui os
-          dois lados aparecem inteiros, cada um crescendo do zero para o seu
-          lado, com o líquido passando por cima: a mesma pergunta continua
-          respondida pela linha, e a de baixo dela deixa de sumir.
+            A Linha do Tempo pode fazê-lo porque lá o tipo é aba **de página**: a
+            tela inteira troca de população junto. Daí o link, e não a pastilha.
+          */}
+          <p className="text-xs text-muted-foreground mt-4 pt-4 border-t flex items-center gap-1.5 flex-wrap">
+            <History className="w-3.5 h-3.5 shrink-0" />
+            Para ler este mesmo histórico por tipo de ativo — a população inteira trocada, e não só
+            este gráfico —
+            <Link
+              href={consulta.toString() ? `${LINHA_DO_TEMPO}?${consulta}` : LINHA_DO_TEMPO}
+              className="font-semibold text-brand hover:underline"
+            >
+              abra a Linha do Tempo
+            </Link>
+            .
+          </p>
+        </Superficie>
 
-          Uma barra por vigência **entregue**, e não por mês de calendário: duas
-          vigências no mesmo mês aparecem pelo dia, uma ao lado da outra, nunca
-          somadas — somá-las inventaria uma vigência que ninguém entregou.
-
-          É o gráfico do Dashboard, o mesmo componente e a mesma série — este
-          andar não é uma quinta verdade sobre o mesmo dado.
-        */}
-        {/*
-          Só o título aqui. O gráfico escreve a própria linha de subtítulo
-          ("Ganhos e perdas por vigência, em R$/mês — últimas 6 vigências com
-          dado"), e a que havia neste lugar começava com as mesmas três
-          palavras: duas frases quase idênticas, empilhadas, sobre o mesmo
-          gráfico. O que a segunda tinha de próprio — uma barra por vigência
-          entregue, nunca somadas — desceu para o comentário acima, onde
-          explica a decisão a quem lê o código, em vez de ocupar a tela de quem
-          lê o número.
-        */}
-        <CabecalhoDaSuperficie titulo="Impacto das alterações por vigência" className="mb-1" />
-        <GraficoDeImpacto
-          pontos={pontos}
-          periodicity={periodicityDaSerie ?? periodicidade}
-          carregando={serieCarregando}
-          vigenciaAtiva={vigenciaAberta}
-          onEscolherVigencia={(periodo) => onTrocar({ period: periodo })}
+        <Mapa
+          mapa={mapa}
+          onAbrirUnidade={
+            overview ? (chave) => onTrocar({ visaoGeral: null, scopeHash: chave }) : null
+          }
         />
-        {/*
-          A leitura por tipo de ativo — cavalo, carreta, trecho — **não** é um
-          controle deste cartão, e essa é uma correção à proposta original.
+      </div>
 
-          Trocar o tipo troca a **população** de todo número, e não o recorte de
-          um gráfico: com "Carreta" ligado aqui, este andar falaria de carretas
-          enquanto os outros cinco continuariam falando da frota inteira, na
-          mesma tela e sem nada acusando a divergência — exatamente a classe de
-          defeito que o Panorama existe para desfazer.
-
-          A Linha do Tempo pode fazê-lo porque lá o tipo é aba **de página**: a
-          tela inteira troca de população junto. Daí o link, e não a pastilha.
-        */}
-        <p className="text-xs text-muted-foreground mt-4 pt-4 border-t flex items-center gap-1.5 flex-wrap">
-          <History className="w-3.5 h-3.5 shrink-0" />
-          Para ler este mesmo histórico por tipo de ativo — a população inteira trocada, e não só
-          este gráfico —
-          <Link
-            href={consulta.toString() ? `${LINHA_DO_TEMPO}?${consulta}` : LINHA_DO_TEMPO}
-            className="font-semibold text-brand hover:underline"
-          >
-            abra a Linha do Tempo
-          </Link>
-          .
-        </p>
-      </Superficie>
-
+      {/* ---- O rodapé · a procedência ---- */}
       {/*
-        Debaixo do gráfico, o pódio partido em dois: o que somou à esquerda, o
-        que tirou à direita — os mesmos dois cartões do Dashboard, do mesmo
-        componente (`components/inicio/maiores-impactos.tsx`).
-
-        A ponte do andar 3 e este pódio leem a mesma lista de famílias e não
-        dizem a mesma coisa: a ponte mostra o **líquido** de cada família,
-        empilhado até o número da manchete — é a resposta a "de onde vem este
-        resultado". Estes cartões abrem cada família nos **dois lados**, e é a
-        resposta a "onde eu ganhei" e "onde eu perdi", que a ponte apaga por
-        construção: a família que somou R$ 40 mil e tirou R$ 39 mil é um degrau
-        de R$ 1.000 lá em cima e o maior acontecimento da vigência aqui.
-
-        Sem preço apurado em lugar nenhum não há dois lados a separar, e dois
-        cartões vazios lado a lado diriam duas vezes o mesmo nada — aí a faixa
-        some, e quem já disse isso é o andar 3, uma vez.
-      */}
-      {podio.length > 0 && periodicidade !== null && (
-        <div className="grid gap-5 lg:grid-cols-2">
-          <MaioresImpactos
-            lado="ganhos"
-            familias={podio}
-            periodicidade={periodicidade}
-            familiaAberta={familiaAberta}
-            onAbrirFamilia={view ? (code) => onTrocar({ familia: code, impacto: null }) : null}
-            nota={view ? undefined : NOTA_DO_PODIO}
-          />
-          <MaioresImpactos
-            lado="perdas"
-            familias={podio}
-            periodicidade={periodicidade}
-            familiaAberta={familiaAberta}
-            onAbrirFamilia={view ? (code) => onTrocar({ familia: code, impacto: null }) : null}
-            nota={view ? undefined : NOTA_DO_PODIO}
-          />
-        </div>
-      )}
-
-      {/*
-        E o degrau seguinte: o parâmetro.
-
-        Esta lista estava no andar 3, ao lado da ponte, e ali ela invertia o
-        funil — a tela descia ao parâmetro no andar 3 e voltava à família no 4,
-        de modo que o detalhe chegava antes do agregado que ele detalha. Aqui o
-        andar 4 desce inteiro e numa direção só: a vigência no gráfico, a
-        família nos dois cartões, o parâmetro nesta lista.
-
-        Ela não repete os cartões acima: o grão é outro. Uma família some da
-        lista de parâmetros quando o seu movimento está espalhado em muitos
-        parâmetros pequenos, e é exatamente essa diferença que se quer ver ao
-        descer um degrau.
-      */}
-      <PrincipaisMudancas
-        linhas={mudancas}
-        periodicity={periodicidade}
-        filtro={filtroAberto(parametros)}
-        onFiltro={(f) => onTrocar({ mudancas: f === "todos" ? null : f })}
-        onAbrir={view ? (key) => onTrocar({ impacto: key, familia: null }) : null}
-        limite={6}
-        nota={
-          view
-            ? undefined
-            : "Em Visão Geral a lista soma as unidades e não abre por dentro: o detalhe de um parâmetro só existe dentro de um contexto."
-        }
-      />
-
-      {/* ---- Andar 5 · o mapa ---- */}
-      <Mapa
-        mapa={mapa}
-        onAbrirUnidade={
-          overview ? (chave) => onTrocar({ visaoGeral: null, scopeHash: chave }) : null
-        }
-      />
-
-      {/* ---- Andar 6 · a procedência ---- */}
-      {/*
-        Dentro de uma unidade o andar desenha nos seis desfechos — é justamente o
+        Dentro de uma unidade o cartão desenha nos seis desfechos — é justamente o
         sumiço calado dele que `estadoDaProcedencia` desfaz. Na Visão Geral ele
         não existe: a procedência é de um recorte, e não há recorte de uma
         unidade debaixo de números que somaram todas.
@@ -935,16 +960,34 @@ function Corpo({
 }
 
 /**
- * Por que o pódio não abre em Visão Geral.
+ * Por que o ranking não abre em Visão Geral — **uma frase por grão**.
  *
  * A gaveta de uma família (`DetalheDaFamilia`) desce até o parâmetro e, dentro
- * dele, até a placa — e placa é de uma unidade. Somadas as unidades, o número
- * do cartão é verdadeiro e a gaveta dele não teria a quem perguntar. A linha
- * deixa de ser botão, e o cartão diz por quê em vez de deixar o clique morrer
- * em silêncio.
+ * dele, até a placa — e placa é de uma unidade. Somadas as unidades, o número da
+ * linha é verdadeiro e a gaveta dele não teria a quem perguntar. A linha deixa
+ * de ser botão, e o cartão diz por quê em vez de deixar o clique morrer em
+ * silêncio.
+ *
+ * As duas frases não são a mesma porque o que falta não é o mesmo: no grão da
+ * família falta o contexto da placa; no do parâmetro falta a árvore inteira, que
+ * o overview não responde.
  */
-const NOTA_DO_PODIO =
-  "Em Visão Geral os números somam as unidades e não abrem por dentro: de onde vem o impacto de uma família só existe dentro de um contexto.";
+const NOTA_DA_VISAO_GERAL: Record<GraoDoRanking, string> = {
+  familia:
+    "Em Visão Geral os números somam as unidades e não abrem por dentro: de onde vem o impacto de uma família só existe dentro de um contexto.",
+  parametro:
+    "Em Visão Geral a lista soma as unidades e não abre por dentro: o detalhe de um parâmetro só existe dentro de um contexto.",
+};
+
+/**
+ * Quantas linhas o ranking publica.
+ *
+ * Cinco era o teto dos pódios e seis o da lista de parâmetros — dois tetos para
+ * a mesma lista, herdados de dois cartões. Seis aqui porque o cartão agora
+ * divide a dobra com a ponte, e é a altura da escada que ele precisa acompanhar
+ * para as duas colunas fecharem juntas.
+ */
+const LINHAS_DO_RANKING = 6;
 
 /** O endereço das alterações sem preço — a população que a faixa de cobertura conta. */
 function linkDasSemPreco(recorte: Recorte): string {
@@ -989,7 +1032,7 @@ function UltimaAtualizacao({ quando }: { quando: number }) {
  * "Carregando o Panorama…" numa página em branco não diz o que vem: quem abre
  * a tela fica sem saber se o que chega é um número, uma tabela ou um erro, e a
  * página salta inteira quando o conteúdo entra. O esqueleto desenha a forma dos
- * dois primeiros andares — o veredito e os cinco cartões do placar —, de modo
+ * duas primeiras dobras — a manchete e as duas colunas da composição —, de modo
  * que a chegada do dado preenche uma silhueta que já estava no lugar certo.
  *
  * Ele é `aria-hidden` com um `role="status"` ao lado: para quem lê a tela por
@@ -1011,14 +1054,20 @@ function Carregando() {
           </div>
         </div>
       </div>
-      <div aria-hidden className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-        {[0, 1, 2, 3, 4].map((i) => (
-          <div key={i} className="superficie px-5 py-4 space-y-3">
-            <div className="h-8 w-8 rounded-xl bg-muted animate-pulse" />
-            <div className="h-6 w-20 rounded bg-muted animate-pulse" />
-            <div className="h-3 w-24 rounded bg-muted animate-pulse" />
-          </div>
-        ))}
+      <div aria-hidden className="grid gap-5 xl:grid-cols-5">
+        <div className="superficie px-6 py-5 space-y-4 xl:col-span-3">
+          <div className="h-3 w-48 rounded bg-muted animate-pulse" />
+          <div className="h-[220px] rounded-md bg-muted/40 animate-pulse" />
+        </div>
+        <div className="superficie px-6 py-5 space-y-4 xl:col-span-2">
+          <div className="h-3 w-40 rounded bg-muted animate-pulse" />
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="space-y-2">
+              <div className="h-4 w-32 rounded bg-muted animate-pulse" />
+              <div className="h-1.5 w-full rounded-full bg-muted animate-pulse" />
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
