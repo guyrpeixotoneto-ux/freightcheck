@@ -120,27 +120,38 @@ O único `RECUSARIA` é a requisição em que mandei um `scopeHash` inventado �
 veredito correto. Todo o resto é `REDUZIRIA`, e por um motivo que é **o achado
 principal desta medição**:
 
-### O vínculo `scope_hash → unidade` tem cobertura zero neste ambiente
+### MEDIÇÃO INCONCLUSIVA — por ausência de unidades canônicas
 
-```sql
-select count(*) from unidade;                                  -- 0
-select count(*) from remuneracao_unidade;                      -- 0
-select count(*) from remuneracao_unidade where unidade_id is null; -- 0
-```
+Rodando o procedimento somente-leitura (`scripts/diagnostico/escopo-em-producao.sql`)
+contra o ambiente semeado:
 
-O banco semeado tem 18 vigências e 8 conjuntos de alteração, e **nenhuma unidade
-canônica cadastrada**. A ponte que liga acervo a fronteira está vazia.
+| | |
+| --- | ---: |
+| unidades canônicas cadastradas | **0** |
+| `scope_hash` distintos no acervo | 1 |
+| hashes com vínculo a uma unidade | **0** |
+| hashes sem vínculo | **1** (18 snapshots, vigência até 2026-08-01) |
+| contas ativas | 1 |
+| contas sem nenhuma concessão | **1** |
 
-Isso não é defeito do desenho — é o estado da curadoria, e é exatamente o que a
-observação existe para revelar. A consequência é dura e precisa estar escrita:
-**com a ponte vazia, ligar o corte hoje bloquearia 100% das leituras de acervo,
-para todo mundo.** `hashesSemUnidade: 0` aqui não quer dizer "está tudo
-vinculado": quer dizer que não há acervo registrado em `remuneracao_unidade`
-para classificar.
+**O `SEM_VINCULO: 0` que o relatório HTTP devolveu não é evidência de
+cobertura.** Ele vem de `remuneracao_unidade`, que é o *cadastro* — e o cadastro
+está vazio. O acervo, lido de `snapshot`, tem um hash, e ele **não** está
+vinculado a unidade nenhuma. Os dois números medem coisas diferentes, e ler o
+primeiro como cobertura foi um erro de leitura que este parágrafo existe para
+não deixar repetir.
 
-**O número que falta é o de produção**, e é o primeiro a colher: quantas
-unidades cadastradas, quantos `scope_hash` com vínculo, e quantos `SEM_VINCULO`.
-O relatório responde isso no ambiente em que rodar.
+Registre-se, então, com o nome certo: **medição inconclusiva por ausência de
+unidades canônicas.** Nada neste ambiente permite afirmar qualquer cobertura da
+ponte acervo → fronteira.
+
+A consequência é dura e precisa estar escrita: **enquanto não houver unidade
+canônica cadastrada, ligar o corte bloqueia 100% das leituras de acervo, para
+todo mundo.** Não é defeito do desenho — é o estado da curadoria, e é exatamente
+o que a observação existe para revelar antes, e não depois.
+
+**O número que decide é o de produção**, e colhê-lo é a primeira pré-condição
+do corte. Ver §6.
 
 ---
 
@@ -160,21 +171,63 @@ A controladoria é o caso que tenta puxar um atalho, e o teste
 `controladoria consolida duas unidades — porque tem as duas concessões` existe
 para travar isso: consolidar é a soma de concessões, não um privilégio.
 
-Se a operação achar pesado cadastrar N linhas para quem vê tudo, a saída é uma
-**capacidade administrativa explícita** — uma chave que diz "esta conta alcança
-todas as unidades", com autor e data, como qualquer concessão. O que não pode
-voltar é o acesso implícito por ausência de cadastro.
+**Nesta fase não existe atalho para a controladoria**: são N concessões
+explícitas em `acesso_a_unidade`, uma por unidade. Nenhuma abstração
+administrativa nova, nenhum acesso global implícito.
+
+**Unidade nova não entra sozinha no acesso de ninguém — nem da controladoria.**
+Cadastrar uma unidade e conceder acesso a ela são dois atos, e o segundo passa
+por fluxo administrativo com autor e data, como qualquer concessão. Uma unidade
+que se auto-concedesse a quem "vê tudo" faria o alcance crescer sem que ninguém
+tivesse decidido, que é a forma silenciosa do mesmo problema que o fallback
+global teria criado.
 
 ---
 
-## 6. Plano de corte
+## 6. Medir em produção — procedimento somente leitura
+
+`scripts/diagnostico/escopo-em-producao.sql`, rodado assim:
+
+```bash
+psql "$DATABASE_URL" -f scripts/diagnostico/escopo-em-producao.sql
+```
+
+**Riscos, por extenso.** Escrita é impossível: a sessão abre em
+`SET TRANSACTION READ ONLY` e fecha em `ROLLBACK`, então o Postgres recusa
+qualquer `INSERT`, `UPDATE`, `DELETE` ou DDL dentro dela. A carga é de
+agregações sobre tabelas de cadastro — `unidade`, `app_user`,
+`acesso_a_unidade`, `remuneracao_unidade`, `snapshot` —, nenhuma varre `fact`
+nem `change`. Leitura não pega lock que atrapalhe escrita concorrente. A saída
+traz e-mail de conta e nome de unidade: é material de administração, e não vai
+para canal aberto.
+
+**Evidências esperadas**, as seis que você pediu:
+
+| # | pergunta | de onde sai |
+| --- | --- | --- |
+| 1 | total de unidades canônicas | consulta 1 |
+| 2 | `scopeHash` distintos no acervo | consulta 2, de `snapshot` |
+| 3 | hashes vinculados | consulta 3 |
+| 4 | hashes sem vínculo, um a um | consulta 4, com canal e vigência |
+| 5 | usuários e concessões atuais | consulta 5 |
+| 6 | rotas e consultas que seriam bloqueadas | **não é pergunta de banco** — sai de `GET /api/escopo/observacao`, que mede tráfego real |
+
+A ordem certa é cadastro primeiro, tráfego depois: sem saber quantas unidades
+existem, o relatório de tráfego não tem como ser interpretado.
+
+---
+
+## 6b. Plano de corte
 
 **Pré-condições, todas obrigatórias:**
 
-1. Relatório de observação colhido **em produção**, por rota e por conta.
-2. `SEM_VINCULO = 0`, ou cada hash restante com exceção escrita e auditável.
-3. Concessões cadastradas para toda conta ativa — `contasSemConcessao = 0`.
-4. Matriz da §5 revisada por quem responde pela operação.
+1. Procedimento acima rodado **em produção**, com as seis evidências colhidas.
+2. Unidades canônicas cadastradas — hoje o número medido é 0, e com ele o corte
+   é apagão.
+3. Hashes `SEM_VINCULO` = 0, ou cada um restante com exceção escrita, nomeada e
+   auditável. Nenhum é liberado por conveniência.
+4. `contasSemConcessao` = 0: toda conta ativa com a matriz da §5 preenchida.
+5. Matriz revisada por quem responde pela operação.
 
 **Ordem do corte**, rota a rota, nunca de uma vez:
 
@@ -186,8 +239,8 @@ Cada etapa vira `expect(403)` no caso-marcador de
 `isolamento-por-unidade.test.ts`, que hoje é `expect(200)` e diz isso em voz
 alta — a mudança de fase é uma linha visível num diff.
 
-**Rollback:** o corte é uma condição no middleware, não uma migration. Desligar é
-uma variável de ambiente, valendo no pedido seguinte, sem deploy e sem perda de
+**Rollback:** o corte é uma condição no middleware, não uma migration. Desligar
+é variável de ambiente, valendo no pedido seguinte, sem deploy e sem perda de
 dado — as concessões continuam cadastradas. A estrutura nunca precisa ser
 desfeita; o que se liga e desliga é a recusa.
 
