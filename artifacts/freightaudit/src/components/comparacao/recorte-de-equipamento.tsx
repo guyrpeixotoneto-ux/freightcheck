@@ -90,6 +90,7 @@ export function RecorteDeEquipamento({
   motivoDoVazio,
   idPrefixo,
   abaExtra,
+  aoLado,
 }: {
   valor: RecorteDeTipo;
   onValor: (v: RecorteDeTipo) => void;
@@ -124,6 +125,31 @@ export function RecorteDeEquipamento({
   idPrefixo: string;
   /** Ver {@link AbaExtraDoRecorte}. Ausente, a fileira é só os três recortes. */
   abaExtra?: AbaExtraDoRecorte;
+  /**
+   * Um segundo grupo, **na outra ponta da mesma barra** — hoje, só o seletor de
+   * fonte da Auditoria de FINAME.
+   *
+   * ---------------------------------------------------------------------------
+   * Por que dentro desta barra, e não numa própria
+   * ---------------------------------------------------------------------------
+   * Porque os dois grupos são a mesma decisão lida da esquerda para a direita:
+   * **o que** se analisa, e **de onde** vem o dado. Uma segunda barra logo
+   * abaixo custaria altura e sugeriria hierarquia — dois controles empilhados
+   * parecem um governar o outro. Lado a lado, com um fio entre eles, eles se
+   * leem como o que são: dois eixos ortogonais da mesma escolha.
+   *
+   * ---------------------------------------------------------------------------
+   * A ausência desta prop não muda nada, e isso é o ponto
+   * ---------------------------------------------------------------------------
+   * Sem ela a barra continua sendo o `inline-flex` de sempre, largura do
+   * conteúdo — que é o que IPVA, Lucro Fixo e Impostos desenham hoje. Com ela a
+   * barra passa a ocupar a linha inteira para poder empurrar o segundo grupo
+   * para a direita. É a única diferença, e ela só existe onde alguém pediu.
+   *
+   * Em tela estreita o grupo quebra para a segunda linha (`flex-wrap`) em vez de
+   * espremer as abas ou passar por cima delas.
+   */
+  aoLado?: React.ReactNode;
 }) {
   const rotulo = (r: RecorteDeTipo) =>
     r === "TODOS" ? "Cavalo + Carreta" : rotuloDaCobertura(r);
@@ -138,8 +164,12 @@ export function RecorteDeEquipamento({
     <div
       role="tablist"
       aria-label="Recorte por equipamento"
-      className="inline-flex flex-wrap items-center gap-1 rounded-lg border bg-muted/40 p-1"
+      className={cn(
+        "flex flex-wrap items-center gap-1 rounded-lg border bg-muted/40 p-1",
+        aoLado ? "w-full justify-between" : "inline-flex",
+      )}
     >
+      <div className="flex flex-wrap items-center gap-1">
       {RECORTES.map((r) => {
         /* "Cavalo + Carreta" nunca desabilita: é a tela que já existia, e ela
            responde por qualquer acervo — inclusive o vazio, dizendo que está
@@ -202,6 +232,9 @@ export function RecorteDeEquipamento({
           </button>
         </>
       )}
+      </div>
+
+      {aoLado}
     </div>
   );
 }

@@ -8,6 +8,9 @@ import {
   type LinhaDeSeguro,
   type MedidaDaVariavel,
   type VereditoDoAparato,
+  FILTROS_DE_SEGURO_VAZIOS,
+  filtrarLinhasDeSeguro,
+  type FiltrosDeSeguro,
 } from "@workspace/comparison/seguro";
 import { numeroParaCsv } from "@/lib/csv";
 import { formatBrl, formatNumber } from "@/lib/format";
@@ -203,54 +206,23 @@ export const ABAS_DE_ESTADO: { chave: "TODAS" | EstadoDaLinhaDeSeguro; rotulo: s
   { chave: "SEM_ALTERACAO", rotulo: "Sem alteração" },
 ];
 
-export interface FiltrosDeSeguro {
-  busca: string;
-  tipo: string;
-  variavel: string;
-  estado: "TODAS" | EstadoDaLinhaDeSeguro;
-  /**
-   * Só o seguro — a única das cinco que é negociada por ativo.
-   *
-   * Existe porque as outras quatro se movem em bloco: quando a tabela de
-   * revestimento muda, as 657 carretas mudam juntas, e a lista inteira vira
-   * ruído sobre o que aconteceu com *uma* placa. O alternador separa a
-   * negociação da tabela.
-   */
-  soSeguro: boolean;
-}
-
-export const FILTROS_VAZIOS: FiltrosDeSeguro = {
-  busca: "",
-  tipo: "TODOS",
-  variavel: "TODAS",
-  estado: "TODAS",
-  soSeguro: false,
-};
-
 /**
- * O recorte da tabela — o mesmo que alimenta a contagem das abas e o CSV.
+ * Os filtros e o recorte — **do núcleo**.
  *
- * Uma função só, e não uma por consumidor: a aba que diz "12" e a tabela que
- * mostra 9 linhas é o defeito que aparece quando o filtro é reescrito no lugar
- * de ser reutilizado.
+ * Os dois nasceram aqui, e era o lugar certo enquanto o recorte só produzia uma
+ * tabela. Deixou de ser quando a justificativa em lote passou a poder dizer
+ * "todos os resultados deste filtro": ali o cliente manda o filtro, e quem
+ * reabre o universo para gravar é o servidor — que não importa a tela.
+ *
+ * Então eles moram em `@workspace/comparison/seguro`, com as contas, e esta
+ * linha é o que resta do que este arquivo tinha. Os nomes de fora continuam os
+ * mesmos de propósito: a tela chama `filtrar`, e nenhuma delas precisou mudar.
  */
-export function filtrar(
-  linhas: readonly LinhaDeSeguro[],
-  filtros: FiltrosDeSeguro,
-): LinhaDeSeguro[] {
-  const busca = filtros.busca.trim().toLowerCase();
-  return linhas.filter((l) => {
-    if (filtros.estado !== "TODAS" && l.estado !== filtros.estado) return false;
-    if (filtros.tipo !== "TODOS" && l.entityType !== filtros.tipo) return false;
-    if (filtros.variavel !== "TODAS" && l.variavel !== filtros.variavel) return false;
-    if (filtros.soSeguro && l.variavel !== "seguro") return false;
-    if (busca) {
-      const alvo = `${l.entityLabel ?? ""} ${l.rotuloDaVariavel}`.toLowerCase();
-      if (!alvo.includes(busca)) return false;
-    }
-    return true;
-  });
-}
+export {
+  FILTROS_DE_SEGURO_VAZIOS as FILTROS_VAZIOS,
+  filtrarLinhasDeSeguro as filtrar,
+  type FiltrosDeSeguro as FiltrosDeSeguro,
+};
 
 /** Quantas linhas cada aba tem, contadas sobre o mesmo recorte da tabela. */
 export function contagemPorAba(
@@ -260,9 +232,9 @@ export function contagemPorAba(
   const contagem: Record<string, number> = { TODAS: 0 };
   for (const aba of ABAS_DE_ESTADO) {
     if (aba.chave === "TODAS") continue;
-    contagem[aba.chave] = filtrar(linhas, { ...filtros, estado: aba.chave }).length;
+    contagem[aba.chave] = filtrarLinhasDeSeguro(linhas, { ...filtros, estado: aba.chave }).length;
   }
-  contagem.TODAS = filtrar(linhas, { ...filtros, estado: "TODAS" }).length;
+  contagem.TODAS = filtrarLinhasDeSeguro(linhas, { ...filtros, estado: "TODAS" }).length;
   return contagem;
 }
 

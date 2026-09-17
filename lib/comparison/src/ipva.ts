@@ -1055,3 +1055,103 @@ export function agruparPorVeiculoDeIpva(
 ): VeiculoDeIpva[] {
   return agruparVeiculos(linhas, AGRUPAMENTO_DE_IPVA);
 }
+
+// ---------------------------------------------------------------------------
+// O recorte da tela — e por que ele mora aqui
+// ---------------------------------------------------------------------------
+
+/**
+ * Os filtros da Auditoria de IPVA — busca, tipo, variável, estado e negativos.
+ *
+ * Eles nasceram em `lib/ipva.ts`, do lado da interface, e era o lugar certo
+ * enquanto o recorte só precisava produzir uma tabela. Deixou de ser quando a
+ * justificativa em lote passou a poder dizer "todos os resultados deste
+ * filtro": ali o cliente manda **o filtro**, e não milhares de ids, e é o
+ * servidor que reabre o universo para saber o que está gravando.
+ *
+ * Reabri-lo com uma segunda escrita da mesma regra seria a pior versão disto:
+ * as duas concordariam no dia em que fossem escritas e discordariam no
+ * seguinte — e a discordância apareceria como uma justificativa gravada em
+ * linhas que quem clicou nunca viu em tela. Uma função só, importada pelos
+ * dois lados, é o que impede isso por construção.
+ */
+export type FiltrosDeIpva = {
+  busca: string;
+  /** `TODOS`, ou um `entity_type` — o recorte de equipamento. */
+  tipo: string;
+  /** `TODAS`, ou a chave da variável. */
+  variavel: string;
+  estado: "TODAS" | EstadoDaLinhaDeIpva;
+  /** Só as linhas em que uma das pontas é negativa — o achado do acervo. */
+  soNegativos: boolean;
+}
+
+export const FILTROS_DE_IPVA_VAZIOS: FiltrosDeIpva = {
+  busca: "",
+  tipo: "TODOS",
+  variavel: "TODAS",
+  estado: "TODAS",
+  soNegativos: false,
+};
+
+/** Uma das pontas desta linha é negativa? Só em dinheiro: ano não é estorno. */
+export function temValorNegativoDeIpva(l: LinhaDeIpva): boolean {
+  if (l.medida !== "DINHEIRO") return false;
+  const antes = Number(l.base);
+  const depois = Number(l.comparada);
+  return (Number.isFinite(antes) && antes < 0) || (Number.isFinite(depois) && depois < 0);
+}
+
+/**
+ * O recorte da tabela — o mesmo que alimenta a contagem das abas, o CSV e o
+ * universo do lote.
+ *
+ * Uma função só, e não uma por consumidor: a aba que diz "12" sobre uma tabela
+ * de 9 linhas é o defeito que aparece quando o filtro é reescrito em vez de
+ * reutilizado, e no lote ele seria pior — gravaria a frase em linhas fora do
+ * recorte.
+ */
+export function filtrarLinhasDeIpva(
+  linhas: readonly LinhaDeIpva[],
+  filtros: FiltrosDeIpva,
+): LinhaDeIpva[] {
+  const busca = filtros.busca.trim().toLowerCase();
+  return linhas.filter((l) => {
+    if (filtros.estado !== "TODAS" && l.estado !== filtros.estado) return false;
+    if (filtros.tipo !== "TODOS" && l.entityType !== filtros.tipo) return false;
+    if (filtros.variavel !== "TODAS" && l.variavel !== filtros.variavel) return false;
+    if (filtros.soNegativos && !temValorNegativoDeIpva(l)) return false;
+    if (busca) {
+      const alvo = `${l.entityLabel ?? ""} ${l.rotuloDaVariavel}`.toLowerCase();
+      if (!alvo.includes(busca)) return false;
+    }
+    return true;
+  });
+}
+
+/**
+ * Os filtros como o corpo de uma requisição os traz — nunca confiados como
+ * chegam.
+ *
+ * O universo de um lote é decidido por estes cinco campos, e é ele que decide o
+ * que recebe justificativa: um `estado` que o cliente inventasse não pode
+ * virar um recorte que ninguém viu. O que não é reconhecido cai no valor vazio,
+ * que é o recorte mais largo — e o mais largo é, por construção, o que a tela
+ * mostra quando ninguém filtrou nada.
+ */
+export function lerFiltrosDeIpva(bruto: unknown): FiltrosDeIpva {
+  const objeto = (bruto ?? {}) as Record<string, unknown>;
+  const texto = (chave: string, padrao: string): string =>
+    typeof objeto[chave] === "string" ? (objeto[chave] as string) : padrao;
+  const estado = texto("estado", "TODAS");
+  return {
+    busca: texto("busca", ""),
+    tipo: texto("tipo", "TODOS"),
+    variavel: texto("variavel", "TODAS"),
+    estado:
+      estado === "TODAS" || GRAVIDADE.includes(estado as EstadoDaLinhaDeIpva)
+        ? (estado as FiltrosDeIpva["estado"])
+        : "TODAS",
+    soNegativos: objeto.soNegativos === true,
+  };
+}

@@ -9,6 +9,10 @@ import {
   type MedidaDaVariavel,
   type TotalDeAluguelDaVigencia,
   type VereditoDoAluguel,
+  FILTROS_DE_ALUGUEL_VAZIOS,
+  filtrarLinhasDeAluguel,
+  temAluguelDeclarado,
+  type FiltrosDeAluguel,
 } from "@workspace/comparison/aluguel";
 import { numeroParaCsv } from "@/lib/csv";
 import { formatBrl, formatNumber } from "@/lib/format";
@@ -204,99 +208,24 @@ export const ABAS_DE_ESTADO: {
   { chave: "SEM_ALTERACAO", rotulo: "Sem alteração" },
 ];
 
-export interface FiltrosDeAluguel {
-  busca: string;
-  tipo: string;
-  variavel: string;
-  estado: "TODAS" | EstadoDaLinhaDeAluguel;
-  /**
-   * Só os implementos que declaram aluguel.
-   *
-   * É o filtro que esta tela não pode não ter: a frota alugada é uma minoria
-   * dentro da frota lida, e sem ele a lista mistura as placas que interessam com
-   * as dezenas que só têm a parcela FINAME do financiamento delas.
-   */
-  soAlugados: boolean;
-}
-
 /**
- * O estado inicial — e `soAlugados` nasce **ligado**.
+ * Os filtros e o recorte — **do núcleo**.
  *
- * É a única tela do Custo Fixo que abre filtrada, e o print explicou por quê:
- * com ele desligado, a tabela desta unidade abria com 69 carretas declarando
- * "R$ 0,00 · R$ 0,00" e as duas alugadas perdidas no meio. A pergunta da tela é
- * a frota alugada; mostrar a frota inteira por padrão enterra a resposta.
+ * Os dois nasceram aqui, e era o lugar certo enquanto o recorte só produzia uma
+ * tabela. Deixou de ser quando a justificativa em lote passou a poder dizer
+ * "todos os resultados deste filtro": ali o cliente manda o filtro, e quem
+ * reabre o universo para gravar é o servidor — que não importa a tela.
  *
- * Desligá-lo mostra o acervo todo, e o contador ao lado do interruptor diz
- * quantos implementos alugados existem — de modo que a filtragem nunca é
- * silenciosa.
+ * Então eles moram em `@workspace/comparison/aluguel`, com as contas, e esta
+ * linha é o que resta do que este arquivo tinha. Os nomes de fora continuam os
+ * mesmos de propósito: a tela chama `filtrar`, e nenhuma delas precisou mudar.
  */
-export const FILTROS_VAZIOS: FiltrosDeAluguel = {
-  busca: "",
-  tipo: "TODOS",
-  variavel: "TODAS",
-  estado: "TODAS",
-  soAlugados: true,
+export {
+  FILTROS_DE_ALUGUEL_VAZIOS as FILTROS_VAZIOS,
+  filtrarLinhasDeAluguel as filtrar,
+  temAluguelDeclarado as temAluguel,
+  type FiltrosDeAluguel as FiltrosDeAluguel,
 };
-
-/** Um texto do acervo virando número; nulo e lixo continuam nulos, nunca zero. */
-function numero(valor: string | null): number | null {
-  if (valor === null || valor === "") return null;
-  const n = Number(valor);
-  return Number.isFinite(n) ? n : null;
-}
-
-/**
- * Esta linha é de um implemento que declara aluguel?
- *
- * Olha as duas pontas: uma placa que **deixou** de ter aluguel continua sendo
- * assunto desta tela, e escondê-la sob o filtro faria sumir justamente a
- * alteração mais cara que a rubrica pode ter.
- */
-function temAluguel(l: LinhaDeAluguel): boolean {
-  if (l.variavel !== "aluguel" && l.variavel !== "aluguel_cavalo") return false;
-  return (numero(l.base) ?? 0) > 0 || (numero(l.comparada) ?? 0) > 0;
-}
-
-/**
- * O recorte da tabela — o mesmo que alimenta a contagem das abas e o CSV.
- *
- * Uma função só, e não uma por consumidor: a aba que diz "12" e a tabela que
- * mostra 9 linhas é o defeito que aparece quando o filtro é reescrito no lugar
- * de ser reutilizado.
- *
- * `soAlugados` é o único que não é da linha, e sim da **placa**: as linhas de
- * parcela FINAME de um implemento alugado precisam sobreviver ao filtro, ou a
- * conferência que a tela existe para mostrar desaparece justamente quando
- * alguém a liga.
- */
-export function filtrar(
-  linhas: readonly LinhaDeAluguel[],
-  filtros: FiltrosDeAluguel,
-): LinhaDeAluguel[] {
-  const busca = filtros.busca.trim().toLowerCase();
-
-  const placasAlugadas = new Set<string>();
-  if (filtros.soAlugados) {
-    for (const l of linhas) {
-      if (temAluguel(l)) placasAlugadas.add(`${l.entityLabel}${l.entityType}`);
-    }
-  }
-
-  return linhas.filter((l) => {
-    if (filtros.estado !== "TODAS" && l.estado !== filtros.estado) return false;
-    if (filtros.tipo !== "TODOS" && l.entityType !== filtros.tipo) return false;
-    if (filtros.variavel !== "TODAS" && l.variavel !== filtros.variavel) return false;
-    if (filtros.soAlugados && !placasAlugadas.has(`${l.entityLabel}${l.entityType}`)) {
-      return false;
-    }
-    if (busca) {
-      const alvo = `${l.entityLabel ?? ""} ${l.rotuloDaVariavel}`.toLowerCase();
-      if (!alvo.includes(busca)) return false;
-    }
-    return true;
-  });
-}
 
 /** Quantas linhas cada aba tem, contadas sobre o mesmo recorte da tabela. */
 export function contagemPorAba(
@@ -306,9 +235,9 @@ export function contagemPorAba(
   const contagem: Record<string, number> = { TODAS: 0 };
   for (const aba of ABAS_DE_ESTADO) {
     if (aba.chave === "TODAS") continue;
-    contagem[aba.chave] = filtrar(linhas, { ...filtros, estado: aba.chave }).length;
+    contagem[aba.chave] = filtrarLinhasDeAluguel(linhas, { ...filtros, estado: aba.chave }).length;
   }
-  contagem.TODAS = filtrar(linhas, { ...filtros, estado: "TODAS" }).length;
+  contagem.TODAS = filtrarLinhasDeAluguel(linhas, { ...filtros, estado: "TODAS" }).length;
   return contagem;
 }
 

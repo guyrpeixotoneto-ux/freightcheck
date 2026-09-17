@@ -8,6 +8,7 @@ import {
   index,
 } from "drizzle-orm/pg-core";
 import { changeSetTable, changeTable } from "./comparison";
+import { justificativaLoteTable } from "./justificativa-lote";
 
 /**
  * Chamados — Justificativas: a justificativa que o gestor escreve sobre uma
@@ -68,6 +69,23 @@ export const justificativaTable = pgTable(
     motivoExcecao: text("motivo_excecao"),
     /** Quem autorizou a exceção. Só na exceção: descumprimento não tem aprovador. */
     responsavelAprovacao: text("responsavel_aprovacao"),
+    /**
+     * O lote que gravou esta linha — nulo em tudo que foi escrito uma a uma.
+     *
+     * O nulo é a maioria, e é o caminho normal: a caixa de justificar pergunta
+     * uma variável por vez, e cada resposta é um POST. Preenchido, ele diz que
+     * esta linha nasceu de um gesto que alcançou outras — e é por ele que se
+     * chega ao universo daquele gesto, que é a única pergunta que a
+     * justificativa em lote provoca e a linha sozinha não responde. Ver
+     * `schema/justificativa-lote.ts`.
+     *
+     * `ON DELETE SET NULL`, e não cascade: apagar o registro do lote não pode
+     * apagar as justificativas que ele gravou — o que o gestor escreveu é dele,
+     * não do lote.
+     */
+    loteId: uuid("lote_id").references(() => justificativaLoteTable.id, {
+      onDelete: "set null",
+    }),
     /** Nunca nulo: uma justificativa sem autor não é auditável. */
     criadoPor: text("criado_por").notNull(),
     criadoEm: timestamp("criado_em", { withTimezone: true }).notNull().defaultNow(),
@@ -75,5 +93,6 @@ export const justificativaTable = pgTable(
   (t) => [
     index("justificativa_change_set_idx").on(t.changeSetId),
     index("justificativa_change_id_idx").on(t.changeId),
+    index("justificativa_lote_idx").on(t.loteId),
   ],
 );

@@ -8,6 +8,9 @@ import {
   type LinhaDeLucroFixo,
   type MedidaDaVariavel,
   type ViradaDeCiclo,
+  FILTROS_DE_LUCRO_FIXO_VAZIOS,
+  filtrarLinhasDeLucroFixo,
+  type FiltrosDeLucroFixo,
 } from "@workspace/comparison/lucro-fixo";
 import { numeroParaCsv } from "@/lib/csv";
 import { formatBrl, formatNumber } from "@/lib/format";
@@ -225,52 +228,23 @@ export const ABAS_DE_ESTADO: {
   { chave: "SEM_ALTERACAO", rotulo: "Sem alteração" },
 ];
 
-export interface FiltrosDeLucroFixo {
-  busca: string;
-  tipo: string;
-  variavel: string;
-  estado: "TODAS" | EstadoDaLinhaDeLucroFixo;
-  /** Só os veículos que trocaram de ciclo — a pergunta própria desta tela. */
-  soViradas: boolean;
-}
-
-export const FILTROS_VAZIOS: FiltrosDeLucroFixo = {
-  busca: "",
-  tipo: "TODOS",
-  variavel: "TODAS",
-  estado: "TODAS",
-  soViradas: false,
-};
-
 /**
- * O recorte da tabela — o mesmo que alimenta a contagem das abas e o CSV.
+ * Os filtros e o recorte — **do núcleo**.
  *
- * `soViradas` recorta por **veículo**, e não por linha: quem pede as viradas
- * quer as quatro linhas daquele ativo — o ciclo, o lucro fixo que entrou, a
- * amortização que saiu e o ano —, não só a linha do ciclo. Filtrar por linha
- * deixaria na tela a virada sem o dinheiro que a explica.
+ * Os dois nasceram aqui, e era o lugar certo enquanto o recorte só produzia uma
+ * tabela. Deixou de ser quando a justificativa em lote passou a poder dizer
+ * "todos os resultados deste filtro": ali o cliente manda o filtro, e quem
+ * reabre o universo para gravar é o servidor — que não importa a tela.
+ *
+ * Então eles moram em `@workspace/comparison/lucro-fixo`, com as contas, e esta
+ * linha é o que resta do que este arquivo tinha. Os nomes de fora continuam os
+ * mesmos de propósito: a tela chama `filtrar`, e nenhuma delas precisou mudar.
  */
-export function filtrar(
-  linhas: readonly LinhaDeLucroFixo[],
-  filtros: FiltrosDeLucroFixo,
-  viradas: readonly ViradaDeCiclo[] = [],
-): LinhaDeLucroFixo[] {
-  const busca = filtros.busca.trim().toLowerCase();
-  const comVirada = new Set(viradas.map((v) => `${v.entityLabel}${v.entityType}`));
-  return linhas.filter((l) => {
-    if (filtros.estado !== "TODAS" && l.estado !== filtros.estado) return false;
-    if (filtros.tipo !== "TODOS" && l.entityType !== filtros.tipo) return false;
-    if (filtros.variavel !== "TODAS" && l.variavel !== filtros.variavel) return false;
-    if (filtros.soViradas && !comVirada.has(`${l.entityLabel}${l.entityType}`)) {
-      return false;
-    }
-    if (busca) {
-      const alvo = `${l.entityLabel ?? ""} ${l.rotuloDaVariavel}`.toLowerCase();
-      if (!alvo.includes(busca)) return false;
-    }
-    return true;
-  });
-}
+export {
+  FILTROS_DE_LUCRO_FIXO_VAZIOS as FILTROS_VAZIOS,
+  filtrarLinhasDeLucroFixo as filtrar,
+  type FiltrosDeLucroFixo as FiltrosDeLucroFixo,
+};
 
 /** Quantas linhas cada aba tem, contadas sobre o mesmo recorte da tabela. */
 export function contagemPorAba(
@@ -281,9 +255,9 @@ export function contagemPorAba(
   const contagem: Record<string, number> = { TODAS: 0 };
   for (const aba of ABAS_DE_ESTADO) {
     if (aba.chave === "TODAS") continue;
-    contagem[aba.chave] = filtrar(linhas, { ...filtros, estado: aba.chave }, viradas).length;
+    contagem[aba.chave] = filtrarLinhasDeLucroFixo(linhas, { ...filtros, estado: aba.chave }, viradas).length;
   }
-  contagem.TODAS = filtrar(linhas, { ...filtros, estado: "TODAS" }, viradas).length;
+  contagem.TODAS = filtrarLinhasDeLucroFixo(linhas, { ...filtros, estado: "TODAS" }, viradas).length;
   return contagem;
 }
 
