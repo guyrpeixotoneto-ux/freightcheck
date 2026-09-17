@@ -115,6 +115,40 @@ describe("a especificação sai do que o FreightCheck já sabe", () => {
     expect(atributos.filter((a) => a.tipo === "MEDIDA_PNEU")).toEqual([]);
   });
 
+  it("lê a medida com barra e com hífen — é o mesmo pneu", () => {
+    /*
+      Achado numa pesquisa real: um anúncio do Magazine Luiza escrevia
+      "295-80R22.5" e a oferta caiu de EXATO para COMPATIVEL por causa de um
+      caractere. A classe do match decide se a oferta entra confirmada, e o
+      e-commerce brasileiro escreve a medida dos três jeitos.
+    */
+    for (const texto of [
+      "Pneu 295/80R22.5",
+      "Pneu 295-80R22.5",
+      "Pneu 295-80 R22.5",
+      "Pneu 295/80 R22.5",
+    ]) {
+      expect(atributosDoTexto(texto, "t")[0]?.canonico).toBe("295/80R22.5");
+    }
+  });
+
+  it("a oferta com medida em hífen é EXATO contra a especificação com barra", () => {
+    const e = especificarCompra({ item: "pneu", descricao: "Pneu 295/80 R22.5" });
+    const p = pagina("https://x.example/a", "Jogo 2 Pneus 295-80R22.5 por R$ 1.000,00");
+    const { aceitas } = conferirOfertas(
+      [
+        oferta({
+          preco: 1000,
+          trecho: "Jogo 2 Pneus 295-80R22.5 por R$ 1.000,00",
+          url: p.url,
+          produto: "Jogo 2 Pneus Speedmax 295-80R22.5 152-148M",
+        }),
+      ],
+      [p],
+    );
+    expect(classificar(e, aceitas[0]!).classe).toBe("EXATO");
+  });
+
   it("canoniza volume e peso para a mesma unidade", () => {
     expect(atributosDoTexto("Óleo 500 ml", "t")[0]?.canonico).toBe("0.5L");
     expect(atributosDoTexto("Saco de 25 kg", "t")[0]?.canonico).toBe("25kg");

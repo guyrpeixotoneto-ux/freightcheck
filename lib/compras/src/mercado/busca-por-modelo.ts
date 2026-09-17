@@ -58,7 +58,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { EspecificacaoDeCompra } from "./especificacao";
 import type { OfertaBruta, UnidadeDoPreco } from "./oferta";
-import type { PaginaBaixada } from "./verificacao";
+import { normalizarUrl, type PaginaBaixada } from "./verificacao";
 import { tentouInstruir } from "./saneamento";
 import {
   MEDICAO_VAZIA,
@@ -120,7 +120,11 @@ function ferramentasDaBusca(
 ): Anthropic.Beta.BetaToolUnion[] {
   if (temFiltragemDinamica(modelo)) {
     return [
-      { type: "web_search_20260209", name: "web_search", max_uses: 4 },
+      {
+        type: "web_search_20260209",
+        name: "web_search",
+        max_uses: BUSCAS_POR_PESQUISA,
+      },
       {
         type: "web_fetch_20260209",
         name: "web_fetch",
@@ -130,7 +134,11 @@ function ferramentasDaBusca(
     ];
   }
   return [
-    { type: "web_search_20250305", name: "web_search", max_uses: 4 },
+    {
+      type: "web_search_20250305",
+      name: "web_search",
+      max_uses: BUSCAS_POR_PESQUISA,
+    },
     {
       type: "web_fetch_20250910",
       name: "web_fetch",
@@ -142,6 +150,21 @@ function ferramentasDaBusca(
 
 /** Teto de conteúdo por página. Catálogo de e-commerce é longo e repetitivo. */
 const TOKENS_POR_PAGINA = 6000;
+
+/**
+ * Quantas buscas o modelo pode disparar antes de começar a abrir páginas.
+ *
+ * Eram quatro, e a primeira pesquisa real mostrou o preço disso: 378 mil
+ * tokens de entrada e US$ 2,20 numa consulta só. O conteúdo de cada busca
+ * volta ao contexto e é reenviado a cada passo do laço interno, então o custo
+ * cresce com o **quadrado** do número de buscas, não com ele.
+ *
+ * Duas bastam para o que este agente faz: a consulta já chega especificada
+ * (medida, quantidade, região), e o trabalho caro e útil é abrir as páginas,
+ * não variar os termos. Quem precisar de mais varredura sobe o número aqui e
+ * paga por ela sabendo.
+ */
+const BUSCAS_POR_PESQUISA = 2;
 
 export function buscaDisponivel(): boolean {
   return Boolean(
@@ -156,13 +179,18 @@ function obterCliente(): Anthropic {
     timeout: (() => {
       const bruto = Number(process.env["COMPRAS_BUSCA_TIMEOUT_MS"]);
       /*
-        Três minutos, e não os dois da redação: esta chamada faz busca e baixa
-        meia dúzia de páginas antes de escrever a primeira palavra. O teto
-        existe para a pergunta não ficar pendurada, e quando ele estoura a
-        pesquisa devolve "indisponível" com o motivo — o agente responde o que
-        sabe do acervo, sem mercado.
+        Cinco minutos, medidos e não estimados: a primeira pesquisa real deste
+        agente levou 270 segundos — quatro buscas e seis páginas baixadas —, e
+        com o teto anterior de 180s ela teria morrido a meio caminho, devolvendo
+        "indisponível" para uma busca que estava funcionando.
+      
+        As duas buscas por pesquisa (ver BUSCAS_POR_PESQUISA) devem trazer esse
+        tempo bem para baixo; o teto continua largo porque o custo de ele sobrar
+        é zero e o de ele faltar é uma pesquisa perdida no fim. Quando estoura, a
+        pesquisa devolve "indisponível" com o motivo e o agente responde o que
+        sabe do acervo.
       */
-      return Number.isFinite(bruto) && bruto > 0 ? bruto : 180_000;
+      return Number.isFinite(bruto) && bruto > 0 ? bruto : 300_000;
     })(),
     maxRetries: 1,
   });
@@ -428,6 +456,14 @@ function paginasDaResposta(
 ): PaginaBaixada[] {
   const agora = new Date().toISOString();
   const paginas: PaginaBaixada[] = [];
+  /*
+    A mesma URL pode voltar mais de uma vez — o modelo relê uma página quando
+    está montando a lista, e a ferramenta atende. Contá-la duas vezes inflava
+    "páginas abertas" e, pior, dobrava o peso daquele varejista em qualquer
+    leitura que contasse páginas. Observado numa pesquisa real: a listagem da
+    PneuStore veio duas vezes, com o mesmo carimbo de captura.
+  */
+  const vistas = new Set<string>();
 
   for (const bloco of resposta.content) {
     if (bloco.type !== "web_fetch_tool_result") continue;
@@ -446,6 +482,10 @@ function paginasDaResposta(
         ? fonte.data
         : null;
     if (texto === null || texto.trim() === "") continue;
+
+    const chave = normalizarUrl(conteudo.url);
+    if (vistas.has(chave)) continue;
+    vistas.add(chave);
 
     paginas.push({
       url: conteudo.url,

@@ -72,9 +72,18 @@ const RECONHECEDORES: {
   canonizar: (casa: RegExpMatchArray) => string;
 }[] = [
   {
-    /* 295/80 R22.5, 295/80R22,5, 1100x20 — a medida do pneu de carga. */
+    /*
+      295/80 R22.5, 295/80R22,5, 1100x20 — e **295-80R22.5**, que é a mesma
+      medida escrita com hífen.
+      
+      O hífen entrou depois de uma pesquisa real: um anúncio do Magazine Luiza
+      escrevia "295-80R22.5" e a oferta caiu de EXATO para COMPATIVEL por causa
+      de um caractere. Não é detalhe de formatação — a classe do match decide se
+      a oferta entra na conta como confirmada, e o e-commerce brasileiro
+      escreve medida dos três jeitos.
+    */
     tipo: "MEDIDA_PNEU",
-    padrao: /\b(\d{3})\s*[/x]\s*(\d{2,3})\s*[- ]?\s*r?\s*(\d{2}(?:[.,]\d)?)\b/i,
+    padrao: /\b(\d{3})\s*[/x-]\s*(\d{2,3})\s*[- ]?\s*r?\s*(\d{2}(?:[.,]\d)?)\b/i,
     canonizar: (c) => `${c[1]}/${c[2]}R${(c[3] ?? "").replace(",", ".")}`,
   },
   {

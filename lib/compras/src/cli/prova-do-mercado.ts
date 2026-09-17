@@ -39,7 +39,7 @@ import {
 /** O mesmo teto de `busca-por-modelo.ts`, só para o batimento saber o que dizer. */
 const TETO_MS = (() => {
   const bruto = Number(process.env["COMPRAS_BUSCA_TIMEOUT_MS"]);
-  return Number.isFinite(bruto) && bruto > 0 ? bruto : 180_000;
+  return Number.isFinite(bruto) && bruto > 0 ? bruto : 300_000;
 })();
 
 const MODELO =
@@ -311,8 +311,9 @@ async function principal(): Promise<void> {
     : null;
   if (buscaDisponivel()) {
     console.log(
-      "\n   Chamando o modelo com web_search + web_fetch. A primeira resposta costuma\n" +
-        "   levar de 30 segundos a 3 minutos — é busca e download de páginas reais.",
+      "\n   Chamando o modelo com web_search + web_fetch. Medido numa pesquisa real:\n" +
+        "   270 segundos com quatro buscas e seis páginas. Com as duas buscas de hoje,\n" +
+        "   espere algo bem abaixo disso — mas conte em minutos, não em segundos.",
     );
   }
 
