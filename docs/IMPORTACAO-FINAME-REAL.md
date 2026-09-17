@@ -69,17 +69,33 @@ descartar perderia um pagamento que talvez exista.
 
 **Como se decide.** Na Auditoria de FINAME, fonte Real, cada duplicata retida
 traz as duas saídas — "é repetição do export" e "são dois pagamentos" — e um motivo
-obrigatório. A decisão é **gravada, não aplicada**: o consolidado só muda quando
-aquele mês for reimportado, porque a apuração é função pura das linhas mais as
-decisões conhecidas. Aplicar no clique seria mexer numa vigência fechada sem
-passar pela pré-visualização.
+obrigatório. A decisão é **gravada e aplicada no mesmo clique**: o servidor relê o
+extrato do RAW já guardado — sem arquivo novo e sem reimportação manual — e publica
+a revisão da vigência que passa a contar aquele valor. A apuração continua sendo
+função pura das linhas mais as decisões conhecidas; o que mudou é que a releitura
+acontece na hora, e não quando alguém lembrar de reimportar o mês.
+
+Aplicar é abrir **revisão nova**, nunca editar a vigência de pé: os fatos de uma
+vigência ativa são imutáveis por gatilho (`0001`), e correção neste produto entra
+como revisão, com autor e motivo. A revisão anterior continua legível no histórico,
+e só as competências que a decisão alcança mudam — as demais são reconhecidas como
+idênticas e ficam paradas. Pela mesma razão, clicar duas vezes não cobra duas
+vezes: a segunda leitura produz o mesmo conteúdo normalizado, e nada é aberto.
+
+Registrar **sem** aplicar continua possível pela rota `POST
+/financiamento-real/decisoes`; aplicar é `POST /financiamento-real/decisoes/aplicar`,
+e exige o nível do módulo Importações, porque publica no acervo. Se houver uma
+leitura daquele arquivo esperando decisão em Importações, a aplicação é recusada
+com a frase — duas leituras do mesmo arquivo disputariam a mesma vigência — e a
+decisão fica registrada, com a recusa ao lado e sem data de aplicação.
 
 A decisão é endereçada pela **impressão digital da linha** (todas as células,
 inclusive `DATATU`), e não pela chave contábil: aquela agrupa principal e juros
 do mesmo documento, e uma confirmação endereçada por ela apagaria o juro junto
 com a repetição. Um lançamento lido antes de a coluna existir (`0104`) não tem
 endereço, e a tela diz isso em vez de oferecer um botão que não teria onde
-gravar — reimportar aquela competência o devolve.
+gravar — reimportar aquela competência o devolve. (A classificação de placa não
+tem esse limite: ela é endereçada pela placa, que toda leitura guarda.)
 
 **O sinal** — `VLRREA` é negativo (é débito). O consolidado é apresentado em
 positivo e o valor original fica gravado ao lado, porque a reconciliação contra o

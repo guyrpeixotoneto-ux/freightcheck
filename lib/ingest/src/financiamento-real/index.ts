@@ -11,4 +11,5 @@
 export * from "./extrato";
 export * from "./agregacao";
 export * from "./estagio";
+export * from "./aplicacao";
 export { DATASET_FAMILY_FINANCIAMENTO_REAL } from "../tipos";

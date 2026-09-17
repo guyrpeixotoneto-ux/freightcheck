@@ -3913,6 +3913,34 @@ function planoUp(): PassoUp[] {
     add(M104, `índice ${i}`, levantar(M104, new RegExp(`INDEX IF NOT EXISTS "${i}"`)));
   }
 
+  /*
+    As seis da `0105`, sobre a tabela que a `0104` acabou de repor.
+
+    Ordem, e não coincidência: são `ADD COLUMN` numa tabela que o `down` derruba
+    inteira, de modo que elas só existem depois do `CREATE TABLE` acima. Entrar
+    aqui, logo abaixo dele, é o que faz o `up` devolver a tabela com a forma que
+    o schema de hoje descreve — e não com a forma que ela tinha na `0104`, que é
+    o jeito silencioso de um banco reposto ficar uma migration atrás.
+
+    Não entram na `ALLOWLIST` pela mesma razão: a allowlist é para coluna
+    aditiva em tabela que **fica**, e esta sai inteira.
+  */
+  const M105 = "0105_decisao_do_real_aplicada";
+  for (const col of [
+    "competencias",
+    "lancamentos_afetados",
+    "aplicada_em",
+    "aplicada_por",
+    "aplicacao_run_id",
+    "aplicacao_resultado",
+  ]) {
+    add(
+      M105,
+      `financiamento_real_decisao.${col}`,
+      levantar(M105, new RegExp(`ADD COLUMN IF NOT EXISTS "${col}"`)),
+    );
+  }
+
   const M89 = "0089_normalizacao_do_nome_gerencial";
   add(
     M89,
