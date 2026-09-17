@@ -148,6 +148,27 @@ export const snapshotTable = pgTable(
     /** Derived from the label by an explicit, tested rule. Kept separate. */
     effectiveDate: date("effective_date", { mode: "string" }).notNull(),
     /**
+     * Que período `effective_date` nomeia — `QUINZENAL` ou `MENSAL`.
+     *
+     * **A data sozinha não responde**, e é só por isso que esta coluna existe.
+     * `2026-03-01` é o primeiro dia da 1ª quinzena de março e é também o
+     * primeiro dia da competência março; as duas vigências coexistem na mesma
+     * data sem colidir, porque a família as separa (`FINANCIAMENTO_REAL` contra
+     * `REMUNERACAO_EQUIPAMENTO`), mas nada nelas *diz* que uma cobre quinze dias
+     * e a outra cobre trinta. Quem compara as duas precisa saber disso, e
+     * derivar da família seria recriar, para o período, o erro que
+     * `dataset_family` já desfez para o acervo: uma dedução onde cabe uma
+     * declaração.
+     *
+     * Nula em toda vigência anterior a esta coluna, e lê-se `QUINZENAL` — não
+     * por convenção, mas porque naquele momento não havia outra granularidade
+     * no produto. Sem backfill, pelo mesmo motivo da `0099` e da `0101`: o nulo
+     * descreve com precisão um snapshot em que ninguém declarou nada, e
+     * preencher em massa apagaria a diferença entre o afirmado e o deduzido.
+     * Ver `granularidadeDoSnapshot`, que é onde essa leitura vira um valor.
+     */
+    granularidade: text("granularidade"),
+    /**
      * Hash do conjunto de escopos como ele veio, sem normalizar.
      *
      * Não faz mais parte da identidade — um CNPJ mascarado num arquivo e sem
