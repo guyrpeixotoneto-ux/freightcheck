@@ -226,6 +226,52 @@ describe("o campo De, que é o que dá acesso à outra série", () => {
 
     expect(onComparada).not.toHaveBeenCalled();
   });
+
+  /*
+    O CONTRATO COMUM DOS SELETORES — o mesmo que o Panorama passou a obedecer
+    em 17/09/2026.
+
+    **Para** é a vigência de referência que se está analisando, **De** é a
+    origem contra a qual se quer compará-la, e mexer numa não recalcula a
+    outra. Estas telas sempre foram assim; o caso existe para que continuem
+    sendo, e para que a régua esteja escrita **também** aqui — o Panorama tinha
+    um contrato próprio justamente porque nada obrigava os dois a coincidir.
+
+    A distância entre as pontas não é condição de nada: junho contra setembro,
+    com três vigências no meio, é o par que o relato de FINAME usava.
+  */
+  it("escolher um De distante mantém o Para, mesmo com vigências no meio", () => {
+    const { onBase, onComparada } = montar("ago2-cavalo", "set-cavalo");
+    abrir("De (vigência de origem)");
+    fireEvent.click(screen.getByRole("option", { name: /junho\/2026/ }));
+
+    expect(onBase).toHaveBeenCalledWith("jun-ambos");
+    expect(onComparada).not.toHaveBeenCalled();
+  });
+
+  /* E a outra metade da régua: mexer no Para não mexe no De. */
+  it("escolher um Para distante mantém o De", () => {
+    const { onBase, onComparada } = montar("jun-ambos", "jul-ambos");
+    abrir("Para (vigência de destino)");
+    fireEvent.click(screen.getByRole("option", { name: /setembro\/2026$/ }));
+
+    expect(onComparada).toHaveBeenCalledWith("set-cavalo");
+    expect(onBase).not.toHaveBeenCalled();
+  });
+
+  /*
+    A mesma vigência nos dois campos não é oferecida — `formamParDeVigencias`
+    recusa `a.id === b.id`. É a convenção do produto para esse caso, e é a que
+    o Panorama passou a aplicar do lado dele: lá a lista é de datas e a escolha
+    é possível, então ela **fica** em tela com a recusa escrita, em vez de ser
+    trocada por uma vizinha.
+  */
+  it("não oferece no De a vigência que já está no Para", () => {
+    montar("jul-ambos", "ago1-ambos");
+    abrir("De (vigência de origem)");
+
+    expect(opcoes().some((t) => t.startsWith("agosto/2026 · 1ª quinzena"))).toBe(false);
+  });
 });
 
 describe("quando não há vigência compatível nenhuma", () => {
