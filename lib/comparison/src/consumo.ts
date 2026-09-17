@@ -62,6 +62,7 @@
 
 import {
   chaveDoVeiculo,
+  ehEntradaOuSaidaDoGrao,
   estadoDaAlteracao,
   GRAVIDADE,
   numero,
@@ -378,7 +379,7 @@ export interface LinhaDeConsumo {
 export function linhaDeConsumoDaAlteracao(a: AlteracaoDoMotor): LinhaDeConsumo | null {
   const variavel = variavelDeConsumoDoCodigo(a.attributeCode);
   if (!variavel) {
-    if (a.changeType !== "ENTITY_ADDED" && a.changeType !== "ENTITY_REMOVED") return null;
+    if (!ehEntradaOuSaidaDoGrao(a, [TIPO_DO_CONSUMO])) return null;
     return {
       id: a.id ?? null,
       entityLabel: a.entityLabel,

@@ -60,6 +60,7 @@
 
 import {
   chaveDoVeiculo,
+  ehEntradaOuSaidaDoGrao,
   estadoDaAlteracao,
   GRAVIDADE,
   numero,
@@ -419,7 +420,7 @@ export function linhaDeVelocidadeDaAlteracao(
     no eixo da malha, e não uma vez por coluna.
   */
   if (!variavel) {
-    if (a.changeType !== "ENTITY_ADDED" && a.changeType !== "ENTITY_REMOVED") return null;
+    if (!ehEntradaOuSaidaDoGrao(a, [TIPO_DA_VELOCIDADE])) return null;
     return {
       id: a.id ?? null,
       entityLabel: a.entityLabel,

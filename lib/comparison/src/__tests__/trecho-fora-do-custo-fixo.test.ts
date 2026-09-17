@@ -5,12 +5,23 @@ import { computeMissingChangeSets } from "../consolidated";
 import { computeChangeSet, findPreviousSnapshot } from "../engine";
 import { listChanges, listComparableSnapshots } from "../query";
 import {
+  ehEntradaOuSaidaDoGrao,
   formamParDeVigencias,
   frotaDoEquipamento,
   parDePartida,
   TIPOS_DE_EQUIPAMENTO,
   vigenciasQueCobrem,
+  type AlteracaoDoMotor,
 } from "../recorte-de-rubrica";
+import { linhasDeAluguel } from "../aluguel";
+import { linhasDeAquisicao } from "../aquisicao";
+import { linhasDeFiname } from "../finame";
+import { linhasDeImpostos } from "../impostos";
+import { linhasDeIpva } from "../ipva";
+import { linhasDeLucroFixo } from "../lucro-fixo";
+import { linhasDeManutencao } from "../manutencao";
+import { linhasDeSeguro } from "../seguro";
+import { linhasDeKm } from "../km-rodado";
 import { frotaPorTipo } from "../query";
 import { buildFixture, type AttributeSpec } from "./fixtures";
 
@@ -302,5 +313,140 @@ describe("4. nada de trecho aparece nem interfere", () => {
       novos: 1,
       ausentes: 2,
     });
+  });
+});
+
+/**
+ * 5. O TRECHO QUE ENTRA E SAI DA MALHA NÃO VIRA LINHA DE VEÍCULO.
+ *
+ * ---------------------------------------------------------------------------
+ * O buraco que os quatro casos acima não fechavam
+ * ---------------------------------------------------------------------------
+ * Os cartões de frota já saíam recortados (`frotaDoEquipamento`), e a lista de
+ * vigências também (`vigenciasQueCobrem`). A **tabela** não: ela lê
+ * `listChanges` recortado por atributo, e esse recorte deixa passar de propósito
+ * a linha sem `attribute_code` — entrada e saída de ativo, que o motor grava uma
+ * vez por entidade e que sumiriam de um `attribute_code IN (…)` puro
+ * (`query.ts`). A exceção não sabia de que tipo era a entidade que entrou.
+ *
+ * O preço, em produção: uma vigência que traz o arquivo de trecho junto com o de
+ * equipamento fazia **cada perna de rota** aparecer na tabela de custo fixo, com
+ * a `chaveTrecho` inteira escrita na coluna Veículo — um identificador de trecho
+ * sob o cabeçalho de placa, no meio das placas de verdade.
+ *
+ * A primeira asserção fixa a causa (a consulta continua entregando essas
+ * linhas, e deve continuar — o Trecho 360 as lê de lá); as outras fixam o
+ * conserto, que é do tradutor de cada rubrica.
+ */
+describe("5. o trecho que entra e sai da malha não vira linha de veículo", () => {
+  /** O par de coberturas iguais — o único em que o trecho chega à consulta. */
+  async function alteracoesDoParComTrecho(): Promise<AlteracaoDoMotor[]> {
+    const set = await computeChangeSet(ctx.db, agosto, setembro, {
+      computedBy: "test:trecho-fora",
+    });
+    const { rows } = await listChanges(ctx.db, set.id, {
+      attributeCodes: ["cavalo.custo_fixo", "carreta.custo_fixo"],
+      limit: 500,
+    });
+    return rows;
+  }
+
+  it("a consulta entrega, sim, a entrada e a saída de trecho — é o recorte por atributo", async () => {
+    const rows = await alteracoesDoParComTrecho();
+    const deTrecho = rows.filter((r) => r.entityType === "TRECHO");
+
+    /* TR004 entrou, TR002 saiu. Nenhuma das duas cita atributo. */
+    expect(deTrecho.map((r) => r.entityLabel).sort()).toEqual(["TR002", "TR004"]);
+    expect(deTrecho.every((r) => r.attributeCode === null)).toBe(true);
+  });
+
+  it("nenhuma tabela de custo fixo escreve um trecho na coluna Veículo", async () => {
+    const rows = await alteracoesDoParComTrecho();
+
+    const tabelas = {
+      aluguel: linhasDeAluguel(rows),
+      aquisicao: linhasDeAquisicao(rows),
+      finame: linhasDeFiname(rows),
+      impostos: linhasDeImpostos(rows),
+      ipva: linhasDeIpva(rows),
+      lucroFixo: linhasDeLucroFixo(rows),
+      manutencao: linhasDeManutencao(rows),
+      seguro: linhasDeSeguro(rows),
+    };
+
+    /* Uma asserção só, com as oito dentro: se duas rubricas regredirem, a
+       falha mostra as duas, e não a primeira em ordem alfabética. */
+    const escritas = Object.entries(tabelas).flatMap(([rubrica, linhas]) =>
+      linhas.map((l) => `${rubrica}: ${l.entityType} ${l.entityLabel}`),
+    );
+    expect(escritas).toEqual([]);
+  });
+
+  it("e o Km Rodado, que audita trecho, continua mostrando as duas", async () => {
+    const rows = await alteracoesDoParComTrecho();
+    const linhas = linhasDeKm(rows);
+
+    expect(linhas.map((l) => l.entityLabel).sort()).toEqual(["TR002", "TR004"]);
+    expect(linhas.every((l) => l.rotuloDaVariavel === "Trecho na tabela")).toBe(true);
+  });
+
+  /*
+    O conserto tinha de ser um filtro de tipo, e não um "sem atributo, fora":
+    a placa que entra na vigência é exatamente a linha que a exceção de
+    `query.ts` existe para preservar, e barrá-la trocaria um defeito por outro
+    — a tela de FINAME dizendo que ninguém entrou num mês em que cinco
+    entraram. Por isso o caso positivo está aqui, ao lado do negativo.
+  */
+  it("a placa que entra na vigência continua virando linha, nas oito rubricas", () => {
+    const entradaDeCarreta: AlteracaoDoMotor = {
+      changeType: "ENTITY_ADDED",
+      attributeCode: null,
+      entityLabel: "QQQ7X70",
+      entityType: "CARRETA",
+      valueBefore: null,
+      valueAfter: null,
+      deltaAbsolute: null,
+      deltaPercent: null,
+      comparability: "COMPARABLE",
+    };
+
+    for (const linhas of [
+      linhasDeAluguel([entradaDeCarreta]),
+      linhasDeAquisicao([entradaDeCarreta]),
+      linhasDeFiname([entradaDeCarreta]),
+      linhasDeImpostos([entradaDeCarreta]),
+      linhasDeIpva([entradaDeCarreta]),
+      linhasDeLucroFixo([entradaDeCarreta]),
+      linhasDeManutencao([entradaDeCarreta]),
+      linhasDeSeguro([entradaDeCarreta]),
+    ]) {
+      expect(linhas).toHaveLength(1);
+      expect(linhas[0].estado).toBe("NOVO_NA_VIGENCIA");
+    }
+  });
+
+  it("a guarda do grão é do tipo, e não do texto: sem tipo não entra em grão nenhum", () => {
+    const semTipo: AlteracaoDoMotor = {
+      changeType: "ENTITY_ADDED",
+      attributeCode: null,
+      entityLabel: "?",
+      entityType: null,
+      valueBefore: null,
+      valueAfter: null,
+      deltaAbsolute: null,
+      deltaPercent: null,
+      comparability: "COMPARABLE",
+    };
+
+    expect(ehEntradaOuSaidaDoGrao(semTipo, TIPOS_DE_EQUIPAMENTO)).toBe(false);
+    expect(
+      ehEntradaOuSaidaDoGrao({ ...semTipo, entityType: " carreta " }, TIPOS_DE_EQUIPAMENTO),
+    ).toBe(true);
+    expect(
+      ehEntradaOuSaidaDoGrao(
+        { ...semTipo, entityType: "CARRETA", changeType: "VALUE_CHANGED" },
+        TIPOS_DE_EQUIPAMENTO,
+      ),
+    ).toBe(false);
   });
 });
