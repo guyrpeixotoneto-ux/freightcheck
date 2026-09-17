@@ -348,6 +348,30 @@ export function codigosDe(variaveis: readonly VariavelDeFiname[]): string[] {
 export const CODIGOS_DA_TABELA = codigosDe(VARIAVEIS_DE_FINAME);
 
 /**
+ * A coluna que declara se o financiamento está vivo — por equipamento.
+ *
+ * ---------------------------------------------------------------------------
+ * Por que não é uma variável de {@link VARIAVEIS_DE_FINAME}
+ * ---------------------------------------------------------------------------
+ * Porque aquela lista é a **tabela de comparação entre vigências**, e entrar
+ * nela é aparecer como coluna em todas as telas que a leem. Esta coluna não é
+ * pedida ali — `status_financiamento`, que está na lista, é outra (só a carreta
+ * a declara, e a própria variável diz isso). O que esta constante serve é o
+ * confronto Remunerado × Realizado, que precisa saber se um veículo **sem
+ * lançamento no razão** está quitado ou está declarado financiado. Ver
+ * `docs/DEFINICOES-DO-CONFRONTO-DE-FINAME.md`.
+ *
+ * Os dois equipamentos declaram a mesma coluna do T1 Shared, e é dela que sai a
+ * partição do universo "sem realizado". O texto não é interpretado aqui:
+ * `situacaoDoFinanciamentoDe`, no confronto, é quem normaliza — e devolve
+ * `INDEFINIDO` para o que não reconhece, em vez de chutar.
+ */
+export const CODIGO_DA_SITUACAO_DO_FINANCIAMENTO: Readonly<Record<"CAVALO" | "CARRETA", string>> = {
+  CAVALO: "cavalo.status_financiamento_t1_shared",
+  CARRETA: "carreta.status_financiamento_t1_shared",
+};
+
+/**
  * Os códigos de um recorte de equipamento — `TODOS`, `CAVALO` ou `CARRETA`.
  *
  * Existe porque nem toda leitura aceita recortar por `entity_type`. A Evolução

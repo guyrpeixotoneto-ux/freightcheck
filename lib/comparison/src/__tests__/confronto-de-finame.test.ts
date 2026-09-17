@@ -374,7 +374,7 @@ describe("o confronto remunerado × realizado", () => {
     expect(c.resumo.veiculosConciliados).toBe(1);
     expect(c.resumo.totalRemunerado).toBe(5000);
     expect(c.resumo.totalRealizado).toBe(4000);
-    expect(c.resumo.resultadoLiquido).toBe(1000);
+    expect(c.resumo.saldoDosConciliados).toBe(1000);
     /* Nem 9999 nem 7777 entraram em total nenhum — e os dois estão ditos. */
     expect(c.resumo.foraDoConfronto.remuneradoSemRealizado).toBe(9999);
     expect(c.resumo.foraDoConfronto.realizadoSemRemunerado).toBe(7777);
@@ -396,8 +396,8 @@ describe("o confronto remunerado × realizado", () => {
       .filter((l) => l.cobertura === "COMPLETA")
       .reduce((a, l) => a + (l.diferenca ?? 0), 0);
 
-    expect(Number(somaDasDiferencas.toFixed(2))).toBe(c.resumo.resultadoLiquido);
-    expect(c.resumo.resultadoLiquido).toBe(500);
+    expect(Number(somaDasDiferencas.toFixed(2))).toBe(c.resumo.saldoDosConciliados);
+    expect(c.resumo.saldoDosConciliados).toBe(500);
     expect(c.resumo.veiculosComSobra).toBe(1);
     expect(c.resumo.veiculosComDeficit).toBe(1);
     expect(c.resumo.veiculosEmEquilibrio).toBe(1);
@@ -415,7 +415,11 @@ describe("o confronto remunerado × realizado", () => {
       semRealizado: 1,
       semRemunerado: 1,
       naoConciliados: 0,
+      /* O denominador do "X de Y" são os **remunerados** — dois aqui —, e não as
+         três linhas da tabela: a terceira só existe no razão. */
+      fracaoDosRemunerados: 0.5,
     });
+    expect(c.resumo.veiculosRemunerados).toBe(2);
   });
 
   /*
@@ -439,7 +443,7 @@ describe("o confronto remunerado × realizado", () => {
     expect(cavalo.motivo).toContain("Tipos de ativo diferentes");
     expect(carreta.cobertura).toBe("SEM_REMUNERADO");
 
-    expect(c.resumo.resultadoLiquido).toBe(0);
+    expect(c.resumo.saldoDosConciliados).toBe(0);
     expect(c.resumo.veiculosConciliados).toBe(0);
   });
 
@@ -470,7 +474,7 @@ describe("o confronto remunerado × realizado", () => {
     expect(linha.cobertura).toBe("NAO_CONCILIADO");
     expect(linha.diferenca).toBeNull();
     expect(linha.situacaoDoRemunerado).toBe("DIVERGENCIA_INTRAMENSAL");
-    expect(c.resumo.resultadoLiquido).toBe(0);
+    expect(c.resumo.saldoDosConciliados).toBe(0);
   });
 
   it("um mês realizado não é confrontado com o realizado de outro mês", () => {

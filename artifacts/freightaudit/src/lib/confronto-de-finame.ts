@@ -1,7 +1,10 @@
+import type { AlertaDoConfronto } from "@workspace/comparison/alertas-do-confronto";
 import type {
   Confronto,
   CoberturaDoConfronto,
   ResultadoDoConfronto,
+  SituacaoDoFinanciamento,
+  UniversoSemRealizado,
 } from "@workspace/comparison/confronto-de-finame";
 import type { Competencia } from "@workspace/comparison/competencia-de-finame";
 import { formatBrl, formatNumber } from "@/lib/format";
@@ -46,6 +49,29 @@ export interface RespostaDoConfronto {
       };
   /** `null` quando não há fonte do realizado. Nunca um confronto zerado. */
   confronto: Confronto | null;
+  /**
+   * Os três universos da competência, nomeados pelo servidor.
+   *
+   * A tela **não os monta**: cada número já existe dentro de `confronto.resumo`
+   * ou das filas da importação, e deixar a composição aqui seria deixá-la
+   * mudar de tela para tela. Ausente quando não há fonte do realizado.
+   */
+  universos?: {
+    conciliados: {
+      veiculos: number;
+      /** O denominador da cobertura — veículos remunerados no mês. */
+      de: number;
+      remunerado: number;
+      realizado: number;
+      saldo: number;
+    };
+    semRealizado: UniversoSemRealizado;
+    pendenteDeClassificacao: {
+      naCompetencia: { placas: number; valor: number };
+      noExtrato: { placas: number; valor: number };
+    };
+  };
+  alertas?: AlertaDoConfronto[];
 }
 
 /** O que `GET /finame/competencias` devolve. */
@@ -70,6 +96,20 @@ export interface RespostaDasCompetencias {
  * mesma coluna, uma linha abaixo da outra.
  */
 export const TRACO = "—";
+
+/**
+ * A cobertura por extenso — "17 de 64 veículos".
+ *
+ * Uma função, e não um template no JSX, porque esta frase acompanha o saldo em
+ * todo lugar onde o saldo aparece: cartão, bloco do universo 1 e CSV. Três
+ * escritas dela seriam três chances de uma delas usar o denominador errado, que
+ * é precisamente o defeito que esta tela teve.
+ */
+export function escreverCobertura(conciliados: number, de: number): string {
+  return `${formatNumber(conciliados, 0)} de ${formatNumber(de, 0)} ${
+    de === 1 ? "veículo" : "veículos"
+  }`;
+}
 
 /** Dinheiro, ou o traço. Nunca zero no lugar de ausência. */
 export function escreverDinheiro(valor: number | null): string {
@@ -103,6 +143,19 @@ export const ROTULO_CURTO_DO_RESULTADO: Record<ResultadoDoConfronto, string> = {
   NAO_CALCULAVEL: "Não calculável",
 };
 
+/**
+ * A situação do financiamento, escrita.
+ *
+ * `INDEFINIDO` vira "Não declarada", e não "—": o traço desta tela significa
+ * *não calculável*, e aqui não há cálculo nenhum — há uma coluna que a base não
+ * preencheu. São coisas diferentes e não podem compartilhar o mesmo glifo.
+ */
+export const ROTULO_DA_SITUACAO_DO_FINANCIAMENTO: Record<SituacaoDoFinanciamento, string> = {
+  FINANCIADO: "Financiado",
+  QUITADO: "Quitado",
+  INDEFINIDO: "Não declarada",
+};
+
 export const ROTULO_DA_COBERTURA: Record<CoberturaDoConfronto, string> = {
   COMPLETA: "Completa",
   SEM_REALIZADO: "Sem realizado",
@@ -132,19 +185,25 @@ export const COR_DO_RESULTADO: Record<ResultadoDoConfronto, string> = {
 };
 
 /**
- * A frase de cobertura que a tela mostra — "98 de 104 veículos conciliados".
+ * O que **mais** ficou de fora, em uma linha — o que os três universos não
+ * nomeiam.
  *
- * Uma linha de texto, e não um sétimo cartão: a fileira principal já tem seis, e
- * um cartão a mais empurraria os números para baixo da dobra para dizer algo que
- * cabe numa frase. Quando está tudo conciliado a frase não aparece — um aviso
- * que aparece sempre deixa de ser aviso.
+ * As placas que só o realizado tem, as não conciliadas por ambiguidade e o que a
+ * consolidação do mês recusou. São avisos de verdade — aparecem quando há o que
+ * avisar —, e por isso continuam numa linha de texto em vez de virarem cartão.
  */
 export function frasesDaCobertura(resposta: RespostaDoConfronto): string[] {
   const frases: string[] = [];
   const c = resposta.confronto?.resumo.cobertura;
-  if (c && c.total > 0 && c.conciliados < c.total) {
-    frases.push(`${c.conciliados} de ${c.total} veículos conciliados`);
-  }
+  /*
+    O "X de Y" **não** sai mais daqui.
+
+    Ele passou a viver na nota do cartão do saldo, onde aparece em toda
+    renderização, inclusive quando X = Y. Era esta função que o escondia quando
+    a cobertura estava completa — regra razoável para um aviso, e errada para
+    este número: ele não é um aviso, é a metade do significado do saldo. Mantê-lo
+    nos dois lugares o faria aparecer duas vezes na mesma tela.
+  */
   if (c && c.semRealizado > 0) {
     frases.push(
       `${c.semRealizado} ${c.semRealizado === 1 ? "placa" : "placas"} sem realizado correspondente`,
@@ -187,6 +246,10 @@ export const COLUNAS_DO_CSV_DO_CONFRONTO = [
   "Variação",
   "Resultado",
   "Cobertura",
+  /* A situação declarada entra no arquivo porque é ela que separa, no universo
+     "sem realizado", o veículo coerente do achado — e o painel da tela mostra
+     só os maiores. Quem precisa dos 32 inteiros abre o CSV. */
+  "Situação do financiamento",
   "Motivo",
 ] as const;
 
@@ -205,6 +268,7 @@ export function linhasDoCsvDoConfronto(confronto: Confronto): string[][] {
       l.variacao === null ? "" : String(l.variacao),
       ROTULO_DO_RESULTADO[l.resultado],
       ROTULO_DA_COBERTURA[l.cobertura],
+      l.statusDeclarado ?? ROTULO_DA_SITUACAO_DO_FINANCIAMENTO[l.situacaoDoFinanciamento],
       l.motivo ?? "",
     ]),
   ];

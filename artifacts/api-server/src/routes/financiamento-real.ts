@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
 import { financiamentoRealDecisaoTable } from "@workspace/db/schema";
 import { lerLancamentosDaPlaca, lerPendenciasDoReal } from "@workspace/comparison";
+import { somarCentavos } from "@workspace/ingest/dinheiro";
 import {
   aplicarDecisaoDoReal,
   AplicacaoRecusada,
@@ -73,12 +74,16 @@ router.get("/financiamento-real/pendencias", async (req, res, next): Promise<voi
     res.json({
       duplicatas: pendencias.duplicatas,
       semClassificacao: pendencias.semClassificacao,
-      valorRetido: Number(
-        pendencias.duplicatas.reduce((soma, d) => soma + d.valor, 0).toFixed(2),
-      ),
-      valorSemClassificacao: Number(
-        pendencias.semClassificacao.reduce((soma, s) => soma + s.valor, 0).toFixed(2),
-      ),
+      /*
+        `somarCentavos`, e não `Number(soma.toFixed(2))`.
+
+        Era aqui que o produto tinha a segunda regra de arredondamento, e ela
+        errava justamente neste número: as cinco duplicatas de 2026 somam
+        R$ 21.206,765, e `toFixed` devolvia 21.206,76 porque arredonda o binário
+        e não o decimal. Ver `@workspace/ingest/dinheiro`.
+      */
+      valorRetido: somarCentavos(pendencias.duplicatas.map((d) => d.valor)),
+      valorSemClassificacao: somarCentavos(pendencias.semClassificacao.map((s) => s.valor)),
     });
   } catch (err) {
     next(err);
@@ -104,11 +109,12 @@ router.get("/financiamento-real/lancamentos", async (req, res, next): Promise<vo
       competencia,
       placa,
       lancamentos,
-      total: Number(
-        lancamentos
-          .filter((l) => l.status === "ACEITO")
-          .reduce((soma, l) => soma + l.valor, 0)
-          .toFixed(2),
+      /* A mesma regra única do resto do produto. Este `total` é o que a expansão
+         da placa confere contra o consolidado da vigência, e um `toFixed` aqui
+         voltaria a discordar dele no meio centavo. Ver
+         `@workspace/ingest/dinheiro`. */
+      total: somarCentavos(
+        lancamentos.filter((l) => l.status === "ACEITO").map((l) => l.valor),
       ),
     });
   } catch (err) {

@@ -42,12 +42,28 @@
  *    mesma competência podem ser um rateio legítimo ou um lançamento repetido,
  *    e este módulo não tem como saber qual. Somá-las "porque provavelmente é
  *    rateio" inventaria custo. Sai `NAO_CONCILIADO`, dito.
- * 4. **O que não concilia não entra em total nenhum.** Nem no líquido, nem nos
+ * 4. **O que não concilia não entra em total nenhum.** Nem no saldo, nem nos
  *    dois totais que o produzem — senão a identidade
- *    `líquido = remunerado − realizado` deixa de fechar na própria tela. O que
- *    ficou de fora é **informado** em `foraDoConfronto`, com quanto e quantos.
+ *    `saldo = remunerado − realizado` deixa de fechar na própria tela. O que
+ *    ficou de fora é **informado**, com quanto e quantos.
+ *
+ * ---------------------------------------------------------------------------
+ * Os três universos, e por que o saldo não é o do mês
+ * ---------------------------------------------------------------------------
+ * A recusa 4 tem um custo que a tela pagou caro: um total honesto de um
+ * subconjunto é lido como o total do mês. Em setembro/2026, `−R$ 87.393,05` de
+ * 17 veículos conciliados foi lido como o déficit de FINAME de um mês que tem 64
+ * veículos remunerados, dos quais 47 — R$ 630.919,82 — não têm lançamento nenhum
+ * no razão.
+ *
+ * Por isso este módulo publica os universos **separados e nomeados**, e o
+ * indicador se chama `saldoDosConciliados`: o nome carrega o escopo. As
+ * definições exatas de conciliado, sem realizado, pendente de classificação,
+ * déficit e sobra estão em `docs/DEFINICOES-DO-CONFRONTO-DE-FINAME.md`, e é
+ * aquele documento que este arquivo cumpre.
  */
 
+import { arredondarCentavos, somarCentavos } from "@workspace/ingest/dinheiro";
 import type { Competencia, RemuneradoDaCompetencia, SituacaoDoConsolidado } from "./competencia-de-finame";
 import { TOLERANCIA_DO_CENTAVO } from "./competencia-de-finame";
 import type { ValorRealizado } from "./realizado-de-finame";
@@ -99,6 +115,77 @@ export interface LinhaDoConfronto {
   motivo: string | null;
   /** O que a consolidação mensal do remunerado apurou, quando houve remunerado. */
   situacaoDoRemunerado: SituacaoDoConsolidado | null;
+  /**
+   * A situação do financiamento declarada pela base, normalizada.
+   *
+   * Viaja na linha, e não só nas contagens do resumo, porque é o que permite à
+   * tela **listar** os veículos declarados financiados e sem lançamento no
+   * razão. Uma contagem sozinha ("32 financiados sem realizado") manda quem lê
+   * procurar quais são numa tabela paginada de 64 linhas, que é exatamente onde
+   * eles estavam escondidos.
+   *
+   * `INDEFINIDO` sempre que `confrontar` não recebeu evidência — e nunca
+   * `FINANCIADO` por omissão.
+   */
+  situacaoDoFinanciamento: SituacaoDoFinanciamento;
+  /** O texto da base, para a tela citar em vez de parafrasear. */
+  statusDeclarado: string | null;
+}
+
+/**
+ * De que natureza é o financiamento da placa, segundo a base remunerada.
+ *
+ * Três estados, e o terceiro não é um defeito: uma placa pode simplesmente não
+ * trazer a coluna. Colapsar `INDEFINIDO` em `FINANCIADO` inflaria o destaque
+ * executivo com veículos sobre os quais a base não disse nada — e um destaque
+ * que grita sobre o que não se sabe deixa de ser lido.
+ */
+export type SituacaoDoFinanciamento = "FINANCIADO" | "QUITADO" | "INDEFINIDO";
+
+/**
+ * O que a base remunerada diz de uma placa **além da parcela**.
+ *
+ * Existe porque duas perguntas desta auditoria não se respondem com os dois
+ * números do confronto. *Este veículo sem lançamento no razão está quitado ou
+ * está financiado?* e *a parcela remunerada fecha com as partes dela?* são
+ * perguntas sobre a natureza da linha, e é isso que os totais separados e os
+ * alertas leem.
+ *
+ * Chega como parâmetro opcional de {@link confrontar}, e não dentro de
+ * `RemuneradoDaCompetencia`, de propósito: a consolidação mensal responde *qual
+ * é a parcela do mês*, e enfiar status de contrato ali faria toda chamada a
+ * `consolidarCompetencia` carregar dado que ela não usa para nada.
+ */
+export interface EvidenciaDoRemunerado {
+  entityLabel: string;
+  entityType: string;
+  /** Normalizada — ver {@link situacaoDoFinanciamentoDe}. */
+  situacaoDoFinanciamento: SituacaoDoFinanciamento;
+  /** O texto como a base o escreve, para a tela citar em vez de parafrasear. */
+  statusDeclarado: string | null;
+  amortizacao: number | null;
+  juros: number | null;
+  /** `lucro_fixomodelo_novo_ciclo_cavalo` no cavalo, `custo_aluguel` na carreta. */
+  terceiraParcela: number | null;
+}
+
+/**
+ * O universo 2 em números — remuneração sem contrapartida no razão.
+ *
+ * Aparece separado do universo 1 porque **não se soma a ele**: um é a distância
+ * entre dois lados, o outro é a ausência de um lado. Ver
+ * `docs/DEFINICOES-DO-CONFRONTO-DE-FINAME.md`.
+ */
+export interface UniversoSemRealizado {
+  veiculos: number;
+  /** Σ do remunerado das placas sem realizado. */
+  remunerado: number;
+  /** Destas, as que a base declara financiadas — o achado executivo. */
+  financiados: number;
+  /** Σ do remunerado só das declaradas financiadas. */
+  remuneradoFinanciado: number;
+  quitados: number;
+  indefinidos: number;
 }
 
 /** Os agregados que os cartões leem. */
@@ -106,23 +193,44 @@ export interface ResumoDoConfronto {
   competencia: Competencia;
   /** Placas com os dois lados conciliados — as que sustentam os totais. */
   veiculosConciliados: number;
+  /**
+   * Quantos veículos o lado **remunerado** tem na competência.
+   *
+   * É o denominador da cobertura — o "de 64" do "17 de 64". Não é
+   * `linhas.length`: a tabela também traz as placas que só o realizado tem, e
+   * contá-las aqui responderia a outra pergunta que ninguém fez.
+   */
+  veiculosRemunerados: number;
   /** Σ do remunerado **dos conciliados**. */
   totalRemunerado: number;
   /** Σ do realizado **dos conciliados**. */
   totalRealizado: number;
-  /** `totalRemunerado − totalRealizado`. Fecha com a soma das diferenças. */
-  resultadoLiquido: number;
+  /**
+   * `totalRemunerado − totalRealizado`, **dos conciliados e só deles**.
+   *
+   * O nome é longo porque o curto mentia. Chamava-se `resultadoLiquido`, e
+   * "líquido" se lê como *o que sobrou depois de tudo considerado* — o que levou
+   * a −R$ 87.393,05 de 17 veículos a ser apresentado como o déficit de FINAME de
+   * setembro/2026, num mês de 64 veículos remunerados. Ver
+   * `docs/DEFINICOES-DO-CONFRONTO-DE-FINAME.md`.
+   */
+  saldoDosConciliados: number;
   veiculosComSobra: number;
   veiculosComDeficit: number;
   veiculosEmEquilibrio: number;
-  /** A cobertura, dita em números — é o "98 de 104 veículos conciliados". */
+  /** A cobertura, dita em números — é o "17 de 64 veículos conciliados". */
   cobertura: {
+    /** Linhas da tabela: remunerados + as que só o realizado tem. */
     total: number;
     conciliados: number;
     semRealizado: number;
     semRemunerado: number;
     naoConciliados: number;
+    /** `conciliados ÷ veiculosRemunerados`, em fração. `null` sem remunerados. */
+    fracaoDosRemunerados: number | null;
   };
+  /** O universo 2, à parte e nomeado. */
+  semRealizado: UniversoSemRealizado;
   /**
    * O dinheiro que ficou fora dos totais, e quanto ele é.
    *
@@ -146,6 +254,30 @@ export interface Confronto {
 const chaveDo = (entityLabel: string, entityType: string) => `${entityLabel}${entityType}`;
 
 /**
+ * O texto do acervo virando um dos três estados.
+ *
+ * A base escreve `Descrição: QUITADO`, `Descrição: FINANCIADO`, `Descrição:
+ * FINAME` — prefixo, acento e caixa variando. O que **não** se faz aqui é
+ * adivinhar: um texto que não seja reconhecido vira `INDEFINIDO`, e não
+ * `FINANCIADO` "porque a maioria é". O destaque executivo desta tela acusa
+ * veículos financiados sem lançamento no razão, e enchê-lo de veículos sobre os
+ * quais a base não disse nada é a forma exata de fazer alguém parar de olhá-lo.
+ *
+ * `FINAME` é financiamento: é o nome da linha de crédito, e a base a usa como
+ * sinônimo de financiado ativo.
+ */
+export function situacaoDoFinanciamentoDe(texto: string | null | undefined): SituacaoDoFinanciamento {
+  if (texto === null || texto === undefined) return "INDEFINIDO";
+  const limpo = texto
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase();
+  if (limpo.includes("QUITADO")) return "QUITADO";
+  if (limpo.includes("FINANCIADO") || limpo.includes("FINAME")) return "FINANCIADO";
+  return "INDEFINIDO";
+}
+
+/**
  * O confronto de uma competência.
  *
  * Recebe os dois lados **já consolidados no mesmo intervalo econômico** — o
@@ -159,8 +291,18 @@ export function confrontar(entrada: {
   competencia: Competencia;
   remunerado: readonly RemuneradoDaCompetencia[];
   realizado: readonly ValorRealizado[];
+  /**
+   * O que a base diz de cada placa além da parcela. Opcional, e a ausência dela
+   * não muda nenhum total: sem evidência, o universo 2 sai inteiro como
+   * `INDEFINIDO`, que é a verdade — e não como financiado nem como quitado.
+   */
+  evidenciaDoRemunerado?: readonly EvidenciaDoRemunerado[];
 }): Confronto {
   const { competencia } = entrada;
+  const evidencia = new Map<string, EvidenciaDoRemunerado>();
+  for (const e of entrada.evidenciaDoRemunerado ?? []) {
+    evidencia.set(chaveDo(e.entityLabel, e.entityType), e);
+  }
 
   /*
     O realizado, indexado — e as duplicatas marcadas na indexação.
@@ -196,11 +338,15 @@ export function confrontar(entrada: {
     vistas.add(chave);
     const real = realizadoPorChave.get(chave);
 
+    const evidenciaDaPlaca = evidencia.get(chave);
     const base = {
       competencia,
       entityLabel: rem.entityLabel,
       entityType: rem.entityType,
       situacaoDoRemunerado: rem.situacao,
+      situacaoDoFinanciamento:
+        evidenciaDaPlaca?.situacaoDoFinanciamento ?? ("INDEFINIDO" as const),
+      statusDeclarado: evidenciaDaPlaca?.statusDeclarado ?? null,
     };
 
     if (duplicados.has(chave)) {
@@ -305,6 +451,10 @@ export function confrontar(entrada: {
         ? "O realizado traz mais de um lançamento para esta placa nesta competência."
         : null,
       situacaoDoRemunerado: null,
+      /* Sem remunerado não há base que declare situação de financiamento: a
+         placa existe só no razão. `INDEFINIDO` aqui é a verdade, não um padrão. */
+      situacaoDoFinanciamento: "INDEFINIDO",
+      statusDeclarado: null,
     });
   }
 
@@ -313,7 +463,25 @@ export function confrontar(entrada: {
       a.entityType.localeCompare(b.entityType) || a.entityLabel.localeCompare(b.entityLabel),
   );
 
-  return { competencia, linhas, resumo: resumir(competencia, linhas) };
+  /*
+    O denominador da cobertura sai daqui, e não da contagem de linhas.
+
+    São as placas que o lado remunerado tem neste mês — inclusive as que a
+    consolidação recusou, que continuam sendo veículos remunerados que esta
+    auditoria não conseguiu medir. Contar linhas somaria as placas que só o
+    realizado tem e devolveria "17 de 94", que responde a outra pergunta.
+  */
+  const veiculosRemunerados = new Set(
+    entrada.remunerado
+      .filter((r) => r.competencia === competencia)
+      .map((r) => chaveDo(r.entityLabel, r.entityType)),
+  ).size;
+
+  return {
+    competencia,
+    linhas,
+    resumo: resumir(competencia, linhas, veiculosRemunerados),
+  };
 }
 
 /** A conta de uma linha com os dois lados presentes. */
@@ -321,7 +489,7 @@ function aritmetica(
   remunerado: number,
   realizado: number,
 ): Pick<LinhaDoConfronto, "diferenca" | "variacao" | "resultado"> {
-  const diferenca = arredondar(remunerado - realizado);
+  const diferenca = arredondarCentavos(remunerado - realizado);
   /*
     A base zero não produz percentual — e não produz `Infinity`.
 
@@ -338,9 +506,25 @@ function aritmetica(
   return { diferenca, variacao, resultado };
 }
 
-function resumir(competencia: Competencia, linhas: readonly LinhaDoConfronto[]): ResumoDoConfronto {
-  let totalRemunerado = 0;
-  let totalRealizado = 0;
+function resumir(
+  competencia: Competencia,
+  linhas: readonly LinhaDoConfronto[],
+  veiculosRemunerados: number,
+): ResumoDoConfronto {
+  /*
+    As somas ficam em listas, e não em acumuladores.
+
+    `somarCentavos` arredonda **uma vez, no fim**; somar já arredondando parcela
+    a parcela é outra conta, e ela erra por centavos que crescem com o tamanho
+    da frota. Guardar as parcelas é o que torna essa ordem impossível de trocar
+    por acidente.
+  */
+  const remuneradoDosConciliados: number[] = [];
+  const realizadoDosConciliados: number[] = [];
+  const remuneradoSemRealizado: number[] = [];
+  const remuneradoFinanciadoSemRealizado: number[] = [];
+  const realizadoSemRemunerado: number[] = [];
+
   let veiculosComSobra = 0;
   let veiculosComDeficit = 0;
   let veiculosEmEquilibrio = 0;
@@ -348,14 +532,15 @@ function resumir(competencia: Competencia, linhas: readonly LinhaDoConfronto[]):
   let semRealizado = 0;
   let semRemunerado = 0;
   let naoConciliados = 0;
-  let remuneradoSemRealizado = 0;
-  let realizadoSemRemunerado = 0;
+  let financiadosSemRealizado = 0;
+  let quitadosSemRealizado = 0;
+  let indefinidosSemRealizado = 0;
 
   for (const l of linhas) {
     if (l.cobertura === "COMPLETA" && l.remunerado !== null && l.realizado !== null) {
       conciliados += 1;
-      totalRemunerado += l.remunerado;
-      totalRealizado += l.realizado;
+      remuneradoDosConciliados.push(l.remunerado);
+      realizadoDosConciliados.push(l.realizado);
       if (l.resultado === "SOBRA") veiculosComSobra += 1;
       else if (l.resultado === "DEFICIT") veiculosComDeficit += 1;
       else if (l.resultado === "EQUILIBRIO") veiculosEmEquilibrio += 1;
@@ -363,27 +548,44 @@ function resumir(competencia: Competencia, linhas: readonly LinhaDoConfronto[]):
     }
     if (l.cobertura === "SEM_REALIZADO") {
       semRealizado += 1;
-      if (l.remunerado !== null) remuneradoSemRealizado += l.remunerado;
+      if (l.remunerado !== null) remuneradoSemRealizado.push(l.remunerado);
+      /*
+        A partição por situação do financiamento acontece aqui, e não na tela.
+
+        Porque é ela que separa "sem lançamento porque o contrato acabou" de
+        "sem lançamento e a base diz que o contrato está vivo" — a segunda é
+        achado, a primeira é coerência, e as duas eram a mesma linha cinza de
+        tabela paginada antes disto.
+      */
+      if (l.situacaoDoFinanciamento === "FINANCIADO") {
+        financiadosSemRealizado += 1;
+        if (l.remunerado !== null) remuneradoFinanciadoSemRealizado.push(l.remunerado);
+      } else if (l.situacaoDoFinanciamento === "QUITADO") {
+        quitadosSemRealizado += 1;
+      } else {
+        indefinidosSemRealizado += 1;
+      }
     } else if (l.cobertura === "SEM_REMUNERADO") {
       semRemunerado += 1;
-      if (l.realizado !== null) realizadoSemRemunerado += l.realizado;
+      if (l.realizado !== null) realizadoSemRemunerado.push(l.realizado);
     } else {
       naoConciliados += 1;
     }
   }
 
-  totalRemunerado = arredondar(totalRemunerado);
-  totalRealizado = arredondar(totalRealizado);
+  const totalRemunerado = somarCentavos(remuneradoDosConciliados);
+  const totalRealizado = somarCentavos(realizadoDosConciliados);
 
   return {
     competencia,
     veiculosConciliados: conciliados,
+    veiculosRemunerados,
     totalRemunerado,
     totalRealizado,
     /* Da diferença dos totais arredondados, e não da soma das diferenças: é a
        mesma conta, e esta ordem garante que o cartão bata com os dois cartões
        que estão ao lado dele. */
-    resultadoLiquido: arredondar(totalRemunerado - totalRealizado),
+    saldoDosConciliados: arredondarCentavos(totalRemunerado - totalRealizado),
     veiculosComSobra,
     veiculosComDeficit,
     veiculosEmEquilibrio,
@@ -393,16 +595,26 @@ function resumir(competencia: Competencia, linhas: readonly LinhaDoConfronto[]):
       semRealizado,
       semRemunerado,
       naoConciliados,
+      /* `null`, e não 0 nem 1, quando não há remunerados: uma fração sem
+         denominador não é zero por cento de cobertura, é uma pergunta sem base. */
+      fracaoDosRemunerados: veiculosRemunerados === 0 ? null : conciliados / veiculosRemunerados,
+    },
+    semRealizado: {
+      veiculos: semRealizado,
+      remunerado: somarCentavos(remuneradoSemRealizado),
+      financiados: financiadosSemRealizado,
+      remuneradoFinanciado: somarCentavos(remuneradoFinanciadoSemRealizado),
+      quitados: quitadosSemRealizado,
+      indefinidos: indefinidosSemRealizado,
     },
     foraDoConfronto: {
-      remuneradoSemRealizado: arredondar(remuneradoSemRealizado),
-      realizadoSemRemunerado: arredondar(realizadoSemRemunerado),
+      remuneradoSemRealizado: somarCentavos(remuneradoSemRealizado),
+      realizadoSemRemunerado: somarCentavos(realizadoSemRemunerado),
       veiculos: semRealizado + semRemunerado + naoConciliados,
     },
   };
 }
 
-const arredondar = (v: number): number => Number(v.toFixed(2));
 
 const MOTIVO_DA_SITUACAO: Record<SituacaoDoConsolidado, string | null> = {
   CONSOLIDADO: null,

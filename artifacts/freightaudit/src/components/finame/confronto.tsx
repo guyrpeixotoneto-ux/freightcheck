@@ -3,17 +3,20 @@ import { useQuery } from "@tanstack/react-query";
 import {
   AlertTriangle,
   CircleDollarSign,
+  CircleHelp,
   Download,
   FileText,
   HandCoins,
   ReceiptText,
   Scale,
+  ShieldAlert,
   TrendingDown,
   TrendingUp,
   Truck,
 } from "lucide-react";
 
 import type { Competencia } from "@workspace/comparison/competencia-de-finame";
+import type { AlertaDoConfronto } from "@workspace/comparison/alertas-do-confronto";
 import type { CoberturaDoConfronto } from "@workspace/comparison/confronto-de-finame";
 import { TITULOS_DO_REAL } from "@workspace/comparison/fonte-de-finame";
 import type { RecorteDeTipo } from "@/components/comparacao/recorte-de-equipamento";
@@ -37,6 +40,7 @@ import {
   COR_DO_RESULTADO,
   ROTULO_CURTO_DO_RESULTADO,
   ROTULO_DA_COBERTURA,
+  escreverCobertura,
   escreverDinheiro,
   escreverVariacao,
   frasesDaCobertura,
@@ -340,7 +344,7 @@ function ResultadoDoConfrontoEmTela({ resposta }: { resposta: RespostaDoConfront
       >
         <CartaoDeIndicador
           rotulo={TITULOS_DO_REAL.veiculosComparados}
-          valor={formatNumber(resumo.veiculosConciliados, 0)}
+          valor={escreverCobertura(resumo.veiculosConciliados, resumo.veiculosRemunerados)}
           nota="com os dois lados no mês"
           ajuda="Placas com remunerado mensal consolidado e realizado na mesma competência. São as que sustentam os totais ao lado."
           icone={Truck}
@@ -348,7 +352,10 @@ function ResultadoDoConfrontoEmTela({ resposta }: { resposta: RespostaDoConfront
         <CartaoDeIndicador
           rotulo={TITULOS_DO_REAL.remunerado}
           valor={escreverDinheiro(resumo.totalRemunerado)}
-          nota="somente dos conciliados"
+          nota={`somente dos conciliados · ${escreverCobertura(
+            resumo.veiculosConciliados,
+            resumo.veiculosRemunerados,
+          )}`}
           ajuda="Parcela FINAME mensal remunerada pela Ambev. A parcela é mensal: as duas quinzenas do mês declaram o mesmo valor, e ele não é somado duas vezes."
           icone={ReceiptText}
         />
@@ -375,10 +382,23 @@ function ResultadoDoConfrontoEmTela({ resposta }: { resposta: RespostaDoConfront
           corDoIcone="bg-warning/12 text-warning-foreground"
         />
         <CartaoDeIndicador
-          rotulo={TITULOS_DO_REAL.resultadoLiquido}
-          valor={escreverDinheiro(resumo.resultadoLiquido)}
-          nota="remunerado − realizado"
-          ajuda="A diferença dos dois totais acima, e só deles: placa não conciliada não entra em nenhum dos três."
+          rotulo={TITULOS_DO_REAL.saldoDosConciliados}
+          valor={escreverDinheiro(resumo.saldoDosConciliados)}
+          /*
+            A cobertura vem na nota, e vem **sempre** — inclusive quando tudo
+            conciliou. Ela não é um aviso, é a metade do significado do número:
+            sem ela, o saldo de 17 veículos se lê como o saldo do mês, que foi
+            exatamente o que aconteceu em setembro/2026.
+          */
+          nota={`remunerado − realizado · ${escreverCobertura(
+            resumo.veiculosConciliados,
+            resumo.veiculosRemunerados,
+          )}`}
+          ajuda={
+            "O saldo dos veículos conciliados, e só deles — não é o resultado do mês. " +
+            "Placa sem realizado, sem remunerado ou não conciliada não entra em nenhum " +
+            "dos três números. Os universos que ficaram de fora estão logo abaixo."
+          }
           icone={CircleDollarSign}
           destaque
         />
@@ -407,6 +427,16 @@ function ResultadoDoConfrontoEmTela({ resposta }: { resposta: RespostaDoConfront
         </p>
       )}
 
+      {resposta.universos && (
+        <TresUniversos universos={resposta.universos} rotulo={resposta.rotulo} />
+      )}
+
+      <FinanciadosSemRealizado confronto={confronto} rotulo={resposta.rotulo} />
+
+      {resposta.alertas && resposta.alertas.length > 0 && (
+        <AlertasDaCompetencia alertas={resposta.alertas} />
+      )}
+
       <div className="rounded-lg border bg-card">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
           <h2 className="text-sm font-semibold">
@@ -420,6 +450,300 @@ function ResultadoDoConfrontoEmTela({ resposta }: { resposta: RespostaDoConfront
         <TabelaDoConfronto confronto={confronto} />
       </div>
     </div>
+  );
+}
+
+/**
+ * OS TRÊS UNIVERSOS — e a razão de eles não virarem um total.
+ *
+ * ---------------------------------------------------------------------------
+ * Por que três blocos, e não seis cartões
+ * ---------------------------------------------------------------------------
+ * Porque a fileira de cartões acima responde **uma** pergunta — a distância
+ * entre os dois lados onde ela é mensurável — e esta seção responde outra:
+ * *quanto da competência aquela pergunta alcança?* Enfiar "47 veículos sem
+ * realizado" como um sétimo cartão o colocaria na mesma fileira do saldo, e uma
+ * fileira de cartões se lê como um conjunto de parcelas da mesma coisa. Estes
+ * três não se somam: o universo 2 é remuneração sem custo e o 3 é custo sem
+ * ativo, lados opostos do mesmo confronto.
+ *
+ * A separação visual é o argumento. Ver
+ * `docs/DEFINICOES-DO-CONFRONTO-DE-FINAME.md`.
+ */
+function TresUniversos({
+  universos,
+  rotulo,
+}: {
+  universos: NonNullable<RespostaDoConfronto["universos"]>;
+  rotulo: string;
+}) {
+  const { conciliados, semRealizado, pendenteDeClassificacao } = universos;
+
+  return (
+    <section aria-label="Os três universos da competência" className="flex flex-col gap-2">
+      <h2 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+        O que {rotulo} tem, em três universos que não se somam
+      </h2>
+      <div className="grid gap-3 lg:grid-cols-3">
+        <BlocoDoUniverso
+          icone={Truck}
+          tom="brand"
+          titulo="1 · Conciliados"
+          destaque={escreverCobertura(conciliados.veiculos, conciliados.de)}
+          descricao="Com remunerado mensal consolidado e realizado na mesma competência. São os únicos que entram nos totais acima."
+          linhas={[
+            { rotulo: "Remunerado", valor: escreverDinheiro(conciliados.remunerado) },
+            { rotulo: "Realizado", valor: escreverDinheiro(conciliados.realizado) },
+            { rotulo: "Saldo", valor: escreverDinheiro(conciliados.saldo), forte: true },
+          ]}
+        />
+        <BlocoDoUniverso
+          icone={ReceiptText}
+          tom="atencao"
+          titulo="2 · Sem realizado"
+          destaque={`${formatNumber(semRealizado.veiculos, 0)} ${
+            semRealizado.veiculos === 1 ? "veículo" : "veículos"
+          }`}
+          descricao="Remunerados na competência, sem nenhum lançamento correspondente no razão. Ausência não é R$ 0,00: eles não entram em total nenhum."
+          linhas={[
+            {
+              rotulo: "Remuneração sem contrapartida",
+              valor: escreverDinheiro(semRealizado.remunerado),
+              forte: true,
+            },
+            {
+              rotulo: "Declarados financiados",
+              valor: `${formatNumber(semRealizado.financiados, 0)} · ${escreverDinheiro(
+                semRealizado.remuneradoFinanciado,
+              )}`,
+            },
+            {
+              rotulo: "Declarados quitados",
+              valor: formatNumber(semRealizado.quitados, 0),
+            },
+          ]}
+        />
+        <BlocoDoUniverso
+          icone={CircleHelp}
+          tom="neutro"
+          titulo="3 · Real pendente de classificação"
+          destaque={`${formatNumber(pendenteDeClassificacao.naCompetencia.placas, 0)} ${
+            pendenteDeClassificacao.naCompetencia.placas === 1 ? "placa" : "placas"
+          }`}
+          descricao="O razão traz o custo e o cadastro não resolve o tipo do ativo. Ficam fora do confronto até alguém classificá-las — preservados, nunca descartados."
+          linhas={[
+            {
+              rotulo: `Nesta competência`,
+              valor: escreverDinheiro(pendenteDeClassificacao.naCompetencia.valor),
+              forte: true,
+            },
+            {
+              /* Os dois recortes, ditos. O total do extrato é o tamanho da fila,
+                 e não o que ficou de fora deste mês — apresentá-lo sozinho ao
+                 lado de um painel mensal foi como R$ 174.826,25 passou a ser
+                 lido como pendência de setembro. */
+              rotulo: "Na fila do extrato inteiro",
+              valor: `${formatNumber(pendenteDeClassificacao.noExtrato.placas, 0)} · ${escreverDinheiro(
+                pendenteDeClassificacao.noExtrato.valor,
+              )}`,
+            },
+          ]}
+        />
+      </div>
+    </section>
+  );
+}
+
+const TOM_DO_UNIVERSO = {
+  brand: "border-brand/30 bg-brand/[0.04] text-brand",
+  atencao: "border-warning/40 bg-warning/[0.06] text-warning-foreground",
+  neutro: "border-border bg-muted/30 text-muted-foreground",
+} as const;
+
+function BlocoDoUniverso({
+  icone: Icone,
+  tom,
+  titulo,
+  destaque,
+  descricao,
+  linhas,
+}: {
+  icone: typeof Truck;
+  tom: keyof typeof TOM_DO_UNIVERSO;
+  titulo: string;
+  destaque: string;
+  descricao: string;
+  linhas: { rotulo: string; valor: string; forte?: boolean }[];
+}) {
+  return (
+    <div className={cn("flex flex-col rounded-lg border p-4", TOM_DO_UNIVERSO[tom])}>
+      <div className="flex items-center gap-2">
+        <Icone aria-hidden="true" className="h-4 w-4 shrink-0" />
+        <h3 className="text-[0.8125rem] font-bold">{titulo}</h3>
+      </div>
+      <p className="mt-2 text-2xl font-extrabold tabular-nums leading-none tracking-[-0.01em] text-foreground">
+        {destaque}
+      </p>
+      <p className="mt-2 text-xs text-muted-foreground">{descricao}</p>
+      <dl className="mt-3 flex flex-col gap-1 border-t pt-3 text-xs">
+        {linhas.map((l) => (
+          <div key={l.rotulo} className="flex items-baseline justify-between gap-3">
+            <dt className="text-muted-foreground">{l.rotulo}</dt>
+            <dd
+              className={cn(
+                "tabular-nums",
+                l.forte ? "font-bold text-foreground" : "font-medium",
+              )}
+            >
+              {l.valor}
+            </dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  );
+}
+
+/**
+ * OS FINANCIADOS SEM LANÇAMENTO REAL — fora da tabela, de propósito.
+ *
+ * ---------------------------------------------------------------------------
+ * Por que este painel existe
+ * ---------------------------------------------------------------------------
+ * Porque estes veículos eram, até aqui, linhas cinzas de "Sem realizado" numa
+ * tabela de 64 linhas paginada de 50 em 50 — e são o achado mais forte da tela.
+ * Um cavalo que a base declara **financiado** e que o razão não cobra no mês é
+ * uma de duas coisas, e as duas exigem alguém: ou o razão não registrou uma
+ * parcela devida, ou a base remunera um financiamento que não existe mais.
+ *
+ * O painel mostra os maiores por remuneração e diz quantos ficaram de fora, em
+ * vez de repetir a tabela. Quem quiser a lista inteira tem o CSV, que sai com a
+ * situação declarada em coluna própria.
+ *
+ * Um veículo **quitado** sem lançamento não aparece aqui: ele é coerente, e
+ * enchê-lo neste painel é o jeito de fazer alguém parar de lê-lo.
+ */
+const QUANTOS_FINANCIADOS_MOSTRAR = 8;
+
+function FinanciadosSemRealizado({
+  confronto,
+  rotulo,
+}: {
+  confronto: NonNullable<RespostaDoConfronto["confronto"]>;
+  rotulo: string;
+}) {
+  const financiados = useMemo(
+    () =>
+      confronto.linhas
+        .filter(
+          (l) =>
+            l.cobertura === "SEM_REALIZADO" &&
+            l.situacaoDoFinanciamento === "FINANCIADO" &&
+            l.remunerado !== null,
+        )
+        .sort((a, b) => (b.remunerado ?? 0) - (a.remunerado ?? 0)),
+    [confronto.linhas],
+  );
+
+  if (financiados.length === 0) return null;
+
+  const total = confronto.resumo.semRealizado.remuneradoFinanciado;
+  const mostrados = financiados.slice(0, QUANTOS_FINANCIADOS_MOSTRAR);
+  const restantes = financiados.length - mostrados.length;
+
+  return (
+    <section
+      aria-label="Veículos financiados sem lançamento real"
+      className="rounded-lg border border-destructive/40 bg-destructive/[0.05] p-4"
+      data-testid="financiados-sem-realizado"
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <ShieldAlert aria-hidden="true" className="h-4 w-4 shrink-0 text-destructive" />
+        <h2 className="text-sm font-semibold">
+          {formatNumber(financiados.length, 0)}{" "}
+          {financiados.length === 1
+            ? "veículo declarado financiado sem lançamento real"
+            : "veículos declarados financiados sem lançamento real"}{" "}
+          em {rotulo}
+        </h2>
+        <span className="rounded bg-destructive/10 px-2 py-0.5 text-xs font-bold tabular-nums text-destructive">
+          {escreverDinheiro(total)} remunerados
+        </span>
+      </div>
+      <p className="mt-1.5 text-sm text-muted-foreground">
+        A base declara o financiamento vivo e o razão não traz parcela para eles nesta
+        competência. Ou falta o lançamento, ou a remuneração continua sobre um contrato
+        encerrado — nos dois casos, esta remuneração não está confrontada com custo nenhum.
+      </p>
+      <ul className="mt-3 grid gap-1.5 text-xs sm:grid-cols-2 lg:grid-cols-4">
+        {mostrados.map((l) => (
+          <li
+            key={`${l.entityType}-${l.entityLabel}`}
+            className="flex items-baseline justify-between gap-2 rounded border bg-background/60 px-2.5 py-1.5"
+          >
+            <span className="font-medium">
+              {l.entityLabel}{" "}
+              <span className="text-[0.6875rem] text-muted-foreground">{l.entityType}</span>
+            </span>
+            <span className="tabular-nums font-semibold">{escreverDinheiro(l.remunerado)}</span>
+          </li>
+        ))}
+      </ul>
+      {restantes > 0 && (
+        <p className="mt-2 text-xs text-muted-foreground">
+          e mais {formatNumber(restantes, 0)}{" "}
+          {restantes === 1 ? "veículo" : "veículos"} — a lista inteira sai no CSV, com a
+          situação declarada em coluna própria.
+        </p>
+      )}
+    </section>
+  );
+}
+
+/**
+ * OS ALERTAS — o que a coluna Resultado não consegue dizer sozinha.
+ *
+ * Cada um vem com a evidência que o sustenta, e não só com a frase. Um aviso
+ * que afirma sem mostrar manda quem audita reabrir a planilha para descobrir se
+ * ele procede — e, na terceira vez, manda ignorá-lo. As regras moram em
+ * `@workspace/comparison/alertas-do-confronto`; aqui só se desenha.
+ */
+function AlertasDaCompetencia({ alertas }: { alertas: AlertaDoConfronto[] }) {
+  return (
+    <section
+      aria-label="Alertas da competência"
+      className="flex flex-col gap-2"
+      data-testid="alertas-do-confronto"
+    >
+      <h2 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+        {alertas.length === 1 ? "1 alerta nesta competência" : `${alertas.length} alertas nesta competência`}
+      </h2>
+      {alertas.map((a) => (
+        <div
+          key={`${a.tipo}-${a.entityType}-${a.entityLabel}`}
+          className="rounded-lg border border-warning/40 bg-warning/[0.06] p-4"
+        >
+          <div className="flex flex-wrap items-center gap-2">
+            <AlertTriangle aria-hidden="true" className="h-4 w-4 shrink-0 text-warning-foreground" />
+            <span className="font-semibold">{a.entityLabel}</span>
+            <span className="text-xs text-muted-foreground">{a.entityType}</span>
+            <span className="text-sm">· {a.titulo}</span>
+          </div>
+          <p className="mt-1.5 text-sm text-muted-foreground">{a.porque}</p>
+          <dl className="mt-3 grid gap-1.5 text-xs sm:grid-cols-2 lg:grid-cols-3">
+            {a.evidencia.map((e) => (
+              <div
+                key={e.rotulo}
+                className="flex items-baseline justify-between gap-2 rounded border bg-background/60 px-2.5 py-1.5"
+              >
+                <dt className="text-muted-foreground">{e.rotulo}</dt>
+                <dd className="tabular-nums font-semibold">{e.valor}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+      ))}
+    </section>
   );
 }
 

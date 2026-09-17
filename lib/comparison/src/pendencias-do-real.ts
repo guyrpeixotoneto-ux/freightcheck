@@ -48,6 +48,18 @@ export interface PendenciasDoReal {
   }[];
   /** Quantos lançamentos foram somados em cada competência, para a marca de parcial. */
   porCompetencia: { competencia: string; lancamentos: number; placas: number }[];
+  /**
+   * A fila de classificação **por competência** — o terceiro universo do
+   * confronto, recortado no mês que a tela está mostrando.
+   *
+   * Existe porque a tela mostrava R$ 174.826,25 ao lado de um painel de
+   * setembro, e aquele número é do extrato de 2026 inteiro. Os dois recortes são
+   * verdadeiros e respondem a perguntas diferentes — *quanto ficou de fora deste
+   * mês* e *qual o tamanho da fila* —, e a tela passa a dizer qual é qual em vez
+   * de deixar quem lê escolher. Ver
+   * `docs/DEFINICOES-DO-CONFRONTO-DE-FINAME.md`.
+   */
+  pendentePorCompetencia: { competencia: string; placas: number; valor: number }[];
 }
 
 /**
@@ -172,6 +184,21 @@ export async function lerPendenciasDoReal(
      ORDER BY l.competencia
   `);
 
+  const { rows: pendentePorCompetencia } = await db.execute<{
+    competencia: string;
+    placas: string;
+    valor: string;
+  }>(sql`
+    SELECT l.competencia::text AS competencia,
+           count(DISTINCT l.placa)::text AS placas,
+           sum(l.valor_absoluto)::text AS valor
+      FROM finame_real_lancamento l
+     WHERE l.status = 'PENDENTE_DE_CLASSIFICACAO'
+       AND ${dosRunsDoCanal}
+     GROUP BY l.competencia
+     ORDER BY l.competencia
+  `);
+
   return {
     duplicatas: duplicatas.map((d) => ({
       competencia: d.competencia,
@@ -193,6 +220,11 @@ export async function lerPendenciasDoReal(
       competencia: c.competencia,
       lancamentos: Number(c.lancamentos),
       placas: Number(c.placas),
+    })),
+    pendentePorCompetencia: pendentePorCompetencia.map((c) => ({
+      competencia: c.competencia,
+      placas: Number(c.placas),
+      valor: Number(c.valor),
     })),
   };
 }

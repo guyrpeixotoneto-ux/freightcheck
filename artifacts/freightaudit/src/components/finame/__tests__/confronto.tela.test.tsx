@@ -16,11 +16,30 @@
 // 3. não há "De", "Para" nem "Inverter": a direção do confronto é fixa.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ConfrontoDeFiname } from "../confronto";
+
+/*
+  Os três escopos da tela, nomeados.
+
+  A tela deixou de ser "cartões + tabela": ela tem agora a fileira de
+  indicadores, os três blocos de universo, o painel dos financiados, os alertas
+  e a tabela — e vários números aparecem de propósito em mais de um deles. Uma
+  busca global por "R$ 2.200,00" passou a achar dois elementos, o que **é o
+  comportamento certo** e quebrava a asserção. Escopar é o que mantém cada teste
+  falando do lugar de que ele fala.
+*/
+const naTabela = () => within(document.querySelector("table")!);
+const nosIndicadores = () =>
+  within(document.querySelector('[aria-label="Indicadores do confronto"]')!);
+const nosUniversos = () =>
+  within(document.querySelector('[aria-label="Os três universos da competência"]')!);
+
+const linhaDa = (placa: string): HTMLElement =>
+  naTabela().getByText(placa).closest("tr")!;
 
 const pedidos: string[] = [];
 const respostas = new Map<string, unknown>();
@@ -88,6 +107,8 @@ const CONFRONTO = {
         cobertura: "COMPLETA",
         motivo: null,
         situacaoDoRemunerado: "CONSOLIDADO",
+        situacaoDoFinanciamento: "FINANCIADO",
+        statusDeclarado: "Descrição: FINANCIADO",
       },
       {
         competencia: "2026-09",
@@ -101,6 +122,8 @@ const CONFRONTO = {
         cobertura: "COMPLETA",
         motivo: null,
         situacaoDoRemunerado: "CONSOLIDADO",
+        situacaoDoFinanciamento: "FINANCIADO",
+        statusDeclarado: "Descrição: FINANCIADO",
       },
       {
         competencia: "2026-09",
@@ -114,6 +137,8 @@ const CONFRONTO = {
         cobertura: "SEM_REALIZADO",
         motivo: null,
         situacaoDoRemunerado: "CONSOLIDADO",
+        situacaoDoFinanciamento: "FINANCIADO",
+        statusDeclarado: "Descrição: FINANCIADO",
       },
       {
         competencia: "2026-09",
@@ -127,14 +152,17 @@ const CONFRONTO = {
         cobertura: "NAO_CONCILIADO",
         motivo: "As vigências deste mês declaram parcelas diferentes para esta placa.",
         situacaoDoRemunerado: "DIVERGENCIA_INTRAMENSAL",
+        situacaoDoFinanciamento: "INDEFINIDO",
+        statusDeclarado: null,
       },
     ],
     resumo: {
       competencia: "2026-09",
       veiculosConciliados: 2,
+      veiculosRemunerados: 4,
       totalRemunerado: 8000,
       totalRealizado: 7500,
-      resultadoLiquido: 500,
+      saldoDosConciliados: 500,
       veiculosComSobra: 1,
       veiculosComDeficit: 1,
       veiculosEmEquilibrio: 0,
@@ -144,6 +172,15 @@ const CONFRONTO = {
         semRealizado: 1,
         semRemunerado: 0,
         naoConciliados: 1,
+        fracaoDosRemunerados: 0.5,
+      },
+      semRealizado: {
+        veiculos: 1,
+        remunerado: 2200,
+        financiados: 1,
+        remuneradoFinanciado: 2200,
+        quitados: 0,
+        indefinidos: 0,
       },
       foraDoConfronto: {
         remuneradoSemRealizado: 2200,
@@ -152,6 +189,35 @@ const CONFRONTO = {
       },
     },
   },
+  universos: {
+    conciliados: { veiculos: 2, de: 4, remunerado: 8000, realizado: 7500, saldo: 500 },
+    semRealizado: {
+      veiculos: 1,
+      remunerado: 2200,
+      financiados: 1,
+      remuneradoFinanciado: 2200,
+      quitados: 0,
+      indefinidos: 0,
+    },
+    pendenteDeClassificacao: {
+      naCompetencia: { placas: 2, valor: 3300 },
+      noExtrato: { placas: 8, valor: 174826.25 },
+    },
+  },
+  alertas: [
+    {
+      tipo: "SOBRA_COM_DUPLICATA_RETIDA",
+      competencia: "2026-09",
+      entityLabel: "SOBRA001",
+      entityType: "CAVALO",
+      titulo: "Sobra confirmada, com percentual influenciado por duplicata retida",
+      porque: "Esta placa tem lançamento retido como duplicata provável nesta competência.",
+      evidencia: [
+        { rotulo: "Realizado usado (uma cópia)", valor: "R$ 4.000,00" },
+        { rotulo: "Realizado se forem dois pagamentos", valor: "R$ 8.000,00" },
+      ],
+    },
+  ],
 };
 
 const SEM_FONTE = {
@@ -229,7 +295,9 @@ describe("a fonte Real em tela", () => {
     expect(screen.getByText("Realizado na competência")).toBeTruthy();
     expect(screen.getByText("Sobra de remuneração")).toBeTruthy();
     expect(screen.getByText("Déficit de remuneração")).toBeTruthy();
-    expect(screen.getByText("Resultado líquido")).toBeTruthy();
+    expect(screen.getByText("Saldo dos veículos conciliados")).toBeTruthy();
+    /* O nome antigo prometia um total do mês que o número nunca foi. */
+    expect(screen.queryByText("Resultado líquido")).toBeNull();
 
     expect(screen.queryByText("Sem alteração")).toBeNull();
     expect(screen.queryByText("Novos na vigência")).toBeNull();
@@ -262,9 +330,11 @@ describe("a fonte Real em tela", () => {
 
   it("a diferença é remunerado − realizado, escrita linha a linha", async () => {
     montar();
-    await screen.findByText("SOBRA001");
+    /* `findAll`: a placa aparece na tabela **e** no painel de alertas, de
+       propósito. O escopo de cada asserção é `linhaDa`, logo abaixo. */
+    await screen.findAllByText("SOBRA001");
 
-    const linha = screen.getByText("SOBRA001").closest("tr")!;
+    const linha = linhaDa("SOBRA001");
     expect(linha.textContent).toContain("1.000,00");
     /* `formatNumber(_, 1)` não enche casa decimal à toa: 25 sai "25", e
        14,2857… sai "14,3". O sinal do positivo é explícito porque numa coluna
@@ -272,7 +342,7 @@ describe("a fonte Real em tela", () => {
     expect(linha.textContent).toContain("+25%");
     expect(linha.textContent).toContain("Sobra");
 
-    const deficit = screen.getByText("DEFIC002").closest("tr")!;
+    const deficit = linhaDa("DEFIC002");
     /* O menos é o tipográfico (−), como no resto do produto: o hífen some ao
        lado do cifrão em corpo grande, e uma perda lida como ganho é o erro mais
        caro que uma formatação pode produzir. Ver `formatBrl`. */
@@ -287,14 +357,16 @@ describe("a fonte Real em tela", () => {
   */
   it("ausência vira traço, nunca R$ 0,00", async () => {
     montar();
-    await screen.findByText("SEMREAL3");
+    /* `findAll`: a placa aparece na tabela **e** no painel dos financiados sem
+       lançamento real — que é justamente o ponto do painel. */
+    await screen.findAllByText("SEMREAL3");
 
-    const semRealizado = screen.getByText("SEMREAL3").closest("tr")!;
+    const semRealizado = linhaDa("SEMREAL3");
     expect(semRealizado.textContent).toContain("—");
     expect(semRealizado.textContent).not.toContain("R$ 0,00");
     expect(semRealizado.textContent).toContain("Sem realizado");
 
-    const naoConciliada = screen.getByText("DIVERG04").closest("tr")!;
+    const naoConciliada = linhaDa("DIVERG04");
     expect(naoConciliada.textContent).not.toContain("R$ 0,00");
     expect(naoConciliada.textContent).toContain("Não conciliado");
   });
@@ -302,25 +374,93 @@ describe("a fonte Real em tela", () => {
   it("a placa não conciliada explica por que não conciliou", async () => {
     montar();
     await screen.findByText("DIVERG04");
-    const celula = screen.getByText(/Não conciliado/);
+    const celula = naTabela().getByText(/Não conciliado/);
     expect(celula.getAttribute("title")).toContain("parcelas diferentes");
   });
 
-  it("a cobertura aparece como frase, e não como sétimo cartão", async () => {
+  it("o que ficou de fora além dos três universos continua dito numa frase", async () => {
     montar();
-    await screen.findByText(/2 de 4 veículos conciliados/);
-    expect(screen.getByText(/1 placa sem realizado correspondente/)).toBeTruthy();
+    await screen.findByText(/1 placa sem realizado correspondente/);
     /* O que ficou fora dos totais é dito, para a soma na mão bater. */
-    expect(screen.getByText(/fora do confronto/)).toBeTruthy();
+    expect(screen.getByText(/fora do confronto:/)).toBeTruthy();
   });
 
-  it("o resultado líquido é a diferença dos dois totais publicados ao lado", async () => {
+  it("o saldo é a diferença dos dois totais publicados ao lado", async () => {
     montar();
-    await screen.findByText("Resultado líquido");
+    await screen.findByText("Saldo dos veículos conciliados");
     /* 8.000 − 7.500 = 500, e os três números estão na mesma fileira. */
-    expect(screen.getByText("R$ 8.000,00")).toBeTruthy();
-    expect(screen.getByText("R$ 7.500,00")).toBeTruthy();
-    expect(screen.getByText("R$ 500,00")).toBeTruthy();
+    expect(nosIndicadores().getByText("R$ 8.000,00")).toBeTruthy();
+    expect(nosIndicadores().getByText("R$ 7.500,00")).toBeTruthy();
+    expect(nosIndicadores().getByText("R$ 500,00")).toBeTruthy();
+  });
+});
+
+/**
+ * A LEITURA EXECUTIVA — o que impede o saldo de 2 veículos de ser lido como o
+ * saldo de 4.
+ *
+ * Estes testes não olham aritmética; ela já está provada em
+ * `lib/comparison/src/__tests__/universos-do-confronto.test.ts`. O que eles
+ * olham é a **frase que a tela produz na cabeça de quem lê** — que foi o único
+ * defeito que setembro/2026 teve.
+ */
+describe("a tela não apresenta o saldo conciliado como saldo do mês", () => {
+  beforeEach(() => respostas.set("/finame/confronto", CONFRONTO));
+
+  it("a cobertura acompanha o saldo na própria fileira de cartões", async () => {
+    montar();
+    await screen.findByText("Saldo dos veículos conciliados");
+    /* "2 de 4 veículos" ao lado do número, e não numa frase que some quando a
+       cobertura está completa. */
+    const cartoes = nosIndicadores().getAllByText(/2 de 4 veículos/);
+    expect(cartoes.length).toBeGreaterThan(0);
+  });
+
+  it("desenha os três universos como blocos separados, e diz que não se somam", async () => {
+    montar();
+    await screen.findByText(/três universos que não se somam/);
+    expect(screen.getByText("1 · Conciliados")).toBeTruthy();
+    expect(screen.getByText("2 · Sem realizado")).toBeTruthy();
+    expect(screen.getByText("3 · Real pendente de classificação")).toBeTruthy();
+  });
+
+  it("o universo 2 publica a remuneração sem contrapartida, à parte dos totais", async () => {
+    montar();
+    await screen.findByText("2 · Sem realizado");
+    expect(nosUniversos().getByText("Remuneração sem contrapartida")).toBeTruthy();
+    expect(nosUniversos().getByText("R$ 2.200,00")).toBeTruthy();
+    /* E o total dos conciliados continua sendo 8.000 — o universo 2 não entrou
+       nele nem apareceu somado a ele em lugar nenhum, na tela inteira. */
+    expect(screen.queryByText("R$ 10.200,00")).toBeNull();
+  });
+
+  it("o universo 3 separa o mês analisado da fila do extrato inteiro", async () => {
+    montar();
+    await screen.findByText("3 · Real pendente de classificação");
+    expect(nosUniversos().getByText("Nesta competência")).toBeTruthy();
+    expect(nosUniversos().getByText("R$ 3.300,00")).toBeTruthy();
+    /* O número grande do extrato existe, e vem rotulado como o que é. */
+    expect(nosUniversos().getByText("Na fila do extrato inteiro")).toBeTruthy();
+    expect(nosUniversos().getByText(/174\.826,25/)).toBeTruthy();
+  });
+
+  it("os financiados sem lançamento real têm painel próprio, fora da tabela", async () => {
+    montar();
+    const painel = await screen.findByTestId("financiados-sem-realizado");
+    /* A placa aparece no painel — e não só na página 1 de uma tabela de 50. */
+    expect(painel.textContent).toContain("SEMREAL3");
+    expect(painel.textContent).toContain("R$ 2.200,00");
+    expect(painel.textContent).toContain("declarado financiado sem lançamento real");
+  });
+
+  it("escreve os alertas com a evidência que os sustenta", async () => {
+    montar();
+    const alertas = await screen.findByTestId("alertas-do-confronto");
+    expect(alertas.textContent).toContain("SOBRA001");
+    expect(alertas.textContent).toContain("percentual influenciado por duplicata retida");
+    /* A evidência, e não só a frase: é o que permite conferir sem reabrir nada. */
+    expect(alertas.textContent).toContain("Realizado usado (uma cópia)");
+    expect(alertas.textContent).toContain("R$ 8.000,00");
   });
 });
 

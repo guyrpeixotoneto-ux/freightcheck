@@ -45,6 +45,7 @@
  * extrato se faz por ele.
  */
 
+import { arredondarCentavos } from "../dinheiro";
 import type { LinhaDoExtrato } from "./extrato";
 
 /** O que uma linha virou depois da classificação. */
@@ -461,9 +462,14 @@ export function reconciliar(apuracao: Apuracao): {
   };
 }
 
-function arredondar(valor: number): number {
-  return Math.round((valor + Number.EPSILON) * 100) / 100;
-}
+/*
+  A regra mora em `@workspace/ingest/dinheiro`, e não aqui.
+
+  Esta função era a regra **certa** do produto — meio centavo sobe — e a outra,
+  nas rotas HTTP, era a errada. Tirá-la daqui não muda nenhum número desta
+  apuração; muda o fato de existirem duas. Ver `docs/DEFINICOES-DO-CONFRONTO-DE-FINAME.md`.
+*/
+const arredondar = arredondarCentavos;
 
 function medianaDe(valores: readonly number[]): number {
   if (valores.length === 0) return 0;

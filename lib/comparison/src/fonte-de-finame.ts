@@ -262,6 +262,15 @@ export const TITULOS_DO_REAL = {
   realizado: "Realizado na competência",
   sobra: "Sobra de remuneração",
   deficit: "Déficit de remuneração",
-  resultadoLiquido: "Resultado líquido",
+  /*
+    O nome carrega o escopo, e é a correção de fundo desta tela.
+
+    Chamava-se "Resultado líquido". Em setembro/2026 ele mostrava −R$ 87.393,05
+    — o saldo de 17 veículos conciliados — num mês de 64 veículos remunerados, e
+    "líquido" se lê como *o que sobrou depois de tudo considerado*. O número
+    estava certo ao centavo e a frase que ele produzia na cabeça de quem lia,
+    não. Ver `docs/DEFINICOES-DO-CONFRONTO-DE-FINAME.md`.
+  */
+  saldoDosConciliados: "Saldo dos veículos conciliados",
   totalPorPeriodo: "FINAME remunerado × realizado por competência",
 } as const;

@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
+    "./dinheiro": "./src/dinheiro.ts",
     "./excel-dates": "./src/excel-dates.ts",
     "./chamados": "./src/chamados.ts",
     "./tipos": "./src/tipos.ts",
