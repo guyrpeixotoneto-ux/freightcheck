@@ -8,6 +8,7 @@ import {
   resumirConjuntoDoLote,
   type AlteracaoDoLote,
   type EscopoDoLote,
+  type FiltrosDoLote,
 } from "@workspace/comparison/justificativa-em-lote";
 
 import { fetchJson } from "@/lib/api";
@@ -75,28 +76,65 @@ export function useJustificarEmLote({
    * prometeria 50 e gravaria 206.
    */
   alteracoesDoRecorte,
-  /** O recorte de agora, como o servidor o reabriria. */
-  escopoDoRecorte,
+  /** A rubrica, como `RECORTES_DO_LOTE` a conhece — `ipva`, `lucro-fixo`. */
+  rubrica,
+  base,
+  comparada,
   /**
-   * A assinatura do recorte — muda quando **qualquer** filtro muda.
+   * Os filtros da tela, como ela os tem no estado — o objeto inteiro.
    *
-   * Busca, variável, aba, tipo, negativos, o alternador do que não mudou e o
-   * par de vigências. É a única coisa que a página precisa manter em dia para
-   * que a regra da seleção global valha; esquecer um filtro aqui é
-   * exatamente o defeito que ela existe para impedir, e por isso ela é uma
-   * string montada num lugar só.
+   * **Inteiro, e não uma lista de campos escolhidos a dedo**, e é isto que
+   * torna a regra da seleção global segura: o recorte gravado e a assinatura
+   * que a derruba saem os dois deste objeto, então um filtro novo que alguém
+   * acrescente à tela entra nos dois de graça. A primeira versão disto pedia à
+   * página uma string de assinatura montada à mão, e esquecer um campo ali era
+   * silenciosamente aplicar uma decisão a um conjunto que ninguém viu — que é
+   * exatamente o defeito que a regra existe para impedir.
    */
-  assinaturaDoRecorte,
+  filtros,
+  /**
+   * Os filtros vazios da rubrica — `FILTROS_VAZIOS`, o que a tela mostra quando
+   * ninguém recortou nada.
+   *
+   * Serve a uma coisa só, e ela é de leitura: é com eles que a frase do
+   * universo se cala sobre o que **não** foi filtrado. Sem eles, a caixa
+   * anunciaria "tipo TODOS, variável TODAS, estado TODAS" — três não-recortes
+   * escritos como se fossem recorte, e a frase da tela deixaria de bater com a
+   * que o servidor grava em `justificativa_lote.descricao`, que tem os padrões
+   * pelo registro das rubricas.
+   */
+  filtrosVazios,
+  /** O alternador "Mostrar veículos sem alteração" — filtro como os outros. */
+  semAlteracao,
 }: {
   changeSetId: string | undefined;
   contexto?: string;
   justificadaPor: ReadonlyMap<number, Justificativa>;
   alteracoesDoRecorte: readonly AlteracaoDoLote[];
-  escopoDoRecorte: () => EscopoDoLote | null;
-  assinaturaDoRecorte: string;
+  rubrica: string;
+  base: string;
+  comparada: string;
+  filtros: FiltrosDoLote;
+  filtrosVazios: FiltrosDoLote;
+  semAlteracao: boolean;
 }) {
   const queryClient = useQueryClient();
   const { user } = useAuth();
+
+  /*
+    O recorte de agora, e a assinatura dele — os dois do mesmo objeto.
+
+    A assinatura é a serialização do que define o universo: o par e os filtros.
+    Não há lista de campos a manter em dia, e portanto não há campo a esquecer.
+  */
+  const escopoDoRecorte = useCallback(
+    (): EscopoDoLote | null =>
+      base && comparada
+        ? { tipo: "FILTRO", rubrica, base, comparada, filtros, semAlteracao }
+        : null,
+    [rubrica, base, comparada, filtros, semAlteracao],
+  );
+  const assinaturaDoRecorte = JSON.stringify([base, comparada, filtros, semAlteracao]);
 
   const [emLote, setEmLote] = useState(false);
   const [marcadas, setMarcadas] = useState<ReadonlySet<number>>(new Set());
@@ -289,10 +327,18 @@ export function useJustificarEmLote({
       aplicaveis: reparticao.aplicar.length,
       /** Quem pode substituir o que já está gravado — ver a rota. */
       podeSobrescrever: user?.role === "ADMIN",
-      /** O universo, por extenso, como ele vai ficar registrado. */
+      /**
+       * O universo, por extenso — o que a caixa mostra antes do clique.
+       *
+       * A mesma frase que o servidor grava em `justificativa_lote.descricao`,
+       * e é por isso que os padrões da rubrica vêm de fora: sem eles a caixa
+       * anunciaria um recorte mais largo do que o registrado, e a conferência
+       * contra a tela — que é para o que a frase existe — passaria a depender
+       * de quem lê saber que "variável TODAS" não filtra nada.
+       */
       universo: (() => {
         const atual = escopo();
-        return atual ? descreverEscopoDoLote(atual) : "";
+        return atual ? descreverEscopoDoLote(atual, filtrosVazios) : "";
       })(),
       todosOsResultados,
       pendente: gravar.isPending,
@@ -315,4 +361,54 @@ export function useJustificarEmLote({
       },
     },
   };
+}
+
+/**
+ * As linhas do recorte viradas alvos de lote — o mapeamento das oito telas.
+ *
+ * Só o que pode receber justificativa entra: o motor afirmou que houve
+ * alteração. Conflito e dado incompleto são a recusa dele em afirmar isso, e o
+ * que eles pedem é conserto de dado; a linha "sem alteração" não tem
+ * `change.id`, e não há sobre o que gravar. É a mesma regra da coluna de
+ * justificar — e escrevê-la uma vez aqui é o que impede oito telas de
+ * discordarem sobre o que é justificável.
+ *
+ * `escreverValor` vem de cada rubrica porque a unidade muda de linha para
+ * linha: o mesmo `7210` é `R$ 7.210,00` no IPVA e `R$ 0,0072/km` na
+ * Manutenção. O valor cru viaja junto, e é ele que decide a igualdade entre
+ * duas alterações — formatar primeiro juntaria valores distintos sob o mesmo
+ * texto.
+ */
+export function alteracoesDoLote<
+  M,
+  L extends {
+    id: number | null;
+    estado: string;
+    entityLabel: string | null;
+    entityType: string;
+    variavel: string;
+    rotuloDaVariavel: string;
+    base: string | null;
+    comparada: string | null;
+    medida: M;
+  },
+>(
+  linhas: readonly L[],
+  escreverValor: (valor: string | null, medida: M) => string,
+): AlteracaoDoLote[] {
+  return linhas
+    .filter((l) => l.id !== null && l.estado === "ALTERADO")
+    .map((l) => ({
+      id: l.id!,
+      entityLabel: l.entityLabel,
+      entityType: l.entityType,
+      variavel: l.variavel,
+      rotuloDaVariavel: l.rotuloDaVariavel,
+      base: l.base,
+      comparada: l.comparada,
+      escrito: {
+        base: escreverValor(l.base, l.medida),
+        comparada: escreverValor(l.comparada, l.medida),
+      },
+    }));
 }

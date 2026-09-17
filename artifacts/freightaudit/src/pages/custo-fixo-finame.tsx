@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useSearch } from "wouter";
 import { useQuery } from "@tanstack/react-query";
-import { Banknote, Download, Search, SlidersHorizontal } from "lucide-react";
+import { Banknote, Download, ListChecks, Search, SlidersHorizontal } from "lucide-react";
 import type { LinhaDeFiname } from "@workspace/comparison/finame";
 import { VARIAVEIS_DE_FINAME, agruparPorVeiculo } from "@workspace/comparison/finame";
 import { Layout } from "@/components/layout/layout";
@@ -41,14 +41,15 @@ import { PainelDaEvolucao } from "@/components/comparacao/evolucao/painel";
 import { EVOLUCAO_DO_FINAME } from "@/components/finame/evolucao";
 import {
   ABAS_DE_ESTADO,
+  contagemPorAba,
   ehModoDeFiname,
   ehRecorteDeTipo,
   enderecoComTroca,
-  type ModoDeFiname,
-  FILTROS_VAZIOS,
-  contagemPorAba,
+  escreverValor,
   filtrar,
+  FILTROS_VAZIOS,
   linhasDoCsv,
+  type ModoDeFiname,
   type ComparacaoDeFiname,
   type FiltrosDeFiname,
   type TotaisDeFiname,
@@ -56,6 +57,9 @@ import {
 import { useCandidatosDoPar } from "@/hooks/use-candidatos-do-par";
 import { JustificarDialog } from "@/components/justificativas/justificar-dialog";
 import { useJustificarNaTabela } from "@/lib/justificar-na-tabela";
+import { BarraDoLote } from "@/components/justificativas/barra-do-lote";
+import { JustificarEmLoteDialog } from "@/components/justificativas/justificar-em-lote-dialog";
+import { alteracoesDoLote, useJustificarEmLote } from "@/lib/justificar-em-lote";
 import {
   motivoSemPar,
   parReconciliado,
@@ -573,6 +577,35 @@ export default function AuditoriaDeFiname() {
     comparacao.data?.changeSetId,
     `comparação ${rotuloBase} → ${rotuloComparada}`,
   );
+
+  /*
+    JUSTIFICAR EM LOTE — a mesma caixa, aplicada a várias alterações de uma vez.
+
+    O universo é `filtradas`, e não `naPagina`: é o recorte inteiro dos filtros
+    ativos que o link "Selecionar todos os N resultados" alcança, e é dele que
+    sai o N escrito nele. A tabela continua paginada; a seleção, não.
+
+    `filtros` vai inteiro para o hook — é dele que saem o recorte gravado e a
+    assinatura que derruba a seleção global quando alguém mexe num filtro. Uma
+    lista de campos escolhidos a dedo aqui seria um campo a esquecer amanhã.
+  */
+  const alteracoesDoRecorte = useMemo(
+    () => alteracoesDoLote(filtradas, escreverValor),
+    [filtradas],
+  );
+
+  const lote = useJustificarEmLote({
+    changeSetId: comparacao.data?.changeSetId,
+    contexto: `comparação ${rotuloBase} → ${rotuloComparada}`,
+    justificadaPor: justificar.justificadaPor,
+    alteracoesDoRecorte,
+    rubrica: "finame",
+    base,
+    comparada,
+    filtros,
+    filtrosVazios: FILTROS_VAZIOS,
+    semAlteracao: comSemAlteracao,
+  });
   const { justificadaPor } = justificar;
 
   function exportar() {
@@ -884,17 +917,44 @@ export default function AuditoriaDeFiname() {
                 Mostrar veículos sem alteração
               </label>
 
+              {/*
+                Justificar em lote — secundário, e imediatamente antes de
+                Exportar CSV.
+
+                Ele some com o modo ligado: a barra logo abaixo passa a ser o
+                comando, e dois lugares oferecendo entrar no mesmo modo seriam
+                dois estados possíveis para uma coisa só. Desligado quando não
+                há alteração justificável no recorte — entrar no modo ali
+                mostraria uma coluna de caixas todas desabilitadas.
+              */}
+              {!lote.emLote && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={lote.abrirModo}
+                  disabled={alteracoesDoRecorte.length === 0}
+                  className="ml-auto gap-2 border-brand/40 text-brand hover:bg-brand/5 hover:text-brand"
+                >
+                  <ListChecks className="h-4 w-4" aria-hidden="true" />
+                  Justificar em lote
+                </Button>
+              )}
+
               <Button
                 type="button"
                 variant="outline"
                 onClick={exportar}
                 disabled={filtradas.length === 0}
-                className="ml-auto gap-2"
+                className={cn("gap-2", lote.emLote && "ml-auto")}
               >
                 <Download className="h-4 w-4" aria-hidden="true" />
                 Exportar CSV
               </Button>
             </div>
+
+            {/* A barra entre os filtros e a tabela — e só enquanto o modo
+                estiver ligado. Ver `barra-do-lote.tsx`. */}
+            {lote.emLote && <BarraDoLote {...lote.propsDaBarra} />}
 
             {filtradas.length === 0 ? (
               linhas.length === 0 ? (
@@ -923,6 +983,7 @@ export default function AuditoriaDeFiname() {
                 <TabelaDeFiname
                   veiculos={naPagina}
                   justificadaPor={justificadaPor}
+                  selecao={lote.emLote ? lote.selecao : undefined}
                   onAbrir={(v) =>
                     setAberto({ entityLabel: v.entityLabel, entityType: v.entityType })
                   }
@@ -946,6 +1007,8 @@ export default function AuditoriaDeFiname() {
                 caixa que não diz onde grava deixa a decisão sem a metade que a
                 torna verificável. */}
             <JustificarDialog {...justificar.propsDoDialogo} />
+
+            <JustificarEmLoteDialog {...lote.propsDoDialogo} />
 
             <DetalheDoVeiculo
               veiculo={aberto}

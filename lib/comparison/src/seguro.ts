@@ -1010,3 +1010,102 @@ export function celulasDoCsvDeSeguro(
     justificativa ?? null,
   ];
 }
+
+// ---------------------------------------------------------------------------
+// O recorte da tela — e por que ele mora aqui
+// ---------------------------------------------------------------------------
+
+/**
+ * Os filtros da Auditoria de Seguro — o que as caixas acima da tabela recortam.
+ *
+ * Eles nasceram em `lib/seguro.ts`, do lado da interface, e era o lugar certo
+ * enquanto o recorte só precisava produzir uma tabela. Deixou de ser quando a
+ * justificativa em lote passou a poder dizer "todos os resultados deste
+ * filtro": ali o cliente manda **o filtro**, e não milhares de ids, e é o
+ * servidor que reabre o universo para saber o que está gravando.
+ *
+ * Reabri-lo com uma segunda escrita da mesma regra seria a pior versão disto:
+ * as duas concordariam no dia em que fossem escritas e discordariam no
+ * seguinte — e a discordância apareceria como uma justificativa gravada em
+ * linhas que quem clicou nunca viu em tela. Uma função só, importada pelos
+ * dois lados, é o que impede isso por construção.
+ */
+export type FiltrosDeSeguro = {
+  busca: string;
+  /** `TODOS`, ou um `entity_type` — o recorte de equipamento. */
+  tipo: string;
+  /** `TODAS`, ou a chave da variável. */
+  variavel: string;
+  estado: "TODAS" | EstadoDaLinhaDeSeguro;
+  /**
+   * Só o seguro — a única das cinco que é negociada por ativo.
+   *
+   * As outras quatro se movem em bloco: quando a tabela de revestimento muda,
+   * as 657 carretas mudam juntas, e a lista inteira vira ruído sobre o que
+   * aconteceu com *uma* placa.
+   */
+  soSeguro: boolean;
+}
+
+export const FILTROS_DE_SEGURO_VAZIOS: FiltrosDeSeguro = {
+  busca: "",
+  tipo: "TODOS",
+  variavel: "TODAS",
+  estado: "TODAS",
+  soSeguro: false,
+};
+
+/**
+ * O recorte da tabela — o mesmo que alimenta a contagem das abas, o CSV e o
+ * universo do lote.
+ *
+ * Uma função só, e não uma por consumidor: a aba que diz "12" sobre uma tabela
+ * de 9 linhas é o defeito que aparece quando o filtro é reescrito em vez de
+ * reutilizado, e no lote ele seria pior — gravaria a frase em linhas fora do
+ * recorte.
+ */
+export function filtrarLinhasDeSeguro(
+  linhas: readonly LinhaDeSeguro[],
+  filtros: FiltrosDeSeguro,
+): LinhaDeSeguro[] {
+  const busca = filtros.busca.trim().toLowerCase();
+  return linhas.filter((l) => {
+    if (filtros.estado !== "TODAS" && l.estado !== filtros.estado) return false;
+    if (filtros.tipo !== "TODOS" && l.entityType !== filtros.tipo) return false;
+    if (filtros.variavel !== "TODAS" && l.variavel !== filtros.variavel) return false;
+    if (filtros.soSeguro && l.variavel !== "seguro") return false;
+    if (busca) {
+      const alvo = `${l.entityLabel ?? ""} ${l.rotuloDaVariavel}`.toLowerCase();
+      if (!alvo.includes(busca)) return false;
+    }
+    return true;
+  });
+}
+
+/**
+ * Os filtros como o corpo de uma requisição os traz — nunca confiados como
+ * chegam.
+ *
+ * O universo de um lote é decidido por estes campos, e é ele que decide o que
+ * recebe justificativa: um `estado` que o cliente inventasse não pode virar um
+ * recorte que ninguém viu. O que não é reconhecido cai no valor vazio, que é o
+ * recorte mais largo — e o mais largo é, por construção, o que a tela mostra
+ * quando ninguém filtrou nada.
+ */
+export function lerFiltrosDeSeguro(bruto: unknown): FiltrosDeSeguro {
+  const objeto = (bruto ?? {}) as Record<string, unknown>;
+  const texto = (chave: string, padrao: string): string =>
+    typeof objeto[chave] === "string" ? (objeto[chave] as string) : padrao;
+  const estado = texto("estado", "TODAS");
+  return {
+    ...FILTROS_DE_SEGURO_VAZIOS,
+    busca: texto("busca", ""),
+    tipo: texto("tipo", "TODOS"),
+    variavel: texto("variavel", "TODAS"),
+    estado:
+      estado === "TODAS" || GRAVIDADE.includes(estado as EstadoDaLinhaDeSeguro)
+        ? (estado as FiltrosDeSeguro["estado"])
+        : "TODAS",
+    soSeguro: objeto.soSeguro === true,
+  };
+}

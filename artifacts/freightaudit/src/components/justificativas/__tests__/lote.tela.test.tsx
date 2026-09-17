@@ -26,6 +26,9 @@ import { agruparPorVeiculoDeIpva } from "@workspace/comparison/ipva";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { TabelaDeIpva } from "@/components/ipva/tabela";
+import { TabelaDeFiname } from "@/components/finame/tabela";
+import { TabelaDeImpostos } from "@/components/impostos/tabela";
+import { TabelaDeSeguro } from "@/components/seguro/tabela";
 import { BarraDoLote } from "@/components/justificativas/barra-do-lote";
 
 afterEach(cleanup);
@@ -209,5 +212,91 @@ describe("a barra de ações", () => {
     expect(screen.queryByText(/Selecionar alterações iguais/)).toBeNull();
     rerender(<BarraDoLote {...props} iguais={38} />);
     expect(screen.getByText("Selecionar alterações iguais (38)")).toBeTruthy();
+  });
+});
+
+/**
+ * A coluna de caixas é da tabela compartilhada, e não da rubrica — e é isso
+ * que estes três casos provam.
+ *
+ * As oito auditorias de rubrica desenham a mesma `TabelaPorVeiculo` com
+ * vocabulários diferentes. Se a seleção tivesse sido escrita na tabela do IPVA
+ * e copiada para as outras sete, seria nas outras sete que ela divergiria — e a
+ * divergência apareceria como uma caixa que marca a placa numa tela e as
+ * alterações dela noutra. Uma rubrica de cada família entra aqui: a que não tem
+ * filtro próprio (FINAME), a que tem coluna a mais na expansão (Impostos) e uma
+ * das de alternador (Seguro).
+ */
+describe("as outras rubricas", () => {
+  const comuns = { onAbrir: () => {}, onJustificar: () => {} };
+
+  it("o FINAME marca as alterações da placa", () => {
+    const onMarcar = vi.fn();
+    render(
+      <TooltipProvider>
+        <TabelaDeFiname
+          veiculos={[
+            {
+              entityLabel: "QYW6D15",
+              entityType: "CAVALO",
+              alteracoes: 1,
+              alteracoesEmDinheiro: 1,
+              estado: "ALTERADO",
+              destaqueExibido: null,
+              linhas: [
+                {
+                  id: 41,
+                  entityLabel: "QYW6D15",
+                  entityType: "CAVALO",
+                  variavel: "parcela_finame",
+                  rotuloDaVariavel: "Parcela FINAME",
+                  medida: "DINHEIRO",
+                  attributeCode: "cavalo.finame_cavalo",
+                  base: "1000",
+                  comparada: "900",
+                  diferenca: -100,
+                  variacao: -10,
+                  estado: "ALTERADO",
+                  motivo: null,
+                  impactoAmount: -100,
+                  impactoPeriodicidade: "MENSAL",
+                  impactoCalculado: true,
+                  foraDaSoma: null,
+                },
+              ],
+            },
+          ] as never}
+          selecao={{ marcadas: new Set(), onMarcar }}
+          {...comuns}
+        />
+      </TooltipProvider>,
+    );
+    fireEvent.click(screen.queryAllByRole("checkbox")[1]!);
+    expect(onMarcar).toHaveBeenCalledWith([41], true);
+  });
+
+  it("os Impostos e o Seguro ganham a coluna, e só no modo em lote", () => {
+    const { unmount } = render(
+      <TooltipProvider>
+        <TabelaDeImpostos veiculos={[] as never} {...comuns} />
+      </TooltipProvider>,
+    );
+    expect(screen.queryAllByRole("checkbox")).toHaveLength(0);
+    unmount();
+
+    render(
+      <TooltipProvider>
+        <TabelaDeSeguro
+          veiculos={[] as never}
+          selecao={{ marcadas: new Set(), onMarcar: () => {} }}
+          {...comuns}
+        />
+      </TooltipProvider>,
+    );
+    /* Sem linha nenhuma sobra a do cabeçalho — desabilitada, porque não há o
+       que selecionar. */
+    const cabecalho = screen.queryAllByRole("checkbox");
+    expect(cabecalho).toHaveLength(1);
+    expect(cabecalho[0]!.hasAttribute("disabled")).toBe(true);
   });
 });

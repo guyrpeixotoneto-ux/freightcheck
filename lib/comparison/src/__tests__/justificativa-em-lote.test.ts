@@ -10,6 +10,15 @@ import {
   type AlteracaoDoLote,
 } from "../justificativa-em-lote";
 import { FILTROS_DE_IPVA_VAZIOS } from "../ipva";
+import { RECORTES_DO_LOTE } from "../recortes-do-lote";
+
+/**
+ * Ler um escopo é sempre contra as rubricas que o servidor sabe reabrir — o
+ * registro real, e não um dublê: é ele que decide se "finame" é uma rubrica ou
+ * um nome inventado, e um dublê aqui deixaria o teste concordar com uma lista
+ * que não existe.
+ */
+const ler = (bruto: unknown) => lerEscopoDoLote(bruto, RECORTES_DO_LOTE);
 
 /**
  * A justificativa em lote — as regras que decidem **o que** vai ser gravado.
@@ -34,22 +43,22 @@ const alteracao = (over: Partial<AlteracaoDoLote> = {}): AlteracaoDoLote => ({
 
 describe("o escopo do lote", () => {
   it("lê uma seleção, sem repetidos e sem lixo", () => {
-    const lido = lerEscopoDoLote({ changeIds: [3, 1, 3, "x", null, 2] });
+    const lido = ler({ changeIds: [3, 1, 3, "x", null, 2] });
     expect(lido.ok).toBe(true);
     expect(lido.ok && lido.valor).toEqual({ tipo: "SELECAO", changeIds: [3, 1, 2] });
   });
 
   it("recusa uma seleção vazia", () => {
-    expect(lerEscopoDoLote({ changeIds: [] })).toMatchObject({ ok: false });
+    expect(ler({ changeIds: [] })).toMatchObject({ ok: false });
   });
 
   it("recusa uma seleção maior que o teto — quem tem recorte manda o recorte", () => {
     const ids = Array.from({ length: TETO_DA_SELECAO + 1 }, (_, i) => i + 1);
-    expect(lerEscopoDoLote({ changeIds: ids })).toMatchObject({ ok: false });
+    expect(ler({ changeIds: ids })).toMatchObject({ ok: false });
   });
 
   it("lê um recorte com o par de vigências e os filtros", () => {
-    const lido = lerEscopoDoLote({
+    const lido = ler({
       tipo: "FILTRO",
       rubrica: "ipva",
       base: "v1",
@@ -74,12 +83,12 @@ describe("o escopo do lote", () => {
 
   it("recusa um recorte sem par — um filtro sem par não descreve universo nenhum", () => {
     expect(
-      lerEscopoDoLote({ tipo: "FILTRO", rubrica: "ipva", base: "", comparada: "v2" }),
+      ler({ tipo: "FILTRO", rubrica: "ipva", base: "", comparada: "v2" }),
     ).toMatchObject({ ok: false });
   });
 
   it("recusa um estado inventado, caindo no recorte mais largo", () => {
-    const lido = lerEscopoDoLote({
+    const lido = ler({
       tipo: "FILTRO",
       rubrica: "ipva",
       base: "v1",
@@ -91,21 +100,78 @@ describe("o escopo do lote", () => {
     );
   });
 
+  it("aceita as oito rubricas que têm tabela por veículo", () => {
+    for (const rubrica of Object.keys(RECORTES_DO_LOTE)) {
+      expect(
+        ler({ tipo: "FILTRO", rubrica, base: "v1", comparada: "v2" }),
+      ).toMatchObject({ ok: true });
+    }
+  });
+
   it("recusa uma rubrica cujo recorte o servidor não sabe reabrir", () => {
+    /* A Velocidade Média tem coluna de justificar e não tem tabela por
+       veículo: sem a caixa da linha não há como entrar no modo em lote, e uma
+       entrada no registro prometeria uma rota que nenhuma tela chama. */
     expect(
-      lerEscopoDoLote({ tipo: "FILTRO", rubrica: "finame", base: "v1", comparada: "v2" }),
+      ler({ tipo: "FILTRO", rubrica: "velocidade-media", base: "v1", comparada: "v2" }),
     ).toMatchObject({ ok: false });
   });
 
-  it("descreve o universo em português, com os filtros que valem", () => {
-    const frase = descreverEscopoDoLote({
+  it("cada rubrica lê o filtro dela, e não o da vizinha", () => {
+    /* O tributo é dos Impostos; no IPVA ele não existe e não pode aparecer no
+       recorte gravado. */
+    const impostos = ler({
+      tipo: "FILTRO",
+      rubrica: "impostos",
+      base: "v1",
+      comparada: "v2",
+      filtros: { tributo: "ICMS", soAliquotas: true },
+    });
+    expect(impostos.ok && impostos.valor.tipo === "FILTRO" && impostos.valor.filtros).toMatchObject(
+      { tributo: "ICMS", soAliquotas: true },
+    );
+
+    const ipva = ler({
       tipo: "FILTRO",
       rubrica: "ipva",
       base: "v1",
       comparada: "v2",
-      filtros: { ...FILTROS_DE_IPVA_VAZIOS, estado: "ALTERADO", tipo: "CAVALO" },
-      semAlteracao: false,
+      filtros: { tributo: "ICMS" },
     });
+    expect(ipva.ok && ipva.valor.tipo === "FILTRO" && ipva.valor.filtros.tributo).toBeUndefined();
+  });
+
+  it("o alternador ligado por padrão do Aluguel sobrevive a um corpo omisso", () => {
+    /* `soAlugados` nasce ligado: lê-lo por `=== true` faria um corpo sem a
+       chave abrir o universo para a frota inteira — o oposto do que a tela
+       mostra. */
+    const lido = ler({ tipo: "FILTRO", rubrica: "aluguel", base: "v1", comparada: "v2" });
+    expect(lido.ok && lido.valor.tipo === "FILTRO" && lido.valor.filtros.soAlugados).toBe(true);
+
+    const desligado = ler({
+      tipo: "FILTRO",
+      rubrica: "aluguel",
+      base: "v1",
+      comparada: "v2",
+      filtros: { soAlugados: false },
+    });
+    expect(
+      desligado.ok && desligado.valor.tipo === "FILTRO" && desligado.valor.filtros.soAlugados,
+    ).toBe(false);
+  });
+
+  it("descreve o universo em português, com os filtros que valem", () => {
+    const frase = descreverEscopoDoLote(
+      {
+        tipo: "FILTRO",
+        rubrica: "ipva",
+        base: "v1",
+        comparada: "v2",
+        filtros: { ...FILTROS_DE_IPVA_VAZIOS, estado: "ALTERADO", tipo: "CAVALO" },
+        semAlteracao: false,
+      },
+      FILTROS_DE_IPVA_VAZIOS,
+    );
     expect(frase).toContain("todos os resultados do recorte");
     expect(frase).toContain("estado ALTERADO");
     expect(frase).toContain("tipo CAVALO");

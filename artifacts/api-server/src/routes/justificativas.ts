@@ -7,11 +7,8 @@ import {
   justificativaTable,
 } from "@workspace/db";
 import {
-  CODIGOS_DO_DETALHE_DE_IPVA,
   estadoDaAlteracao,
-  filtrarLinhasDeIpva,
   getChangeSetForPair,
-  linhasDeIpva,
   listChanges,
   autoresDeJustificativas,
   coberturaDeJustificativas,
@@ -29,6 +26,7 @@ import {
   repartirAlvosDoLote,
   type EscopoDoLote,
 } from "@workspace/comparison/justificativa-em-lote";
+import { RECORTES_DO_LOTE } from "@workspace/comparison/recortes-do-lote";
 import {
   lerJustificativaEstruturada,
   resumoDaJustificativa,
@@ -472,7 +470,7 @@ router.post("/justificativas/lote", async (req, res): Promise<void> => {
     operacaoDoChangeSet(db, changeSetId),
   );
 
-  const lido = lerEscopoDoLote(req.body?.escopo);
+  const lido = lerEscopoDoLote(req.body?.escopo, RECORTES_DO_LOTE);
   if (!lido.ok) {
     res.status(400).json({ error: lido.erro });
     return;
@@ -593,7 +591,10 @@ router.post("/justificativas/lote", async (req, res): Promise<void> => {
         changeSetId,
         escopo: escopo.tipo,
         recorte: escopo,
-        descricao: descreverEscopoDoLote(escopo),
+        descricao: descreverEscopoDoLote(
+          escopo,
+          escopo.tipo === "FILTRO" ? RECORTES_DO_LOTE[escopo.rubrica]?.padroes : undefined,
+        ),
         alteracoesNoUniverso: candidatos.length,
         aplicadas: reparticao.aplicar.length,
         preservadas: reparticao.preservadas.length,
@@ -743,11 +744,23 @@ async function candidatosDoLote(
     );
   }
 
+  /*
+    O recorte da rubrica, com as mesmas funções que desenharam a tabela — ver
+    `RECORTES_DO_LOTE`. A rubrica já foi validada na leitura do escopo; este
+    acesso não pode falhar, e a guarda existe para o dia em que alguém tirar
+    uma entrada do registro sem tirar a rota junto.
+  */
+  const recorte = RECORTES_DO_LOTE[escopo.rubrica];
+  if (!recorte) {
+    throw new Error(`Não sei reabrir o recorte de ${escopo.rubrica}.`);
+  }
+
   const { rows } = await listChanges(db, changeSetId, {
-    attributeCodes: [...CODIGOS_DO_DETALHE_DE_IPVA],
+    attributeCodes: [...recorte.codigos],
     limit: 5000,
   });
-  const ids = filtrarLinhasDeIpva(linhasDeIpva(rows), escopo.filtros)
+  const ids = recorte
+    .filtrar(recorte.linhas(rows), escopo.filtros)
     .filter((linha) => linha.id !== null && linha.estado === "ALTERADO")
     .map((linha) => linha.id!);
   if (ids.length === 0) return [];

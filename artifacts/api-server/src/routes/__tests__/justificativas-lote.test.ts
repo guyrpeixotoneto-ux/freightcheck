@@ -26,7 +26,15 @@ import { buildFixture, type AttributeSpec } from "@workspace/comparison/testing"
  *    contagens do momento da gravação.
  */
 
-const IPVA: AttributeSpec[] = [
+/**
+ * Duas rubricas na mesma vigência — e é o ponto.
+ *
+ * O IPVA e o FINAME do mesmo cavalo moram no mesmo arquivo e na mesma
+ * comparação. Um recorte que lesse as colunas erradas alcançaria alterações de
+ * outra rubrica, e a frase de quem estava auditando o tributo iria parar no
+ * financiamento. É o que o bloco "cada rubrica lê as colunas dela" prende.
+ */
+const COLUNAS: AttributeSpec[] = [
   {
     code: "cavalo.ipva_licenciamento",
     dataType: "NUMERIC",
@@ -35,6 +43,41 @@ const IPVA: AttributeSpec[] = [
     periodicity: "ANUAL",
     aggregation: "SUM",
     isMonetary: true,
+  },
+  {
+    code: "cavalo.finame_cavalo",
+    dataType: "NUMERIC",
+    semanticsStatus: "CONFIRMED",
+    unit: "BRL",
+    periodicity: "MENSAL",
+    aggregation: "SUM",
+    isMonetary: true,
+  },
+  /*
+    As duas dos Impostos — o montante e a alíquota do mesmo tributo.
+
+    Elas existem aqui por causa de `soAliquotas`, que é o filtro próprio dessa
+    rubrica e o representante dos sete que cada tela tem. Um recorte que
+    ignorasse a caixa própria da rubrica alcançaria as duas linhas onde a tela
+    mostra uma — e é a caixa própria, não a busca, que o desenho genérico do
+    registro poderia deixar cair sem ninguém notar.
+  */
+  {
+    code: "cavalo.valor_icms",
+    dataType: "NUMERIC",
+    semanticsStatus: "CONFIRMED",
+    unit: "BRL",
+    periodicity: "MENSAL",
+    aggregation: "SUM",
+    isMonetary: true,
+  },
+  {
+    code: "cavalo.percentual_icms",
+    dataType: "NUMERIC",
+    semanticsStatus: "CONFIRMED",
+    unit: "PERCENT",
+    aggregation: "NONE",
+    isMonetary: false,
   },
 ];
 
@@ -95,26 +138,36 @@ beforeAll(async () => {
   */
   const fixture = await buildFixture(
     ctx.db,
-    IPVA,
+    COLUNAS,
     [
       {
         label: "EMPURRADA_2_7_2026",
         effectiveDate: JULHO,
         data: {
-          RPG0C44: { "cavalo.ipva_licenciamento": 7210 },
-          RPG1B56: { "cavalo.ipva_licenciamento": 7210 },
-          RPG1D47: { "cavalo.ipva_licenciamento": 7210 },
-          RPG2E53: { "cavalo.ipva_licenciamento": 5000 },
+          RPG0C44: {
+            "cavalo.ipva_licenciamento": 7210,
+            "cavalo.finame_cavalo": 3000,
+            "cavalo.valor_icms": 1200,
+            "cavalo.percentual_icms": 12,
+          },
+          RPG1B56: { "cavalo.ipva_licenciamento": 7210, "cavalo.finame_cavalo": 3000 },
+          RPG1D47: { "cavalo.ipva_licenciamento": 7210, "cavalo.finame_cavalo": 3000 },
+          RPG2E53: { "cavalo.ipva_licenciamento": 5000, "cavalo.finame_cavalo": 3000 },
         },
       },
       {
         label: "EMPURRADA_2_8_2026",
         effectiveDate: AGOSTO,
         data: {
-          RPG0C44: { "cavalo.ipva_licenciamento": 4145.26 },
-          RPG1B56: { "cavalo.ipva_licenciamento": 4145.26 },
-          RPG1D47: { "cavalo.ipva_licenciamento": 4145.26 },
-          RPG2E53: { "cavalo.ipva_licenciamento": 5000 },
+          RPG0C44: {
+            "cavalo.ipva_licenciamento": 4145.26,
+            "cavalo.finame_cavalo": 2800,
+            "cavalo.valor_icms": 1500,
+            "cavalo.percentual_icms": 15,
+          },
+          RPG1B56: { "cavalo.ipva_licenciamento": 4145.26, "cavalo.finame_cavalo": 3000 },
+          RPG1D47: { "cavalo.ipva_licenciamento": 4145.26, "cavalo.finame_cavalo": 3000 },
+          RPG2E53: { "cavalo.ipva_licenciamento": 5000, "cavalo.finame_cavalo": 3000 },
         },
       },
     ],
@@ -371,6 +424,106 @@ describe("o que já está justificado", () => {
   });
 });
 
+describe("cada rubrica lê as colunas dela", () => {
+  /*
+    A mesma comparação tem alterações de três rubricas, e o recorte de cada uma
+    alcança **o catálogo dela** — nunca "todas as alterações do change set".
+    Sem isso, a frase de quem estava auditando o tributo iria parar no
+    financiamento.
+
+    Os catálogos **se cruzam de propósito**, e é a parte que surpreende: o ICMS
+    é contexto na expansão do FINAME, então `cavalo.valor_icms` está nos dois.
+    Isso não é vazamento — é a tela do FINAME mostrando aquela coluna, e um
+    recorte que a escondesse não seria o que se vê. O que não pode acontecer é
+    o contrário: o IPVA não está no catálogo do FINAME, e nenhum lote de FINAME
+    pode alcançá-lo.
+
+    Os três universos têm tamanhos diferentes por construção: se o recorte
+    ignorasse a rubrica, os três responderiam a mesma coisa.
+  */
+  it("o IPVA alcança só o tributo do catálogo dele", async () => {
+    const res = await post("/justificativas/lote", {
+      changeSetId,
+      escopo: recorte(),
+      ...JUSTIFICATIVA,
+    });
+    expect(res.body.resumo.universo).toBe(3);
+    expect(res.body.justificativas.map((j: any) => j.entityLabel).sort()).toEqual([
+      "RPG0C44",
+      "RPG1B56",
+      "RPG1D47",
+    ]);
+  });
+
+  it("o FINAME alcança o catálogo dele — e o IPVA não está nele", async () => {
+    const res = await post("/justificativas/lote", {
+      changeSetId,
+      escopo: recorte({ rubrica: "finame" }),
+      ...JUSTIFICATIVA,
+    });
+    /* A parcela e o ICMS da RPG0C44: as duas são colunas que a tela do FINAME
+       mostra. As três quedas de IPVA, que são de outro catálogo, ficam fora —
+       e é por elas que o universo não é cinco. */
+    expect(res.body.resumo.universo).toBe(2);
+    expect(res.body.justificativas).toHaveLength(2);
+    expect(res.body.lote.descricao).toContain("rubrica finame");
+
+    const gravadas = await ctx.db.select().from(justificativaTable);
+    expect(gravadas.every((j) => j.changeId !== alteracao.RPG1B56)).toBe(true);
+  });
+
+  it("a caixa própria da rubrica recorta — `soAliquotas` nos Impostos", async () => {
+    /*
+      A placa moveu o valor do ICMS **e** a alíquota dele. Sem a caixa, o
+      recorte alcança as duas; com ela, só a alíquota. É a prova de que o
+      registro genérico não perde o filtro que é de uma rubrica só — que é o
+      que ele mais arriscaria perder, por ser o único campo que muda de nome
+      de uma rubrica para a outra.
+    */
+    const tudo = await post("/justificativas/lote", {
+      changeSetId,
+      escopo: recorte({ rubrica: "impostos", filtros: { estado: "ALTERADO" } }),
+      ...JUSTIFICATIVA,
+    });
+    expect(tudo.body.resumo.universo).toBe(2);
+
+    await ctx.db.delete(justificativaTable);
+    const soAliquota = await post("/justificativas/lote", {
+      changeSetId,
+      escopo: recorte({
+        rubrica: "impostos",
+        filtros: { estado: "ALTERADO", soAliquotas: true },
+      }),
+      ...JUSTIFICATIVA,
+    });
+    expect(soAliquota.body.resumo.universo).toBe(1);
+    expect(soAliquota.body.lote.descricao).toContain("só as alíquotas");
+  });
+
+  it("a mesma placa recebe uma justificativa por alteração, e não uma só", async () => {
+    /*
+      A RPG0C44 moveu IPVA, parcela e ICMS. Justificar o lote de IPVA e depois
+      o de FINAME grava três linhas nela — uma por alteração —, e as do FINAME
+      não são contadas como "já justificadas" pela do IPVA: são fatos
+      diferentes, sobre colunas diferentes.
+    */
+    await post("/justificativas/lote", { changeSetId, escopo: recorte(), ...JUSTIFICATIVA });
+    const doFiname = await post("/justificativas/lote", {
+      changeSetId,
+      escopo: recorte({ rubrica: "finame" }),
+      ...JUSTIFICATIVA,
+    });
+    expect(doFiname.body.resumo).toEqual({
+      universo: 2,
+      aplicadas: 2,
+      preservadas: 0,
+      sobrescritas: 0,
+    });
+    const gravadas = await ctx.db.select().from(justificativaTable);
+    expect(gravadas.filter((j) => j.entityLabel === "RPG0C44")).toHaveLength(3);
+  });
+});
+
 describe("o que a rota recusa", () => {
   it("uma justificativa incompleta, pela mesma regra do POST de uma alteração", async () => {
     const res = await post("/justificativas/lote", {
@@ -387,9 +540,11 @@ describe("o que a rota recusa", () => {
   });
 
   it("uma rubrica cujo recorte ela não sabe reabrir", async () => {
+    /* A Velocidade Média tem coluna de justificar e não tem tabela por
+       veículo: sem a caixa da linha não há como entrar no modo em lote. */
     const res = await post("/justificativas/lote", {
       changeSetId,
-      escopo: recorte({ rubrica: "finame" }),
+      escopo: recorte({ rubrica: "velocidade-media" }),
       ...JUSTIFICATIVA,
     });
     expect(res.status).toBe(400);

@@ -1,5 +1,3 @@
-import { FILTROS_DE_IPVA_VAZIOS, lerFiltrosDeIpva, type FiltrosDeIpva } from "./ipva";
-
 /**
  * JUSTIFICAR EM LOTE — o que o lote é, antes de ser tela ou rota.
  *
@@ -37,9 +35,29 @@ import { FILTROS_DE_IPVA_VAZIOS, lerFiltrosDeIpva, type FiltrosDeIpva } from "./
  * tela não possa divergir do que a rota faz.
  */
 
-/** As rubricas cujo recorte o servidor sabe reabrir a partir do filtro. */
-export const RUBRICAS_DO_LOTE = ["ipva"] as const;
-export type RubricaDoLote = (typeof RUBRICAS_DO_LOTE)[number];
+/**
+ * Os filtros de uma rubrica, como eles viajam — um registro raso.
+ *
+ * As oito rubricas filtram por coisas diferentes: todas têm busca, tipo de
+ * ativo, variável e estado, e cada uma tem as suas — o tributo nos Impostos, o
+ * papel na Aquisição, "só alugados", "só viradas", "só R$/km". Este módulo não
+ * conhece nenhuma delas, e é de propósito: ele decide o que um **lote** é, e
+ * quem sabe ler e aplicar o filtro de cada rubrica é o recorte dela
+ * (`recortes-do-lote.ts`), que é o único lugar onde as oito se encontram.
+ *
+ * Raso porque é o que o filtro de uma tela é: cinco ou seis caixas, cada uma
+ * com um texto ou um alternador. Um tipo mais frouxo — `unknown` — deixaria
+ * passar para `justificativa_lote.recorte` um objeto aninhado que ninguém
+ * saberia reabrir, e é justamente esse registro que precisa continuar legível
+ * daqui a seis meses.
+ *
+ * É por causa deste tipo que os oito `FiltrosDeX` são declarados com `type` e
+ * não com `interface`: só o alias ganha a index signature implícita que os
+ * torna atribuíveis aqui. Com `interface`, cada tela teria de converter o
+ * próprio filtro para mandá-lo — uma conversão por chamada, em oito telas, para
+ * dizer o que a forma já diz.
+ */
+export type FiltrosDoLote = Record<string, string | boolean>;
 
 /**
  * O universo de um lote — a lista escolhida, ou o recorte que a define.
@@ -47,17 +65,19 @@ export type RubricaDoLote = (typeof RUBRICAS_DO_LOTE)[number];
  * `FILTRO` carrega o par de vigências junto do filtro, e não por redundância:
  * é o par que diz de qual comparação o recorte é, e é ele que fica gravado
  * quando alguém for perguntar, daqui a seis meses, o que foi que aquela frase
- * alcançou.
+ * alcançou. A rubrica vai junto pelo mesmo motivo: o mesmo `estado: ALTERADO`
+ * quer dizer coisas diferentes no IPVA e no FINAME, porque as colunas lidas
+ * são outras.
  */
 export type EscopoDoLote =
   | { tipo: "SELECAO"; changeIds: number[] }
   | {
       tipo: "FILTRO";
-      rubrica: RubricaDoLote;
+      rubrica: string;
       /** O par aberto quando o recorte foi escolhido. */
       base: string;
       comparada: string;
-      filtros: FiltrosDeIpva;
+      filtros: FiltrosDoLote;
       /** O alternador "Mostrar veículos sem alteração" estava ligado? */
       semAlteracao: boolean;
     };
@@ -83,15 +103,27 @@ export interface EscopoLido {
  */
 export const TETO_DA_SELECAO = 1000;
 
-export function lerEscopoDoLote(bruto: unknown): EscopoLido | EscopoRecusado {
+export function lerEscopoDoLote(
+  bruto: unknown,
+  /**
+   * As rubricas cujo recorte o servidor sabe reabrir, e como cada uma lê o
+   * filtro dela — `RECORTES_DO_LOTE`, em `recortes-do-lote.ts`.
+   *
+   * Vem de fora, e não de um import aqui, para que este módulo continue sem
+   * conhecer rubrica nenhuma: é o que permite ao navegador carregar as regras
+   * do lote sem arrastar junto o catálogo das oito.
+   */
+  recortes: Record<string, { lerFiltros: (bruto: unknown) => FiltrosDoLote }>,
+): EscopoLido | EscopoRecusado {
   const objeto = (bruto ?? {}) as Record<string, unknown>;
 
   if (objeto.tipo === "FILTRO") {
-    const rubrica = objeto.rubrica;
-    if (!RUBRICAS_DO_LOTE.includes(rubrica as RubricaDoLote)) {
+    const rubrica = typeof objeto.rubrica === "string" ? objeto.rubrica : "";
+    const recorte = recortes[rubrica];
+    if (!recorte) {
       return {
         ok: false,
-        erro: `Não sei reabrir o recorte de ${String(rubrica ?? "—")} — o lote por filtro existe para ${RUBRICAS_DO_LOTE.join(", ")}.`,
+        erro: `Não sei reabrir o recorte de ${rubrica || "—"} — o lote por filtro existe para ${Object.keys(recortes).sort().join(", ")}.`,
       };
     }
     const base = typeof objeto.base === "string" ? objeto.base : "";
@@ -106,10 +138,10 @@ export function lerEscopoDoLote(bruto: unknown): EscopoLido | EscopoRecusado {
       ok: true,
       valor: {
         tipo: "FILTRO",
-        rubrica: rubrica as RubricaDoLote,
+        rubrica,
         base,
         comparada,
-        filtros: lerFiltrosDeIpva(objeto.filtros),
+        filtros: recorte.lerFiltros(objeto.filtros),
         semAlteracao: objeto.semAlteracao === true,
       },
     };
@@ -137,26 +169,80 @@ export function lerEscopoDoLote(bruto: unknown): EscopoLido | EscopoRecusado {
 }
 
 /**
+ * Como cada chave de filtro se lê em português.
+ *
+ * Uma tabela só para as oito rubricas, e não uma por rubrica, porque o que ela
+ * resolve é a **leitura do registro de auditoria**: quem for conferir, daqui a
+ * seis meses, o que aquela frase alcançou vai ler `justificativa_lote.descricao`
+ * — e "soReaisKm true" não é uma resposta, é um campo de banco.
+ *
+ * As quatro primeiras são de todas as rubricas; as demais são as caixas
+ * próprias de cada uma. Uma chave que não esteja aqui continua aparecendo, com
+ * o próprio nome: o registro fica feio e continua verdadeiro, que é a ordem
+ * certa de prioridades quando alguém acrescentar um filtro e esquecer desta
+ * linha.
+ */
+export const ROTULO_DO_FILTRO: Record<string, string> = {
+  busca: "busca",
+  tipo: "tipo",
+  variavel: "variável",
+  estado: "estado",
+  tributo: "tributo",
+  papel: "papel",
+  soNegativos: "só valores negativos",
+  soAlugados: "só os que declaram aluguel",
+  soNota: "só o valor de nota",
+  soAliquotas: "só as alíquotas",
+  soViradas: "só quem virou de ciclo",
+  soReaisKm: "só o que é R$/km",
+  soSeguro: "só o seguro",
+};
+
+/**
  * O universo dito por extenso — o que fica gravado para quem for auditar.
  *
  * Não é decoração: `justificativa_lote.recorte` guarda o objeto, que é exato e
  * ilegível, e esta frase guarda o que uma pessoa consegue conferir contra a
  * tela. As duas juntas respondem "o que esta frase alcançou", que é a pergunta
  * que a justificativa em lote inevitavelmente provoca.
+ *
+ * Só entra o que foi **de fato filtrado**: com os padrões em mãos, "variável
+ * TODAS" fica de fora, porque escrevê-lo seria inventar um recorte no registro
+ * de auditoria — e um registro que afirma mais do que aconteceu é pior do que
+ * um lacônico. Sem os padrões, entra tudo o que não é vazio, que é o mais
+ * próximo da verdade que dá para chegar sem eles.
  */
-export function descreverEscopoDoLote(escopo: EscopoDoLote): string {
+export function descreverEscopoDoLote(
+  escopo: EscopoDoLote,
+  /** Os filtros vazios da rubrica — `FILTROS_DE_X_VAZIOS`. */
+  padroes?: FiltrosDoLote,
+): string {
   if (escopo.tipo === "SELECAO") {
     return escopo.changeIds.length === 1
       ? "1 alteração escolhida a dedo"
       : `${escopo.changeIds.length} alterações escolhidas a dedo`;
   }
-  const { filtros } = escopo;
-  const partes: string[] = [`rubrica ${escopo.rubrica}`, `par ${escopo.base} → ${escopo.comparada}`];
-  if (filtros.estado !== "TODAS") partes.push(`estado ${filtros.estado}`);
-  if (filtros.tipo !== "TODOS") partes.push(`tipo ${filtros.tipo}`);
-  if (filtros.variavel !== "TODAS") partes.push(`variável ${filtros.variavel}`);
-  if (filtros.soNegativos) partes.push("só valores negativos");
-  if (filtros.busca.trim()) partes.push(`busca “${filtros.busca.trim()}”`);
+  const partes: string[] = [
+    `rubrica ${escopo.rubrica}`,
+    `par ${escopo.base} → ${escopo.comparada}`,
+  ];
+  for (const [chave, valor] of Object.entries(escopo.filtros)) {
+    const padrao = padroes?.[chave];
+    if (padrao !== undefined ? valor === padrao : valor === "" || valor === false) {
+      continue;
+    }
+    const rotulo = ROTULO_DO_FILTRO[chave] ?? chave;
+    /* O alternador é o próprio rótulo: "só valores negativos true" seria o
+       campo do banco vazando para a frase. Ligado, ele se diz; desligado, já
+       saiu acima. */
+    if (typeof valor === "boolean") {
+      partes.push(rotulo);
+      continue;
+    }
+    /* A busca vem entre aspas porque ela é texto de quem digitou, e sem elas
+       um espaço no fim vira uma frase que não bate com o que se vê na tela. */
+    partes.push(chave === "busca" ? `${rotulo} “${valor.trim()}”` : `${rotulo} ${valor}`);
+  }
   if (escopo.semAlteracao) partes.push("incluindo o que não mudou");
   return `todos os resultados do recorte: ${partes.join(", ")}`;
 }
@@ -237,8 +323,6 @@ export function chaveDoContexto(c: ContextoDaAlteracao): string {
   return [c.variavel, c.entityType, valor(c.base), valor(c.comparada)].join("|");
 }
 
-/** Os filtros vazios, para quem monta um escopo do zero. */
-export { FILTROS_DE_IPVA_VAZIOS, type FiltrosDeIpva };
 
 // ---------------------------------------------------------------------------
 // O resumo do conjunto

@@ -56,21 +56,31 @@ const alteracao = (id: number, over: Partial<AlteracaoDoLote> = {}): AlteracaoDo
   ...over,
 });
 
+const FILTROS = {
+  busca: "",
+  tipo: "TODOS",
+  variavel: "TODAS",
+  estado: "ALTERADO",
+  soNegativos: false,
+};
+
+/** O recorte que o hook monta a partir do par e dos filtros. */
 const RECORTE: EscopoDoLote = {
   tipo: "FILTRO",
   rubrica: "ipva",
   base: "v1",
   comparada: "v2",
-  filtros: {
-    busca: "",
-    tipo: "TODOS",
-    variavel: "TODAS",
-    estado: "ALTERADO",
-    soNegativos: false,
-  },
+  filtros: FILTROS,
   semAlteracao: false,
 };
 
+/**
+ * A "assinatura" dos testes é o que **de fato** muda o recorte: um filtro.
+ *
+ * O hook não recebe mais uma string de assinatura — ele a deriva dos filtros —,
+ * e é o que estes testes exercitam: mexer na busca é mexer no universo, e é
+ * disso que a regra da seleção global tem de dar conta.
+ */
 function montar(inicial: {
   alteracoes: AlteracaoDoLote[];
   assinatura: string;
@@ -90,8 +100,12 @@ function montar(inicial: {
         contexto: "comparação julho/2026 → agosto/2026",
         justificadaPor: inicial.justificadaPor ?? new Map(),
         alteracoesDoRecorte: props.alteracoes,
-        escopoDoRecorte: () => RECORTE,
-        assinaturaDoRecorte: props.assinatura,
+        rubrica: "ipva",
+        base: "v1",
+        comparada: "v2",
+        filtros: { ...FILTROS, busca: props.assinatura },
+        filtrosVazios: { ...FILTROS, estado: "TODAS" },
+        semAlteracao: false,
       }),
     { wrapper: envolver, initialProps: { alteracoes: inicial.alteracoes, assinatura: inicial.assinatura } },
   );
@@ -137,7 +151,7 @@ describe("a seleção de todos os resultados", () => {
     });
     expect(gravou).toHaveLength(1);
     expect(gravou[0]!.path).toBe("/justificativas/lote");
-    expect(gravou[0]!.corpo.escopo).toEqual(RECORTE);
+    expect(gravou[0]!.corpo.escopo).toEqual({ ...RECORTE, filtros: { ...FILTROS, busca: "a" } });
   });
 
   it("tirar uma linha da seleção global a transforma numa lista", async () => {

@@ -1073,7 +1073,7 @@ export function agruparPorVeiculoDeIpva(
  * linhas que quem clicou nunca viu em tela. Uma função só, importada pelos
  * dois lados, é o que impede isso por construção.
  */
-export interface FiltrosDeIpva {
+export type FiltrosDeIpva = {
   busca: string;
   /** `TODOS`, ou um `entity_type` — o recorte de equipamento. */
   tipo: string;

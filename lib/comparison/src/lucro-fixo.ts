@@ -949,3 +949,92 @@ export function agruparPorVeiculoDeLucroFixo(
 ): VeiculoDeLucroFixo[] {
   return agruparVeiculos(linhas, AGRUPAMENTO_DE_LUCRO_FIXO);
 }
+
+// ---------------------------------------------------------------------------
+// O recorte da tela — e por que ele mora aqui
+// ---------------------------------------------------------------------------
+
+/**
+ * Os filtros da Auditoria de Lucro Fixo — o que as caixas acima da tabela
+ * recortam.
+ *
+ * Eles nasceram em `lib/lucro-fixo.ts`, do lado da interface, e era o lugar
+ * certo enquanto o recorte só precisava produzir uma tabela. Deixou de ser
+ * quando a justificativa em lote passou a poder dizer "todos os resultados
+ * deste filtro": ali o cliente manda **o filtro**, e não milhares de ids, e é
+ * o servidor que reabre o universo para saber o que está gravando — com a
+ * mesma função, e não com uma segunda escrita da mesma regra.
+ */
+export type FiltrosDeLucroFixo = {
+  busca: string;
+  /** `TODOS`, ou um `entity_type` — o recorte de equipamento. */
+  tipo: string;
+  /** `TODAS`, ou a chave da variável. */
+  variavel: string;
+  estado: "TODAS" | EstadoDaLinhaDeLucroFixo;
+  /** Só os veículos que trocaram de ciclo — a pergunta própria desta tela. */
+  soViradas: boolean;
+}
+
+export const FILTROS_DE_LUCRO_FIXO_VAZIOS: FiltrosDeLucroFixo = {
+  busca: "",
+  tipo: "TODOS",
+  variavel: "TODAS",
+  estado: "TODAS",
+  soViradas: false,
+};
+
+/**
+ * O recorte da tabela — o mesmo que alimenta a contagem das abas, o CSV e o
+ * universo do lote.
+ *
+ * `viradas` entra como parâmetro **opcional** e não como cálculo interno
+ * obrigatório porque a tela já a tem memoizada e a usa em três lugares: o
+ * filtro, a contagem das abas e o painel das viradas. Recalculá-la a cada
+ * chamada faria a contagem das sete abas varrer a frota sete vezes. Ausente —
+ * que é como o servidor chama, ao reabrir o recorte de um lote —, ela sai de
+ * `viradasDeCiclo` sobre as mesmas linhas, que é exatamente o que a tela
+ * passaria.
+ */
+export function filtrarLinhasDeLucroFixo(
+  linhas: readonly LinhaDeLucroFixo[],
+  filtros: FiltrosDeLucroFixo,
+  viradas?: readonly ViradaDeCiclo[],
+): LinhaDeLucroFixo[] {
+  const busca = filtros.busca.trim().toLowerCase();
+  const asViradas =
+    viradas ?? (filtros.soViradas ? viradasDeCiclo(linhas) : ([] as ViradaDeCiclo[]));
+  const comVirada = new Set(asViradas.map((v) => `${v.entityLabel}${v.entityType}`));
+  return linhas.filter((l) => {
+    if (filtros.estado !== "TODAS" && l.estado !== filtros.estado) return false;
+    if (filtros.tipo !== "TODOS" && l.entityType !== filtros.tipo) return false;
+    if (filtros.variavel !== "TODAS" && l.variavel !== filtros.variavel) return false;
+    if (filtros.soViradas && !comVirada.has(`${l.entityLabel}${l.entityType}`)) {
+      return false;
+    }
+    if (busca) {
+      const alvo = `${l.entityLabel ?? ""} ${l.rotuloDaVariavel}`.toLowerCase();
+      if (!alvo.includes(busca)) return false;
+    }
+    return true;
+  });
+}
+
+/** Os filtros como o corpo de uma requisição os traz — nunca confiados como chegam. */
+export function lerFiltrosDeLucroFixo(bruto: unknown): FiltrosDeLucroFixo {
+  const objeto = (bruto ?? {}) as Record<string, unknown>;
+  const texto = (chave: string, padrao: string): string =>
+    typeof objeto[chave] === "string" ? (objeto[chave] as string) : padrao;
+  const estado = texto("estado", "TODAS");
+  return {
+    ...FILTROS_DE_LUCRO_FIXO_VAZIOS,
+    busca: texto("busca", ""),
+    tipo: texto("tipo", "TODOS"),
+    variavel: texto("variavel", "TODAS"),
+    estado:
+      estado === "TODAS" || GRAVIDADE.includes(estado as EstadoDaLinhaDeLucroFixo)
+        ? (estado as FiltrosDeLucroFixo["estado"])
+        : "TODAS",
+    soViradas: objeto.soViradas === true,
+  };
+}

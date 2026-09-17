@@ -1048,3 +1048,95 @@ export function agruparPorVeiculoDeAquisicao(
 ): VeiculoDeAquisicao[] {
   return agruparVeiculos(linhas, AGRUPAMENTO_DE_AQUISICAO);
 }
+
+// ---------------------------------------------------------------------------
+// O recorte da tela — e por que ele mora aqui
+// ---------------------------------------------------------------------------
+
+/**
+ * Os filtros da Auditoria de Aquisição — o que as caixas acima da tabela
+ * recortam.
+ *
+ * Eles nasceram em `lib/aquisicao.ts`, do lado da interface, e era o lugar
+ * certo enquanto o recorte só precisava produzir uma tabela. Deixou de ser
+ * quando a justificativa em lote passou a poder dizer "todos os resultados
+ * deste filtro": ali o cliente manda **o filtro**, e não milhares de ids, e é
+ * o servidor que reabre o universo para saber o que está gravando — com a
+ * mesma função, e não com uma segunda escrita da mesma regra.
+ */
+export type FiltrosDeAquisicao = {
+  busca: string;
+  /** `TODOS`, ou um `entity_type` — o recorte de equipamento. */
+  tipo: string;
+  /** O papel da coluna: montante, alíquota ou cadastro. */
+  papel: "TODOS" | PapelNaAquisicao;
+  /** `TODAS`, ou a chave da variável. */
+  variavel: string;
+  estado: "TODAS" | EstadoDaLinhaDeAquisicao;
+  /**
+   * Só a nota — a única coluna desta tela que é dinheiro.
+   *
+   * As outras quatro são cadastro e alíquota: uma lista que mistura `20%`,
+   * `agosto` e `R$ 665.929,99` na mesma coluna de valores só é comparável
+   * linha a linha quando se lê uma grandeza de cada vez.
+   */
+  soNota: boolean;
+}
+
+export const FILTROS_DE_AQUISICAO_VAZIOS: FiltrosDeAquisicao = {
+  busca: "",
+  tipo: "TODOS",
+  papel: "TODOS",
+  variavel: "TODAS",
+  estado: "TODAS",
+  soNota: false,
+};
+
+/** Os três papéis, para validar o que chega de fora. */
+const PAPEIS_DA_AQUISICAO: PapelNaAquisicao[] = ["MONTANTE", "ALIQUOTA", "CADASTRO"];
+
+/**
+ * O recorte da tabela — o mesmo que alimenta a contagem das abas, o CSV e o
+ * universo do lote.
+ */
+export function filtrarLinhasDeAquisicao(
+  linhas: readonly LinhaDeAquisicao[],
+  filtros: FiltrosDeAquisicao,
+): LinhaDeAquisicao[] {
+  const busca = filtros.busca.trim().toLowerCase();
+  return linhas.filter((l) => {
+    if (filtros.estado !== "TODAS" && l.estado !== filtros.estado) return false;
+    if (filtros.tipo !== "TODOS" && l.entityType !== filtros.tipo) return false;
+    if (filtros.papel !== "TODOS" && l.papel !== filtros.papel) return false;
+    if (filtros.variavel !== "TODAS" && l.variavel !== filtros.variavel) return false;
+    if (filtros.soNota && l.variavel !== "valor_nf") return false;
+    if (busca) {
+      const alvo = `${l.entityLabel ?? ""} ${l.rotuloDaVariavel}`.toLowerCase();
+      if (!alvo.includes(busca)) return false;
+    }
+    return true;
+  });
+}
+
+/** Os filtros como o corpo de uma requisição os traz — nunca confiados como chegam. */
+export function lerFiltrosDeAquisicao(bruto: unknown): FiltrosDeAquisicao {
+  const objeto = (bruto ?? {}) as Record<string, unknown>;
+  const texto = (chave: string, padrao: string): string =>
+    typeof objeto[chave] === "string" ? (objeto[chave] as string) : padrao;
+  const estado = texto("estado", "TODAS");
+  const papel = texto("papel", "TODOS");
+  return {
+    ...FILTROS_DE_AQUISICAO_VAZIOS,
+    busca: texto("busca", ""),
+    tipo: texto("tipo", "TODOS"),
+    papel: PAPEIS_DA_AQUISICAO.includes(papel as PapelNaAquisicao)
+      ? (papel as PapelNaAquisicao)
+      : "TODOS",
+    variavel: texto("variavel", "TODAS"),
+    estado:
+      estado === "TODAS" || GRAVIDADE.includes(estado as EstadoDaLinhaDeAquisicao)
+        ? (estado as FiltrosDeAquisicao["estado"])
+        : "TODAS",
+    soNota: objeto.soNota === true,
+  };
+}
