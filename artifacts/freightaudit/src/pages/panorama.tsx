@@ -894,7 +894,17 @@ function Corpo({
         um mês comum ou o maior movimento do semestre. A decomposição é o
         degrau seguinte — e continua a um rolar de distância, na dobra 3.
       */}
-      <div className={cn("grid gap-5 items-start", comJanela && "xl:grid-cols-2")}>
+      {/*
+        As colunas esticam juntas, e o cartão de lista preenche a sua.
+
+        Elas já pararam na altura do próprio conteúdo, e ali o custo aparecia
+        embaixo da coluna curta: um gráfico de 300px ao lado de uma lista de três
+        linhas deixava ~200px de fundo de página entre a lista e a faixa
+        seguinte. Esticar sozinho seria pior — vão dentro da borda do cartão —, e
+        é por isso que as duas coisas andam juntas: a coluna estica **e** a lista
+        reparte a folga entre as linhas (ver `components/panorama/ranking.tsx`).
+      */}
+      <div className={cn("grid gap-5", comJanela && "xl:grid-cols-2")}>
         <Superficie className="px-6 py-5 min-w-0">
           {/*
             Barras divergentes, e não a linha do líquido sozinha.
@@ -991,15 +1001,18 @@ function Corpo({
         às duas faria a escada apertar para sobrar espaço em branco na lista.
       */}
       {/*
-        Cada cartão para na altura do próprio conteúdo (`items-start`).
+        As colunas esticam juntas, e o cartão de lista preenche a sua.
 
-        Esticá-los juntos foi a primeira tentativa, e ela troca um vazio por
-        outro pior: a lista de duas linhas ao lado de um gráfico de 300px ganha
-        um vão de 200px **dentro** da própria borda, e vão dentro de caixa se lê
-        como conteúdo que não carregou. Fundo de página embaixo de um cartão que
-        terminou não é vazio — é o fim do cartão.
+        Esticá-las foi a primeira tentativa e deu errado — a lista de duas linhas
+        ganhava um vão dentro da própria borda —, então elas passaram a parar na
+        altura do próprio conteúdo, e aí o custo apareceu embaixo da coluna
+        curta: ~200px de fundo de página entre a lista e a faixa seguinte.
+
+        O conserto são as duas coisas juntas, e não uma delas: a coluna estica
+        **e** a lista reparte a folga entre as linhas (ver
+        `components/panorama/ranking.tsx`). Nenhuma das duas sozinha resolve.
       */}
-      <div className="grid gap-5 items-start xl:grid-cols-5">
+      <div className="grid gap-5 xl:grid-cols-5">
         <Superficie className="px-6 py-5 min-w-0 xl:col-span-3">
           <CabecalhoDaSuperficie
             titulo="Composição do impacto líquido"
@@ -1223,7 +1236,7 @@ function Carregando() {
           </div>
         </div>
       </div>
-      <div aria-hidden className="grid gap-5 items-start xl:grid-cols-5">
+      <div aria-hidden className="grid gap-5 xl:grid-cols-5">
         <div className="superficie px-6 py-5 space-y-4 xl:col-span-3">
           <div className="h-3 w-48 rounded bg-muted animate-pulse" />
           <div className="h-[220px] rounded-md bg-muted/40 animate-pulse" />

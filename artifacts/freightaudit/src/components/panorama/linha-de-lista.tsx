@@ -31,6 +31,7 @@ import { cn } from "@/lib/utils";
  * foco de quem navega por teclado em algo que nunca vai responder.
  */
 export function LinhaDeLista({
+  className,
   posicao,
   nome,
   contexto,
@@ -66,6 +67,15 @@ export function LinhaDeLista({
   onAbrir?: (() => void) | null;
   /** Leva a outra tela. Exclusivo com `onAbrir`. */
   href?: string | null;
+  /**
+   * O `<li>`, para a lista que **preenche** a altura do cartão.
+   *
+   * Os cartões de lista dividem a faixa com um gráfico de 300px e acompanham a
+   * altura dele; com três linhas, a lista terminava no meio do cartão e o resto
+   * ficava em branco. Quem sabe quanta folga há a repartir é a lista, não a
+   * linha — daí a classe vir de fora.
+   */
+  className?: string;
 }) {
   const conteudo = (
     <>
@@ -119,7 +129,7 @@ export function LinhaDeLista({
 
   if (onAbrir) {
     return (
-      <li>
+      <li className={className}>
         <button
           type="button"
           onClick={onAbrir}
@@ -135,7 +145,7 @@ export function LinhaDeLista({
 
   if (href) {
     return (
-      <li>
+      <li className={className}>
         <Link href={href} title={titulo} className={cn(forma, interativa)}>
           {conteudo}
         </Link>
@@ -144,7 +154,7 @@ export function LinhaDeLista({
   }
 
   return (
-    <li>
+    <li className={className}>
       <div className={cn(forma, "px-2 -mx-2")}>{conteudo}</div>
     </li>
   );

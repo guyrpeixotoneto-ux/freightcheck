@@ -74,7 +74,7 @@ export function Ranking({
 
   return (
     <section
-      className={cn("superficie px-6 py-5", className)}
+      className={cn("superficie px-6 py-5 flex flex-col", className)}
       aria-label="Onde o dinheiro se mexeu"
     >
       <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -128,11 +128,21 @@ export function Ranking({
             : "Nenhuma linha neste recorte."}
         </p>
       ) : (
-        <ol className="mt-1 divide-y">
+        /*
+          A lista **preenche** o cartão em vez de terminar no meio dele.
+
+          O cartão divide a faixa com a ponte e acompanha a altura dela; com duas
+          ou três famílias, as linhas ficavam no topo e o resto do cartão ficava
+          em branco. Aqui elas repartem a folga, até `max-h-28` cada, e o que
+          sobra depois disso fica metade acima e metade abaixo (`justify-center`)
+          — folga simétrica se lê como respiro, e não como conteúdo que faltou.
+        */
+        <ol className="mt-1 divide-y flex-1 flex flex-col justify-center">
           {linhas.map((linha, indice) => (
             <Linha
               key={linha.chave}
               posicao={indice + 1}
+              className="flex-1 max-h-28 flex items-center"
               linha={linha}
               sufixo={sufixo}
               aberta={chaveAberta === linha.chave}
@@ -223,17 +233,20 @@ function Linha({
   sufixo,
   aberta,
   onAbrir,
+  className,
 }: {
   posicao: number;
   linha: LinhaDoRanking;
   sufixo: string;
   aberta: boolean;
   onAbrir: ((chave: string) => void) | null;
+  className?: string;
 }) {
   const tom = TOM_DA_LINHA[linha.classificacao];
 
   return (
     <LinhaDeLista
+      className={className}
       posicao={posicao}
       nome={linha.nome}
       contexto={linha.contexto}
