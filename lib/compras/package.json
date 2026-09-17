@@ -11,6 +11,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "catalog:",
     "@workspace/comparison": "workspace:*",
     "@workspace/composition": "workspace:*",
     "@workspace/curation": "workspace:*",

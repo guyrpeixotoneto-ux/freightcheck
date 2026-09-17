@@ -42,6 +42,7 @@ import qlpRouter from "./qlp";
 import remuneracaoRouter from "./remuneracao";
 import unidadesRouter from "./unidades";
 import cadastroRouter from "./cadastro";
+import agenteDeComprasRouter from "./agente-compras";
 import comprasRouter from "./compras";
 import justificativasRouter from "./justificativas";
 import trechosRouter from "./trechos";
@@ -171,6 +172,15 @@ import integracoesRouter from "./integracoes";
  * se compra. O que ela deliberadamente **não** faz é comparar com o preço do
  * pedido, que não está no banco.
  *
+ * `agente-compras` é o Agente de Compras, em Inteligência, e é onde aquela
+ * última frase deixou de valer: a cotação passou a poder ser registrada
+ * (migration `0101`), e com os dois lados da conta na mesa a pergunta "quanto
+ * eu deveria pagar por isso?" tem resposta. O preço-alvo e o teto saem de um
+ * motor determinístico sobre o mesmo remunerado que `compras` devolve — não há
+ * segundo caminho até o número —, e o modelo de linguagem entra só para
+ * redigir, com o texto descartado inteiro se citar um real que a análise não
+ * sustente.
+ *
  * `trechos` é o Radar de Trechos: a camada gerencial acima de Trecho 360° e
  * de Alterações — centenas de trechos, um veredito por trecho
  * (Piorou/Melhorou/Igual/Misto/Inconclusivo), não centenas de atributos para
@@ -258,6 +268,7 @@ router.use(unidadesRouter);
 */
 router.use(cadastroRouter);
 router.use(comprasRouter);
+router.use(agenteDeComprasRouter);
 router.use(fechamentoRouter);
 /*
   Chamados — Justificativas: a justificativa por placa sobre o que mudou de

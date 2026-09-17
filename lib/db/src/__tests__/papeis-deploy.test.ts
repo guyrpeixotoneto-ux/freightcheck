@@ -408,6 +408,18 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
           cenário aceita sobre tabela existente.
         */
         "import_cancelamento",
+        /*
+          As duas do Agente de Compras, da `0101` — a cotação registrada por
+          quem compra e a premissa configurada pela casa. Mesmo caso das demais:
+          tabelas novas, que Production ganha pela fila, e a `0101` é DDL pura —
+          ela não escreve uma linha de dado em lugar nenhum.
+
+          As duas ficam **fora** do grafo canônico de propósito: sem
+          `snapshot_id`, sem `entity_id`, sem participar de reconvergência. Ver
+          o cabeçalho de `schema/compras.ts`.
+        */
+        "compra_cotacao",
+        "compra_premissa",
 ]),
     );
     /*
@@ -789,6 +801,29 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
           Integrações.
         */
         "nome_gerencial_normalizado_pkey",
+        /*
+          As onze do Agente de Compras, da `0101` — as duas chaves primárias, as
+          duas FKs para `app_user` e os sete CHECK que defendem a estrutura
+          (preço e quantidade positivos, situação dentro das quatro, margem
+          dentro de (0,1)). Vêm com tabelas novas, que nascem vazias, e por isso
+          não há linha em Production que elas possam recusar.
+
+          Nomeadas, e não filtradas por prefixo, pela mesma razão das do censo e
+          da presença: o filtro acima só dispensa as famílias do Fechamento, da
+          remuneração, da unidade, dos Fluxos, do cadastro da casa e das
+          Integrações.
+        */
+        "compra_cotacao_pkey",
+        "compra_cotacao_owner_id_app_user_id_fk",
+        "compra_cotacao_preco_ck",
+        "compra_cotacao_quantidade_ck",
+        "compra_cotacao_situacao_ck",
+        "compra_premissa_pkey",
+        "compra_premissa_atualizado_por_app_user_id_fk",
+        "compra_premissa_vida_ck",
+        "compra_premissa_unidades_ck",
+        "compra_premissa_margem_alvo_ck",
+        "compra_premissa_margem_minima_ck",
         /*
           As quatro da presença, da `0081` — a chave primária composta e as três
           FKs. Vêm com a tabela nova, que nasce vazia, e por isso não há linha em

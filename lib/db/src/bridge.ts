@@ -3535,6 +3535,39 @@ function planoUp(): PassoUp[] {
     levantar(M96, /"modulo_universal_evento" ADD COLUMN IF NOT EXISTS "arquivado"/),
   );
 
+  /*
+    A `0101` — as duas tabelas do Agente de Compras.
+
+    DDL pura, sem backfill, então o `up` as repõe inteiras levantando o DDL da
+    própria migration: duas tabelas, duas FKs para `app_user` e três índices.
+
+    Elas voltam **vazias por este plano**, e não é omissão: são de
+    `TABELAS_GUARDADAS`, e o conteúdo volta logo depois, por `devolverConteudo`
+    — a mesma separação que o bloco da `0086` explica. O plano é estrutura
+    nominal levantada do disco; repor linha é escrita, e escrita mora fora dele.
+  */
+  const M101 = "0101_agente_de_compras";
+  for (const tabela of ["compra_cotacao", "compra_premissa"]) {
+    add(M101, tabela, levantar(M101, new RegExp(`CREATE TABLE IF NOT EXISTS "${tabela}" \\(`)));
+  }
+  add(
+    M101,
+    "FK compra_cotacao.owner_id",
+    levantar(M101, /compra_cotacao_owner_id_app_user_id_fk/),
+  );
+  add(
+    M101,
+    "FK compra_premissa.atualizado_por",
+    levantar(M101, /compra_premissa_atualizado_por_app_user_id_fk/),
+  );
+  for (const indice of [
+    "compra_cotacao_item_idx",
+    "compra_cotacao_owner_idx",
+    "compra_premissa_item_operacao_uq",
+  ]) {
+    add(M101, `índice ${indice}`, levantar(M101, new RegExp(`INDEX IF NOT EXISTS "${indice}"`)));
+  }
+
   const M42 = "0042_viagem_completa";
   for (const coluna of COLUNAS_DO_RETRATO_DA_VIAGEM) {
     add(

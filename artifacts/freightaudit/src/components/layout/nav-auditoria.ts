@@ -685,11 +685,23 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
     {
       id: "inteligencia",
       titulo: "Inteligência",
-      descricao: "Perguntas ao assistente e o Book do Operador",
+      descricao: "Perguntas ao assistente, decisão de compra e o Book do Operador",
       icon: Sparkles,
       cor: "text-nav-inteligencia",
       itens: [
         { href: "/assistente", label: "Assistente IA", icon: Bot },
+        /*
+          O Agente de Compras vem logo depois do Assistente, e mora aqui e não
+          na seção Compras de propósito. A seção Compras é operação — o balcão
+          do Remunerado, que responde "quanto a Ambev paga por isto". Este
+          agente não tem dado próprio além da cotação que quem compra registra:
+          o que ele faz é **interpretar** o acervo que o resto do produto apura,
+          que é exatamente o que define esta seção. Posto em Compras, ele seria
+          lido como um segundo balcão, com um segundo caminho até o remunerado —
+          e não há segundo caminho: o preço-alvo sai do mesmo número que o
+          Remunerado mostra.
+        */
+        { href: "/agente-compras", label: "Agente de Compras", icon: ShoppingCart },
         { href: "/book-operador", label: "Book do Operador", icon: FileText },
         { href: "/monitor-ia", label: "Monitor de IA", icon: SquareActivity },
       ],

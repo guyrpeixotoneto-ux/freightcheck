@@ -56,6 +56,7 @@ import Curadoria from '@/pages/curadoria';
 import Categorias from '@/pages/categorias';
 import BookOperador from '@/pages/book-operador';
 import Assistente from '@/pages/assistente';
+import AgenteDeCompras from '@/pages/agente-compras';
 import Vigencias from '@/pages/vigencias';
 import Versoes from '@/pages/versoes';
 import Configuracoes from '@/pages/configuracoes';
@@ -428,6 +429,7 @@ function RotasDaAuditoria() {
       <Route path="/justificativas/placa/:placa" component={JustificativasPlaca} />
       <Route path="/book-operador" component={BookOperador} />
       <Route path="/assistente" component={Assistente} />
+      <Route path="/agente-compras" component={AgenteDeCompras} />
       {/*
         Nas duas rotas abaixo a tela entra como filha, e não por `component`:
         ela recebe em que aba abrir, e `component` só passa os parâmetros da

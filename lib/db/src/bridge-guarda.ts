@@ -58,13 +58,28 @@ type Consulta = (
 /**
  * As tabelas que descem com o conteúdo guardado.
  *
- * A ordem é a da queda — filha antes de mãe —, e entre estas duas ela é
- * indiferente: nenhuma pendura na outra, e a chave das duas é o endereço do
- * módulo, texto, como nas duas tabelas de permissão.
+ * A ordem é a da queda — filha antes de mãe. Entre as duas dos módulos
+ * universais ela é indiferente: nenhuma pendura na outra, e a chave das duas é
+ * o endereço do módulo, texto, como nas duas tabelas de permissão. As duas do
+ * Agente de Compras também não penduram uma na outra — as duas referenciam
+ * `app_user`, que não sai em `down` nenhum.
+ *
+ * **As duas da `0101` entram aqui, e não na lista de vazias.** O critério é o
+ * mesmo que moveu os módulos universais para cá: a pré-condição de tabela vazia
+ * só é saída quando a tabela **pode** estar vazia num Development em uso.
+ * `compra_cotacao` acumula por desenho — uma proposta registrada não é apagada,
+ * é arquivada —, então a primeira cotação que alguém registrasse travaria o
+ * `down` para sempre, e a única saída oferecida seria destruir a carteira de
+ * compras para conseguir publicar. `compra_premissa` é ainda mais clara: ela é
+ * a configuração da casa, e descartá-la devolveria todo preço-alvo à estimativa
+ * do catálogo sem ninguém perceber — a tela continuaria respondendo, com
+ * confiabilidade baixa e números diferentes.
  */
 export const TABELAS_GUARDADAS: readonly string[] = [
   "modulo_universal_evento",
   "modulo_universal",
+  "compra_cotacao",
+  "compra_premissa",
 ];
 
 /** O nome do cofre de uma tabela — o mesmo nome, no schema de operação. */
