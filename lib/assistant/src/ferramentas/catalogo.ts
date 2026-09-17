@@ -257,6 +257,55 @@ export const parametros: Ferramenta = {
     const limite = (args.limite as number | undefined) ?? 25;
     const pagina = achados.slice(0, limite);
 
+    /*
+      O dicionário passa a dar lastro ao que ele mostra.
+
+      Esta ferramenta devolvia `evidencias: []`, e o efeito era o mesmo buraco
+      que `documentos` já teve: o modelo lia periodicidade, unidade, estado de
+      curadoria e direção econômica — e não podia afirmar nada disso, porque a
+      trava confere cada afirmação contra as evidências do turno. Uma resposta
+      correta a "o IPVA é mensal ou anual?" era podada por não ter onde ser
+      conferida, justamente na pergunta que esta ferramenta existe para
+      responder.
+
+      Não é evidência inventada: é o mesmo conteúdo que já ia no `conteudo`,
+      dito na forma que a trava sabe ler. Os fatos são `interno` pela razão de
+      `lidoNoCorpus` — eles sustentam afirmação e não viram frase sozinhos numa
+      redação determinística que percorre fatos.
+
+      `numeros` leva só as duas contagens da busca, que são as únicas grandezas
+      que esta consulta apura. Semântica não é número, e um código de atributo
+      não é quantia.
+    */
+    const evidencia: Evidencia = {
+      ferramenta: "parametros",
+      titulo: busca
+        ? `Dicionário de parâmetros · "${busca}"`
+        : "Dicionário de parâmetros",
+      fatos: pagina.map((p) => ({
+        rotulo: `${p.rotulo} (${p.codigo})`,
+        valor: [
+          p.equipamento,
+          p.unidade ? `em ${p.unidade}` : null,
+          p.periodicidade,
+          p.monetario ? "monetário" : null,
+          `semântica ${p.semantica}`,
+          p.direcaoEconomica ? `direção ${p.direcaoEconomica}` : "sem direção curada",
+        ]
+          .filter(Boolean)
+          .join(" · "),
+        ...(p.definicao || p.efeitoEconomico
+          ? { detalhe: [p.definicao, p.efeitoEconomico].filter(Boolean).join(" — ") }
+          : {}),
+        interno: true,
+      })),
+      numeros: [achados.length, pagina.length],
+      origem: busca
+        ? `dicionário de parâmetros · busca "${busca}"`
+        : "dicionário de parâmetros",
+      tela: { label: "Parâmetros", href: "/parametros" },
+    };
+
     return {
       conteudo: {
         encontrados: achados.length,
@@ -298,7 +347,7 @@ export const parametros: Ferramenta = {
           "remuneração anda quando o número sobe; quando vier `null`, ninguém curou ainda — " +
           "isso não é o mesmo que NEUTRAL, e não autoriza dizer que subir não muda nada.",
       },
-      evidencias: [],
+      evidencias: pagina.length > 0 ? [evidencia] : [],
     };
   },
 };
