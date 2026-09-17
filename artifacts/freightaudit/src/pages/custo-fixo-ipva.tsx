@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLocation, useSearch } from "wouter";
 import { useQuery } from "@tanstack/react-query";
-import { Download, Receipt, Search, SlidersHorizontal } from "lucide-react";
+import { Download, ListChecks, Receipt, Search, SlidersHorizontal } from "lucide-react";
 import type { LinhaDeIpva } from "@workspace/comparison/ipva";
 import {
   agruparPorVeiculoDeIpva,
@@ -48,7 +48,10 @@ import {
 } from "@/components/ipva/graficos";
 import { TabelaDeIpva } from "@/components/ipva/tabela";
 import { JustificarDialog } from "@/components/justificativas/justificar-dialog";
+import { BarraDoLote } from "@/components/justificativas/barra-do-lote";
+import { JustificarEmLoteDialog } from "@/components/justificativas/justificar-em-lote-dialog";
 import { useJustificarNaTabela } from "@/lib/justificar-na-tabela";
+import { useJustificarEmLote } from "@/lib/justificar-em-lote";
 import { DetalheDoVeiculo } from "@/components/ipva/detalhe";
 import { fetchJson, salvarArquivo } from "@/lib/api";
 import { useCandidatosDoPar } from "@/hooks/use-candidatos-do-par";
@@ -58,6 +61,7 @@ import {
   ABAS_DE_ESTADO,
   FILTROS_VAZIOS,
   contagemPorAba,
+  escreverValor,
   filtrar,
   linhasDoCsv,
   type ComparacaoDeIpva,
@@ -65,6 +69,7 @@ import {
   type TotaisDeIpva,
 } from "@/lib/ipva";
 import { lerRecorte } from "@/lib/recorte";
+import type { AlteracaoDoLote, EscopoDoLote } from "@workspace/comparison/justificativa-em-lote";
 import { PainelDaEvolucao } from "@/components/comparacao/evolucao/painel";
 import { EVOLUCAO_DO_IPVA } from "@/components/ipva/evolucao";
 import {
@@ -520,6 +525,84 @@ export default function AuditoriaDeIpva() {
     `comparação ${rotuloBase} → ${rotuloComparada}`,
   );
 
+  /*
+    JUSTIFICAR EM LOTE — a mesma caixa, aplicada a várias alterações de uma vez.
+
+    O universo é `filtradas`, e não `naPagina`: é o recorte inteiro dos filtros
+    ativos que o link "Selecionar todos os N resultados" alcança, e é dele que
+    sai o N escrito nele. A tabela continua paginada; a seleção, não.
+
+    Só as **alterações** entram — conflito e dado incompleto são a recusa do
+    motor em afirmar que houve uma, e o que eles pedem é conserto de dado. É a
+    mesma regra da coluna de justificar, e por isso o mesmo teste.
+  */
+  const alteracoesDoRecorte = useMemo<AlteracaoDoLote[]>(
+    () =>
+      filtradas
+        .filter((l) => l.id !== null && l.estado === "ALTERADO")
+        .map((l) => ({
+          id: l.id!,
+          entityLabel: l.entityLabel,
+          entityType: l.entityType,
+          variavel: l.variavel,
+          rotuloDaVariavel: l.rotuloDaVariavel,
+          base: l.base,
+          comparada: l.comparada,
+          /* Os dois como a tabela os escreve — na unidade da variável, que
+             muda de linha para linha. Ver `escreverValor`. */
+          escrito: {
+            base: escreverValor(l.base, l.medida),
+            comparada: escreverValor(l.comparada, l.medida),
+          },
+        })),
+    [filtradas],
+  );
+
+  /*
+    O recorte como o servidor o reabriria — o filtro, e não a lista de ids.
+
+    `filtros.tipo` viaja junto ainda que o recorte de equipamento more no topo
+    da tela: do ponto de vista do universo ele é filtro como qualquer outro, e
+    deixá-lo de fora gravaria como "todos os resultados" um conjunto maior do
+    que o que a aba Cavalo mostra.
+  */
+  const escopoDoRecorte = useCallback((): EscopoDoLote | null => {
+    if (!base || !comparada) return null;
+    return {
+      tipo: "FILTRO",
+      rubrica: "ipva",
+      base,
+      comparada,
+      filtros,
+      semAlteracao: comSemAlteracao,
+    };
+  }, [base, comparada, filtros, comSemAlteracao]);
+
+  /*
+    A assinatura do recorte — o que faz a seleção de "todos os resultados" cair
+    quando alguém mexe num filtro. Todos eles num lugar só, de propósito:
+    esquecer um aqui é o defeito que a regra existe para impedir.
+  */
+  const assinaturaDoRecorte = [
+    base,
+    comparada,
+    filtros.busca.trim(),
+    filtros.tipo,
+    filtros.variavel,
+    filtros.estado,
+    String(filtros.soNegativos),
+    String(comSemAlteracao),
+  ].join("|");
+
+  const lote = useJustificarEmLote({
+    changeSetId: comparacao.data?.changeSetId,
+    contexto: `comparação ${rotuloBase} → ${rotuloComparada}`,
+    justificadaPor: justificar.justificadaPor,
+    alteracoesDoRecorte,
+    escopoDoRecorte,
+    assinaturaDoRecorte,
+  });
+
   function exportar() {
     const blob = csvComoBlob(linhasDoCsv(filtradas, justificar.justificadaPor));
     salvarArquivo(
@@ -815,17 +898,49 @@ export default function AuditoriaDeIpva() {
                 Mostrar veículos sem alteração
               </label>
 
+              {/*
+                Justificar em lote — secundário, e imediatamente antes de
+                Exportar CSV.
+
+                Ele não compete com nada porque não há ação principal nesta
+                fileira: exportar e justificar em lote são duas saídas da mesma
+                tabela, e as duas são de quem já leu o recorte. O botão some com
+                o modo ligado — a barra logo abaixo passa a ser o comando, e dois
+                lugares oferecendo entrar no mesmo modo seriam dois estados
+                possíveis para uma coisa só.
+
+                Desligado quando não há alteração justificável no recorte: com a
+                aba Conflito aberta, entrar no modo mostraria uma coluna de
+                caixas todas desabilitadas.
+              */}
+              {!lote.emLote && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={lote.abrirModo}
+                  disabled={alteracoesDoRecorte.length === 0}
+                  className="ml-auto gap-2 border-brand/40 text-brand hover:bg-brand/5 hover:text-brand"
+                >
+                  <ListChecks className="h-4 w-4" aria-hidden="true" />
+                  Justificar em lote
+                </Button>
+              )}
+
               <Button
                 type="button"
                 variant="outline"
                 onClick={exportar}
                 disabled={filtradas.length === 0}
-                className="ml-auto gap-2"
+                className={cn("gap-2", lote.emLote && "ml-auto")}
               >
                 <Download className="h-4 w-4" aria-hidden="true" />
                 Exportar CSV
               </Button>
             </div>
+
+            {/* A barra entre os filtros e a tabela — e só enquanto o modo
+                estiver ligado. Ver `barra-do-lote.tsx`. */}
+            {lote.emLote && <BarraDoLote {...lote.propsDaBarra} />}
 
             {filtradas.length === 0 ? (
               linhas.length === 0 ? (
@@ -858,6 +973,7 @@ export default function AuditoriaDeIpva() {
                 <TabelaDeIpva
                   veiculos={naPagina}
                   justificadaPor={justificar.justificadaPor}
+                  selecao={lote.emLote ? lote.selecao : undefined}
                   onAbrir={(v) =>
                     setAberto({ entityLabel: v.entityLabel, entityType: v.entityType })
                   }
@@ -877,6 +993,8 @@ export default function AuditoriaDeIpva() {
             )}
 
             <JustificarDialog {...justificar.propsDoDialogo} />
+
+            <JustificarEmLoteDialog {...lote.propsDoDialogo} />
 
             <DetalheDoVeiculo
               veiculo={aberto}

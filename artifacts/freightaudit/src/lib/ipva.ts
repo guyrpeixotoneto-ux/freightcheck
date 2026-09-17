@@ -3,6 +3,10 @@ import {
   ROTULO_DO_VEREDITO,
   celulasDoCsvDeIpva,
   COLUNAS_DO_CSV_DE_IPVA,
+  FILTROS_DE_IPVA_VAZIOS,
+  filtrarLinhasDeIpva,
+  temValorNegativoDeIpva,
+  type FiltrosDeIpva,
   type AliquotaDaVigencia,
   type EstadoDaLinhaDeIpva,
   type LinhaDeIpva,
@@ -241,55 +245,24 @@ export const ABAS_DE_ESTADO: { chave: "TODAS" | EstadoDaLinhaDeIpva; rotulo: str
   { chave: "SEM_ALTERACAO", rotulo: "Sem alteração" },
 ];
 
-export interface FiltrosDeIpva {
-  busca: string;
-  tipo: string;
-  variavel: string;
-  estado: "TODAS" | EstadoDaLinhaDeIpva;
-  /** Só as linhas em que uma das pontas é negativa — o achado do acervo. */
-  soNegativos: boolean;
-}
-
-export const FILTROS_VAZIOS: FiltrosDeIpva = {
-  busca: "",
-  tipo: "TODOS",
-  variavel: "TODAS",
-  estado: "TODAS",
-  soNegativos: false,
-};
-
-/** Uma das pontas desta linha é negativa? */
-export function temValorNegativo(l: LinhaDeIpva): boolean {
-  if (l.medida !== "DINHEIRO") return false;
-  const antes = Number(l.base);
-  const depois = Number(l.comparada);
-  return (Number.isFinite(antes) && antes < 0) || (Number.isFinite(depois) && depois < 0);
-}
-
 /**
- * O recorte da tabela — o mesmo que alimenta a contagem das abas e o CSV.
+ * Os filtros, o recorte e o teste do negativo — **do núcleo**.
  *
- * Uma função só, e não uma por consumidor: a aba que diz "12" e a tabela que
- * mostra 9 linhas é o defeito que aparece quando o filtro é reescrito no lugar
- * de ser reutilizado.
+ * Os três nasceram aqui, e era o lugar certo enquanto o recorte só produzia
+ * uma tabela. Deixou de ser quando a justificativa em lote passou a poder
+ * dizer "todos os resultados deste filtro": ali o cliente manda o filtro, e
+ * quem reabre o universo para gravar é o servidor — que não importa a tela.
+ *
+ * Então eles moram em `@workspace/comparison/ipva`, com as contas, e esta
+ * linha é o que resta do que este arquivo tinha. Os nomes de fora continuam os
+ * mesmos de propósito: a tela chama `filtrar`, e nenhuma delas precisou mudar.
  */
-export function filtrar(
-  linhas: readonly LinhaDeIpva[],
-  filtros: FiltrosDeIpva,
-): LinhaDeIpva[] {
-  const busca = filtros.busca.trim().toLowerCase();
-  return linhas.filter((l) => {
-    if (filtros.estado !== "TODAS" && l.estado !== filtros.estado) return false;
-    if (filtros.tipo !== "TODOS" && l.entityType !== filtros.tipo) return false;
-    if (filtros.variavel !== "TODAS" && l.variavel !== filtros.variavel) return false;
-    if (filtros.soNegativos && !temValorNegativo(l)) return false;
-    if (busca) {
-      const alvo = `${l.entityLabel ?? ""} ${l.rotuloDaVariavel}`.toLowerCase();
-      if (!alvo.includes(busca)) return false;
-    }
-    return true;
-  });
-}
+export {
+  FILTROS_DE_IPVA_VAZIOS as FILTROS_VAZIOS,
+  filtrarLinhasDeIpva as filtrar,
+  temValorNegativoDeIpva as temValorNegativo,
+  type FiltrosDeIpva,
+};
 
 /** Quantas linhas cada aba tem, contadas sobre o mesmo recorte da tabela. */
 export function contagemPorAba(
@@ -299,9 +272,12 @@ export function contagemPorAba(
   const contagem: Record<string, number> = { TODAS: 0 };
   for (const aba of ABAS_DE_ESTADO) {
     if (aba.chave === "TODAS") continue;
-    contagem[aba.chave] = filtrar(linhas, { ...filtros, estado: aba.chave }).length;
+    contagem[aba.chave] = filtrarLinhasDeIpva(linhas, {
+      ...filtros,
+      estado: aba.chave,
+    }).length;
   }
-  contagem.TODAS = filtrar(linhas, { ...filtros, estado: "TODAS" }).length;
+  contagem.TODAS = filtrarLinhasDeIpva(linhas, { ...filtros, estado: "TODAS" }).length;
   return contagem;
 }
 

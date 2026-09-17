@@ -12,6 +12,7 @@
     "./painel-de-justificativas-escopo": "./src/painel-de-justificativas-escopo.ts",
     "./modulos-de-justificativa": "./src/modulos-de-justificativa.ts",
     "./justificativa-estruturada": "./src/justificativa-estruturada.ts",
+    "./justificativa-em-lote": "./src/justificativa-em-lote.ts",
     "./totais-derivados": "./src/totais-derivados.ts",
     "./composition": "./src/composition.ts",
     "./cockpit": "./src/cockpit.ts",
