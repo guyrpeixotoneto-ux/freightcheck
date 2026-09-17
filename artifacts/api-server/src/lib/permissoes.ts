@@ -17,6 +17,7 @@ import {
   permissaoDeModuloTable,
   type Database,
 } from "@workspace/db";
+import { normalizarOperacao } from "@workspace/comparison";
 import { chavesDesligadas } from "./modulos-universais";
 
 /**
@@ -139,6 +140,71 @@ export function ambienteDaConsulta(
     (AMBIENTES as readonly string[]).includes(bruto)
     ? (bruto as Ambiente)
     : null;
+}
+
+/**
+ * O ambiente **dono do acervo** que a requisição pediu — o segundo carimbo.
+ *
+ * **O buraco que isto fecha.** Uma requisição carrega dois carimbos que o
+ * cliente escreve e que ninguém confrontava: `?ambiente=` diz de que espaço de
+ * trabalho a pessoa fala, e `?operacao=` diz que acervo ela quer ler. O portão
+ * autorizava sobre o primeiro; o recorte do dado saía do segundo. Declarar um e
+ * pedir o outro entregava o acervo de uma operação a quem tinha sido recusado
+ * nela — bastou trocar `ambiente=auditoria` por `ambiente=auditoria-rota`,
+ * mantendo `operacao=EMPURRADA`, para a conta bloqueada na Empurrada receber o
+ * impacto financeiro dela inteiro. O mesmo valia para a requisição que
+ * simplesmente **omitia** `?ambiente=`.
+ *
+ * **A regra, numa frase:** quem pede o acervo de uma operação precisa trabalhar
+ * no ambiente daquela operação. A família — auditoria ou fechamento — vem do
+ * ambiente declarado, porque são dois processos diferentes sobre o mesmo
+ * acervo; sem ambiente declarado a família é `auditoria`, que é o que o cliente
+ * carimba fora dos prefixos de fechamento (ver `ambienteDaConsulta`).
+ *
+ * **Operação que não é uma das quatro devolve `null`, e não recusa.** É a mesma
+ * regra do caminho não reivindicado, em `portao-de-permissao.ts`: adivinhar um
+ * dono produz 403 que ninguém sabe explicar. O que este mapa promete é que as
+ * quatro operações que o produto separa têm dono declarado; o que ele não faz é
+ * inventar dono para um carimbo que não conhece.
+ *
+ * A lista é escrita aqui e na interface (`lib/ambiente.ts`, em
+ * `OPERACAO_DA_AUDITORIA`) pela mesma razão que `AMBIENTES`: são dois pacotes, e
+ * o servidor não importa a tela.
+ */
+const AMBIENTE_DA_OPERACAO: Record<"auditoria" | "fechamento", Record<string, Ambiente>> = {
+  auditoria: {
+    EMPURRADA: "auditoria",
+    ROTA: "auditoria-rota",
+    AS: "auditoria-as",
+    APOIO: "auditoria-apoio",
+  },
+  fechamento: {
+    EMPURRADA: "fechamento-empurrada",
+    ROTA: "fechamento-rota",
+    AS: "fechamento-as",
+    APOIO: "fechamento-apoio",
+  },
+};
+
+/**
+ * O ambiente exigido pelo acervo que a consulta pediu, ou `null`.
+ *
+ * A normalização é a mesma de `?operacao=` (`normalizarOperacao`, em
+ * `@workspace/comparison`): comparar sem normalizar faria `?operacao=rota`
+ * passar pelo portão sem dono — uma restrição que a tela mostra e o portão
+ * ignora, que é o defeito que este arquivo já descreve para `@ambiente`.
+ */
+export function ambienteDoAcervo(
+  query: Record<string, unknown>,
+): Ambiente | null {
+  const operacao = normalizarOperacao(
+    typeof query["operacao"] === "string" ? (query["operacao"] as string) : null,
+  );
+  if (operacao === null) return null;
+
+  const declarado = ambienteDaConsulta(query);
+  const familia = declarado?.startsWith("fechamento") ? "fechamento" : "auditoria";
+  return AMBIENTE_DA_OPERACAO[familia][operacao] ?? null;
 }
 
 /**

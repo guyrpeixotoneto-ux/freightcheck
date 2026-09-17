@@ -7,6 +7,7 @@ import routerV1 from "./routes/v1";
 import { carimboDaApi } from "./middlewares/carimbo-da-api";
 import { corsDaArquitetura } from "./middlewares/cors-da-arquitetura";
 import { requireSession } from "./middlewares/require-session";
+import { escopoEmObservacao } from "./middlewares/escopo-em-observacao";
 import { portaoDePermissao } from "./middlewares/portao-de-permissao";
 import { visualizacaoSomenteLeitura } from "./middlewares/visualizacao-como";
 import { portaoDeProntidao } from "./middlewares/portao-de-prontidao";
@@ -166,6 +167,23 @@ app.use("/api", requireSession);
  * olhos de outra pessoa. Ver `middlewares/visualizacao-como.ts`.
  */
 app.use("/api", visualizacaoSomenteLeitura);
+
+/**
+ * Depois da permissão, antes das rotas: o escopo por unidade, **medindo e não
+ * cortando**.
+ *
+ * Ele calcula o que uma ACL por unidade faria com cada leitura e registra o
+ * veredito, sem mudar uma vírgula da resposta. É o que permite decidir o corte
+ * com número em vez de com coragem — e neste eixo isso pesa mais do que no
+ * outro: em `acesso_a_unidade` a ausência de linha é ausência de acesso, então
+ * ligar antes de as concessões existirem deixaria todo mundo sem nada. Ver
+ * `middlewares/escopo-em-observacao.ts`.
+ *
+ * Depois do portão de propósito: o que já foi recusado por permissão não
+ * precisa entrar na medição, e contá-lo inflaria o denominador com requisições
+ * que nunca chegariam à rota.
+ */
+app.use("/api", escopoEmObservacao);
 
 app.use("/api", portaoDePermissao);
 app.use("/api", router);
