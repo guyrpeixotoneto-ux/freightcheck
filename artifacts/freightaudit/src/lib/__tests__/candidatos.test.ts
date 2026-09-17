@@ -214,4 +214,108 @@ describe("os números de cada linha do menu", () => {
       expect(linha?.alteracoes).toBe("3 alterações");
     });
   });
+  /**
+   * O MOVIMENTO DA ALÍQUOTA — a coluna que os Impostos pediram.
+   *
+   * Naquele módulo o dinheiro do menu é `R$ 0,00` em toda linha por
+   * construção: o montante de ICMS é zero nas 1.215 linhas do acervo e o
+   * PIS/COFINS de aquisição é 9,250% da nota em todas elas. A grandeza que
+   * distingue uma candidata da outra ali é o ponto percentual, e é ela que
+   * estas frases escrevem.
+   *
+   * A régua que este bloco prende é a de sempre, na terceira grandeza:
+   * **ausência não é zero, e zero não é ausência**. Recorte que não audita
+   * percentual não ganha linha nenhuma; recorte que audita e não viu nada
+   * andar escreve que não viu — e não deixa a casa em branco, que nesta tela
+   * já quer dizer "ainda não calculei".
+   */
+  describe("o movimento das alíquotas", () => {
+    const comPercentuais = (
+      percentuais: {
+        rotulo: string;
+        alteradas: number;
+        maior: number | null;
+        ambasDirecoes: boolean;
+      }[],
+    ) => ({ alteracoes: 0, impacto: { baldes: [] }, percentuais });
+
+    it("a rubrica que não audita percentual segue sem linha nenhuma", () => {
+      expect(numerosDaLinha(comImpacto(7, { MENSAL: 1200 }))?.percentuais).toEqual([]);
+    });
+
+    it("auditou e nada andou — e isso se escreve, não se cala", () => {
+      expect(numerosDaLinha(comPercentuais([]))?.percentuais).toEqual([
+        "sem movimento de alíquota",
+      ]);
+    });
+
+    it("uma alíquota só: o número é ela, com sinal", () => {
+      const linha = numerosDaLinha(
+        comPercentuais([
+          { rotulo: "ICMS", alteradas: 1, maior: 2, ambasDirecoes: false },
+        ]),
+      );
+
+      expect(linha?.percentuais).toEqual(["ICMS +2,000 p.p."]);
+    });
+
+    /* "Até", e não um total: o maior movimento responde, a soma mentiria. */
+    it("várias no mesmo sentido saem como o maior movimento, com a contagem", () => {
+      const linha = numerosDaLinha(
+        comPercentuais([
+          { rotulo: "ICMS", alteradas: 3, maior: -6, ambasDirecoes: false },
+        ]),
+      );
+
+      expect(linha?.percentuais).toEqual(["ICMS até −6,000 p.p. · 3 alíquotas"]);
+    });
+
+    it("nos dois sentidos, o sinal some — ele descreveria metade da frota", () => {
+      const linha = numerosDaLinha(
+        comPercentuais([
+          { rotulo: "ICMS", alteradas: 2, maior: -6, ambasDirecoes: true },
+        ]),
+      );
+
+      expect(linha?.percentuais).toEqual([
+        "ICMS até 6,000 p.p. nos dois sentidos · 2 alíquotas",
+      ]);
+    });
+
+    it("alterada sem medida diz isso — nunca 0,000 p.p.", () => {
+      const linha = numerosDaLinha(
+        comPercentuais([
+          { rotulo: "PIS/COFINS", alteradas: 1, maior: null, ambasDirecoes: false },
+        ]),
+      );
+
+      expect(linha?.percentuais).toEqual([
+        "PIS/COFINS · 1 alíquota, movimento não medido",
+      ]);
+    });
+
+    it("um tributo por linha — ICMS e PIS/COFINS nunca viram um número só", () => {
+      const linha = numerosDaLinha(
+        comPercentuais([
+          { rotulo: "ICMS", alteradas: 1, maior: 2, ambasDirecoes: false },
+          { rotulo: "PIS/COFINS", alteradas: 1, maior: -0.05, ambasDirecoes: false },
+        ]),
+      );
+
+      expect(linha?.percentuais).toEqual([
+        "ICMS +2,000 p.p.",
+        "PIS/COFINS −0,050 p.p.",
+      ]);
+    });
+
+    /* O dinheiro continua sendo dito: as duas colunas convivem na mesma linha. */
+    it("não substitui a coluna do dinheiro", () => {
+      const linha = numerosDaLinha(comPercentuais([]));
+
+      expect(linha?.valores).toEqual([
+        { texto: "R$ 0,00", bruto: 0, leitura: "NEUTRO" },
+      ]);
+      expect(linha?.alteracoes).toBe("0 alterações");
+    });
+  });
 });
