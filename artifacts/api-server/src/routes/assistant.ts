@@ -30,6 +30,7 @@ import {
 } from "@workspace/assistant";
 
 import { operacaoDaConsulta } from "../lib/operacao";
+import { tetoDoAssistente } from "../middlewares/teto-do-assistente";
 /**
  * Assistente — a superfície HTTP, e o portão do dono.
  *
@@ -220,7 +221,14 @@ router.post(
 
 // ── Perguntar ───────────────────────────────────────────────────────────────
 
-router.post("/assistant/ask", async (req, res): Promise<void> => {
+/*
+  O teto vem antes do corpo da rota, e só nesta.
+
+  É a única rota do produto com custo marginal por chamada — cada pergunta é uma
+  ida ao modelo. Ver `middlewares/teto-do-assistente.ts` para os dois limites e
+  por que eles são dois.
+*/
+router.post("/assistant/ask", tetoDoAssistente, async (req, res): Promise<void> => {
   try {
     const { pergunta, conversationId, scopeHash, canal, period, semIa } =
       (req.body ?? {}) as Record<string, unknown>;

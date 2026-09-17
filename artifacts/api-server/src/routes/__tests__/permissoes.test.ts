@@ -87,6 +87,14 @@ beforeAll(async () => {
   app.post("/fechamento/qualquer", (_req, res) => {
     res.json({ passou: true });
   });
+  /*
+    O Assistente, que é a superfície em que a troca de carimbo mais custa: a
+    resposta dele é o acervo inteiro resumido numa frase, e não uma linha de
+    tabela. A rota é falsa — o que se mede é o portão antes dela.
+  */
+  app.post("/assistant/ask", (_req, res) => {
+    res.json({ passou: true });
+  });
   app.use(erroEmJson);
 
   servidor = await new Promise<Server>((resolve) => {
@@ -335,5 +343,120 @@ describe("o ambiente de trabalho é permissão, na mesma tabela", () => {
     const doAmbiente = historico.filter((h) => h.modulo.startsWith("@"));
     expect(doAmbiente.map((h) => h.modulo)).toContain("@fechamento-as");
     expect(doAmbiente.every((h) => h.por === "chefe@x.com")).toBe(true);
+  });
+});
+
+/**
+ * O acervo pedido é o segundo carimbo — e ele era a porta dos fundos.
+ *
+ * **O que se reproduz aqui.** Uma conta recusada na Auditoria Empurrada pedia o
+ * acervo dela declarando outro ambiente, ou nenhum: `?ambiente=` era o que o
+ * portão autorizava e `?operacao=` era o que recortava o dado, e ninguém
+ * confrontava os dois. Medido contra o servidor real antes da correção, a mesma
+ * conta que levava 403 em `ambiente=auditoria&operacao=EMPURRADA` recebia 200 e
+ * o impacto financeiro completo em `ambiente=auditoria-rota&operacao=EMPURRADA`.
+ *
+ * **Por que o teste é do portão e não do Assistente.** A troca vale para toda
+ * escrita que declare operação; o Assistente é só onde ela custa mais caro,
+ * porque a resposta dele agrega. Travar o caso no portão protege as outras
+ * rotas junto — e é onde a regra de verdade mora.
+ *
+ * O que estes casos **não** podem virar: uma recusa a quem está no lugar certo.
+ * Os dois carimbos nascem do mesmo endereço na tela, então a requisição honesta
+ * tem de continuar passando — e há caso para isso, nos dois sentidos.
+ */
+describe("o ambiente do acervo, e não só o ambiente declarado", () => {
+  const pedir = (consulta: string, quem = "op@x.com") =>
+    fetch(`${base}/assistant/ask?${consulta}`, {
+      method: "POST",
+      headers: como(quem),
+      body: JSON.stringify({ pergunta: "onde perdemos mais dinheiro?" }),
+    });
+
+  /*
+    O estado é declarado por inteiro, e não só o que muda.
+
+    O PUT de permissões **soma** à conta em vez de substituir o mapa dela, e os
+    blocos acima deixam decisões gravadas (`@auditoria-rota` em VISUALIZAR, por
+    exemplo). Um caso que assumisse mapa limpo mediria a herança do bloco
+    anterior, não a regra que ele existe para provar — e falharia por um motivo
+    que não é o dele.
+  */
+  const ESTADO = {
+    "@auditoria": "SEM_ACESSO",
+    "@auditoria-rota": "EDITAR",
+    "@auditoria-as": "EDITAR",
+    "@fechamento-empurrada": "EDITAR",
+  };
+
+  it("bloqueada na Empurrada: o pedido coerente é recusado, como sempre foi", async () => {
+    expect((await definir(CONTAS["op@x.com"], ESTADO)).status).toBe(200);
+
+    const res = await pedir("operacao=EMPURRADA&ambiente=auditoria");
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { ambiente: string }).ambiente).toBe("auditoria");
+  });
+
+  it("declarar outro ambiente e pedir o acervo bloqueado → 403 que nomeia o acervo", async () => {
+    const res = await pedir("operacao=EMPURRADA&ambiente=auditoria-rota");
+    expect(res.status).toBe(403);
+    const corpo = (await res.json()) as { ambiente: string; error: string };
+    /*
+      O 403 nomeia `auditoria` — o dono do acervo —, e não `auditoria-rota`, que
+      é onde a pessoa disse estar e onde ela de fato pode escrever. Nomear o
+      declarado mandaria procurar permissão no lugar errado.
+    */
+    expect(corpo.ambiente).toBe("auditoria");
+    expect(corpo.error).toMatch(/não trabalha neste ambiente/i);
+  });
+
+  it("omitir o ambiente também não abre o acervo bloqueado", async () => {
+    const res = await pedir("operacao=EMPURRADA");
+    expect(res.status).toBe(403);
+    expect(((await res.json()) as { ambiente: string }).ambiente).toBe("auditoria");
+  });
+
+  it("a caixa do carimbo não decide nada: `operacao=empurrada` é a mesma coisa", async () => {
+    expect((await pedir("operacao=empurrada")).status).toBe(403);
+  });
+
+  it("o acervo permitido continua passando, declarado ou não", async () => {
+    expect((await pedir("operacao=ROTA&ambiente=auditoria-rota")).status).toBe(200);
+    expect((await pedir("operacao=AS")).status).toBe(200);
+  });
+
+  it("a família vem do ambiente declarado: o Fechamento Empurrada é outro ambiente", async () => {
+    /*
+      A conta está bloqueada na **Auditoria** Empurrada. O Fechamento Empurrada
+      é outro espaço de trabalho sobre o mesmo acervo, e quem trabalha nele
+      continua trabalhando — confundir os dois transformaria uma restrição de
+      auditoria num bloqueio de fechamento que ninguém pediu.
+    */
+    expect(
+      (await pedir("operacao=EMPURRADA&ambiente=fechamento-empurrada")).status,
+    ).toBe(200);
+  });
+
+  it("operação desconhecida não inventa dono — passa, como o ambiente desconhecido", async () => {
+    expect((await pedir("operacao=MARTE")).status).toBe(200);
+  });
+
+  it("a Administração continua fora do eixo, com operação e tudo", async () => {
+    const res = await fetch(
+      `${base}/users/${CONTAS["op@x.com"].id}/permissoes?operacao=EMPURRADA`,
+      { headers: como("op@x.com") },
+    );
+    expect(res.status).toBe(200);
+  });
+
+  it("sem carimbo nenhum, nada a conferir: a escrita passa", async () => {
+    expect((await pedir("")).status).toBe(200);
+  });
+
+  it("devolvida a permissão, o acervo volta a responder", async () => {
+    expect(
+      (await definir(CONTAS["op@x.com"], { ...ESTADO, "@auditoria": "EDITAR" })).status,
+    ).toBe(200);
+    expect((await pedir("operacao=EMPURRADA&ambiente=auditoria-rota")).status).toBe(200);
   });
 });
