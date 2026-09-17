@@ -411,6 +411,25 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
         */
         "nome_gerencial_normalizado",
         /*
+          As duas do financiamento real, da `0103` — o extrato do banco entrando
+          ao lado do remunerado. Mesmo caso das demais: tabelas novas, nascidas
+          vazias, que Production ganha quando a fila rodar lá.
+
+          Elas são duas, e não uma, porque guardam coisas de durabilidades
+          diferentes: `finame_real_lancamento` é derivada (a leitura de cada
+          linha do extrato, reconstruível reimportando o arquivo) e
+          `financiamento_real_decisao` é decisão de gente ("fulano confirmou que
+          estas duas linhas são o mesmo pagamento"), que nenhuma consulta
+          reconstrói. É essa diferença que decide o destino de cada uma no
+          `down` do bridge — descartável e removida-se-vazia, respectivamente.
+
+          As quatro colunas que a mesma migration cria (`snapshot.granularidade`
+          e as três declarações em `import_run`) aparecem na lista de colunas
+          mais abaixo, e não aqui: as duas tabelas Production **já tem**.
+        */
+        "finame_real_lancamento",
+        "financiamento_real_decisao",
+        /*
           O pedido de cancelamento, da `0097` — quem parou uma importação, quando
           e por quê. Mesmo caso: tabela nova, que Production ganha pela fila.
 
@@ -662,6 +681,25 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
         */
         "import_run.declared_period",
         /*
+          As quatro da `0103` — a competência mensal do financiamento real.
+
+          `snapshot.granularidade` diz que período aquela vigência cobre, e ela
+          existe porque a data sozinha não distingue: a competência de março e a
+          1ª quinzena de março começam as duas em `2026-03-01`. As três de
+          `import_run` são a declaração do envio correspondente — a
+          granularidade do acervo, a competência afirmada e a unidade escolhida
+          do cadastro, esta última porque o extrato do ERP não traz CNPJ e sem
+          UNIDADE a vigência não tem identidade.
+
+          Aditivas e nulas, pela mesma razão das de cima: `NULL` é a verdade
+          sobre toda vigência e todo envio anteriores a elas — ninguém declarou
+          nada ali, e a quinzenal era a única granularidade que existia.
+        */
+        "snapshot.granularidade",
+        "import_run.declared_granularity",
+        "import_run.declared_competence",
+        "import_run.declared_unidade",
+        /*
           A coluna que a `0046` acrescentou a `fechamento_competencia` **não**
           entra aqui, e a ausência é a informação: o diff a reporta pela tabela,
           não pela coluna, porque Production não tem nenhuma das treze do
@@ -771,6 +809,23 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
           Monitoramento: um filtro por `import_` dispensaria calada qualquer
           constraint futura sobre `import_run`, que Production já tem.
         */
+        /*
+          As seis do financiamento real, da `0103` — as duas chaves primárias e
+          as quatro FKs de `finame_real_lancamento` (para a importação, a linha
+          bruta, a vigência e o fato). Mesmo caso do cancelamento e do censo:
+          vêm com tabelas novas, que nascem vazias, e por isso não há linha em
+          Production que elas possam recusar.
+
+          Nomeadas uma a uma, e não filtradas por prefixo, pela razão de sempre
+          nesta lista: um filtro dispensaria calada qualquer constraint futura
+          com o mesmo começo de nome.
+        */
+        "finame_real_lancamento_pkey",
+        "finame_real_lancamento_import_run_id_import_run_id_fk",
+        "finame_real_lancamento_raw_row_id_raw_row_id_fk",
+        "finame_real_lancamento_snapshot_id_snapshot_id_fk",
+        "finame_real_lancamento_fact_id_fact_id_fk",
+        "financiamento_real_decisao_pkey",
         "import_cancelamento_pkey",
         "import_cancelamento_import_run_id_import_run_id_fk",
         /*
