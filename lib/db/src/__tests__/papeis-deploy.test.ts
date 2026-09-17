@@ -248,6 +248,7 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
           bridge exige encontrá-la vazia antes de derrubá-la.
         */
         "justificativa",
+        "justificativa_lote",
         /*
           As seis de Fluxos Operacionais, da `0068` — o mapa dos processos da
           empresa. Aditivas pelo mesmo critério de todas as acima: nenhuma
@@ -904,6 +905,18 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
         "justificativa_pkey",
         "justificativa_change_set_id_fk",
         "justificativa_change_id_fk",
+        /*
+          As três do lote, da `0103` — o registro de qual universo uma
+          justificativa em lote alcançou. Nomeadas pela mesma razão das de cima:
+          a tabela é nova, não pertence a nenhuma das famílias que o filtro
+          dispensa, e nomeá-la é o que faz uma constraint inesperada continuar
+          aparecendo neste teste. A FK de `justificativa.lote_id` entra aqui
+          porque ela é da tabela antiga apontando para a nova — aditiva do mesmo
+          jeito, porque a coluna nasce nullable.
+        */
+        "justificativa_lote_pkey",
+        "justificativa_lote_change_set_id_change_set_id_fk",
+        "justificativa_lote_id_justificativa_lote_id_fk",
         /*
           As seis da permissão por módulo, da `0071`, nomeadas pela mesma razão
           das da justificativa: as duas tabelas não pertencem a nenhuma das

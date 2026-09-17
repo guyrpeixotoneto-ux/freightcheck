@@ -1,189 +1,22 @@
 /**
- * A LEITURA DA COMPARAÇÃO REAL — buscar os dois lados, sem recalcular nenhum.
+ * AS PENDÊNCIAS DO REALIZADO — o que ficou de fora da soma, e por quê.
  *
  * ---------------------------------------------------------------------------
  * O que este arquivo é
  * ---------------------------------------------------------------------------
- * A metade com SQL de `finame-real.ts`. Aquele decide (um valor de cada lado,
- * ausência com nome, nada de somar quinzenas) e não fala com banco; este busca
- * o que ele precisa e não decide nada. A separação é a de sempre neste
- * repositório, e serve para que a regra seja testável sem Postgres e a consulta
- * seja conferível sem simulação.
+ * A leitura das duas filas que a importação do extrato produz — a duplicata
+ * provável e a placa sem tipo de ativo — mais o rastreio de um valor até os
+ * lançamentos que o compõem.
  *
- * ---------------------------------------------------------------------------
- * `fato_visivel`, e não `fact`
- * ---------------------------------------------------------------------------
- * Toda leitura passa pela view, como o resto do produto: ela esconde os fatos
- * das importações ocultadas, e ler `fact` cru faria esta tela mostrar um custo
- * que todas as outras deixaram de mostrar.
+ * Ele não compara nada: o confronto Remunerado × Realizado é de
+ * `confronto-de-finame.ts`, e o número do realizado chega lá pelo adaptador
+ * (`fonte-real-do-acervo.ts`). O que mora aqui é o que **não** entrou naquele
+ * número, que é a outra metade da honestidade: um consolidado que esconde o que
+ * ficou de fora é uma soma sem origem.
  */
 
 import { sql } from "drizzle-orm";
 import type { Database } from "@workspace/db";
-import type {
-  RealizadoDaCompetencia,
-  RemuneradoDaQuinzena,
-} from "./finame-real";
-
-/** A vigência mensal de uma competência do acervo Real. */
-export interface CompetenciaDoReal {
-  competencia: string;
-  snapshotId: string;
-  sourceLabel: string;
-  canal: string;
-  /** As unidades que a vigência cobre — o escopo canônico dela. */
-  unidades: string[];
-}
-
-/**
- * As competências do financiamento real, da mais recente para a mais antiga.
- *
- * O filtro é por `granularidade = 'MENSAL'` **e** família, e os dois são
- * necessários: a família diz de que acervo é, e a granularidade diz que o
- * período é o mês — sem ela, uma vigência do Real que um dia chegasse quinzenal
- * (por API, por exemplo) entraria nesta lista como se fosse competência.
- */
-export async function listarCompetenciasDoReal(
-  db: Pick<Database, "execute">,
-  opcoes: { canal?: string | null } = {},
-): Promise<CompetenciaDoReal[]> {
-  const { rows } = await db.execute<{
-    competencia: string;
-    snapshot_id: string;
-    source_label: string;
-    canal: string;
-    unidades: string[] | null;
-  }>(sql`
-    SELECT s.effective_date::text AS competencia,
-           s.id::text             AS snapshot_id,
-           s.source_label,
-           s.canal,
-           array_agg(DISTINCT sc.code) FILTER (WHERE sc.scope_type = 'UNIDADE') AS unidades
-      FROM snapshot s
-      LEFT JOIN snapshot_scope ss ON ss.snapshot_id = s.id
-      LEFT JOIN scope sc ON sc.id = ss.scope_id
-     WHERE s.status <> 'SUPERSEDED'
-       AND s.dataset_family = 'FINANCIAMENTO_REAL'
-       AND s.granularidade = 'MENSAL'
-       ${opcoes.canal ? sql`AND s.canal = ${opcoes.canal}` : sql``}
-     GROUP BY s.id, s.effective_date, s.source_label, s.canal
-     ORDER BY s.effective_date DESC
-  `);
-
-  return rows.map((r) => ({
-    competencia: r.competencia,
-    snapshotId: r.snapshot_id,
-    sourceLabel: r.source_label,
-    canal: r.canal,
-    unidades: r.unidades ?? [],
-  }));
-}
-
-/**
- * O realizado de uma competência, placa a placa.
- *
- * A contagem de lançamentos e a marca de parcial saem de
- * `finame_real_lancamento`, e não do fato: o fato é o valor, e quantos
- * documentos o compõem é rastreio. Mantê-los juntos na resposta é o que permite
- * a tela mostrar "R$ 10.817,54 · 2 lançamentos" sem uma segunda consulta por
- * linha.
- */
-export async function lerRealizadoDaCompetencia(
-  db: Pick<Database, "execute">,
-  competencia: string,
-  opcoes: { canal?: string | null } = {},
-): Promise<RealizadoDaCompetencia[]> {
-  const { rows } = await db.execute<{
-    placa: string;
-    valor: string;
-    lancamentos: string | null;
-  }>(sql`
-    SELECT ident.identifier_value AS placa,
-           f.value_numeric::text  AS valor,
-           (SELECT count(*)::text
-              FROM finame_real_lancamento l
-             WHERE l.fact_id = f.id AND l.status = 'ACEITO') AS lancamentos
-      FROM fato_visivel f
-      JOIN attribute a ON a.id = f.attribute_id AND a.code LIKE '%.finame_real'
-      JOIN snapshot s ON s.id = f.snapshot_id
-      JOIN entity_identifier ident
-        ON ident.entity_id = f.entity_id
-       AND ident.identifier_type = 'PLACA'
-       AND ident.is_current
-     WHERE s.status <> 'SUPERSEDED'
-       AND s.dataset_family = 'FINANCIAMENTO_REAL'
-       AND s.granularidade = 'MENSAL'
-       AND s.effective_date = ${competencia}::date
-       ${opcoes.canal ? sql`AND s.canal = ${opcoes.canal}` : sql``}
-       AND NOT f.is_null
-  `);
-
-  return rows.map((r) => ({
-    competencia,
-    placa: r.placa,
-    valor: Number(r.valor),
-    lancamentos: Number(r.lancamentos ?? "0"),
-    /* A marca de parcial é da competência inteira; quem a calcula é a leitura
-       do relatório, abaixo, e ela é aplicada a todas as linhas do mês. */
-    parcial: false,
-    motivoParcial: null,
-  }));
-}
-
-/**
- * O remunerado das quinzenas de um mês, placa a placa.
- *
- * Traz as **duas** quinzenas quando existem, e traz o valor de cada uma em
- * separado — é assim que `remuneradoDoMes` pode dizer "as duas concordam" ou
- * "as duas discordam" em vez de receber um número já escolhido por esta
- * consulta. Escolher aqui seria esconder a divergência antes de alguém vê-la.
- */
-export async function lerRemuneradoDoMes(
-  db: Pick<Database, "execute">,
-  competencia: string,
-  opcoes: { canal?: string | null; codigos?: readonly string[] } = {},
-): Promise<RemuneradoDaQuinzena[]> {
-  const codigos = opcoes.codigos ?? ["cavalo.finame_cavalo", "carreta.finame_implemento"];
-
-  const { rows } = await db.execute<{
-    placa: string;
-    valor: string | null;
-    effective_date: string;
-    source_label: string;
-  }>(sql`
-    SELECT ident.identifier_value AS placa,
-           f.value_numeric::text  AS valor,
-           s.effective_date::text AS effective_date,
-           s.source_label
-      FROM fato_visivel f
-      JOIN attribute a ON a.id = f.attribute_id
-      JOIN snapshot s ON s.id = f.snapshot_id
-      JOIN entity_identifier ident
-        ON ident.entity_id = f.entity_id
-       AND ident.identifier_type = 'PLACA'
-       AND ident.is_current
-     WHERE s.status <> 'SUPERSEDED'
-       AND s.dataset_family = 'REMUNERACAO_EQUIPAMENTO'
-       AND date_trunc('month', s.effective_date) = ${competencia}::date
-       ${opcoes.canal ? sql`AND s.canal = ${opcoes.canal}` : sql``}
-       AND a.code IN (${sql.join(
-         codigos.map((c) => sql`${c}`),
-         sql`, `,
-       )})
-       AND NOT f.is_null
-  `);
-
-  return rows.map((r) => ({
-    placa: r.placa,
-    /* A quinzena sai do dia, pela mesma régua do resto do produto: dia ≤ 15 é a
-       primeira. Ela não é relida do rótulo aqui porque o rótulo é da fonte e
-       pode vir grafado de mais de um jeito; a data é derivada por regra testada. */
-    quinzena: Number(r.effective_date.slice(8, 10)) <= 15 ? 1 : 2,
-    label: r.source_label,
-    effectiveDate: r.effective_date,
-    valor: r.valor === null ? null : Number(r.valor),
-  }));
-}
 
 export interface PendenciasDoReal {
   duplicatas: {
@@ -250,8 +83,14 @@ export interface PendenciasDoReal {
  * recente que produziu lançamentos. O primeiro passo é a autoridade de sempre —
  * a vigência ativa decide o que é verdade hoje; o segundo é o que faz reler um
  * arquivo com um leitor melhor servir para alguma coisa.
+ *
+ * E o canal entra no primeiro passo, e não como filtro depois: a operação é o
+ * mesmo eixo que recorta todo o resto deste produto, e quem audita a Rota não
+ * tem por que ver as pendências da Empurrada. Ele viaja em cada pergunta porque
+ * a autorização é por requisição, nunca guardada.
  */
-const DOS_RUNS_ATIVOS = sql`
+function dosRunsAtivos(canal?: string | null) {
+  return sql`
   l.import_run_id IN (
     SELECT DISTINCT ON (ir.source_file_id) ir.id
       FROM import_run ir
@@ -261,6 +100,7 @@ const DOS_RUNS_ATIVOS = sql`
                JOIN snapshot s ON s.import_run_id = dono.id
               WHERE s.dataset_family = 'FINANCIAMENTO_REAL'
                 AND s.status <> 'SUPERSEDED'
+                ${canal ? sql`AND s.canal = ${canal}` : sql``}
            )
        AND EXISTS (
              SELECT 1 FROM finame_real_lancamento x WHERE x.import_run_id = ir.id
@@ -268,10 +108,13 @@ const DOS_RUNS_ATIVOS = sql`
      ORDER BY ir.source_file_id, ir.started_at DESC
   )
 `;
+}
 
 export async function lerPendenciasDoReal(
   db: Pick<Database, "execute">,
+  opcoes: { canal?: string | null } = {},
 ): Promise<PendenciasDoReal> {
+  const dosRunsDoCanal = dosRunsAtivos(opcoes.canal);
   const { rows: duplicatas } = await db.execute<{
     competencia: string;
     placa: string;
@@ -291,7 +134,7 @@ export async function lerPendenciasDoReal(
       FROM finame_real_lancamento l
       JOIN raw_row r ON r.id = l.raw_row_id
      WHERE l.status = 'DUPLICATA_PROVAVEL'
-       AND ${DOS_RUNS_ATIVOS}
+       AND ${dosRunsDoCanal}
      ORDER BY l.competencia, l.placa
   `);
 
@@ -309,7 +152,7 @@ export async function lerPendenciasDoReal(
            array_agg(DISTINCT coalesce(l.conta_analitica, 'sem conta')) AS contas
       FROM finame_real_lancamento l
      WHERE l.status = 'PENDENTE_DE_CLASSIFICACAO'
-       AND ${DOS_RUNS_ATIVOS}
+       AND ${dosRunsDoCanal}
      GROUP BY l.placa
      ORDER BY sum(l.valor_absoluto) DESC
   `);
@@ -324,7 +167,7 @@ export async function lerPendenciasDoReal(
            count(DISTINCT l.placa)::text AS placas
       FROM finame_real_lancamento l
      WHERE l.status = 'ACEITO'
-       AND ${DOS_RUNS_ATIVOS}
+       AND ${dosRunsDoCanal}
      GROUP BY l.competencia
      ORDER BY l.competencia
   `);
@@ -365,6 +208,7 @@ export async function lerLancamentosDaPlaca(
   db: Pick<Database, "execute">,
   competencia: string,
   placa: string,
+  opcoes: { canal?: string | null } = {},
 ): Promise<
   {
     numdoc: string;
@@ -411,7 +255,7 @@ export async function lerLancamentosDaPlaca(
       LEFT JOIN source_file sf ON sf.id = ir.source_file_id
      WHERE l.competencia = ${competencia}::date
        AND l.placa = ${placa}
-       AND ${DOS_RUNS_ATIVOS}
+       AND ${dosRunsAtivos(opcoes.canal)}
      ORDER BY r.row_index
   `);
 

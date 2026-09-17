@@ -63,14 +63,67 @@ export interface UnidadeComFrota {
   quinzenas: number;
 }
 
+/**
+ * O que o servidor achou quando a tela mandou o escopo da lateral.
+ *
+ * `null` quando ninguém mandou escopo — a leitura de todas as unidades. Os dois
+ * estados de recusa não são falha de rede nem tela vazia: são o cadastro
+ * dizendo que não sabe de qual unidade esta tela seria, e cada um tem um
+ * conserto diferente. Ver `unidade-do-escopo.ts`, no api-server.
+ */
+export type EscopoDaSerie =
+  | { scopeHash: string; tipo: "RESOLVIDO"; unidadeId: string; nome: string }
+  | { scopeHash: string; tipo: "SEM_CADASTRO" }
+  | { scopeHash: string; tipo: "AMBIGUO"; nomes: string[] };
+
 export interface SerieDeAtivosEParados {
   recorte: {
     tipoDeOperacao: string | null;
     unidadeCodigo: string | null;
     limite: number;
   };
+  escopo: EscopoDaSerie | null;
   unidades: UnidadeComFrota[];
   quinzenas: QuinzenaDaFrota[];
+}
+
+/**
+ * A frase da recusa de escopo — o problema e o conserto, numa tela só.
+ *
+ * Mora aqui, e não no JSX, pela razão de sempre neste arquivo: é o que se testa
+ * sem montar componente. E é texto que precisa ser conferido, porque ele manda
+ * alguém fazer alguma coisa — a mesma exigência que `cadastro-porta.ts` faz dos
+ * diagnósticos dele.
+ */
+export function recusaDoEscopo(
+  escopo: EscopoDaSerie | null,
+  unidade: string | null,
+): { problema: string; conserto: string } | null {
+  if (escopo === null || escopo.tipo === "RESOLVIDO") return null;
+  const nome = unidade ?? "esta unidade";
+
+  if (escopo.tipo === "AMBIGUO") {
+    return {
+      problema:
+        `Mais de uma unidade cadastrada responde por ${nome}: ` +
+        `${escopo.nomes.join(", ")}. A série não é desenhada porque não se sabe ` +
+        "de qual delas ela seria.",
+      conserto:
+        "Dois cadastros de Remuneração do mesmo escopo foram associados a " +
+        "unidades diferentes. Abra Remuneração → Unidades e deixe uma só " +
+        "associação de pé.",
+    };
+  }
+
+  return {
+    problema:
+      `${nome} não está associada a nenhuma unidade cadastrada, e o Fechamento ` +
+      "endereça a frota pela unidade — não pelo nome que a planilha traz.",
+    conserto:
+      "Associe o cadastro de Remuneração desta unidade à unidade cadastrada, em " +
+      "Remuneração → Unidades. Enquanto isso, a soma de todas as unidades " +
+      "continua disponível na Visão Geral.",
+  };
 }
 
 /** As janelas que a tela oferece, em quinzenas. Seis é o trimestre. */
@@ -100,6 +153,30 @@ export function rotuloLongo(q: {
   quinzena: number;
 }): string {
   return `${MES_CURTO[q.mes - 1]}/${q.ano}, ${q.quinzena}ª quinzena`;
+}
+
+/**
+ * O rótulo por extenso de uma **chave** de competência — `2026-07-Q1`.
+ *
+ * `rotuloLongo`, acima, parte de ano/mês/quinzena já separados, e é o que a
+ * série traz em toda quinzena. A variação não: ela nomeia com que competência
+ * comparou (`variacao.contra`) e o que ela carrega é a chave crua, que é a
+ * identidade da competência no produto inteiro — e era ela que a manchete
+ * imprimia, "variação contra 2026-07-Q1" debaixo de uma tabela que escreve
+ * `jul/2026, 1ª quinzena` na linha de baixo.
+ *
+ * **Uma chave que não se lê volta como está**, e é a única saída honesta: o mês
+ * fora de 1..12, o texto em outro formato, a chave vazia. Inventar um mês a
+ * partir de um `NaN` escreveria `undefined/2026` na tela — pior do que a chave
+ * crua, que ao menos é verdadeira e endereça a competência.
+ */
+export function rotuloDaChave(chave: string): string {
+  const partes = /^(\d{4})-(\d{2})-Q([12])$/.exec(chave);
+  if (!partes) return chave;
+  const [, ano, mes, quinzena] = partes;
+  const nome = MES_CURTO[Number(mes) - 1];
+  if (!nome) return chave;
+  return `${nome}/${ano}, ${quinzena}ª quinzena`;
 }
 
 /** O número, ou o travessão da ausência. Nunca um zero no lugar de "não sei". */

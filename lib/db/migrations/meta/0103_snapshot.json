@@ -1,5 +1,5 @@
 {
-  "id": "3b4acfb9-bde5-4cf3-8fa7-99c019aa4c7a",
+  "id": "cd0c8220-232f-46de-be3f-402f2415ff29",
   "prevId": "d5aa56b8-1f41-4453-87c3-a9ff51d28175",
   "version": "7",
   "dialect": "postgresql",
@@ -444,24 +444,6 @@
         "declared_period": {
           "name": "declared_period",
           "type": "date",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "declared_granularity": {
-          "name": "declared_granularity",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "declared_competence": {
-          "name": "declared_competence",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "declared_unidade": {
-          "name": "declared_unidade",
-          "type": "text",
           "primaryKey": false,
           "notNull": false
         },
@@ -2601,12 +2583,6 @@
           "type": "date",
           "primaryKey": false,
           "notNull": true
-        },
-        "granularidade": {
-          "name": "granularidade",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
         },
         "scope_hash": {
           "name": "scope_hash",
@@ -11152,6 +11128,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "lote_id": {
+          "name": "lote_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "criado_por": {
           "name": "criado_por",
           "type": "text",
@@ -11196,6 +11178,21 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "justificativa_lote_idx": {
+          "name": "justificativa_lote_idx",
+          "columns": [
+            {
+              "expression": "lote_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -11218,6 +11215,137 @@
           "tableTo": "change",
           "columnsFrom": [
             "change_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "justificativa_lote_id_justificativa_lote_id_fk": {
+          "name": "justificativa_lote_id_justificativa_lote_id_fk",
+          "tableFrom": "justificativa",
+          "tableTo": "justificativa_lote",
+          "columnsFrom": [
+            "lote_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.justificativa_lote": {
+      "name": "justificativa_lote",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "change_set_id": {
+          "name": "change_set_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "escopo": {
+          "name": "escopo",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "recorte": {
+          "name": "recorte",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "descricao": {
+          "name": "descricao",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "alteracoes_no_universo": {
+          "name": "alteracoes_no_universo",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "aplicadas": {
+          "name": "aplicadas",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "preservadas": {
+          "name": "preservadas",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "sobrescritas": {
+          "name": "sobrescritas",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "sobrescrever": {
+          "name": "sobrescrever",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "criado_por": {
+          "name": "criado_por",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "criado_em": {
+          "name": "criado_em",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "justificativa_lote_change_set_idx": {
+          "name": "justificativa_lote_change_set_idx",
+          "columns": [
+            {
+              "expression": "change_set_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "justificativa_lote_change_set_id_change_set_id_fk": {
+          "name": "justificativa_lote_change_set_id_change_set_id_fk",
+          "tableFrom": "justificativa_lote",
+          "tableTo": "change_set",
+          "columnsFrom": [
+            "change_set_id"
           ],
           "columnsTo": [
             "id"
@@ -14856,449 +14984,6 @@
           "columns": [
             {
               "expression": "normalizado_em",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {},
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.finame_real_lancamento": {
-      "name": "finame_real_lancamento",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "bigserial",
-          "primaryKey": true,
-          "notNull": true
-        },
-        "import_run_id": {
-          "name": "import_run_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "raw_row_id": {
-          "name": "raw_row_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "snapshot_id": {
-          "name": "snapshot_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "fact_id": {
-          "name": "fact_id",
-          "type": "bigint",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "competencia": {
-          "name": "competencia",
-          "type": "date",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "placa": {
-          "name": "placa",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "placa_raw": {
-          "name": "placa_raw",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "entity_type": {
-          "name": "entity_type",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "entity_id": {
-          "name": "entity_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "numdoc": {
-          "name": "numdoc",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "codfil": {
-          "name": "codfil",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "serie": {
-          "name": "serie",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "tipdoc": {
-          "name": "tipdoc",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "conta_analitica": {
-          "name": "conta_analitica",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "conta_analitica_codigo": {
-          "name": "conta_analitica_codigo",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "conta_sintetica": {
-          "name": "conta_sintetica",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "conta_sintetica_codigo": {
-          "name": "conta_sintetica_codigo",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "codvei": {
-          "name": "codvei",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "datatu": {
-          "name": "datatu",
-          "type": "timestamp",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "situac": {
-          "name": "situac",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "valor_absoluto": {
-          "name": "valor_absoluto",
-          "type": "numeric(18, 6)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "valor_original": {
-          "name": "valor_original",
-          "type": "numeric(18, 6)",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "rubrica": {
-          "name": "rubrica",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "chave_contabil_hash": {
-          "name": "chave_contabil_hash",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "grupo_hash": {
-          "name": "grupo_hash",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "motivo": {
-          "name": "motivo",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "finame_real_lancamento_row_uq": {
-          "name": "finame_real_lancamento_row_uq",
-          "columns": [
-            {
-              "expression": "import_run_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "raw_row_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "finame_real_lancamento_run_idx": {
-          "name": "finame_real_lancamento_run_idx",
-          "columns": [
-            {
-              "expression": "import_run_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "finame_real_lancamento_snapshot_idx": {
-          "name": "finame_real_lancamento_snapshot_idx",
-          "columns": [
-            {
-              "expression": "snapshot_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "finame_real_lancamento_fact_idx": {
-          "name": "finame_real_lancamento_fact_idx",
-          "columns": [
-            {
-              "expression": "fact_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "finame_real_lancamento_placa_idx": {
-          "name": "finame_real_lancamento_placa_idx",
-          "columns": [
-            {
-              "expression": "placa",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "competencia",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "finame_real_lancamento_status_idx": {
-          "name": "finame_real_lancamento_status_idx",
-          "columns": [
-            {
-              "expression": "status",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "competencia",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "finame_real_lancamento_raw_row_idx": {
-          "name": "finame_real_lancamento_raw_row_idx",
-          "columns": [
-            {
-              "expression": "raw_row_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "finame_real_lancamento_import_run_id_import_run_id_fk": {
-          "name": "finame_real_lancamento_import_run_id_import_run_id_fk",
-          "tableFrom": "finame_real_lancamento",
-          "tableTo": "import_run",
-          "columnsFrom": [
-            "import_run_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "finame_real_lancamento_raw_row_id_raw_row_id_fk": {
-          "name": "finame_real_lancamento_raw_row_id_raw_row_id_fk",
-          "tableFrom": "finame_real_lancamento",
-          "tableTo": "raw_row",
-          "columnsFrom": [
-            "raw_row_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
-        "finame_real_lancamento_snapshot_id_snapshot_id_fk": {
-          "name": "finame_real_lancamento_snapshot_id_snapshot_id_fk",
-          "tableFrom": "finame_real_lancamento",
-          "tableTo": "snapshot",
-          "columnsFrom": [
-            "snapshot_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "finame_real_lancamento_fact_id_fact_id_fk": {
-          "name": "finame_real_lancamento_fact_id_fact_id_fk",
-          "tableFrom": "finame_real_lancamento",
-          "tableTo": "fact",
-          "columnsFrom": [
-            "fact_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "policies": {},
-      "checkConstraints": {},
-      "isRLSEnabled": false
-    },
-    "public.financiamento_real_decisao": {
-      "name": "financiamento_real_decisao",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "tipo": {
-          "name": "tipo",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "chave": {
-          "name": "chave",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "valor": {
-          "name": "valor",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "motivo": {
-          "name": "motivo",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "decidido_por": {
-          "name": "decidido_por",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "decidido_em": {
-          "name": "decidido_em",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "financiamento_real_decisao_chave_idx": {
-          "name": "financiamento_real_decisao_chave_idx",
-          "columns": [
-            {
-              "expression": "tipo",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "chave",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            },
-            {
-              "expression": "decidido_em",
               "isExpression": false,
               "asc": true,
               "nulls": "last"

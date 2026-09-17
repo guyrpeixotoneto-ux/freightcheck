@@ -68,6 +68,12 @@ export function useTextoAdiado(texto: string, espera = ESPERA_DA_BUSCA_MS) {
  *
  * Pneu e Consumo entraram com a separação da Manutenção, e são de trecho pela
  * mesma razão: o pneu e o diesel com dado deste acervo são do percurso.
+ *
+ * Alterações por Módulo é a única cujo `para` **não é um id de vigência**: o
+ * seletor mestre daquela tela oferece datas, porque as quatro coberturas têm
+ * ids diferentes para a mesma quinzena. Para este hook isso não muda nada — ele
+ * põe o `para` na querystring e na chave da consulta —, e para a rota muda
+ * tudo, que é onde a diferença está documentada.
  */
 export type TelaComCandidatas =
   | "finame"
@@ -85,7 +91,8 @@ export type TelaComCandidatas =
   | "consumo"
   | "velocidade-media"
   | "tma"
-  | "qlp";
+  | "qlp"
+  | "alteracoes-por-modulo";
 
 /**
  * Quanto se espera entre uma rodada e a seguinte enquanto ainda há pendente.

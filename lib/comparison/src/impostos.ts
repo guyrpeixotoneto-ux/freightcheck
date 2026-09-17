@@ -75,10 +75,12 @@
 
 import {
   chaveDoVeiculo,
+  ehEntradaOuSaidaDoGrao,
   estadoDaAlteracao,
   GRAVIDADE,
   numero,
   ROTULO_DO_ESTADO,
+  TIPOS_DE_EQUIPAMENTO,
   type AlteracaoDoMotor,
   type EstadoDaLinha,
   type MedidaDaVariavel,
@@ -409,7 +411,7 @@ export function linhaDeImpostosDaAlteracao(a: AlteracaoDoMotor): LinhaDeImpostos
     seria esconder a metade mais visível do que mudou na frota.
   */
   if (!variavel) {
-    if (a.changeType !== "ENTITY_ADDED" && a.changeType !== "ENTITY_REMOVED") return null;
+    if (!ehEntradaOuSaidaDoGrao(a, TIPOS_DE_EQUIPAMENTO)) return null;
     return {
       id: a.id ?? null,
       entityLabel: a.entityLabel,
@@ -1428,4 +1430,95 @@ export function agruparPorVeiculoDeImpostos(
   linhas: readonly LinhaDeImpostos[],
 ): VeiculoDeImpostos[] {
   return agruparVeiculos(linhas, AGRUPAMENTO_DE_IMPOSTOS);
+}
+
+// ---------------------------------------------------------------------------
+// O recorte da tela — e por que ele mora aqui
+// ---------------------------------------------------------------------------
+
+/**
+ * Os filtros da Auditoria de Impostos — o que as caixas acima da tabela
+ * recortam.
+ *
+ * Eles nasceram em `lib/impostos.ts`, do lado da interface, e era o lugar certo
+ * enquanto o recorte só precisava produzir uma tabela. Deixou de ser quando a
+ * justificativa em lote passou a poder dizer "todos os resultados deste
+ * filtro": ali o cliente manda **o filtro**, e não milhares de ids, e é o
+ * servidor que reabre o universo para saber o que está gravando — com a mesma
+ * função, e não com uma segunda escrita da mesma regra.
+ */
+export type FiltrosDeImpostos = {
+  busca: string;
+  /** `TODOS`, ou um `entity_type` — o recorte de equipamento. */
+  tipo: string;
+  /**
+   * O tributo — e ele é filtro, e não coluna secundária.
+   *
+   * ICMS e PIS/COFINS não somam entre si, e a pergunta de quem audita é quase
+   * sempre sobre um dos dois.
+   */
+  tributo: "TODOS" | Tributo;
+  /** `TODAS`, ou a chave da variável. */
+  variavel: string;
+  estado: "TODAS" | EstadoDaLinhaDeImpostos;
+  /** Só as alíquotas declaradas — as linhas que nunca viram dinheiro. */
+  soAliquotas: boolean;
+}
+
+export const FILTROS_DE_IMPOSTOS_VAZIOS: FiltrosDeImpostos = {
+  busca: "",
+  tipo: "TODOS",
+  tributo: "TODOS",
+  variavel: "TODAS",
+  estado: "TODAS",
+  soAliquotas: false,
+};
+
+/** Os dois tributos, para validar o que chega de fora. */
+const TRIBUTOS_DA_RUBRICA: Tributo[] = ["ICMS", "PIS_COFINS"];
+
+/**
+ * O recorte da tabela — o mesmo que alimenta a contagem das abas, o CSV e o
+ * universo do lote.
+ */
+export function filtrarLinhasDeImpostos(
+  linhas: readonly LinhaDeImpostos[],
+  filtros: FiltrosDeImpostos,
+): LinhaDeImpostos[] {
+  const busca = filtros.busca.trim().toLowerCase();
+  return linhas.filter((l) => {
+    if (filtros.estado !== "TODAS" && l.estado !== filtros.estado) return false;
+    if (filtros.tipo !== "TODOS" && l.entityType !== filtros.tipo) return false;
+    if (filtros.tributo !== "TODOS" && l.tributo !== filtros.tributo) return false;
+    if (filtros.variavel !== "TODAS" && l.variavel !== filtros.variavel) return false;
+    if (filtros.soAliquotas && l.papel !== "ALIQUOTA") return false;
+    if (busca) {
+      const alvo = `${l.entityLabel ?? ""} ${l.rotuloDaVariavel}`.toLowerCase();
+      if (!alvo.includes(busca)) return false;
+    }
+    return true;
+  });
+}
+
+/** Os filtros como o corpo de uma requisição os traz — nunca confiados como chegam. */
+export function lerFiltrosDeImpostos(bruto: unknown): FiltrosDeImpostos {
+  const objeto = (bruto ?? {}) as Record<string, unknown>;
+  const texto = (chave: string, padrao: string): string =>
+    typeof objeto[chave] === "string" ? (objeto[chave] as string) : padrao;
+  const estado = texto("estado", "TODAS");
+  const tributo = texto("tributo", "TODOS");
+  return {
+    ...FILTROS_DE_IMPOSTOS_VAZIOS,
+    busca: texto("busca", ""),
+    tipo: texto("tipo", "TODOS"),
+    tributo: TRIBUTOS_DA_RUBRICA.includes(tributo as Tributo)
+      ? (tributo as Tributo)
+      : "TODOS",
+    variavel: texto("variavel", "TODAS"),
+    estado:
+      estado === "TODAS" || GRAVIDADE.includes(estado as EstadoDaLinhaDeImpostos)
+        ? (estado as FiltrosDeImpostos["estado"])
+        : "TODAS",
+    soAliquotas: objeto.soAliquotas === true,
+  };
 }

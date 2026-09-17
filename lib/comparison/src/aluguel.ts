@@ -41,10 +41,12 @@
 
 import {
   chaveDoVeiculo,
+  ehEntradaOuSaidaDoGrao,
   estadoDaAlteracao,
   GRAVIDADE,
   numero,
   ROTULO_DO_ESTADO,
+  TIPOS_DE_EQUIPAMENTO,
   type EstadoDaLinha,
   type MedidaDaVariavel,
   type AlteracaoDoMotor,
@@ -254,7 +256,7 @@ export function linhaDeAluguelDaAlteracao(a: AlteracaoDoMotor): LinhaDeAluguel |
     /* Entrada e saída de ativo não citam atributo: o motor as grava uma vez por
        veículo. Nesta rubrica elas importam duas vezes — um implemento alugado
        que entra traz um custo mensal novo, e um que sai leva embora um. */
-    if (a.changeType !== "ENTITY_ADDED" && a.changeType !== "ENTITY_REMOVED") return null;
+    if (!ehEntradaOuSaidaDoGrao(a, TIPOS_DE_EQUIPAMENTO)) return null;
     return {
       id: a.id ?? null,
       entityLabel: a.entityLabel,
@@ -839,4 +841,133 @@ export function agruparPorVeiculoDeAluguel(
   linhas: readonly LinhaDeAluguel[],
 ): VeiculoDeAluguel[] {
   return agruparVeiculos(linhas, AGRUPAMENTO_DE_ALUGUEL);
+}
+
+// ---------------------------------------------------------------------------
+// O recorte da tela — e por que ele mora aqui
+// ---------------------------------------------------------------------------
+
+/**
+ * Os filtros da Auditoria de Aluguel — o que as caixas acima da tabela
+ * recortam.
+ *
+ * Eles nasceram em `lib/aluguel.ts`, do lado da interface, e era o lugar certo
+ * enquanto o recorte só precisava produzir uma tabela. Deixou de ser quando a
+ * justificativa em lote passou a poder dizer "todos os resultados deste
+ * filtro": ali o cliente manda **o filtro**, e não milhares de ids, e é o
+ * servidor que reabre o universo para saber o que está gravando.
+ *
+ * Reabri-lo com uma segunda escrita da mesma regra seria a pior versão disto:
+ * as duas concordariam no dia em que fossem escritas e discordariam no
+ * seguinte — e a discordância apareceria como uma justificativa gravada em
+ * linhas que quem clicou nunca viu em tela.
+ */
+export type FiltrosDeAluguel = {
+  busca: string;
+  /** `TODOS`, ou um `entity_type` — o recorte de equipamento. */
+  tipo: string;
+  /** `TODAS`, ou a chave da variável. */
+  variavel: string;
+  estado: "TODAS" | EstadoDaLinhaDeAluguel;
+  /**
+   * Só os implementos que declaram aluguel.
+   *
+   * É o filtro que esta tela não pode não ter: a frota alugada é uma minoria
+   * dentro da frota lida, e sem ele a lista mistura as placas que interessam
+   * com as dezenas que só têm a parcela FINAME do financiamento delas.
+   */
+  soAlugados: boolean;
+}
+
+/**
+ * Ligado por padrão — e é o único filtro do produto que começa recortando.
+ *
+ * A tela é da frota alugada; abri-la na frota inteira mostraria centenas de
+ * placas que não têm aluguel nenhum, e a pergunta da tela se perderia na
+ * primeira rolagem.
+ */
+export const FILTROS_DE_ALUGUEL_VAZIOS: FiltrosDeAluguel = {
+  busca: "",
+  tipo: "TODOS",
+  variavel: "TODAS",
+  estado: "TODAS",
+  soAlugados: true,
+};
+
+/**
+ * Esta linha é de um implemento que declara aluguel?
+ *
+ * Olha as duas pontas: uma placa que **deixou** de ter aluguel continua sendo
+ * assunto desta tela, e escondê-la sob o filtro faria sumir justamente a
+ * alteração mais cara que a rubrica pode ter.
+ */
+export function temAluguelDeclarado(l: LinhaDeAluguel): boolean {
+  if (l.variavel !== "aluguel" && l.variavel !== "aluguel_cavalo") return false;
+  return (numero(l.base) ?? 0) > 0 || (numero(l.comparada) ?? 0) > 0;
+}
+
+/**
+ * O recorte da tabela — o mesmo que alimenta a contagem das abas, o CSV e o
+ * universo do lote.
+ *
+ * O filtro dos alugados é **por placa**, e não por linha: uma placa que declara
+ * aluguel entra com todas as variáveis dela, porque a pergunta de quem liga o
+ * alternador é "o que aconteceu nos implementos alugados", e não "onde a
+ * variável aluguel mudou".
+ */
+export function filtrarLinhasDeAluguel(
+  linhas: readonly LinhaDeAluguel[],
+  filtros: FiltrosDeAluguel,
+): LinhaDeAluguel[] {
+  const busca = filtros.busca.trim().toLowerCase();
+
+  const placasAlugadas = new Set<string>();
+  if (filtros.soAlugados) {
+    for (const l of linhas) {
+      if (temAluguelDeclarado(l)) placasAlugadas.add(`${l.entityLabel}${l.entityType}`);
+    }
+  }
+
+  return linhas.filter((l) => {
+    if (filtros.estado !== "TODAS" && l.estado !== filtros.estado) return false;
+    if (filtros.tipo !== "TODOS" && l.entityType !== filtros.tipo) return false;
+    if (filtros.variavel !== "TODAS" && l.variavel !== filtros.variavel) return false;
+    if (filtros.soAlugados && !placasAlugadas.has(`${l.entityLabel}${l.entityType}`)) {
+      return false;
+    }
+    if (busca) {
+      const alvo = `${l.entityLabel ?? ""} ${l.rotuloDaVariavel}`.toLowerCase();
+      if (!alvo.includes(busca)) return false;
+    }
+    return true;
+  });
+}
+
+/**
+ * Os filtros como o corpo de uma requisição os traz — nunca confiados como
+ * chegam.
+ *
+ * `soAlugados` é lido **na presença da chave**, e não por `=== true`: o padrão
+ * desta rubrica é ligado, e tratar a ausência como `false` faria um corpo
+ * omisso abrir o universo para a frota inteira — o oposto do que a tela mostra.
+ */
+export function lerFiltrosDeAluguel(bruto: unknown): FiltrosDeAluguel {
+  const objeto = (bruto ?? {}) as Record<string, unknown>;
+  const texto = (chave: string, padrao: string): string =>
+    typeof objeto[chave] === "string" ? (objeto[chave] as string) : padrao;
+  const estado = texto("estado", "TODAS");
+  return {
+    ...FILTROS_DE_ALUGUEL_VAZIOS,
+    busca: texto("busca", ""),
+    tipo: texto("tipo", "TODOS"),
+    variavel: texto("variavel", "TODAS"),
+    estado:
+      estado === "TODAS" || GRAVIDADE.includes(estado as EstadoDaLinhaDeAluguel)
+        ? (estado as FiltrosDeAluguel["estado"])
+        : "TODAS",
+    soAlugados:
+      typeof objeto.soAlugados === "boolean"
+        ? objeto.soAlugados
+        : FILTROS_DE_ALUGUEL_VAZIOS.soAlugados,
+  };
 }

@@ -11,6 +11,7 @@ import {
   type QuadroDeQlp,
   type ResumoDaComparacaoDeQlp,
 } from "@workspace/comparison/qlp-comparacao";
+import { UNIDADE_DA_MEDIDA } from "@workspace/comparison/recorte-de-rubrica";
 import { numeroParaCsv } from "@/lib/csv";
 import { formatBrl, formatNumber } from "@/lib/format";
 import { separarRotulo, type RotuloDaEntidade } from "@/components/qlp/apresentacao";
@@ -266,6 +267,79 @@ export function escreverRubrica(rubrica: string | null): string {
   return ROTULO_DA_RUBRICA[rubrica] ?? rubrica.replace(/_/g, " ");
 }
 
+/** Uma variável e as linhas dela — o conteúdo de um cartão da tabela. */
+export interface GrupoDeVariavel {
+  variavel: string;
+  rotulo: string;
+  medida: MedidaDaVariavel;
+  /**
+   * O aviso do que não entra em soma, quando a variável é subtotal. Aqui ele é
+   * do **grupo**, e não da linha: é a mesma frase em todas elas.
+   */
+  foraDaSoma: string | null;
+  linhas: LinhaDeQlpComparado[];
+}
+
+/**
+ * As linhas em grupos de uma variável cada — a forma que a tabela lê.
+ *
+ * A ordem dos grupos não é escolhida aqui: ela vem de `ordem`, que é o
+ * `alteracoesPorVariavel` da própria resposta — da variável mais alterada para
+ * a menos, como o gráfico ao lado já a desenha. Uma segunda ordenação escrita
+ * na tela concordaria com aquele gráfico no dia em que fosse escrita.
+ *
+ * Dentro do grupo a ordem das linhas **não se mexe**: é a que chegou, por
+ * diferença, e é ela que responde "o que mais mudou nesta variável".
+ *
+ * Uma variável que `ordem` não conhece vai para o fim em vez de sumir: um grupo
+ * escondido por não estar num catálogo é uma alteração que a tela deixou de
+ * mostrar, e isso é pior do que uma ordem estranha.
+ */
+export function agruparPorVariavel(
+  linhas: LinhaDeQlpComparado[],
+  ordem: readonly AlteracoesDaVariavelDeQlp[],
+): GrupoDeVariavel[] {
+  const grupos = new Map<string, GrupoDeVariavel>();
+  for (const linha of linhas) {
+    const grupo = grupos.get(linha.variavel);
+    if (grupo) {
+      grupo.linhas.push(linha);
+      continue;
+    }
+    grupos.set(linha.variavel, {
+      variavel: linha.variavel,
+      rotulo: linha.rotuloDaVariavel,
+      medida: linha.medida,
+      foraDaSoma: linha.foraDaSoma,
+      linhas: [linha],
+    });
+  }
+  const posicao = new Map(ordem.map((v, i) => [v.variavel, i]));
+  const noFim = ordem.length;
+  return [...grupos.values()].sort(
+    (a, b) =>
+      (posicao.get(a.variavel) ?? noFim) - (posicao.get(b.variavel) ?? noFim) ||
+      a.rotulo.localeCompare(b.rotulo, "pt-BR"),
+  );
+}
+
+/**
+ * O texto do motor em pedaços, com o que ele enfatizou marcado.
+ *
+ * As frases de `foraDaSoma` grifam a palavra que carrega a distinção — "o abono
+ * **subtraído**", que é o que separa dois subtotais de nome quase igual. Num
+ * tooltip os asteriscos passavam despercebidos; no cabeçalho de um cartão eles
+ * ficam à vista, e aí ou se escreve a ênfase ou se apaga a distinção. Só
+ * `**…**`, que é o que o catálogo usa: isto não é um renderizador de Markdown,
+ * e não deve virar um.
+ */
+export function pedacosEnfatizados(texto: string): { texto: string; forte: boolean }[] {
+  return texto
+    .split(/\*\*(.+?)\*\*/s)
+    .map((pedaco, i) => ({ texto: pedaco, forte: i % 2 === 1 }))
+    .filter((p) => p.texto !== "");
+}
+
 export interface FiltrosDeComparacaoDeQlp {
   busca: string;
   variavel: string;
@@ -344,5 +418,5 @@ export function linhasDoCsv(
   ];
 }
 
-export { ROTULO_DO_ESTADO };
-export type { LinhaDeQlpComparado, EstadoDaLinha, QuadroDeQlp };
+export { ROTULO_DO_ESTADO, UNIDADE_DA_MEDIDA };
+export type { LinhaDeQlpComparado, EstadoDaLinha, MedidaDaVariavel, QuadroDeQlp };

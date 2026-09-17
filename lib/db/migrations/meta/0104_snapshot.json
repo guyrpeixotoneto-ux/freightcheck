@@ -1,6 +1,6 @@
 {
-  "id": "da10790e-f728-4cc1-b861-d6f343f400f5",
-  "prevId": "3b4acfb9-bde5-4cf3-8fa7-99c019aa4c7a",
+  "id": "cc4f9488-2edb-450b-a8fa-89b428586f3a",
+  "prevId": "cd0c8220-232f-46de-be3f-402f2415ff29",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -11152,6 +11152,12 @@
           "primaryKey": false,
           "notNull": false
         },
+        "lote_id": {
+          "name": "lote_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "criado_por": {
           "name": "criado_por",
           "type": "text",
@@ -11196,6 +11202,21 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "justificativa_lote_idx": {
+          "name": "justificativa_lote_idx",
+          "columns": [
+            {
+              "expression": "lote_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
       "foreignKeys": {
@@ -11218,6 +11239,137 @@
           "tableTo": "change",
           "columnsFrom": [
             "change_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "justificativa_lote_id_justificativa_lote_id_fk": {
+          "name": "justificativa_lote_id_justificativa_lote_id_fk",
+          "tableFrom": "justificativa",
+          "tableTo": "justificativa_lote",
+          "columnsFrom": [
+            "lote_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.justificativa_lote": {
+      "name": "justificativa_lote",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "change_set_id": {
+          "name": "change_set_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "escopo": {
+          "name": "escopo",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "recorte": {
+          "name": "recorte",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "descricao": {
+          "name": "descricao",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "alteracoes_no_universo": {
+          "name": "alteracoes_no_universo",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "aplicadas": {
+          "name": "aplicadas",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "preservadas": {
+          "name": "preservadas",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "sobrescritas": {
+          "name": "sobrescritas",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "sobrescrever": {
+          "name": "sobrescrever",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "criado_por": {
+          "name": "criado_por",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "criado_em": {
+          "name": "criado_em",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "justificativa_lote_change_set_idx": {
+          "name": "justificativa_lote_change_set_idx",
+          "columns": [
+            {
+              "expression": "change_set_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "justificativa_lote_change_set_id_change_set_id_fk": {
+          "name": "justificativa_lote_change_set_id_change_set_id_fk",
+          "tableFrom": "justificativa_lote",
+          "tableTo": "change_set",
+          "columnsFrom": [
+            "change_set_id"
           ],
           "columnsTo": [
             "id"

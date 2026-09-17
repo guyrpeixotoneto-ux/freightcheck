@@ -3,6 +3,7 @@ import type { LinhaDeAquisicao, VeiculoDeAquisicao } from "@workspace/comparison
 import {
   TabelaPorVeiculo,
   type EscritaDaRubrica,
+  type SelecaoEmLote,
 } from "@/components/comparacao/tabela-por-veiculo";
 import type { AbrirJustificativa } from "@/components/justificativas/coluna";
 import type { Justificativa } from "@/lib/justificativas";
@@ -60,12 +61,15 @@ export const ESCRITA_DA_AQUISICAO: EscritaDaRubrica<LinhaDeAquisicao, VeiculoDeA
 export function TabelaDeAquisicao({
   veiculos,
   justificadaPor,
+  selecao,
   onAbrir,
   onJustificar,
 }: {
   veiculos: VeiculoDeAquisicao[];
   /** A justificativa mais recente de cada alteração, por `change.id`. */
   justificadaPor?: ReadonlyMap<number, Justificativa>;
+  /** Ausente, a tabela é a de sempre — o modo em lote desligado. */
+  selecao?: SelecaoEmLote;
   onAbrir: (veiculo: { entityLabel: string | null; entityType: string }) => void;
   /** Ausente, a coluna fica só de leitura. */
   onJustificar?: AbrirJustificativa;
@@ -75,6 +79,7 @@ export function TabelaDeAquisicao({
       veiculos={veiculos}
       escrita={ESCRITA_DA_AQUISICAO}
       justificadaPor={justificadaPor}
+      selecao={selecao}
       onAbrir={onAbrir}
       onJustificar={onJustificar}
     />

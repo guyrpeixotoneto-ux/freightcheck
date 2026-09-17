@@ -1,10 +1,19 @@
 import {
-  formamParDeVigencias,
   motivoSemPar,
   parDePartida,
   type MotivoSemPar,
   type VigenciaEmparelhavel,
 } from "@workspace/comparison/recorte-de-rubrica";
+import {
+  MESTRE_VAZIO,
+  coberturasQueSeguem,
+  datasDoAcervo,
+  inverterMestre,
+  mestreCompleto,
+  parNaCobertura,
+  type ListasDoCatalogo,
+  type ParMestre,
+} from "@workspace/comparison/par-mestre";
 import type { CoberturaDoCatalogo } from "@workspace/comparison/alteracoes-por-modulo";
 import { COBERTURAS, type ParEscolhido, type ParesDoCatalogo } from "@/lib/alteracoes-por-modulo";
 
@@ -53,78 +62,28 @@ import { COBERTURAS, type ParEscolhido, type ParesDoCatalogo } from "@/lib/alter
  * divergentes, abre exatamente como abria — e a tela diz quais divergem.
  */
 
-/** O par mestre: duas datas de vigência (`YYYY-MM-DD`), ou vazias. */
-export type ParMestre = { de: string; para: string };
+/*
+  O que é do domínio ficou no domínio — e segue saindo por aqui.
 
-export const MESTRE_VAZIO: ParMestre = { de: "", para: "" };
+  `parNaCobertura`, `datasDoAcervo` e as suas vizinhas desceram para
+  `@workspace/comparison/par-mestre` no dia em que a rota de candidatas do
+  catálogo passou a precisar delas: o número ao lado de uma data tem de ser
+  apurado contra **os mesmos ids** que o clique naquela data escreve no
+  endereço, e duas traduções de data para id divergiriam no primeiro ajuste que
+  alguém fizesse numa e esquecesse na outra.
 
-/** As vigências que cada cobertura oferece — o que a página já monta. */
-export type ListasDoCatalogo<T extends VigenciaEmparelhavel = VigenciaEmparelhavel> = Record<
-  CoberturaDoCatalogo,
-  readonly T[]
->;
-
-/** O mestre está completo — duas pontas, e distintas. */
-export function mestreCompleto(mestre: ParMestre): boolean {
-  return Boolean(mestre.de) && Boolean(mestre.para) && mestre.de !== mestre.para;
-}
-
-/** Trocar as pontas do mestre é trocar as pontas de cada cobertura que o segue. */
-export function inverterMestre(mestre: ParMestre): ParMestre {
-  return { de: mestre.para, para: mestre.de };
-}
-
-/**
- * Todas as datas do acervo, das quatro listas, uma vez cada — da mais nova para
- * a mais velha.
- *
- * É o que o seletor mestre oferece, e é de propósito que ele seja a **união** e
- * não a interseção: a interseção esconderia a quinzena que só o QLP tem, e
- * escolher por ela é um gesto legítimo — as coberturas que não a têm ficam com
- * o par delas, que é justamente o que a tela sabe dizer.
- */
-export function datasDoAcervo(listas: ListasDoCatalogo): string[] {
-  const datas = new Set<string>();
-  for (const cobertura of COBERTURAS) {
-    for (const v of listas[cobertura]) datas.add(v.effectiveDate);
-  }
-  return [...datas].sort((a, b) => b.localeCompare(a));
-}
-
-/**
- * O par do mestre traduzido para os ids de uma cobertura — `null` quando ela
- * não o forma.
- *
- * Uma data pode ter mais de uma vigência na mesma lista (a lista do QLP não é
- * recortada por unidade), então o teste não é "achei as duas datas": é achar o
- * primeiro par de vigências dessas duas datas que o motor aceita
- * (`formamParDeVigencias`, que exige mesma unidade e coberturas que se falam).
- * Nenhum par sai daqui sem passar por essa régua.
- */
-export function parNaCobertura(
-  lista: readonly VigenciaEmparelhavel[],
-  mestre: ParMestre,
-): ParEscolhido | null {
-  if (!mestreCompleto(mestre)) return null;
-  const des = lista.filter((v) => v.effectiveDate === mestre.de);
-  const paras = lista.filter((v) => v.effectiveDate === mestre.para);
-  for (const base of des) {
-    for (const comparada of paras) {
-      if (formamParDeVigencias(base, comparada)) {
-        return { base: base.id, comparada: comparada.id };
-      }
-    }
-  }
-  return null;
-}
-
-/** As coberturas que conseguem formar o par do mestre. */
-export function coberturasQueSeguem(
-  mestre: ParMestre,
-  listas: ListasDoCatalogo,
-): CoberturaDoCatalogo[] {
-  return COBERTURAS.filter((c) => parNaCobertura(listas[c], mestre) !== null);
-}
+  As reexportações mantêm intactos os imports desta metade da tela — quem lê
+  `@/lib/seletor-mestre` continua achando tudo no mesmo lugar.
+*/
+export {
+  MESTRE_VAZIO,
+  coberturasQueSeguem,
+  datasDoAcervo,
+  inverterMestre,
+  mestreCompleto,
+  parNaCobertura,
+};
+export type { ListasDoCatalogo, ParMestre };
 
 /**
  * O mestre escrito nos quatro pares — e **só** nos que o aceitam.

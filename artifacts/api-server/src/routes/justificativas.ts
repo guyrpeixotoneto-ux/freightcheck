@@ -1,7 +1,15 @@
 import { Router, type IRouter } from "express";
 import { and, desc, eq, inArray } from "drizzle-orm";
-import { db, changeTable, justificativaTable } from "@workspace/db";
 import {
+  db,
+  changeTable,
+  justificativaLoteTable,
+  justificativaTable,
+} from "@workspace/db";
+import {
+  estadoDaAlteracao,
+  getChangeSetForPair,
+  listChanges,
   autoresDeJustificativas,
   coberturaDeJustificativas,
   coberturaPorRubrica,
@@ -12,6 +20,13 @@ import {
   type DirecaoDoImpacto,
   type SituacaoDaJustificativa,
 } from "@workspace/comparison";
+import {
+  descreverEscopoDoLote,
+  lerEscopoDoLote,
+  repartirAlvosDoLote,
+  type EscopoDoLote,
+} from "@workspace/comparison/justificativa-em-lote";
+import { RECORTES_DO_LOTE } from "@workspace/comparison/recortes-do-lote";
 import {
   lerJustificativaEstruturada,
   resumoDaJustificativa,
@@ -395,5 +410,371 @@ router.post("/justificativas", async (req, res): Promise<void> => {
 
   res.status(201).json({ justificativas: [...inseridas, ...derivadas] });
 });
+
+/**
+ * JUSTIFICAR EM LOTE — a mesma frase, aplicada a várias alterações.
+ *
+ * ---------------------------------------------------------------------------
+ * Por que uma rota, e não um `changeIds` mais longo no POST de cima
+ * ---------------------------------------------------------------------------
+ * Porque o que chega aqui não é "uma justificativa com mais ids": é uma
+ * operação com **universo**, e um universo tem perguntas que a rota de cima não
+ * faz e não deveria fazer. Quantas das alterações do recorte já estavam
+ * explicadas? O que acontece com elas? Quem autorizou substituir? E, seis meses
+ * depois, o que exatamente aquela frase alcançou?
+ *
+ * O que **não** muda é o que uma justificativa é: continua uma linha por
+ * `change_id`, com o mesmo texto derivado no servidor, os mesmos campos
+ * estruturados cobrados pela mesma `lerJustificativaEstruturada`, o mesmo
+ * histórico (gravar de novo empilha, não edita) e a mesma dedução dos totais.
+ * É deliberado: uma segunda gravação com regras próprias seria uma
+ * justificativa de segunda classe, e a tela não teria como dizer qual é qual.
+ *
+ * ---------------------------------------------------------------------------
+ * O recorte, e não o retrato do recorte
+ * ---------------------------------------------------------------------------
+ * `escopo.tipo === "FILTRO"` é quem clicou em "Selecionar todos os N
+ * resultados". O corpo traz o filtro — busca, variável, aba, tipo, negativos —
+ * e **o servidor reabre o universo aqui**, com a mesma função que a tela usou
+ * para desenhar a tabela (`filtrarLinhasDeIpva`). Não é preciosismo de
+ * tamanho: a lista que o navegador tinha é um retrato de um instante, e é o
+ * recorte — não o retrato — que fica gravado em `justificativa_lote`.
+ *
+ * A guarda que sustenta isso é o par: o `changeSetId` tem de ser o da
+ * comparação de `base → comparada`. Sem ela, um filtro montado sobre um par e
+ * mandado com o id de outro gravaria a frase num universo que ninguém viu.
+ *
+ * ---------------------------------------------------------------------------
+ * O que o lote se recusa a fazer em silêncio
+ * ---------------------------------------------------------------------------
+ * **Não sobrescreve justificativa existente.** Por padrão elas são preservadas
+ * e contadas; a resposta diz quantas foram. Substituir é outra ação: pede
+ * `sobrescrever: true` — que a tela só manda depois de uma confirmação
+ * explícita — e pede papel de administrador, porque apagar da tela a decisão
+ * que outra pessoa tomou com o nome dela não é edição de rotina.
+ *
+ * **Não justifica o que não é alteração.** Conflito e dado incompleto são a
+ * recusa do motor em afirmar que houve alteração, e o que eles pedem é conserto
+ * de dado, não uma frase — a mesma regra da coluna de justificar, e por isso a
+ * mesma função (`estadoDaAlteracao`). Marcar a caixa da placa inteira não passa
+ * por cima disso.
+ */
+router.post("/justificativas/lote", async (req, res): Promise<void> => {
+  const changeSetId =
+    typeof req.body?.changeSetId === "string" ? req.body.changeSetId : undefined;
+  if (!changeSetId) {
+    res.status(400).json({ error: "changeSetId é obrigatório." });
+    return;
+  }
+  await exigirOperacaoDoRecurso(req, "comparação", changeSetId, () =>
+    operacaoDoChangeSet(db, changeSetId),
+  );
+
+  const lido = lerEscopoDoLote(req.body?.escopo, RECORTES_DO_LOTE);
+  if (!lido.ok) {
+    res.status(400).json({ error: lido.erro });
+    return;
+  }
+  const escopo = lido.valor;
+
+  const justificativaLida = lerJustificativaEstruturada(req.body);
+  if (!justificativaLida.ok) {
+    res.status(400).json({
+      error: `A justificativa está incompleta: ${justificativaLida.faltam
+        .map((campo) => ROTULO_DO_CAMPO[campo])
+        .join(", ")}.`,
+      faltam: justificativaLida.faltam,
+    });
+    return;
+  }
+  const justificativa = justificativaLida.valor;
+
+  const sobrescrever = req.body?.sobrescrever === true;
+  /*
+    Substituir é ato de administração, e não de auditoria.
+
+    O portão de permissão já recusa quem não tem edição no módulo — é ele que
+    decide quem justifica. O que ele não distingue é justificar do **apagar da
+    tela a justificativa de outra pessoa**, que é o que a substituição em lote
+    faz de uma vez em dezenas de linhas. A decisão de quem pode fazer isso é a
+    mesma que separa "quem gerencia contas" de "quem usa o produto" (ver
+    `lib/papeis.ts`), e é a única no produto com esse recorte.
+  */
+  if (sobrescrever && req.user?.role !== "ADMIN") {
+    res.status(403).json({
+      error:
+        "Substituir justificativas já gravadas é uma ação de administrador. " +
+        "Sem isso, o lote aplica a justificativa apenas às alterações ainda não justificadas.",
+    });
+    return;
+  }
+
+  const faseUniverso = iniciarFase(req, "db.universo");
+  let candidatos: { id: number; entityId: string | null }[];
+  try {
+    candidatos = await candidatosDoLote(changeSetId, escopo);
+  } catch (erro) {
+    faseUniverso.fim({ linhas: 0 });
+    res.status(409).json({ error: (erro as Error).message });
+    return;
+  }
+  faseUniverso.fim({ linhas: candidatos.length });
+
+  if (candidatos.length === 0) {
+    res.status(400).json({
+      error:
+        "Nenhuma alteração deste recorte pode receber justificativa. " +
+        "Conflito e dado incompleto não são alterações — eles pedem conserto do dado.",
+    });
+    return;
+  }
+
+  /*
+    O que já está explicado, lido **agora** e não pelo que o navegador achava.
+
+    Entre abrir a caixa e confirmar, outra pessoa pode ter justificado uma das
+    linhas do recorte — e é exatamente essa a que não pode ser regravada sem
+    que ninguém saiba. A leitura é por `change_id`, a mesma da fila.
+  */
+  const faseJa = iniciarFase(req, "db.ja-justificadas");
+  const jaGravadas = await db
+    .select({ changeId: justificativaTable.changeId })
+    .from(justificativaTable)
+    .where(
+      and(
+        eq(justificativaTable.changeSetId, changeSetId),
+        inArray(
+          justificativaTable.changeId,
+          candidatos.map((c) => c.id),
+        ),
+      ),
+    );
+  const jaJustificadas = new Set(jaGravadas.map((j) => j.changeId));
+  faseJa.fim({ linhas: jaJustificadas.size });
+
+  const reparticao = repartirAlvosDoLote(
+    candidatos.map((c) => c.id),
+    jaJustificadas,
+    sobrescrever,
+  );
+
+  if (reparticao.aplicar.length === 0) {
+    res.status(409).json({
+      error:
+        `As ${reparticao.preservadas.length} alterações deste recorte já estão justificadas. ` +
+        "Para substituí-las, confirme a substituição — ela exige papel de administrador.",
+      resumo: {
+        universo: candidatos.length,
+        aplicadas: 0,
+        preservadas: reparticao.preservadas.length,
+        sobrescritas: 0,
+      },
+    });
+    return;
+  }
+
+  const texto = resumoDaJustificativa(justificativa);
+  const criadoPor = req.user?.email ?? DEFAULT_ACTOR;
+  const porId = new Map(candidatos.map((c) => [c.id, c]));
+
+  /*
+    O registro do gesto entra **antes** das linhas, e não depois: é dele que
+    sai o `lote_id` de cada uma. As duas escritas vão na mesma transação porque
+    uma justificativa em lote sem o registro do universo é exatamente o que
+    esta rota existe para não produzir.
+  */
+  const faseGravacao = iniciarFase(req, "db.insert");
+  const { lote, inseridas } = await db.transaction(async (tx) => {
+    const [lote] = await tx
+      .insert(justificativaLoteTable)
+      .values({
+        changeSetId,
+        escopo: escopo.tipo,
+        recorte: escopo,
+        descricao: descreverEscopoDoLote(
+          escopo,
+          escopo.tipo === "FILTRO" ? RECORTES_DO_LOTE[escopo.rubrica]?.padroes : undefined,
+        ),
+        alteracoesNoUniverso: candidatos.length,
+        aplicadas: reparticao.aplicar.length,
+        preservadas: reparticao.preservadas.length,
+        sobrescritas: reparticao.sobrescritas.length,
+        sobrescrever,
+        criadoPor,
+      })
+      .returning();
+
+    /*
+      `entity_label`/`entity_type` vêm de `change`, e não do corpo: o cliente
+      não é fonte confiável para o que fica gravado como auditoria. É a mesma
+      regra do POST de uma alteração, e por isso a mesma leitura — os
+      candidatos já vieram do banco, recortados por este `change_set`.
+    */
+    const alvos = await tx
+      .select({
+        id: changeTable.id,
+        entityLabel: changeTable.entityLabel,
+        entityType: changeTable.entityType,
+      })
+      .from(changeTable)
+      .where(
+        and(
+          eq(changeTable.changeSetId, changeSetId),
+          inArray(changeTable.id, reparticao.aplicar),
+        ),
+      );
+
+    const inseridas = await tx
+      .insert(justificativaTable)
+      .values(
+        alvos.map((alvo) => ({
+          changeSetId,
+          changeId: alvo.id,
+          entityLabel: alvo.entityLabel ?? "",
+          entityType: alvo.entityType,
+          texto,
+          formula: justificativa.formula,
+          regra: justificativa.regra,
+          conforme: justificativa.conforme,
+          naoConformidade: justificativa.naoConformidade,
+          motivoExcecao: justificativa.motivoExcecao,
+          responsavelAprovacao: justificativa.responsavelAprovacao,
+          loteId: lote!.id,
+          criadoPor,
+        })),
+      )
+      .returning();
+
+    return { lote: lote!, inseridas };
+  });
+  faseGravacao.fim({ linhas: inseridas.length });
+
+  /*
+    Os totais que são a conta das suas parcelas fecham sozinhos, como no POST de
+    uma alteração — e aqui com mais razão: um lote costuma justificar todas as
+    parcelas de uma vez, que é justamente quando o total passa a ser dedutível.
+    Uma falha aqui não derruba o que o gestor escreveu; o total apenas continua
+    pendente.
+  */
+  const faseDerivadas = iniciarFase(req, "db.derivadas");
+  let derivadas: typeof inseridas = [];
+  try {
+    derivadas = await gravarJustificativasDerivadas(db, {
+      changeSetId,
+      entityIds: reparticao.aplicar
+        .map((id) => porId.get(id)?.entityId ?? null)
+        .filter((id): id is string => id !== null),
+      criadoPor,
+    });
+  } catch (erro) {
+    req.log?.warn({ erro }, "não foi possível deduzir a justificativa dos totais");
+  }
+  faseDerivadas.fim({ linhas: derivadas.length });
+
+  res.status(201).json({
+    lote,
+    justificativas: [...inseridas, ...derivadas],
+    resumo: {
+      universo: candidatos.length,
+      aplicadas: inseridas.length,
+      preservadas: reparticao.preservadas.length,
+      sobrescritas: reparticao.sobrescritas.length,
+    },
+  });
+});
+
+/**
+ * O universo do lote, resolvido **no banco** — nunca aceito pronto.
+ *
+ * Os dois caminhos chegam ao mesmo lugar por razões diferentes:
+ *
+ * · **SELECAO** — os ids vêm do corpo, mas o que vale é o recorte por
+ *   `change_set` e o estado que o motor gravou: um id de outra comparação some
+ *   aqui, e um conflito também.
+ * · **FILTRO** — não há ids. O recorte é reaberto com as mesmas funções da
+ *   tela: as alterações da rubrica, traduzidas em linhas, filtradas pelo mesmo
+ *   `filtrarLinhasDeIpva`. As linhas "sem alteração" nunca entram porque não
+ *   têm `change.id` — não há sobre o que gravar.
+ *
+ * `entityId` viaja junto porque é dele que a dedução dos totais precisa, e
+ * buscá-lo de novo depois seria uma segunda ida ao banco para ler o que esta
+ * já leu.
+ */
+async function candidatosDoLote(
+  changeSetId: string,
+  escopo: EscopoDoLote,
+): Promise<{ id: number; entityId: string | null }[]> {
+  if (escopo.tipo === "SELECAO") {
+    const linhas = await db
+      .select({
+        id: changeTable.id,
+        entityId: changeTable.entityId,
+        changeType: changeTable.changeType,
+        nature: changeTable.nature,
+        attributeCode: changeTable.attributeCode,
+        entityLabel: changeTable.entityLabel,
+        entityType: changeTable.entityType,
+        valueBefore: changeTable.valueBefore,
+        valueAfter: changeTable.valueAfter,
+        deltaAbsolute: changeTable.deltaAbsolute,
+        deltaPercent: changeTable.deltaPercent,
+        comparability: changeTable.comparability,
+      })
+      .from(changeTable)
+      .where(
+        and(
+          eq(changeTable.changeSetId, changeSetId),
+          inArray(changeTable.id, escopo.changeIds),
+        ),
+      );
+    return linhas
+      .filter((l) => estadoDaAlteracao(l) === "ALTERADO")
+      .map((l) => ({ id: l.id, entityId: l.entityId }));
+  }
+
+  /*
+    A guarda do par: o filtro foi montado sobre `base → comparada`, e é essa a
+    comparação em que ele pode ser reaberto. Um `changeSetId` de outro par com
+    um filtro deste gravaria a frase num universo que ninguém viu em tela.
+  */
+  const doPar = await getChangeSetForPair(db, escopo.base, escopo.comparada);
+  if (!doPar || String(doPar.id) !== changeSetId) {
+    throw new Error(
+      "O recorte é de outro par de vigências. Recarregue a comparação e refaça a seleção.",
+    );
+  }
+
+  /*
+    O recorte da rubrica, com as mesmas funções que desenharam a tabela — ver
+    `RECORTES_DO_LOTE`. A rubrica já foi validada na leitura do escopo; este
+    acesso não pode falhar, e a guarda existe para o dia em que alguém tirar
+    uma entrada do registro sem tirar a rota junto.
+  */
+  const recorte = RECORTES_DO_LOTE[escopo.rubrica];
+  if (!recorte) {
+    throw new Error(`Não sei reabrir o recorte de ${escopo.rubrica}.`);
+  }
+
+  const { rows } = await listChanges(db, changeSetId, {
+    attributeCodes: [...recorte.codigos],
+    limit: 5000,
+  });
+  const ids = recorte
+    .filtrar(recorte.linhas(rows), escopo.filtros)
+    .filter((linha) => linha.id !== null && linha.estado === "ALTERADO")
+    .map((linha) => linha.id!);
+  if (ids.length === 0) return [];
+
+  /*
+    O `entity_id` numa segunda ida, e não em `listChanges`: a leitura da tela
+    não o traz — nenhuma tela mostra o id interno do ativo —, e é dele que a
+    dedução dos totais precisa. Alargar `listChanges` para servir a esta rota
+    faria a leitura de todas as telas carregar uma coluna que nenhuma usa.
+  */
+  return db
+    .select({ id: changeTable.id, entityId: changeTable.entityId })
+    .from(changeTable)
+    .where(and(eq(changeTable.changeSetId, changeSetId), inArray(changeTable.id, ids)));
+}
 
 export default router;

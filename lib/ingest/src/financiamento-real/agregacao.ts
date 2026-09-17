@@ -295,12 +295,20 @@ export function apurar(
       entityType: primeiro.entityType as string,
       rubrica: RUBRICA_FINAME_REAL,
       /*
+        A soma é dos valores **originais**, invertida no fim — e não a soma dos
+        módulos.
+
+        Nos dados de hoje dá o mesmo número, porque o extrato inteiro é débito.
+        A diferença aparece no dia do **estorno**: um lançamento positivo no
+        razão é dinheiro que voltou, e somá-lo em módulo o contaria como custo.
+        Inverter o total é reversível e honesto; `Math.abs` por linha não é.
+
         Arredondado ao centavo na saída, e só na saída. O extrato traz três e
         quatro casas (`-5896.428`), e truncar antes de somar deslocaria o total
         da competência em relação ao razão — que é justamente o que a
         reconciliação existe para pegar.
       */
-      valor: arredondar(ordenado.reduce((s, l) => s + l.valorAbsoluto, 0)),
+      valor: arredondar(-ordenado.reduce((s, l) => s + l.valorOriginal, 0)),
       lancamentos: ordenado.length,
       rowIndexAncora: primeiro.rowIndex,
       contas: [...new Set(ordenado.map((l) => l.contaAnalitica ?? "sem conta"))].sort(),

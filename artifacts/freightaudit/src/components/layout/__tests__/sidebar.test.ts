@@ -70,7 +70,9 @@ function hrefsDoMenu(ambiente: AmbienteDeAuditoria = "auditoria"): string[] {
 }
 
 /** Os títulos das seções da lateral da Auditoria, na ordem em que ela as mostra. */
-function secoesDaAuditoria(ambiente: AmbienteDeAuditoria = "auditoria"): string[] {
+function secoesDaAuditoria(
+  ambiente: AmbienteDeAuditoria = "auditoria",
+): string[] {
   return navGroupsAuditoria(ambiente).map((grupo) => grupo.titulo);
 }
 
@@ -205,7 +207,8 @@ describe("a lateral", () => {
       hrefsDoMenu(ambiente as AmbienteDeAuditoria),
     );
     const orfaos = [...daAuditoria, ...hrefsDoMenuDoFechamento()].filter(
-      (href) => !rotas.has(href) && !padroes.some((padrao) => padrao.test(href)),
+      (href) =>
+        !rotas.has(href) && !padroes.some((padrao) => padrao.test(href)),
     );
 
     expect(orfaos).toEqual([]);
@@ -235,15 +238,41 @@ describe("a lateral", () => {
     abaixo prende, junto com a lista.
   */
   it("abre a seção Equipe pelo Monitor e pelo QLP, e lista os módulos do catálogo", () => {
-    const secao = navGroupsAuditoria("auditoria").find((g) => g.id === "modulos-do-qlp");
+    const secao = navGroupsAuditoria("auditoria").find(
+      (g) => g.id === "modulos-do-qlp",
+    );
     expect(secao, "a seção Equipe precisa existir na lateral").toBeTruthy();
     expect(secao!.titulo).toBe("Equipe");
 
-    expect(secao!.itens.map((i) => i.href)).toEqual([
+    expect(secao!.itens.slice(0, 2).map((i) => i.href)).toEqual([
       "/monitor-equipe",
       "/qlp-operacional",
-      ...modulosDoQlp().map((m) => `/qlp/${m.chave}`),
     ]);
+
+    /*
+      Os módulos são exatamente os do catálogo — nem um a mais, nem um a menos —,
+      e por isso a comparação é de **conjunto**: a ordem em que eles aparecem no
+      menu é a do alfabeto, e não a do catálogo, que é a ordem das colunas do
+      export. O caso seguinte é o que prende essa ordem.
+    */
+    const hrefsDosModulos = secao!.itens.map((i) => i.href).slice(2);
+    expect([...hrefsDosModulos].sort()).toEqual(
+      modulosDoQlp()
+        .map((m) => `/qlp/${m.chave}`)
+        .sort(),
+    );
+
+    /*
+      E aparecem em ordem alfabética pelo rótulo. Dezesseis rubricas na ordem em
+      que a planilha da Ambev as declara é uma lista em que só se acha coisa
+      varrendo-a inteira; a única pergunta que este menu responde é *onde está o
+      vale-transporte*, e o alfabeto responde de relance. Em pt-BR, de propósito:
+      sem isso o acento tira "Diária" e "Salário" do lugar.
+    */
+    const rotulos = secao!.itens.slice(2).map((i) => i.label);
+    expect(rotulos).toEqual(
+      [...rotulos].sort((a, b) => a.localeCompare(b, "pt-BR")),
+    );
 
     /*
       O item é um só, chama-se QLP, e acende nas duas populações — inclusive na
@@ -254,7 +283,9 @@ describe("a lateral", () => {
     expect(qlp.label).toBe("QLP");
     expect(qlp.tambemAceso).toEqual(["/qlp-administrativo"]);
     expect(estaAtivo("/qlp-operacional", qlp.href, qlp.tambemAceso)).toBe(true);
-    expect(estaAtivo("/qlp-administrativo", qlp.href, qlp.tambemAceso)).toBe(true);
+    expect(estaAtivo("/qlp-administrativo", qlp.href, qlp.tambemAceso)).toBe(
+      true,
+    );
     expect(estaAtivo("/qlp/salario", qlp.href, qlp.tambemAceso)).toBe(false);
 
     /*
@@ -275,6 +306,58 @@ describe("a lateral", () => {
     /* Subtotal e benchmark não são assunto: são eixo de leitura. */
     expect(porHref.has("/qlp/subtotais")).toBe(false);
     expect(porHref.has("/qlp/benchmark")).toBe(false);
+  });
+
+  /*
+    Custo Fixo e Custo Variável são as duas seções longas escritas à mão, e as
+    duas ordenavam pela **conta**: no Custo Fixo, Aquisição primeiro, porque o
+    valor de nota é o denominador do IPVA e do ICMS e é o que o FINAME financia;
+    no Custo Variável, a sequência em que o custo do quilômetro se monta.
+
+    As duas ordens explicam a conta, e nenhuma delas é como o menu é usado:
+    abre-se **uma** tela, procurando o nome dela, e numa lista de sete ou oito
+    rubricas que não se lê em sequência o alfabeto acha o nome de relance
+    enquanto a ordem da conta obriga a varrer tudo. O porquê por extenso está
+    nos cabeçalhos das duas seções, em `nav-auditoria.ts`; este caso é o que
+    impede a ordem de voltar a escorregar item a item.
+
+    O Monitor de cada seção fica **fora** da ordenação, na primeira linha: ele
+    não é uma rubrica, é a tela por onde a seção se abre.
+  */
+  it("lista as rubricas do Custo Fixo e do Custo Variável em ordem alfabética", () => {
+    const secoes = navGroupsAuditoria("auditoria");
+
+    const custoFixo = secoes.find((g) => g.id === "custo-fixo");
+    expect(
+      custoFixo,
+      "a seção Custo Fixo precisa existir na lateral",
+    ).toBeTruthy();
+    expect(custoFixo!.itens[0].label).toBe("Monitor Custo Fixo");
+    expect(custoFixo!.itens.slice(1).map((i) => i.label)).toEqual([
+      "Aluguel de Frota",
+      "Aquisição",
+      "Finame",
+      "Impostos",
+      "IPVA",
+      "Lucro Fixo",
+      "Seguro e Aparato",
+    ]);
+
+    const custoVariavel = secoes.find((g) => g.id === "custo-variavel");
+    expect(
+      custoVariavel,
+      "a seção Custo Variável precisa existir na lateral",
+    ).toBeTruthy();
+    expect(custoVariavel!.itens.map((i) => i.label)).toEqual([
+      "Consumo",
+      "Km Rodado",
+      "Lucro Variável",
+      "Manutenção",
+      "Pneu",
+      "Salário Variável",
+      "TMA",
+      "Velocidade Média",
+    ]);
   });
 
   it("não oferece, na barra do celular, endereço que o roteador não atenda", () => {
@@ -309,8 +392,14 @@ describe("a lateral", () => {
     const daAuditoria = new Set([...hrefsDoMenu(), ENTRADA_DA_AUDITORIA]);
     const doFechamento = new Set(hrefsDoMenuDoFechamento());
 
-    expect(atalhosDaBarra("auditoria").filter((href) => !daAuditoria.has(href))).toEqual([]);
-    expect(atalhosDaBarra("fechamento-rota").filter((href) => !doFechamento.has(href))).toEqual([]);
+    expect(
+      atalhosDaBarra("auditoria").filter((href) => !daAuditoria.has(href)),
+    ).toEqual([]);
+    expect(
+      atalhosDaBarra("fechamento-rota").filter(
+        (href) => !doFechamento.has(href),
+      ),
+    ).toEqual([]);
   });
 
   /*
@@ -321,7 +410,9 @@ describe("a lateral", () => {
     const empurrada = BASES_DE_FECHAMENTO["fechamento-empurrada"];
 
     expect(atalhosDaBarra("fechamento-empurrada")).toEqual(
-      atalhosDaBarra("fechamento-rota").map((href) => href.replace(BASE, empurrada)),
+      atalhosDaBarra("fechamento-rota").map((href) =>
+        href.replace(BASE, empurrada),
+      ),
     );
   });
 
@@ -357,9 +448,9 @@ describe("a lateral", () => {
   */
   it("põe, na Visão executiva, o Panorama à frente dos quatro que ele consolida", () => {
     for (const ambiente of Object.keys(BASES_DE_AUDITORIA)) {
-      const executiva = navGroupsAuditoria(ambiente as AmbienteDeAuditoria).find(
-        (grupo) => grupo.titulo === "Visão executiva",
-      )!;
+      const executiva = navGroupsAuditoria(
+        ambiente as AmbienteDeAuditoria,
+      ).find((grupo) => grupo.titulo === "Visão executiva")!;
 
       expect(executiva.itens.map((item) => item.label)).toEqual([
         "Panorama Executivo",
@@ -418,7 +509,15 @@ describe("a lateral", () => {
       Os cinco são endereços distintos, e é isso que faz a lateral acender o
       item certo: um módulo que fosse aba dentro de outro acenderia o vizinho.
     */
-    expect(new Set([PANORAMA, DASHBOARD, IMPACTO_APURADO, RESUMO_EXECUTIVO, LINHA_DO_TEMPO]).size).toBe(5);
+    expect(
+      new Set([
+        PANORAMA,
+        DASHBOARD,
+        IMPACTO_APURADO,
+        RESUMO_EXECUTIVO,
+        LINHA_DO_TEMPO,
+      ]).size,
+    ).toBe(5);
   });
 
   /*
@@ -572,7 +671,9 @@ describe("a lateral", () => {
         .flatMap((grupo) => grupo.itens.map((item) => item.href));
 
     for (const ambiente of Object.keys(BASES_DE_AUDITORIA)) {
-      expect(foraDaFrota(ambiente as AmbienteDeAuditoria)).toEqual(foraDaFrota("auditoria"));
+      expect(foraDaFrota(ambiente as AmbienteDeAuditoria)).toEqual(
+        foraDaFrota("auditoria"),
+      );
     }
   });
 
@@ -582,7 +683,9 @@ describe("a lateral", () => {
         .find((grupo) => grupo.titulo === "Frota")!
         .itens.map((item) => item.href);
 
-    for (const ambiente of Object.keys(BASES_DE_AUDITORIA) as AmbienteDeAuditoria[]) {
+    for (const ambiente of Object.keys(
+      BASES_DE_AUDITORIA,
+    ) as AmbienteDeAuditoria[]) {
       const doAmbiente = EQUIPAMENTOS_DO_AMBIENTE[ambiente].map(
         (equipamento) => TELA_DO_EQUIPAMENTO[equipamento].href,
       );
@@ -623,7 +726,9 @@ describe("a lateral", () => {
       A primeira seção leva o nome do ambiente: é ali que o menu diz em qual dos
       dois fechamentos se está, já que as outras quatro são idênticas nos dois.
     */
-    expect(navGroupsFechamento(BASE, "Fechamento Rota").map((g) => g.titulo)).toEqual([
+    expect(
+      navGroupsFechamento(BASE, "Fechamento Rota").map((g) => g.titulo),
+    ).toEqual([
       "Fechamento Rota",
       "Remuneração",
       "Apuração",
@@ -659,7 +764,9 @@ describe("a lateral", () => {
   */
   it("não põe, nas seções do processo, nenhum endereço fora da base", () => {
     const grupos = navGroupsFechamento(BASE, "Fechamento Rota");
-    const doProcesso = grupos.filter((g) => g.titulo !== GRUPO_ADMINISTRACAO.titulo);
+    const doProcesso = grupos.filter(
+      (g) => g.titulo !== GRUPO_ADMINISTRACAO.titulo,
+    );
     const fora = doProcesso
       .flatMap((g) => g.itens.map((item) => item.href))
       .filter((href) => href !== BASE && !href.startsWith(`${BASE}/`));
@@ -686,7 +793,9 @@ describe("a lateral", () => {
     }
 
     /* E os itens dela continuam sendo os que a lista da Auditoria oferece. */
-    expect(daAuditoria.map(semTil).filter((href) => !hrefsDoMenu().includes(href))).toEqual([]);
+    expect(
+      daAuditoria.map(semTil).filter((href) => !hrefsDoMenu().includes(href)),
+    ).toEqual([]);
   });
 
   /*
@@ -698,9 +807,10 @@ describe("a lateral", () => {
   */
   it("dá às duas bases o mesmo menu, item a item", () => {
     const empurrada = BASES_DE_FECHAMENTO["fechamento-empurrada"];
-    const daEmpurrada = navGroupsFechamento(empurrada, "Fechamento Empurrada").flatMap((g) =>
-      g.itens.map((item) => semTil(item.href)),
-    );
+    const daEmpurrada = navGroupsFechamento(
+      empurrada,
+      "Fechamento Empurrada",
+    ).flatMap((g) => g.itens.map((item) => semTil(item.href)));
 
     expect(daEmpurrada).toEqual(
       hrefsDoMenuDoFechamento().map((href) => href.replace(BASE, empurrada)),
@@ -719,7 +829,9 @@ describe("o catálogo de telas em preparo", () => {
     const emPreparo = new Set(
       [...catalogo.matchAll(/^\s{4}href:\s*"([^"]+)"/gm)].map((m) => m[1]),
     );
-    const atalhos = [...catalogo.matchAll(/^\s{8}href:\s*"([^"]+)"/gm)].map((m) => m[1]);
+    const atalhos = [...catalogo.matchAll(/^\s{8}href:\s*"([^"]+)"/gm)].map(
+      (m) => m[1],
+    );
 
     expect(atalhos.length).toBeGreaterThan(0);
     expect(atalhos.filter((href) => emPreparo.has(href))).toEqual([]);
@@ -898,7 +1010,9 @@ describe("o catálogo de etapas do Fechamento", () => {
       ...etapas.map((etapa) => etapa.href),
       ...[...catalogo.matchAll(/^\s{4}href:\s*"([^"]+)"/gm)].map((m) => m[1]),
     ]);
-    const atalhos = etapas.flatMap((etapa) => etapa.hoje.map((atalho) => atalho.href));
+    const atalhos = etapas.flatMap((etapa) =>
+      etapa.hoje.map((atalho) => atalho.href),
+    );
 
     expect(atalhos.length).toBeGreaterThan(0);
     expect(atalhos.filter((href) => emPreparo.has(href))).toEqual([]);
@@ -915,8 +1029,12 @@ describe("o catálogo de etapas do Fechamento", () => {
       etapa construída, e chegar a zero é o catálogo ter cumprido o seu papel.
     */
     expect(telas).toBe(7);
-    expect(etapas.filter((etapa) => etapa.depende.length > 0)).toHaveLength(telas);
-    expect(etapas.filter((etapa) => etapa.pergunta.length > 0)).toHaveLength(telas);
+    expect(etapas.filter((etapa) => etapa.depende.length > 0)).toHaveLength(
+      telas,
+    );
+    expect(etapas.filter((etapa) => etapa.pergunta.length > 0)).toHaveLength(
+      telas,
+    );
   });
 
   /*
@@ -929,7 +1047,9 @@ describe("o catálogo de etapas do Fechamento", () => {
     const empurrada = BASES_DE_FECHAMENTO["fechamento-empurrada"];
 
     expect(etapasDoFechamento(empurrada).map((etapa) => etapa.href)).toEqual(
-      etapasDoFechamento(BASE).map((etapa) => etapa.href.replace(BASE, empurrada)),
+      etapasDoFechamento(BASE).map((etapa) =>
+        etapa.href.replace(BASE, empurrada),
+      ),
     );
   });
 });

@@ -8,6 +8,9 @@ import {
   type LinhaDeManutencao,
   type MedidaDaVariavel,
   type VereditoDaOrigem,
+  FILTROS_DE_MANUTENCAO_VAZIOS,
+  filtrarLinhasDeManutencao,
+  type FiltrosDeManutencao,
 } from "@workspace/comparison/manutencao";
 import { numeroParaCsv } from "@/lib/csv";
 import { formatBrl, formatNumber } from "@/lib/format";
@@ -228,54 +231,23 @@ export const ABAS_DE_ESTADO: {
   { chave: "SEM_ALTERACAO", rotulo: "Sem alteração" },
 ];
 
-export interface FiltrosDeManutencao {
-  busca: string;
-  tipo: string;
-  variavel: string;
-  estado: "TODAS" | EstadoDaLinhaDeManutencao;
-  /**
-   * Só o que é R$/km — o que de fato custa dinheiro nesta rubrica.
-   *
-   * Existe porque a vida em meses se move em quase toda comparação (108 valores
-   * distintos no acervo, e ela anda sozinha com o calendário), e uma lista
-   * dominada por ela esconde as poucas linhas em que o custo por quilômetro
-   * mudou. O alternador separa o contrato do relógio.
-   */
-  soReaisKm: boolean;
-}
-
-export const FILTROS_VAZIOS: FiltrosDeManutencao = {
-  busca: "",
-  tipo: "TODOS",
-  variavel: "TODAS",
-  estado: "TODAS",
-  soReaisKm: false,
-};
-
 /**
- * O recorte da tabela — o mesmo que alimenta a contagem das abas e o CSV.
+ * Os filtros e o recorte — **do núcleo**.
  *
- * Uma função só, e não uma por consumidor: a aba que diz "12" e a tabela que
- * mostra 9 linhas é o defeito que aparece quando o filtro é reescrito no lugar
- * de ser reutilizado.
+ * Os dois nasceram aqui, e era o lugar certo enquanto o recorte só produzia uma
+ * tabela. Deixou de ser quando a justificativa em lote passou a poder dizer
+ * "todos os resultados deste filtro": ali o cliente manda o filtro, e quem
+ * reabre o universo para gravar é o servidor — que não importa a tela.
+ *
+ * Então eles moram em `@workspace/comparison/manutencao`, com as contas, e esta
+ * linha é o que resta do que este arquivo tinha. Os nomes de fora continuam os
+ * mesmos de propósito: a tela chama `filtrar`, e nenhuma delas precisou mudar.
  */
-export function filtrar(
-  linhas: readonly LinhaDeManutencao[],
-  filtros: FiltrosDeManutencao,
-): LinhaDeManutencao[] {
-  const busca = filtros.busca.trim().toLowerCase();
-  return linhas.filter((l) => {
-    if (filtros.estado !== "TODAS" && l.estado !== filtros.estado) return false;
-    if (filtros.tipo !== "TODOS" && l.entityType !== filtros.tipo) return false;
-    if (filtros.variavel !== "TODAS" && l.variavel !== filtros.variavel) return false;
-    if (filtros.soReaisKm && l.medida !== "REAIS_POR_KM") return false;
-    if (busca) {
-      const alvo = `${l.entityLabel ?? ""} ${l.rotuloDaVariavel}`.toLowerCase();
-      if (!alvo.includes(busca)) return false;
-    }
-    return true;
-  });
-}
+export {
+  FILTROS_DE_MANUTENCAO_VAZIOS as FILTROS_VAZIOS,
+  filtrarLinhasDeManutencao as filtrar,
+  type FiltrosDeManutencao as FiltrosDeManutencao,
+};
 
 /** Quantas linhas cada aba tem, contadas sobre o mesmo recorte da tabela. */
 export function contagemPorAba(
@@ -285,9 +257,9 @@ export function contagemPorAba(
   const contagem: Record<string, number> = { TODAS: 0 };
   for (const aba of ABAS_DE_ESTADO) {
     if (aba.chave === "TODAS") continue;
-    contagem[aba.chave] = filtrar(linhas, { ...filtros, estado: aba.chave }).length;
+    contagem[aba.chave] = filtrarLinhasDeManutencao(linhas, { ...filtros, estado: aba.chave }).length;
   }
-  contagem.TODAS = filtrar(linhas, { ...filtros, estado: "TODAS" }).length;
+  contagem.TODAS = filtrarLinhasDeManutencao(linhas, { ...filtros, estado: "TODAS" }).length;
   return contagem;
 }
 

@@ -69,7 +69,6 @@ import QlpModulo from '@/pages/qlp-modulo';
 import MonitorCustoFixo from '@/pages/monitor-custo-fixo';
 import MonitorEquipe from '@/pages/monitor-equipe';
 import AuditoriaDeFiname from '@/pages/custo-fixo-finame';
-import FinanciamentoReal from '@/pages/custo-fixo-finame-real';
 import AuditoriaDeIpva from '@/pages/custo-fixo-ipva';
 import AuditoriaDeAquisicao from '@/pages/custo-fixo-aquisicao';
 import AuditoriaDeAluguel from '@/pages/custo-fixo-aluguel';
@@ -529,15 +528,6 @@ function RotasDaAuditoria() {
       */}
       <Route path="/monitor-custo-fixo" component={MonitorCustoFixo} />
       <Route path="/custo-fixo-finame" component={AuditoriaDeFiname} />
-      {/*
-        O Real é uma tela à parte, e não uma aba do Finame, porque a pergunta é
-        outra: aquela compara duas vigências do **remunerado** entre si; esta
-        compara o remunerado com o **extrato do banco**, e os dois lados vivem em
-        granularidades diferentes — vigência quinzenal de um lado, competência
-        mensal do outro. Enfiá-las na mesma tela obrigaria todo seletor de par a
-        ganhar uma exceção para um lado que não tem par.
-      */}
-      <Route path="/custo-fixo-finame-real" component={FinanciamentoReal} />
       {/*
         IPVA saiu de `TELAS_EM_PREPARO` pelo mesmo caminho do Finame, e com a
         mesma honestidade: o verbete pedia a conferência contra ano, categoria e

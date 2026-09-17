@@ -421,7 +421,7 @@ export const ALLOWLIST: {
     aindaPodeNaoExistir: true,
   },
   /*
-    As quatro da `0103`, todas aditivas e nulas como as de cima.
+    As quatro da `0104`, todas aditivas e nulas como as de cima.
 
     `snapshot.granularidade` é a que carrega o peso: a competência mensal do
     acervo Real e a 1ª quinzena do mesmo mês começam no mesmo dia, e é ela que
@@ -519,7 +519,7 @@ const TABELAS_REMOVIDAS = [
   */
   "ticket_movement_review",
   /*
-    `financiamento_real_decisao`, da `0103` — quem confirmou uma duplicata do
+    `financiamento_real_decisao`, da `0104` — quem confirmou uma duplicata do
     extrato do financiamento, ou classificou um ativo que o cadastro não
     resolveu.
 
@@ -550,6 +550,24 @@ const TABELAS_REMOVIDAS = [
     frase de alguém para caber num espelho.
   */
   "justificativa",
+  /*
+    `justificativa_lote`, da `0103` — o registro de qual universo uma
+    justificativa em lote alcançou.
+
+    Entra pelo mesmo critério da tabela acima, e é a mesma decisão humana vista
+    de outro ângulo: a frase é da `justificativa`, e o **gesto** é daqui —
+    quais alterações ele alcançou, quantas já estavam explicadas e foram
+    preservadas, quantas foram substituídas e com o aval de quem. Nenhuma
+    consulta reconstrói isso a partir das linhas: 206 justificativas gravadas
+    no mesmo segundo pela mesma pessoa não dizem, sozinhas, que foram um ato
+    só, nem sob que recorte.
+
+    Vem **depois de `justificativa`**, e a ordem é obrigatória: é
+    `justificativa.lote_id` que aponta para cá, e o `down` derruba com
+    `RESTRICT`. A mãe só sai depois da filha — a mesma regra de
+    `acesso_a_unidade` e `unidade`.
+  */
+  "justificativa_lote",
   /*
     As treze do Fechamento — as dez da `0039`, as duas do 03.08.20 (`0043`) e o
     cadastro de partes (`0044`).
@@ -994,7 +1012,7 @@ const TABELAS_DESCARTAVEIS = [
   "ticket_movement_day",
   "ticket_import_comparacao",
   /*
-    `finame_real_lancamento`, da `0103` — o extrato do financiamento, linha a
+    `finame_real_lancamento`, da `0104` — o extrato do financiamento, linha a
     linha.
 
     Entra aqui pelo critério desta lista, e não por ser nova: nada nela é
@@ -1807,6 +1825,14 @@ export async function bridgeDown(
         surpresa mesmo com a ordem de queda correta.
       */
       unidade: ["app_user", "acesso_a_unidade"],
+      /*
+        `justificativa_lote` (0103) tem uma dependente só, `justificativa`, que
+        sai **antes** dela em `TABELAS_REMOVIDAS` — a FK é `lote_id`, e aponta
+        da filha para a mãe. A varredura roda antes de qualquer DDL, então veria
+        a FK como surpresa mesmo com a ordem de queda correta. É o mesmo caso de
+        `unidade` logo acima.
+      */
+      justificativa_lote: ["justificativa"],
       /* `app_user.papel_id` (0082) é o mesmo caso, e sai em `COLUNAS_REMOVIDAS`
          antes de a tabela cair. */
       papel: ["app_user"],
@@ -3084,6 +3110,52 @@ function planoUp(): PassoUp[] {
     levantar(M100, /ADD COLUMN IF NOT EXISTS "nao_conformidade"/),
   );
 
+  /*
+    A `0103` — o lote, e a coluna que liga a justificativa a ele.
+
+    Duas coisas, e a ordem entre elas é obrigatória: a tabela primeiro, a chave
+    estrangeira depois, porque é `justificativa.lote_id` que aponta para
+    `justificativa_lote`. É a ordem inversa da do `down`, como sempre.
+
+    A tabela entra pelo motivo de toda tabela de módulo novo — o `down` a
+    derruba porque Production não a conhece até a fila rodar lá. A coluna entra
+    pelo motivo da `0098` e da `0100`: o `down` derruba `justificativa` inteira,
+    e o `CREATE TABLE` da `0058` não conhece `lote_id`. Sem estas linhas o `up`
+    devolveria a tabela sem ela, e o caso que compara o banco reposto com um
+    banco novo diria exatamente isso — uma coluna, uma FK e um índice a menos.
+  */
+  const M103 = "0103_justificativa_em_lote";
+  add(
+    M103,
+    "justificativa_lote",
+    levantar(M103, /CREATE TABLE IF NOT EXISTS "justificativa_lote" \(/),
+  );
+  add(
+    M103,
+    "FK justificativa_lote_change_set_id_change_set_id_fk",
+    levantar(M103, /DO \$\$\s*\n\s*BEGIN\s*\n\s*IF NOT EXISTS \(SELECT 1 FROM pg_constraint WHERE conname = 'justificativa_lote_change_set_id_change_set_id_fk'\)/),
+  );
+  add(
+    M103,
+    "índice justificativa_lote_change_set_idx",
+    levantar(M103, /INDEX IF NOT EXISTS "justificativa_lote_change_set_idx"/),
+  );
+  add(
+    M103,
+    "justificativa.lote_id",
+    levantar(M103, /ADD COLUMN IF NOT EXISTS "lote_id"/),
+  );
+  add(
+    M103,
+    "FK justificativa_lote_id_justificativa_lote_id_fk",
+    levantar(M103, /DO \$\$\s*\n\s*BEGIN\s*\n\s*IF NOT EXISTS \(SELECT 1 FROM pg_constraint WHERE conname = 'justificativa_lote_id_justificativa_lote_id_fk'\)/),
+  );
+  add(
+    M103,
+    "índice justificativa_lote_idx",
+    levantar(M103, /INDEX IF NOT EXISTS "justificativa_lote_idx"/),
+  );
+
   const M44 = "0044_partes_cadastradas";
   add(M44, "fechamento_parte", levantar(M44, /CREATE TABLE IF NOT EXISTS "fechamento_parte" \(/));
   add(
@@ -3789,22 +3861,27 @@ function planoUp(): PassoUp[] {
     tabela vazia antes de descer — ele só desce quando não há rollback a perder.
   */
   /*
-    A `0103` — o financiamento real em competência mensal.
+    A `0104` — o financiamento real em competência mensal.
 
-    DDL pura, sem backfill: as três colunas são aditivas e nulas (ficam, pela
+    Nasceu `0103` e virou `0104` no encontro de fila: a `main` chegou antes com
+    a `0103_justificativa_em_lote`, e renumerar é o que a fila deste repositório
+    faz nesse caso — a `0048` e a `0102` têm o mesmo histórico escrito no
+    cabeçalho delas. O número aparece num lugar só do código, que é aqui.
+
+    DDL pura, sem backfill: as quatro colunas são aditivas e nulas (ficam, pela
     `ALLOWLIST`), e o que o `down` derruba são as duas tabelas. O `up` as repõe
     levantando o DDL da própria migration, na ordem inversa da queda.
 
     `finame_real_lancamento` volta **vazia**, e isso é o desfecho certo: cada
     linha dela é a leitura de uma linha de planilha que continua em `raw_cell`,
     e a próxima importação daquele mês a reconstrói idêntica. A de decisões
-    volta vazia porque o `down` só desce quando ela já estava — é a
-    pré-condição de `TABELAS_REMOVIDAS`, e é ela que garante que não há decisão
-    humana a perder.
+    volta vazia porque o `down` só desce quando ela já estava — é a pré-condição
+    de `TABELAS_REMOVIDAS`, e é ela que garante que não há decisão humana a
+    perder.
   */
-  const M103 = "0103_financiamento_real_em_competencia_mensal";
+  const M104 = "0104_financiamento_real_em_competencia_mensal";
   for (const t of ["finame_real_lancamento", "financiamento_real_decisao"]) {
-    add(M103, t, levantar(M103, new RegExp(`CREATE TABLE IF NOT EXISTS "${t}" \\(`)));
+    add(M104, t, levantar(M104, new RegExp(`CREATE TABLE IF NOT EXISTS "${t}" \\(`)));
   }
   for (const fk of [
     "finame_real_lancamento_import_run_id_import_run_id_fk",
@@ -3813,10 +3890,10 @@ function planoUp(): PassoUp[] {
     "finame_real_lancamento_fact_id_fact_id_fk",
   ]) {
     add(
-      M103,
+      M104,
       `fk ${fk}`,
       levantar(
-        M103,
+        M104,
         new RegExp(
           `DO \\$\\$\\s*\\n\\s*BEGIN\\s*\\n\\s*IF NOT EXISTS \\(SELECT 1 FROM pg_constraint WHERE conname = '${fk}'\\)`,
         ),
@@ -3833,24 +3910,8 @@ function planoUp(): PassoUp[] {
     "finame_real_lancamento_raw_row_idx",
     "financiamento_real_decisao_chave_idx",
   ]) {
-    add(M103, `índice ${i}`, levantar(M103, new RegExp(`INDEX IF NOT EXISTS "${i}"`)));
+    add(M104, `índice ${i}`, levantar(M104, new RegExp(`INDEX IF NOT EXISTS "${i}"`)));
   }
-
-  /*
-    A `0104` — o endereço da pendência, uma coluna em `finame_real_lancamento`.
-
-    Ela entra **depois** da `0103` na ordem do `up`, que é a inversa da do
-    `down`: o `down` derruba a tabela inteira, o `up` a recria do `CREATE TABLE`
-    da `0103` — que não conhece esta coluna — e só então a acrescenta. Sem esta
-    entrada, o banco reconstruído ficaria com uma coluna a menos do que um banco
-    criado do zero, e foi assim que `bridge.test.ts` a cobrou.
-  */
-  const M104 = "0104_endereco_da_pendencia";
-  add(
-    M104,
-    "finame_real_lancamento.impressao_hash",
-    levantar(M104, /ADD COLUMN IF NOT EXISTS "impressao_hash"/),
-  );
 
   const M89 = "0089_normalizacao_do_nome_gerencial";
   add(

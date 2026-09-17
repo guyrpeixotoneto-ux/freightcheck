@@ -38,7 +38,9 @@ import {
  *    serem dois acervos, e não o mesmo acervo com dois nomes. Ausente, a leitura
  *    responde pelo acervo inteiro — que é o que a Visão executiva pede quando
  *    ninguém escolheu ainda.
- * 3. **Unidade.** Opcional, e é o filtro da tela. Sem ele, a série é do
+ * 3. **Unidade.** Opcional, e é o filtro da tela — por identidade
+ *    (`unidadeId`, que é o que o escopo da lateral resolve) ou pelo texto que a
+ *    competência guarda (`unidadeCodigo`). Sem ele, a série é do
  *    conjunto — e é aí que a cobertura vira obrigatória: a quinzena em que uma
  *    unidade não mandou arquivo tem menos placas, e sem dizer isso o gráfico
  *    mentiria uma frota encolhendo. Ver `CoberturaDaQuinzena`.
@@ -63,6 +65,20 @@ export interface RecorteDaSerieDeFrota {
   tipoDeOperacao?: string | null;
   /** O código da unidade, como a competência o guarda (`081-0443`). */
   unidadeCodigo?: string | null;
+  /**
+   * A unidade **canônica** — o recorte que não compara texto nenhum.
+   *
+   * É o que a tela usa desde que ela passou a honrar o escopo da lateral: a
+   * caixa "Unidade atual" fala em `scope_hash`, a ponte para `unidade.id` está
+   * em `remuneracao_unidade` (ver `unidade-do-escopo.ts`, no api-server), e o
+   * que chega aqui é a identidade já resolvida. `unidadeCodigo` continua
+   * existindo para quem endereça a competência pelo texto dela — é o que as
+   * competências históricas, sem identidade, ainda são.
+   *
+   * Os dois convivem e se somam: passar os dois recorta pela interseção, que é
+   * o que se espera de dois filtros.
+   */
+  unidadeId?: string | null;
   /** Quantas quinzenas, da mais recente para trás. */
   limite?: number;
 }
@@ -111,6 +127,9 @@ export async function serieDeFrotaQuinzenal(
     filtroDaOperacao(recorte.tipoDeOperacao),
     recorte.unidadeCodigo
       ? eq(fechamentoCompetenciaTable.unidadeCodigo, recorte.unidadeCodigo)
+      : undefined,
+    recorte.unidadeId
+      ? eq(fechamentoCompetenciaTable.unidadeId, recorte.unidadeId)
       : undefined,
   );
 

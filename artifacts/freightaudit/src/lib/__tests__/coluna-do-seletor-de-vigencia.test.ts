@@ -26,8 +26,93 @@ describe("resumirIntervalo", () => {
     ]);
 
     expect(resumo.periodicidade).toBe("MENSAL");
-    expect(resumo.porVigencia.get("2026-07-01")).toEqual({ alteracoes: 400, impacto: -12_000 });
-    expect(resumo.porVigencia.get("2026-08-01")).toEqual({ alteracoes: 402, impacto: 3_000 });
+    expect(resumo.porVigencia.get("2026-07-01")).toEqual({
+      alteracoes: 400,
+      impacto: -12_000,
+      outrasPeriodicidades: [],
+    });
+    expect(resumo.porVigencia.get("2026-08-01")).toEqual({
+      alteracoes: 402,
+      impacto: 3_000,
+      outrasPeriodicidades: [],
+    });
+  });
+
+  it("a dominante é a que aparece em mais vigências, e não a que moveu mais dinheiro", () => {
+    /*
+      Camaçari, 17/09/2026. Uma vigência com −R$ 590.438/ano contra oito com
+      dezenas de milhares por mês cada. Pelo volume a coluna saía em R$/ano e
+      ficava muda em oito das nove linhas — e o menu do FINAME, na tela ao
+      lado, mostrava as oito com dinheiro. Um menu em branco não diz "esta
+      régua não se aplica aqui"; diz "não teve nada".
+    */
+    const resumo = resumirIntervalo([
+      linha("2026-01-16", 560, { ANUAL: -590_438 }),
+      linha("2026-02-16", 350, { MENSAL: -45_292 }),
+      linha("2026-03-16", 400, { MENSAL: -17_545 }),
+      linha("2026-04-16", 402, { MENSAL: -34_133 }),
+      linha("2026-05-16", 383, { MENSAL: -61_886 }),
+      linha("2026-06-16", 269, { MENSAL: -17_171 }),
+    ]);
+
+    expect(resumo.periodicidade).toBe("MENSAL");
+    expect(resumo.porVigencia.get("2026-05-16")?.impacto).toBe(-61_886);
+  });
+
+  it("empatadas na presença, decide o que moveu", () => {
+    /*
+      O volume não saiu de cena: ele é o desempate, e continua sendo a soma
+      dos módulos e não do líquido — ver o caso abaixo.
+    */
+    const resumo = resumirIntervalo([
+      linha("2026-07-01", 10, { MENSAL: 1_000, ANUAL: 90_000 }),
+      linha("2026-08-01", 10, { MENSAL: 2_000, ANUAL: 80_000 }),
+    ]);
+
+    expect(resumo.periodicidade).toBe("ANUAL");
+  });
+
+  it("a vigência sem dinheiro na régua da coluna diz em qual régua ele está", () => {
+    const resumo = resumirIntervalo([
+      linha("2026-07-01", 400, { MENSAL: -12_000 }),
+      linha("2026-08-01", 402, { MENSAL: -3_000 }),
+      linha("2026-09-01", 560, { ANUAL: -590_438 }),
+    ]);
+
+    expect(resumo.periodicidade).toBe("MENSAL");
+    expect(resumo.porVigencia.get("2026-09-01")).toEqual({
+      alteracoes: 560,
+      impacto: null,
+      outrasPeriodicidades: ["ANUAL"],
+    });
+
+    const nota = motivoSemNumeros("2026-09-01", resumo);
+    expect(nota?.curto).toBe("sem R$/mês");
+    expect(nota?.porque).toContain("R$/ano");
+  });
+
+  it("quem tem número na coluna não ganha nota — o número já é a resposta", () => {
+    const resumo = resumirIntervalo([
+      linha("2026-07-01", 400, { MENSAL: -12_000, ANUAL: -900 }),
+      linha("2026-08-01", 402, { MENSAL: -3_000 }),
+    ]);
+
+    expect(resumo.porVigencia.get("2026-07-01")?.outrasPeriodicidades).toEqual([]);
+    expect(motivoSemNumeros("2026-07-01", resumo)).toBeNull();
+  });
+
+  it("vigência que não apurou nada em régua nenhuma continua sem nota de régua", () => {
+    /*
+      Ela não tem dinheiro noutra periodicidade — ela não tem dinheiro. Dizer
+      "sem R$/mês" aqui sugeriria que o valor está noutro lugar da tela, e não
+      está em lugar nenhum: é o que a coluna "sem impacto calculável" conta.
+    */
+    const resumo = resumirIntervalo([
+      linha("2026-07-01", 400, { MENSAL: -12_000 }),
+      linha("2026-08-01", 6, {}),
+    ]);
+
+    expect(motivoSemNumeros("2026-08-01", resumo)).toBeNull();
   });
 
   it("a dominante é a que mais moveu, e não a de maior saldo", () => {
@@ -54,15 +139,27 @@ describe("resumirIntervalo", () => {
       linha("2026-09-01", 40, { MENSAL: 0 }),
     ]);
 
-    expect(resumo.porVigencia.get("2026-08-01")).toEqual({ alteracoes: 6, impacto: null });
-    expect(resumo.porVigencia.get("2026-09-01")).toEqual({ alteracoes: 40, impacto: 0 });
+    expect(resumo.porVigencia.get("2026-08-01")).toEqual({
+      alteracoes: 6,
+      impacto: null,
+      outrasPeriodicidades: [],
+    });
+    expect(resumo.porVigencia.get("2026-09-01")).toEqual({
+      alteracoes: 40,
+      impacto: 0,
+      outrasPeriodicidades: [],
+    });
   });
 
   it("sem impacto apurado em lugar nenhum, a coluna não existe — mas a contagem continua", () => {
     const resumo = resumirIntervalo([linha("2026-07-01", 400, {}), linha("2026-08-01", 6, {})]);
 
     expect(resumo.periodicidade).toBeNull();
-    expect(resumo.porVigencia.get("2026-07-01")).toEqual({ alteracoes: 400, impacto: null });
+    expect(resumo.porVigencia.get("2026-07-01")).toEqual({
+      alteracoes: 400,
+      impacto: null,
+      outrasPeriodicidades: [],
+    });
   });
 
   it("um intervalo vazio não inventa periodicidade", () => {

@@ -13,6 +13,7 @@ import {
   type VeiculoDaRubrica,
 } from "@workspace/comparison/agrupamento-por-veiculo";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { formatNumber } from "@/lib/format";
@@ -162,9 +163,38 @@ export interface EscritaDaRubrica<L extends LinhaAgrupavel, V extends VeiculoDaR
   avisoDaPlaca?: (veiculo: V) => { rotulo: string; texto: ReactNode } | null;
 }
 
+/**
+ * O MODO EM LOTE — a coluna de caixas que só existe enquanto ele está ligado.
+ *
+ * A tabela desligada é exatamente a de antes: sem coluna a mais, sem linha mais
+ * alta, sem nada deslocado. É o ponto — quem entra nesta tela para ler o que
+ * mudou não deve pagar, em largura, por uma ação que não pediu.
+ *
+ * O que a caixa da linha marca são as **alterações** daquela placa, e não a
+ * placa: é a alteração que recebe justificativa, e uma placa pode ter quatro.
+ * As que não podem receber — conflito, dado incompleto, e a linha "sem
+ * alteração", que não tem `change.id` — nunca entram, nem marcando a placa
+ * inteira: é a mesma regra da coluna de justificar, lida da mesma função
+ * (`justificavel`). A placa sem nenhuma alteração justificável recebe uma caixa
+ * desabilitada, e não nenhuma caixa: a coluna vazia ali seria lida como
+ * "esqueceram desta linha".
+ */
+export interface SelecaoEmLote {
+  /** Os `change.id` marcados agora. */
+  marcadas: ReadonlySet<number>;
+  /** Marcar ou desmarcar um conjunto de alterações de uma vez. */
+  onMarcar: (ids: readonly number[], marcar: boolean) => void;
+}
+
 /** A chave de uma placa na lista de expandidas. */
 const chaveDaPlaca = (v: { entityLabel: string | null; entityType: string }) =>
   `${v.entityLabel}${v.entityType}`;
+
+/** As alterações de uma placa que podem receber justificativa. */
+const justificaveisDoVeiculo = <L extends LinhaDeRubrica>(
+  linhas: readonly L[],
+): number[] =>
+  linhas.filter((l) => l.id !== null && l.estado === "ALTERADO").map((l) => l.id!);
 
 export function TabelaPorVeiculo<
   L extends LinhaDeRubrica,
@@ -173,6 +203,7 @@ export function TabelaPorVeiculo<
   veiculos,
   escrita,
   justificadaPor,
+  selecao,
   onAbrir,
   onJustificar,
 }: {
@@ -180,13 +211,37 @@ export function TabelaPorVeiculo<
   escrita: EscritaDaRubrica<L, V>;
   /** A justificativa mais recente de cada alteração, por `change.id`. */
   justificadaPor?: ReadonlyMap<number, Justificativa>;
+  /** Ausente, a tabela é a de sempre — sem coluna de caixas. */
+  selecao?: SelecaoEmLote;
   onAbrir: (veiculo: V) => void;
   /** Ausente, a coluna de justificativa fica só de leitura. */
   onJustificar?: AbrirJustificativa;
 }) {
   const [expandidas, setExpandidas] = useState<ReadonlySet<string>>(new Set());
 
+  /*
+    As alterações justificáveis **desta página** — o universo da caixa do
+    cabeçalho.
+
+    "Selecionar os registros visíveis" é isto, e nada além: as linhas carregadas
+    e exibidas agora. Quem quer o recorte inteiro tem o link da barra de ações,
+    que é outra operação e é dita com outras palavras — a diferença entre as
+    duas é o centro desta funcionalidade, e uma caixa de cabeçalho que
+    silenciosamente alcançasse as outras páginas a apagaria.
+  */
+  const idsVisiveis = veiculos.flatMap((v) => justificaveisDoVeiculo(v.linhas));
+  const marcadasVisiveis = selecao
+    ? idsVisiveis.filter((id) => selecao.marcadas.has(id)).length
+    : 0;
+  const estadoDoCabecalho: boolean | "indeterminate" =
+    marcadasVisiveis === 0
+      ? false
+      : marcadasVisiveis === idsVisiveis.length
+        ? true
+        : "indeterminate";
+
   const colunas: { titulo: string; direita?: boolean }[] = [
+    ...(selecao ? [{ titulo: "Selecionar" }] : []),
     { titulo: "Veículo" },
     { titulo: "Tipo" },
     ...(escrita.colunasDoVeiculo ?? []).map((c) => ({
@@ -220,18 +275,40 @@ export function TabelaPorVeiculo<
         </caption>
         <thead>
           <tr className="border-b bg-muted/60">
-            {colunas.map((coluna) => (
-              <th
-                key={coluna.titulo}
-                scope="col"
-                className={cn(
-                  "whitespace-nowrap px-3 py-2.5 text-[0.65rem] font-bold uppercase tracking-[0.07em] text-muted-foreground",
-                  coluna.direita ? "text-right" : "text-left",
-                )}
-              >
-                {coluna.titulo}
+            {selecao && (
+              <th scope="col" className="w-10 px-3 py-2.5">
+                <Checkbox
+                  checked={estadoDoCabecalho}
+                  disabled={idsVisiveis.length === 0}
+                  onCheckedChange={(marcar) =>
+                    /* Parcialmente marcada, o clique marca o resto — é o que
+                       quem vê um traço no lugar do visto espera, e o contrário
+                       (desmarcar tudo) desfaria a escolha de quem clicou linha
+                       a linha. */
+                    selecao.onMarcar(idsVisiveis, marcar !== false)
+                  }
+                  aria-label={
+                    estadoDoCabecalho === true
+                      ? "Desmarcar os registros visíveis"
+                      : "Selecionar os registros visíveis"
+                  }
+                />
               </th>
-            ))}
+            )}
+            {colunas
+              .filter((coluna) => coluna.titulo !== "Selecionar")
+              .map((coluna) => (
+                <th
+                  key={coluna.titulo}
+                  scope="col"
+                  className={cn(
+                    "whitespace-nowrap px-3 py-2.5 text-[0.65rem] font-bold uppercase tracking-[0.07em] text-muted-foreground",
+                    coluna.direita ? "text-right" : "text-left",
+                  )}
+                >
+                  {coluna.titulo}
+                </th>
+              ))}
           </tr>
         </thead>
         <tbody>
@@ -243,6 +320,7 @@ export function TabelaPorVeiculo<
               colunas={colunas.length}
               aberta={expandidas.has(chaveDaPlaca(v))}
               justificadaPor={justificadaPor}
+              selecao={selecao}
               onJustificar={onJustificar}
               onAlternar={() => alternar(v)}
               onAbrir={() => onAbrir(v)}
@@ -406,6 +484,7 @@ function FragmentoDoVeiculo<
   colunas,
   aberta,
   justificadaPor,
+  selecao,
   onJustificar,
   onAlternar,
   onAbrir,
@@ -415,6 +494,7 @@ function FragmentoDoVeiculo<
   colunas: number;
   aberta: boolean;
   justificadaPor?: ReadonlyMap<number, Justificativa>;
+  selecao?: SelecaoEmLote;
   onJustificar?: AbrirJustificativa;
   onAlternar: () => void;
   onAbrir: () => void;
@@ -442,12 +522,36 @@ function FragmentoDoVeiculo<
   const justificaveis = v.linhas.filter((l) => l.id !== null && l.estado === "ALTERADO");
   const justificadas = justificaveis.filter((l) => justificadaPor?.has(l.id!)).length;
 
+  /*
+    A linha marcada é a que tem **todas** as suas alterações marcadas.
+
+    Uma placa de quatro variáveis com duas marcadas — o que acontece quando
+    alguém marca uma pela seleção rápida das iguais — aparece parcial, e não
+    marcada: dizer "esta placa está selecionada" ali prometeria justificar as
+    quatro.
+  */
+  const idsDaPlaca = justificaveisDoVeiculo(v.linhas);
+  const marcadasNaPlaca = selecao
+    ? idsDaPlaca.filter((id) => selecao.marcadas.has(id)).length
+    : 0;
+  const estadoDaCaixa: boolean | "indeterminate" =
+    marcadasNaPlaca === 0
+      ? false
+      : marcadasNaPlaca === idsDaPlaca.length
+        ? true
+        : "indeterminate";
+  const selecionada = marcadasNaPlaca > 0;
+
   return (
     <>
       <tr
         className={cn(
           "cursor-pointer border-b border-superficie-borda hover:bg-muted/50",
           aberta && "bg-muted/40",
+          /* O azul muito suave da linha escolhida. Vem depois do `aberta` de
+             propósito: com o modo em lote ligado, é a seleção que a linha
+             precisa afirmar. */
+          selecionada && "bg-brand/[0.06] hover:bg-brand/10",
         )}
         onClick={onAlternar}
         tabIndex={0}
@@ -463,6 +567,26 @@ function FragmentoDoVeiculo<
           }
         }}
       >
+        {selecao && (
+          /* O clique da caixa é da caixa: sem parar a propagação, marcar uma
+             linha abriria a expansão dela junto. */
+          <td className="w-10 px-3 py-2" onClick={(e) => e.stopPropagation()}>
+            <Checkbox
+              checked={estadoDaCaixa}
+              disabled={idsDaPlaca.length === 0}
+              onCheckedChange={(marcar) => selecao.onMarcar(idsDaPlaca, marcar !== false)}
+              aria-label={
+                idsDaPlaca.length === 0
+                  ? `${v.entityLabel ?? "Veículo sem placa"} não tem alteração que possa ser justificada`
+                  : `${estadoDaCaixa === true ? "Desmarcar" : "Selecionar"} ${
+                      idsDaPlaca.length === 1
+                        ? "a alteração"
+                        : `as ${idsDaPlaca.length} alterações`
+                    } de ${v.entityLabel ?? "veículo sem placa"}`
+              }
+            />
+          </td>
+        )}
         <td className="whitespace-nowrap px-3 py-2 font-mono font-semibold">
           <span className="flex items-center gap-1.5">
             <ChevronRight

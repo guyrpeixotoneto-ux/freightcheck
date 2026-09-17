@@ -31,6 +31,17 @@ import { formatBrl, formatNumber } from "@/lib/format";
 export interface BaldeDoImpacto {
   periodicidade: string;
   valor: number;
+  /**
+   * De que **régua** é este dinheiro — ausente em quem tem uma só.
+   *
+   * O espelho de `BaldeDoImpacto` (`api-server/src/lib/candidatas-do-par.ts`),
+   * e a razão é a de lá: as dezesseis telas de rubrica têm uma família de custo
+   * só e não o preenchem; o catálogo de Alterações por Módulo atravessa três, e
+   * as chaves de periodicidade são as mesmas nas três. Sem o rótulo, o `MENSAL`
+   * do custo fixo e o do custo variável cairiam na mesma linha do menu — duas
+   * réguas fundidas numa, que é o total geral que o domínio recusa por escrito.
+   */
+  rotulo?: string;
 }
 
 /**
@@ -125,7 +136,13 @@ export interface NumerosDaLinha {
    * dinheiro (`semImpacto`). Ali a linha mostra a contagem sozinha, porque um
    * `R$ 0,00` afirmaria uma conta que ninguém fez.
    */
-  valores: { texto: string; bruto: number; leitura: LeituraDoValor }[];
+  valores: {
+    texto: string;
+    bruto: number;
+    leitura: LeituraDoValor;
+    /** A régua deste valor, quando a linha mostra mais de uma. Sem cor. */
+    rotulo?: string;
+  }[];
   /** "457 alterações", "1 alteração", "0 alterações". */
   alteracoes: string;
   /**
@@ -199,7 +216,13 @@ export function numerosDaLinha(
 
   const valores = numeros.impacto.baldes
     .filter((b) => b.valor !== 0)
-    .sort((a, b) => a.periodicidade.localeCompare(b.periodicidade))
+    /* Por régua primeiro, e por periodicidade dentro dela: as duas linhas de
+       custo fixo ficam juntas, e não intercaladas com as de custo variável. */
+    .sort(
+      (a, b) =>
+        (a.rotulo ?? "").localeCompare(b.rotulo ?? "") ||
+        a.periodicidade.localeCompare(b.periodicidade),
+    )
     .map((b) => ({
       /*
         O sinal no lugar da palavra — `+` e `−`, e não "Ganho" e "Perda".
@@ -222,6 +245,7 @@ export function numerosDaLinha(
       )}${periodicitySuffix(b.periodicidade)}`,
       bruto: b.valor,
       leitura: leituraDoValor(b.valor),
+      ...(b.rotulo ? { rotulo: b.rotulo } : {}),
     }));
 
   /*

@@ -361,6 +361,40 @@ export function vigenciasQueCobrem<T extends VigenciaEmparelhavel>(
 export const TIPOS_DE_EQUIPAMENTO: readonly string[] = ["CAVALO", "CARRETA"];
 
 /**
+ * A entrada ou a saída de uma entidade **daquele grão** — o filtro que o
+ * recorte por atributo não tem como fazer.
+ *
+ * `listChanges` deixa passar, de propósito, a linha sem `attribute_code`
+ * (`query.ts`): entrada e saída de ativo o motor grava uma vez por entidade, no
+ * eixo da frota, e recortar só por `attribute_code IN (…)` diria "nenhum
+ * veículo entrou" num mês em que cinco entraram. O preço dessa exceção é que
+ * ela não sabe de que tipo é a entidade que entrou — e uma vigência que traz o
+ * arquivo de trecho junto com o de equipamento fazia **cada perna de rota**
+ * entrar nas tabelas de custo fixo como uma linha de veículo, com a
+ * `chaveTrecho` escrita na coluna Veículo e o tipo cru ao lado.
+ *
+ * O filtro é aqui, e não em cada rota, por duas razões. A primeira é que o grão
+ * é da rubrica, não da consulta: quem sabe que Custo Fixo lê placa e que o Km
+ * Rodado lê trecho é o módulo da rubrica, e é ele que já traduz a alteração em
+ * linha. A segunda é que doze rubricas repetiam o mesmo `if` de entrada e
+ * saída, e um `if` repetido doze vezes é um `if` que doze arquivos podem
+ * esquecer — foi o que aconteceu. `linhaDeQlpDaAlteracao` já recusava o que não
+ * é do quadro dela (`qlp-comparacao.ts`); esta função é essa mesma guarda,
+ * escrita uma vez e usada pelas doze.
+ *
+ * Tipo ausente não é "serve para todo mundo": uma linha sem `entity_type` não
+ * tem como provar que é do grão, e entrar assim é o defeito, não o conserto.
+ */
+export function ehEntradaOuSaidaDoGrao(
+  a: AlteracaoDoMotor,
+  tipos: readonly string[],
+): boolean {
+  if (a.changeType !== "ENTITY_ADDED" && a.changeType !== "ENTITY_REMOVED") return false;
+  const tipo = (a.entityType ?? "").trim().toUpperCase();
+  return tipos.some((t) => t.trim().toUpperCase() === tipo);
+}
+
+/**
  * O par de partida: as duas vigências mais recentes que **formam par de
  * verdade** — mesma unidade e mesma cobertura.
  *
