@@ -74,6 +74,7 @@ import {
 } from "./recorte-de-rubrica";
 import {
   agruparVeiculos,
+  medidasDoCatalogo,
   type OpcoesDoAgrupamento,
   type VeiculoDaRubrica,
 } from "./agrupamento-por-veiculo";
@@ -954,13 +955,20 @@ export type VeiculoDeManutencao = VeiculoDaRubrica<LinhaDeManutencao>;
  * A ordem é a do catálogo: o R$/km resolvido primeiro, as duas origens que o
  * explicam logo abaixo, e o contexto por último.
  *
- * O destaque é o **R$/km resolvido** — e ele é medido em R$/km, não em reais. A
- * tela declara isso em `medidaDoDestaque`, para que a coluna não escreva
- * "R$ 0,34" onde a fonte disse trinta e quatro centavos por quilômetro.
+ * O destaque é o **R$/km resolvido** — e ele é medido em R$/km, não em reais.
+ * Quem diz isso é `medidas`, tirado do catálogo: dele a tela sabe que a coluna
+ * não pode escrever "R$ 0,34" onde a fonte disse trinta e quatro centavos por
+ * quilômetro, que uma variável alterada em R$/km pode assumir a linha-mãe
+ * quando o R$/km resolvido não está no recorte, e que esta rubrica não tem
+ * variável nenhuma em reais.
  */
 export const AGRUPAMENTO_DE_MANUTENCAO = {
   ordemDasVariaveis: ["veiculo", ...TODAS.map((v) => v.chave)],
   destaque: "reais_km",
+  /* A unidade do destaque e a resposta a "esta rubrica tem dinheiro?" saem
+     daqui — do mesmo catálogo que define a ordem da expansão, e nunca de
+     uma segunda lista escrita à mão. */
+  medidas: medidasDoCatalogo(TODAS),
   foraDaContagem: ["veiculo"],
 } as const satisfies OpcoesDoAgrupamento;
 

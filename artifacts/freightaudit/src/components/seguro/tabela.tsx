@@ -1,3 +1,4 @@
+import { AGRUPAMENTO_DE_SEGURO } from "@workspace/comparison/seguro";
 import type { LinhaDeSeguro, VeiculoDeSeguro } from "@workspace/comparison/seguro";
 import {
   TabelaPorVeiculo,
@@ -30,6 +31,7 @@ import {
 export const ESCRITA_DO_SEGURO: EscritaDaRubrica<LinhaDeSeguro, VeiculoDeSeguro> = {
   rubrica: "seguro e aparato",
   destaque: "Seguro",
+  agrupamento: AGRUPAMENTO_DE_SEGURO,
   escreverValor,
   escreverDiferenca,
   escreverVariacao,

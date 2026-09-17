@@ -1,3 +1,4 @@
+import { AGRUPAMENTO_DE_AQUISICAO } from "@workspace/comparison/aquisicao";
 import type { LinhaDeAquisicao, VeiculoDeAquisicao } from "@workspace/comparison/aquisicao";
 import {
   TabelaPorVeiculo,
@@ -35,6 +36,7 @@ import {
 export const ESCRITA_DA_AQUISICAO: EscritaDaRubrica<LinhaDeAquisicao, VeiculoDeAquisicao> = {
   rubrica: "aquisição",
   destaque: "Valor de NF",
+  agrupamento: AGRUPAMENTO_DE_AQUISICAO,
   escreverValor,
   escreverDiferenca,
   escreverVariacao,

@@ -1,3 +1,4 @@
+import { AGRUPAMENTO_DE_IMPOSTOS } from "@workspace/comparison/impostos";
 import type { LinhaDeImpostos, VeiculoDeImpostos } from "@workspace/comparison/impostos";
 import {
   TabelaPorVeiculo,
@@ -44,6 +45,7 @@ import {
 const ESCRITA_DOS_IMPOSTOS: EscritaDaRubrica<LinhaDeImpostos, VeiculoDeImpostos> = {
   rubrica: "impostos",
   destaque: "PIS/COFINS",
+  agrupamento: AGRUPAMENTO_DE_IMPOSTOS,
   escreverValor,
   escreverDiferenca,
   escreverVariacao,

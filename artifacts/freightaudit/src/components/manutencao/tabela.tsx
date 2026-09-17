@@ -1,6 +1,7 @@
-import type {
-  LinhaDeManutencao,
-  VeiculoDeManutencao,
+import {
+  AGRUPAMENTO_DE_MANUTENCAO,
+  type LinhaDeManutencao,
+  type VeiculoDeManutencao,
 } from "@workspace/comparison/manutencao";
 import {
   TabelaPorVeiculo,
@@ -21,9 +22,11 @@ import {
  * A escrita desta rubrica — o vocabulário que a tabela e a gaveta compartilham.
  *
  * **A coluna de destaque é medida em R$/km, e não em reais.** É a única das seis
- * auditorias em que isso acontece, e é por isso que `medidaDoDestaque` existe:
- * sem ela a coluna escreveria "R$ 0,34" onde a fonte disse trinta e quatro
- * centavos por quilômetro — o mesmo número, a conta errada.
+ * auditorias em que isso acontece, e é por isso que a tabela lê o agrupamento
+ * da rubrica: dele saem a unidade do destaque — sem ela a coluna escreveria
+ * "R$ 0,34" onde a fonte disse trinta e quatro centavos por quilômetro — e o
+ * fato de que aqui **nenhuma** variável é dinheiro, que cala o complemento
+ * "(0 em R$)" da contagem de alterações.
  */
 export const ESCRITA_DA_MANUTENCAO: EscritaDaRubrica<
   LinhaDeManutencao,
@@ -31,7 +34,7 @@ export const ESCRITA_DA_MANUTENCAO: EscritaDaRubrica<
 > = {
   rubrica: "manutenção",
   destaque: "R$/km",
-  medidaDoDestaque: "REAIS_POR_KM",
+  agrupamento: AGRUPAMENTO_DE_MANUTENCAO,
   escreverValor,
   escreverDiferenca,
   escreverVariacao,

@@ -1,3 +1,4 @@
+import { AGRUPAMENTO_DE_FINAME } from "@workspace/comparison/finame";
 import type { LinhaDeFiname, VeiculoDeFiname } from "@workspace/comparison/finame";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
@@ -40,6 +41,7 @@ import type { Justificativa } from "@/lib/justificativas";
 const ESCRITA_DO_FINAME: EscritaDaRubrica<LinhaDeFiname, VeiculoDeFiname> = {
   rubrica: "FINAME",
   destaque: "Parcela",
+  agrupamento: AGRUPAMENTO_DE_FINAME,
   escreverValor,
   escreverDiferenca,
   escreverVariacao,

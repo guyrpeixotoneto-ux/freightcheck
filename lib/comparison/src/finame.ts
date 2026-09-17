@@ -50,6 +50,7 @@ import {
 } from "./recorte-de-rubrica";
 import {
   agruparVeiculos,
+  medidasDoCatalogo,
   contextoDasLinhas,
   type OpcoesDoAgrupamento,
   type VeiculoDaRubrica,
@@ -728,6 +729,10 @@ export interface VeiculoDeFiname extends VeiculoDaRubrica<LinhaDeFiname> {
 export const AGRUPAMENTO_DE_FINAME = {
   ordemDasVariaveis: ["veiculo", ...TODAS.map((v) => v.chave)],
   destaque: "parcela",
+  /* A unidade do destaque e a resposta a "esta rubrica tem dinheiro?" saem
+     daqui — do mesmo catálogo que define a ordem da expansão, e nunca de
+     uma segunda lista escrita à mão. */
+  medidas: medidasDoCatalogo(TODAS),
   foraDaContagem: ["veiculo"],
 } as const satisfies OpcoesDoAgrupamento;
 
