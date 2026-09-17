@@ -92,6 +92,7 @@ export function TabelaDaComparacaoDeQlp({
             const { unidade, cargo, classificacao, outros } = escreverCargo(
               linha.entityLabel,
               rotulos,
+              linha.entityType,
             );
             return (
               <tr

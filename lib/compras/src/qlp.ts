@@ -167,6 +167,8 @@ export interface Conferencia {
 export interface LinhaDoQuadro {
   entityId: string;
   cargo: string;
+  /** A classificação que a fonte escreve junto do cargo. Ver `separarChaveLegivel`. */
+  classificacao: string | null;
   unidadeCnpj: string;
   unidadeCnpjLegivel: string;
   unidadeNome: string | null;
@@ -313,6 +315,7 @@ export async function remuneradoDoQlp(
         {
           entityId: cargo.entityId,
           cargo: cargo.cargo,
+          classificacao: cargo.classificacao,
           unidadeCnpj: cargo.unidadeCnpj,
           unidadeCnpjLegivel: cargo.unidadeCnpjLegivel,
           unidadeNome,

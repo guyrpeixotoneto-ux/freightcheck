@@ -58,7 +58,9 @@ export function DetalheDaAlteracaoDeEquipe({
         {linha && (
           <>
             <SheetHeader>
-              <SheetTitle>{cargoEmUmaLinha(linha.cargo.chave, rotulos)}</SheetTitle>
+              <SheetTitle>
+                {cargoEmUmaLinha(linha.cargo.chave, rotulos, linha.cargo.entityType)}
+              </SheetTitle>
               <SheetDescription>
                 {linha.variavel.rotulo} · {escreverModulo(linha.modulo)}
               </SheetDescription>
@@ -201,7 +203,11 @@ function BlocoDoCargo({
   cargo: LinhaDoMonitorDeEquipe["cargo"];
   rotulos: Record<string, string>;
 }) {
-  const { unidade, cargo: nome, classificacao, outros } = escreverCargo(cargo.chave, rotulos);
+  const { unidade, cargo: nome, classificacao, outros } = escreverCargo(
+    cargo.chave,
+    rotulos,
+    cargo.entityType,
+  );
   return (
     <Bloco titulo="O cargo">
       <Campo rotulo="Unidade" valor={unidade} />

@@ -133,6 +133,7 @@ export function TabelaDoMonitorDeEquipe({
             const { unidade, cargo, classificacao, outros } = escreverCargo(
               l.cargo.chave,
               rotulos,
+              l.cargo.entityType,
             );
             return (
               <TableRow

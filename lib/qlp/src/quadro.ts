@@ -8,9 +8,14 @@ import {
 import { ehTipoNumerico, podeSomar, viraDinheiro } from "@workspace/curation";
 import {
   DATASET_FAMILY_QUADRO_DE_PESSOAL,
-  SEPARADOR_LEGIVEL,
   normalizeDocumento,
 } from "@workspace/ingest";
+import {
+  campoDaIdentidade,
+  camposFora,
+  lerIdentidade,
+  type CampoLegivel,
+} from "@workspace/ingest/identidade-legivel";
 import {
   TIPO_QLP_ADMINISTRATIVO,
   resolverContextoDoQuadro,
@@ -18,6 +23,15 @@ import {
   filtroDosEscopos,
 } from "./contexto";
 import { contarRegistrosFaltando } from "./inconsistencias";
+
+/**
+ * O nome do campo que a fonte grudou na célula do cargo.
+ *
+ * Mora aqui, e não em `identidade-legivel`, porque é do **arquivo do QLP** —
+ * a leitura genérica não sabe que "Classificação" é um fato que merece coluna,
+ * e não deve saber.
+ */
+const ROTULO_DA_CLASSIFICACAO = "Classificação";
 
 /**
  * O quadro de uma vigência: o que o modelo remunera de estrutura administrativa,
@@ -69,6 +83,16 @@ export interface CargoDoQuadro {
   entityId: string;
   /** O cargo como o arquivo o escreveu — vem da identidade, não de um fato. */
   cargo: string;
+  /**
+   * A classificação do cargo, quando a fonte a escreve junto dele.
+   *
+   * Ela vem grudada na mesma célula (`Cargo: Conferente | Classificação: …`) e
+   * é um fato à parte: dois cargos de mesmo nome e classificações diferentes
+   * são duas linhas do quadro, e uma coluna só não deixa distingui-los.
+   */
+  classificacao: string | null;
+  /** O que mais vinha rotulado na mesma célula, com o nome que a fonte deu. */
+  outros: CampoLegivel[];
   /** CNPJ normalizado (14 dígitos) — a chave de agrupamento. */
   unidadeCnpj: string;
   /** O CNPJ como o arquivo o escreveu. */
@@ -166,13 +190,28 @@ function valorDoFato(fato: FatoDoQuadro): ValorDeFato {
   return fato.value_date;
 }
 
-/** Separa `"07.526.557/0015-05 · ANALISTA ADM"` em CNPJ legível e cargo. */
-export function separarChaveLegivel(raw: string): { cnpjLegivel: string; cargo: string } {
-  const posicao = raw.indexOf(SEPARADOR_LEGIVEL);
-  if (posicao < 0) return { cnpjLegivel: "", cargo: raw };
+/**
+ * A chave legível em campos: CNPJ, cargo, e o que a fonte grudou junto.
+ *
+ * `"07.526.557/0015-05 · ANALISTA ADM"` dá CNPJ e cargo, como sempre deu. O que
+ * mudou é o caso real do arquivo da Ambev, em que a coluna "Cargo" traz dois
+ * fatos numa célula só — `Cargo: Conferente | Classificação: CARREGAMENTO` —, e
+ * a classificação chegava às telas dentro do nome do cargo. Quem sabe abrir
+ * isso é `lerIdentidade`, que usa as colunas de identidade declaradas do tipo;
+ * aqui só se dá nome ao que ela devolve.
+ */
+export function separarChaveLegivel(raw: string): {
+  cnpjLegivel: string;
+  cargo: string;
+  classificacao: string | null;
+  outros: CampoLegivel[];
+} {
+  const identidade = lerIdentidade(raw, TIPO_QLP_ADMINISTRATIVO);
   return {
-    cnpjLegivel: raw.slice(0, posicao),
-    cargo: raw.slice(posicao + SEPARADOR_LEGIVEL.length),
+    cnpjLegivel: identidade.unidade,
+    cargo: identidade.principal,
+    classificacao: campoDaIdentidade(identidade, ROTULO_DA_CLASSIFICACAO),
+    outros: camposFora(identidade, [ROTULO_DA_CLASSIFICACAO]),
   };
 }
 
@@ -250,12 +289,17 @@ export async function getQuadroAdministrativo(
   for (const fato of rows) {
     let cargo = cargosPorEntidade.get(fato.entity_id);
     if (!cargo) {
-      const { cnpjLegivel, cargo: nomeDoCargo } = separarChaveLegivel(
-        fato.identifier_value_raw,
-      );
+      const {
+        cnpjLegivel,
+        cargo: nomeDoCargo,
+        classificacao,
+        outros,
+      } = separarChaveLegivel(fato.identifier_value_raw);
       cargo = {
         entityId: fato.entity_id,
         cargo: nomeDoCargo,
+        classificacao,
+        outros,
         unidadeCnpj: normalizeDocumento(cnpjLegivel),
         unidadeCnpjLegivel: cnpjLegivel,
         valores: {},
@@ -366,8 +410,17 @@ export async function getQuadroAdministrativo(
     visiveis = visiveis.filter((cargo) => cargo.unidadeCnpj === alvo);
   }
   if (filtros.busca) {
+    /*
+      A busca lê o cargo **e** a classificação: separá-las em colunas não pode
+      custar a quem procura por "ESTACIONÁRIA" o resultado que ele tinha quando
+      as duas moravam na mesma célula.
+    */
     const alvo = fold(filtros.busca);
-    visiveis = visiveis.filter((cargo) => fold(cargo.cargo).includes(alvo));
+    visiveis = visiveis.filter((cargo) =>
+      [cargo.cargo, cargo.classificacao ?? "", ...cargo.outros.map((c) => c.valor)].some(
+        (texto) => fold(texto).includes(alvo),
+      ),
+    );
   }
 
   // Agrupado por unidade, com o nome que o próprio arquivo declarou.

@@ -43,6 +43,10 @@ export type ValorDeFato = number | string | boolean | null;
 export interface CargoDoQuadro {
   entityId: string;
   cargo: string;
+  /** A classificação que a fonte escreve na mesma célula do cargo. */
+  classificacao: string | null;
+  /** O que mais vinha rotulado ali — um campo por fato, como a rota manda. */
+  outros: { rotulo: string; valor: string }[];
   unidadeCnpj: string;
   unidadeCnpjLegivel: string;
   valores: Record<string, ValorDeFato>;
@@ -157,6 +161,8 @@ export interface DetalheDoCargo {
   vigencias: VigenciaDoQuadro[];
   entityId: string;
   cargo: string;
+  classificacao: string | null;
+  outros: { rotulo: string; valor: string }[];
   unidadeCnpjLegivel: string;
   chaveLegivel: string;
   presente: boolean;
@@ -179,6 +185,7 @@ export interface VigenciaDaEvolucao {
 export interface CargoNaSerie {
   entityId: string;
   cargo: string;
+  classificacao: string | null;
   unidadeCnpj: string;
   unidadeCnpjLegivel: string;
   presencas: boolean[];

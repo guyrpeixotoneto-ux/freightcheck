@@ -56,7 +56,13 @@ export function DetalheDoCargo({
   const doCargo = linhas.filter((l) => l.entityLabel === cargo);
   const somaveis = doCargo.filter((l) => l.foraDaSoma === null);
   const foraDaSoma = doCargo.filter((l) => l.foraDaSoma !== null);
-  const { unidade, cargo: nome, classificacao, outros } = escreverCargo(cargo, rotulos);
+  /* O tipo sai das próprias linhas do cargo — todas são do mesmo quadro. */
+  const {
+    unidade,
+    cargo: nome,
+    classificacao,
+    outros,
+  } = escreverCargo(cargo, rotulos, doCargo[0]?.entityType);
 
   /* Por rubrica, na ordem em que as rubricas apareceram — que é a ordem do
      catálogo, porque é dela que a tabela veio. */

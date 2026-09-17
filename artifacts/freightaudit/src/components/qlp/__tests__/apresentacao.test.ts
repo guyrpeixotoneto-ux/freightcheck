@@ -3,7 +3,6 @@ import {
   agruparMovimentos,
   formatarValor,
   rotuloDaVigencia,
-  separarCampos,
   separarRotulo,
 } from "../apresentacao";
 import type { ChangeRow } from "@/components/changes/change-table";
@@ -101,35 +100,38 @@ describe("separarRotulo", () => {
   });
 });
 
-describe("separarCampos", () => {
+describe("separarRotulo, com o tipo em mãos", () => {
+  /*
+    O turno é a terceira coluna de identidade do QLP Operacional, e nunca teve
+    casa na tela: a leitura dividia a chave no primeiro ` · ` e o turno ia junto
+    do nome do cargo. Com o tipo, cada coluna volta para a casa dela.
+  */
+  it("o turno do operacional vira campo, e não rabo do cargo", () => {
+    expect(separarRotulo("07526557001505 · Manobrista · NOTURNO", "QLP_OPERACIONAL")).toEqual({
+      unidade: "07526557001505",
+      cargo: "Manobrista",
+      classificacao: null,
+      outros: [{ rotulo: "Turno", valor: "NOTURNO" }],
+    });
+  });
+
   it("o prefixo repetido do arquivo cai — é o arquivo, não a leitura", () => {
     expect(
-      separarCampos(
-        "Cargo: Manobrista | Classificação: Classificação: CARREGAMENTO - ESTACIONÁRIA",
+      separarRotulo(
+        "07526557001505_CERV · Cargo: Conferente | Classificação: Classificação: CARREGAMENTO",
+        "QLP_ADMINISTRATIVO",
       ),
     ).toEqual({
-      cargo: "Manobrista",
-      classificacao: "CARREGAMENTO - ESTACIONÁRIA",
+      unidade: "07526557001505_CERV",
+      cargo: "Conferente",
+      classificacao: "CARREGAMENTO",
       outros: [],
     });
   });
 
-  it("o campo que não tem coluna própria vira campo, e não some", () => {
-    expect(
-      separarCampos("Cargo: Manobrista | Classificação: CARREGAMENTO | Quantidade: 10.0"),
-    ).toEqual({
-      cargo: "Manobrista",
-      classificacao: "CARREGAMENTO",
-      outros: [{ rotulo: "Quantidade", valor: "10.0" }],
-    });
-  });
-
-  /*
-    Sem `Cargo:` nem `Classificação:`, dois-pontos é pontuação do nome —
-    desmontar ali seria inventar uma estrutura que a fonte não escreveu.
-  */
-  it("não desmonta um cargo que só tem dois-pontos no nome", () => {
-    expect(separarCampos("AUX: ADM")).toEqual({
+  it("dois-pontos no meio de um nome é pontuação, e não campo", () => {
+    expect(separarRotulo("07526557001505 · AUX: ADM", "QLP_ADMINISTRATIVO")).toEqual({
+      unidade: "07526557001505",
       cargo: "AUX: ADM",
       classificacao: null,
       outros: [],

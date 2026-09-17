@@ -8,6 +8,7 @@
     "./excel-dates": "./src/excel-dates.ts",
     "./chamados": "./src/chamados.ts",
     "./tipos": "./src/tipos.ts",
+    "./identidade-legivel": "./src/identidade-legivel.ts",
     "./apontamentos": "./src/apontamentos.ts",
     "./testing": "./src/testing.ts",
     "./testing/planilha": "./src/__tests__/planilha-sintetica.ts"

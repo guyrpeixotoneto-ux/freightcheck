@@ -53,12 +53,18 @@ export interface ComparacaoDeQlp {
 export function escreverCargo(
   chave: string | null,
   rotulos: Record<string, string>,
+  /*
+    O tipo da entidade, quando a linha o traz: é ele que diz de quantas colunas
+    a identidade deste quadro é feita, e por isso o turno do QLP Operacional —
+    a terceira delas — deixa de viajar dentro do nome do cargo.
+  */
+  entityType?: string | null,
 ): RotuloDaEntidade {
   const vazio = { classificacao: null, outros: [] };
   if (!chave) return { unidade: "", cargo: "—", ...vazio };
   const legivel = rotulos[chave];
   if (!legivel) return { unidade: "", cargo: chave, ...vazio };
-  return separarRotulo(legivel);
+  return separarRotulo(legivel, entityType);
 }
 
 /**
@@ -69,8 +75,9 @@ export function escreverCargo(
 export function identificacaoDoCargo(
   chave: string | null,
   rotulos: Record<string, string>,
+  entityType?: string | null,
 ): IdentificacaoDoCargo {
-  const { unidade, cargo, classificacao, outros } = escreverCargo(chave, rotulos);
+  const { unidade, cargo, classificacao, outros } = escreverCargo(chave, rotulos, entityType);
   const complemento = [
     ...(classificacao ? [classificacao] : []),
     ...outros.map((c) => `${c.rotulo}: ${c.valor}`),
@@ -85,13 +92,14 @@ export function identificacaoDoCargo(
 /**
  * O cargo numa linha só — para a busca, para o `aria-label` e para o título da
  * gaveta. Só onde o texto é **nome** os campos voltam a andar juntos: numa
- * tabela cada um tem a sua coluna, e é essa a regra ({@link separarCampos}).
+ * tabela cada um tem a sua coluna, e é essa a regra ({@link separarRotulo}).
  */
 export function cargoEmUmaLinha(
   chave: string | null,
   rotulos: Record<string, string>,
+  entityType?: string | null,
 ): string {
-  const { unidade, cargo, classificacao } = identificacaoDoCargo(chave, rotulos);
+  const { unidade, cargo, classificacao } = identificacaoDoCargo(chave, rotulos, entityType);
   return [...(unidade ? [unidade] : []), cargo, ...(classificacao ? [classificacao] : [])].join(
     " · ",
   );
@@ -276,7 +284,7 @@ export function filtrar(
     if (filtros.estado !== "TODAS" && l.estado !== filtros.estado) return false;
     if (filtros.variavel !== "TODAS" && l.variavel !== filtros.variavel) return false;
     if (busca === "") return true;
-    const cargo = cargoEmUmaLinha(l.entityLabel, rotulos).toLowerCase();
+    const cargo = cargoEmUmaLinha(l.entityLabel, rotulos, l.entityType).toLowerCase();
     return (
       cargo.includes(busca) || l.rotuloDaVariavel.toLowerCase().includes(busca)
     );
@@ -321,7 +329,7 @@ export function linhasDoCsv(
     ...linhas.map((l) =>
       celulasDoCsvDeQlpComparado(
         l,
-        identificacaoDoCargo(l.entityLabel, rotulos),
+        identificacaoDoCargo(l.entityLabel, rotulos, l.entityType),
         ROTULO_DO_ESTADO[l.estado],
         l.id === null ? null : (justificadaPor?.get(l.id)?.texto ?? null),
       ).map((celula) =>

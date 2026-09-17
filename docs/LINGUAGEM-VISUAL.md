@@ -112,27 +112,46 @@ para se reconhecer de relance.
 Quando a fonte grudou vários fatos numa célula só, a tela os separa em colunas
 — nunca repassa a frase inteira para uma coluna que promete um fato só.
 
-O caso que deu origem à regra é o quadro operacional: o rótulo da entidade vem
-como `Cargo: Manobrista | Classificação: Classificação: CARREGAMENTO -
-ESTACIONÁRIA`, com o prefixo repetido e tudo. Numa coluna "Cargo", isso é uma
+O caso que deu origem à regra é o quadro de pessoal: a coluna "Cargo" do
+arquivo vem como `Cargo: Conferente | Classificação: Classificação:
+CARREGAMENTO - ESTACIONÁRIA` — dois fatos e o prefixo repetido —, e essa é a
+identidade legível que todo o produto lê. Numa coluna "Cargo", isso é uma
 coluna que não se filtra, não se ordena e empurra as colunas de número para
 fora da tela. Em duas — "Cargo" e "Classificação" —, cada uma volta a ser o que
 o cabeçalho diz.
 
+Onde a regra já vale: as duas tabelas do QLP (Quadro e Comparação), a Evolução,
+a Auditoria, o Monitor Equipe, a matriz do QLP em Compras, o `Item` do
+Monitoramento de Chamados e a proveniência da Cobertura — com os CSV de cada uma
+seguindo as mesmas colunas.
+
 Como se faz, e o que **não** se faz:
 
-- a separação é de **apresentação**: `separarCampos`, em
-  `components/qlp/apresentacao.ts`, desmembra o rótulo, e `escreverCargo`
-  entrega `{ unidade, cargo, classificacao, outros }` para a tabela, para a
-  gaveta e para o CSV (que ganhou as colunas na mesma ordem). O dado gravado
+- **quem sabe onde a chave se dobra é a importação.** `lerIdentidade`, em
+  `@workspace/ingest/identidade-legivel`, divide a chave legível pelas colunas
+  de identidade declaradas do tipo (`tipos.ts`), na ordem em que foram
+  emendadas, e abre o que a fonte grudou dentro de uma célula. Foi assim que o
+  **turno** do QLP Operacional — uma terceira coluna de identidade — deixou de
+  viajar dentro do nome do cargo em todas as telas de uma vez. Antes, cada tela
+  cortava a chave no primeiro ` · ` por conta própria;
+- a separação é de **apresentação**: `escreverCargo` (na tela) e
+  `separarChaveLegivel` (em `lib/qlp`) entregam `{ unidade, cargo,
+  classificacao, … }` para a tabela, para a gaveta e para o CSV. O dado gravado
   não muda: quem conserta a fonte é a importação, não a tela;
+- **a coluna só cede o lugar ao campo que repete o nome dela.** Numa coluna
+  "Cargo", `Cargo: Conferente | Classificação: …` se abre; `AUX: ADM` não. Onde
+  a coluna é uma **caixa** e não um fato — o `Item` dos chamados —, qualquer
+  campo rotulado se abre, e as colunas do CSV saem dos rótulos que o próprio
+  recorte trouxe;
 - **nada se descarta.** Um campo rotulado sem coluna própria — `Quantidade:
   10,0` — aparece sob a classificação com o rótulo dele. Sumir com um fato para
   a coluna ficar bonita é pior do que a frase grudada;
-- **não se inventa estrutura.** Sem `Cargo:` nem `Classificação:` à vista, o
-  rótulo fica inteiro: dois-pontos no meio de um nome é pontuação, não campo;
+- **não se inventa estrutura.** Nem nome de campo: sem rótulo que se reconheça,
+  o texto fica inteiro, e um pedaço nunca recebe o nome do pedaço ao lado;
 - junto, só onde o texto é **nome** e não tabela: o título da gaveta, o
-  `aria-label` e a busca usam `cargoEmUmaLinha`.
+  `aria-label` e a busca usam `cargoEmUmaLinha`. A busca lê todos os campos —
+  separar em colunas não pode custar a quem procura por "ESTACIONÁRIA" o
+  resultado que ele tinha quando tudo morava na mesma célula.
 
 ## O Panorama como vitrine
 

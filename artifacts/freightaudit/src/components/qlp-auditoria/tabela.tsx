@@ -7,7 +7,9 @@ import {
   SELO_DO_VEREDITO,
   escreverConta,
   escreverDiferenca,
+  identidadeDoCargo,
   type ConferenciaDaLinha,
+  type QuadroDeQlp,
 } from "@/lib/qlp-auditoria";
 
 /**
@@ -24,24 +26,40 @@ import {
  * só a diferença deixaria "−R$ 2.400,00" sem escala: sobre uma despesa de
  * R$ 4.800 é metade da rubrica, e sobre uma de R$ 480 mil é ruído.
  */
-export function TabelaDeCargos({ linhas }: { linhas: ConferenciaDaLinha[] }) {
+export function TabelaDeCargos({
+  linhas,
+  quadro,
+}: {
+  linhas: ConferenciaDaLinha[];
+  /** Qual quadro é este — é ele que diz como a chave legível se dobra. */
+  quadro: QuadroDeQlp;
+}) {
   const [aberto, setAberto] = useState<string | null>(null);
 
   return (
     <div className="superficie overflow-x-auto">
-      <table className="w-full min-w-[52rem] border-collapse text-sm">
+      <table className="w-full min-w-[60rem] border-collapse text-sm">
         <caption className="sr-only">
           Cargos do quadro e o resultado das contas que a tabela declara para cada um.
         </caption>
         <thead>
           <tr className="border-b bg-muted/60">
-            {["", "Cargo", "Fecham", "Não fecham", "Sem base", "Leitura"].map((titulo, i) => (
+            {[
+              "",
+              "Unidade",
+              "Cargo",
+              "Classificação",
+              "Fecham",
+              "Não fecham",
+              "Sem base",
+              "Leitura",
+            ].map((titulo, i) => (
               <th
                 key={titulo || `vazio-${i}`}
                 scope="col"
                 className={cn(
                   "whitespace-nowrap px-3 py-2.5 text-[0.65rem] font-bold uppercase tracking-[0.07em] text-muted-foreground",
-                  i >= 2 && i <= 4 ? "text-right" : "text-left",
+                  i >= 4 && i <= 6 ? "text-right" : "text-left",
                 )}
               >
                 {titulo}
@@ -52,6 +70,7 @@ export function TabelaDeCargos({ linhas }: { linhas: ConferenciaDaLinha[] }) {
         <tbody>
           {linhas.map((l) => {
             const estaAberto = aberto === l.chave;
+            const identidade = identidadeDoCargo(l, quadro);
             return (
               <Fragment key={l.chave}>
                 <tr
@@ -77,21 +96,34 @@ export function TabelaDeCargos({ linhas }: { linhas: ConferenciaDaLinha[] }) {
                       <ChevronRight className="h-4 w-4" aria-hidden="true" />
                     )}
                   </td>
+                  {/*
+                    Três colunas onde havia uma frase. A chave legível traz a
+                    unidade, o cargo e — no arquivo real — a classificação
+                    grudada dentro da célula do cargo; numa coluna só, nada
+                    disso se ordena nem se compara. A chave normalizada fica
+                    embaixo do cargo em letra menor: ela identifica, mas
+                    `20618821000799AUXILIARADM` não se lê.
+                  */}
+                  <td className="px-3 py-2 font-mono text-[0.7rem] text-muted-foreground">
+                    {identidade.unidade || "—"}
+                  </td>
                   <td className="px-3 py-2">
-                    {/*
-                      O nome legível manda, e a chave normalizada fica embaixo em
-                      letra menor: a chave identifica, mas
-                      `20618821000799AUXILIARADM` não se lê, e uma lista de trinta
-                      delas é uma lista que ninguém distingue.
-                    */}
                     <span className="flex flex-col">
-                      <span className="font-semibold">{l.nome ?? l.chave}</span>
+                      <span className="font-semibold">{identidade.cargo}</span>
                       {l.nome && (
                         <span className="font-mono text-[0.7rem] text-muted-foreground">
                           {l.chave}
                         </span>
                       )}
                     </span>
+                  </td>
+                  <td className="px-3 py-2 text-xs text-muted-foreground">
+                    {identidade.classificacao ?? "—"}
+                    {identidade.outros.map((campo) => (
+                      <div key={campo.rotulo}>
+                        {campo.rotulo}: {campo.valor}
+                      </div>
+                    ))}
                   </td>
                   <td className="px-3 py-2 text-right font-mono tabular-nums text-success">
                     {formatNumber(l.conferem, 0)}
@@ -121,7 +153,7 @@ export function TabelaDeCargos({ linhas }: { linhas: ConferenciaDaLinha[] }) {
 
                 {estaAberto && (
                   <tr className="border-b border-superficie-borda bg-muted/20">
-                    <td colSpan={6} className="px-3 py-3">
+                    <td colSpan={8} className="px-3 py-3">
                       <table className="w-full border-collapse text-xs">
                         <thead>
                           <tr className="text-[0.65rem] uppercase tracking-[0.07em] text-muted-foreground">

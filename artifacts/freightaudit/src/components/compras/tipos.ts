@@ -152,6 +152,7 @@ export interface Conferencia {
 export interface LinhaDoQuadro {
   entityId: string;
   cargo: string;
+  classificacao: string | null;
   unidadeCnpj: string;
   unidadeCnpjLegivel: string;
   unidadeNome: string | null;
@@ -285,6 +286,8 @@ export interface CelulaDaMatrizQlp {
 export interface LinhaDaMatrizQlp {
   entityId: string;
   cargo: string;
+  /** A classificação do cargo — a fonte a escreve junto dele, a tela a separa. */
+  classificacao: string | null;
   unidadeCnpj: string;
   unidadeCnpjLegivel: string;
   unidadeNome: string | null;

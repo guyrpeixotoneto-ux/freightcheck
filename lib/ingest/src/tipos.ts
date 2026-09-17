@@ -102,8 +102,17 @@ export interface ColunaIdentificadora {
   folded: string;
   /** Como `slugifyColumn` a escreve — a forma que vira código de atributo. */
   slug: string;
-  /** O cabeçalho literal, como a planilha o escreve. Vai para a tela. */
+  /** O cabeçalho literal, como a planilha o escreve. Vai para os apontamentos. */
   sourceName: string;
+  /**
+   * Como esta coluna se chama num cabeçalho de tabela.
+   *
+   * O `sourceName` é o nome do arquivo, e nos apontamentos ele é o certo: quem
+   * lê está com a planilha aberta ao lado. Numa tela, `cargoEquipeEmpurrada` é
+   * ruído — o que a coluna diz é "Cargo". Ausente quer dizer que o nome do
+   * arquivo já serve.
+   */
+  rotulo?: string;
   normalizacao: NormalizacaoDeChave;
   /**
    * A coluna continua sendo fato, mesmo participando da identidade.
@@ -228,6 +237,7 @@ const CHAVE_TRECHO: ColunaIdentificadora = {
   folded: "chavetrecho",
   slug: "chave_trecho",
   sourceName: "chaveTrecho",
+  rotulo: "Trecho",
   normalizacao: "IDENTIFICADOR",
 };
 
@@ -236,6 +246,7 @@ const UNIDADE_CNPJ: ColunaIdentificadora = {
   folded: "unidade - cnpj",
   slug: "unidade_cnpj",
   sourceName: "Unidade - CNPJ",
+  rotulo: "Unidade",
   normalizacao: "DOCUMENTO",
   tambemEhFato: true,
 };
@@ -251,6 +262,7 @@ const CARGO_EQUIPE: ColunaIdentificadora = {
   folded: "cargoequipeempurrada",
   slug: "cargo_equipe_empurrada",
   sourceName: "cargoEquipeEmpurrada",
+  rotulo: "Cargo",
   normalizacao: "IDENTIFICADOR",
 };
 
@@ -258,6 +270,7 @@ const TURNO: ColunaIdentificadora = {
   folded: "turnoempurrada",
   slug: "turno_empurrada",
   sourceName: "turnoEmpurrada",
+  rotulo: "Turno",
   normalizacao: "IDENTIFICADOR",
 };
 
