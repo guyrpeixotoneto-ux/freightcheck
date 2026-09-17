@@ -156,9 +156,14 @@ export function Veredito({
           — não cabia nas duas metades, e a parcela da direita saía por cima da
           borda do cartão. Aqui a coluna cresce até o teto de `max-w` e o número
           grande da esquerda fica com o resto.
+
+          O `pr-4` é a folga da direita. Sem ele a parcela de perdas termina
+          exatamente na linha de padding do cartão, e um número em negrito
+          encostado na borda é lido como corte — era o que a tela mostrava
+          mesmo nas vigências em que o valor ainda cabia.
         */}
         {lados && (
-          <div className="border-t border-brand/15 pt-5 md:border-t-0 md:pt-0 md:border-l md:border-brand/15 md:pl-10 md:w-auto md:min-w-[21rem] md:max-w-[28rem] md:shrink-0">
+          <div className="border-t border-brand/15 pt-5 md:border-t-0 md:pt-0 md:border-l md:border-brand/15 md:pl-10 md:pr-4 md:w-auto md:min-w-[21rem] md:max-w-[28rem] md:shrink-0">
             <Rotulo>Composição</Rotulo>
 
             <div className="mt-3 grid grid-cols-2">
