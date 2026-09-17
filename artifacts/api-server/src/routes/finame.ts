@@ -26,10 +26,22 @@ import {
   totaisPorVigencia,
   variavelDoCodigo,
   VARIAVEIS_DE_FINAME,
+  vigenciasQueCobrem,
   type ContextoDoVeiculo,
   type LinhaDeFiname,
   type RequestedContext,
   TIPOS_DE_EQUIPAMENTO,
+  /* A fonte analisada, e as três peças do confronto Remunerado × Realizado. */
+  competenciaDe,
+  competenciasDasDatas,
+  confrontar,
+  consolidarCompetencia,
+  ehCompetencia,
+  fonteDoRealizadoEmUso,
+  rotuloDaCompetencia,
+  validarFonte,
+  type Competencia,
+  type ParcelaNaVigencia,
 } from "@workspace/comparison";
 import { classificarFalha } from "../lib/classificar-falha";
 import { exigirOperacaoDoRecurso, operacaoDaConsulta } from "../lib/operacao";
@@ -175,6 +187,12 @@ async function contextoDaVigencia(
  * e 110→100 é −9,09%.
  */
 router.get("/finame/comparacao", async (req, res, next): Promise<void> => {
+  /* A fonte é conferida antes de qualquer leitura: esta rota responde pela
+     comparação entre duas vigências remuneradas, e só por ela. Ver
+     `fonteDaConsulta`. */
+  if (fonteDaConsulta({ query: req.query as Record<string, unknown> }, res, ["REMUNERADO"]) === null) {
+    return;
+  }
   const base = typeof req.query.base === "string" ? req.query.base : "";
   const comparada = typeof req.query.comparada === "string" ? req.query.comparada : "";
   if (!base || !comparada) {
@@ -327,6 +345,12 @@ router.get("/finame/comparacao", async (req, res, next): Promise<void> => {
  * nada.
  */
 router.get("/finame/totais", async (req, res): Promise<void> => {
+  /* A fonte é conferida antes de qualquer leitura: esta rota responde pela
+     comparação entre duas vigências remuneradas, e só por ela. Ver
+     `fonteDaConsulta`. */
+  if (fonteDaConsulta({ query: req.query as Record<string, unknown> }, res, ["REMUNERADO"]) === null) {
+    return;
+  }
   const base = typeof req.query.base === "string" ? req.query.base : "";
   const comparada = typeof req.query.comparada === "string" ? req.query.comparada : "";
   if (!base || !comparada) {
@@ -506,6 +530,461 @@ router.get("/finame/candidatos", async (req, res, next): Promise<void> => {
     req.log.warn({ err }, "Candidatas de FINAME recusadas");
     res.status(422).json({ error: desfecho.mensagem });
   }
+});
+
+/* ===========================================================================
+ * A FONTE REAL — o confronto Remunerado × Realizado, por competência
+ * ======================================================================== */
+
+/**
+ * A fonte que a consulta pede, conferida — e nunca aceita como veio.
+ *
+ * O cliente manda `?fonte=real|remunerado`, e o cliente é indulgente consigo
+ * mesmo: `fonteDoParametro` cai no padrão diante de qualquer coisa, porque quem
+ * clicou num link antigo não tem culpa. O servidor não pode ser assim. Um
+ * pedido com fonte que este produto não conhece é um pedido que ele não sabe
+ * atender, e atendê-lo com a outra fonte devolveria dados de uma origem sob o
+ * nome de outra — exatamente a contaminação que esta separação existe para
+ * impedir.
+ *
+ * Devolve `null` **depois de já ter respondido** 400: quem chama só precisa
+ * voltar.
+ */
+function fonteDaConsulta(
+  req: { query: Record<string, unknown> },
+  res: { status: (c: number) => { json: (b: unknown) => void } },
+  aceitas: readonly ("REMUNERADO" | "REAL")[],
+): "REMUNERADO" | "REAL" | null {
+  /*
+    Ausente quer dizer "a fonte desta rota", e não "a fonte padrão do produto".
+
+    `validarFonte` responde REMUNERADO ao silêncio, que é o certo para um link
+    de tela — e errado aqui: `GET /finame/confronto` sem parâmetro nenhum é um
+    pedido de confronto, e recusá-lo dizendo que a rota só atende a fonte Real
+    seria recusar exatamente o que ele pediu. Quem declara explicitamente uma
+    fonte que a rota não atende continua sendo recusado.
+  */
+  const fonte =
+    req.query.fonte === undefined || req.query.fonte === ""
+      ? aceitas[0]
+      : validarFonte(req.query.fonte);
+  if (fonte === null) {
+    res.status(400).json({ error: "Fonte desconhecida. Use fonte=remunerado ou fonte=real." });
+    return null;
+  }
+  if (!aceitas.includes(fonte)) {
+    res.status(422).json({
+      error:
+        fonte === "REAL"
+          ? "A fonte Real compara remunerado contra realizado numa competência, e não duas " +
+            "vigências. Use GET /finame/confronto."
+          : "Esta rota responde apenas pela fonte Real.",
+    });
+    return null;
+  }
+  return fonte;
+}
+
+/**
+ * O tipo de ativo que a consulta recorta — e a recusa que mantém trecho fora.
+ *
+ * `TIPOS_DE_EQUIPAMENTO` é cavalo e carreta, e nada mais. A validação não é
+ * higiene de parâmetro: o acervo entrega o arquivo de trecho como vigência
+ * própria (`entity_type_set = TRECHO`), e um `?tipo=TRECHO` que passasse daqui
+ * somaria custo variável dentro de uma auditoria de custo fixo. É a mesma
+ * recusa que a lista de vigências faz, agora na entrada da rota.
+ */
+function tiposDaConsulta(
+  req: { query: Record<string, unknown> },
+  res: { status: (c: number) => { json: (b: unknown) => void } },
+): readonly string[] | null {
+  const pedido = req.query.tipo;
+  if (pedido === undefined || pedido === "" || pedido === "TODOS") return TIPOS_DE_EQUIPAMENTO;
+  if (typeof pedido !== "string" || !TIPOS_DE_EQUIPAMENTO.includes(pedido)) {
+    res.status(400).json({
+      error: `Tipo de ativo inválido. Esta auditoria lê ${TIPOS_DE_EQUIPAMENTO.join(" e ")}.`,
+    });
+    return null;
+  }
+  return [pedido];
+}
+
+/**
+ * As vigências de equipamento que esta consulta alcança.
+ *
+ * Três recortes, nesta ordem, e nenhum deles é opcional:
+ *
+ * 1. **operação** — `listComparableSnapshots` já a aplica, e é o ambiente de
+ *    quem pergunta (`?operacao=ROTA` não vê empurrada);
+ * 2. **cobertura de equipamento** — `vigenciasQueCobrem` tira o arquivo de
+ *    trecho da lista, que é o que impede dado de trecho de entrar em qualquer
+ *    conta deste módulo;
+ * 3. **unidade** — o `scopeHash` pedido, quando vem. O que garante que ele seja
+ *    uma unidade **autorizada** é o middleware de escopo, que monta o conjunto
+ *    a partir da sessão e não do pedido (`lib/escopo-efetivo.ts`): aqui ele só
+ *    estreita.
+ */
+async function vigenciasDoRecorte(
+  req: { query: Record<string, unknown> },
+  tipos: readonly string[],
+) {
+  const todas = await listComparableSnapshots(db, {
+    operacao: operacaoDaConsulta(req.query),
+  });
+  const deEquipamento = vigenciasQueCobrem(todas, tipos);
+  const scopeHash = typeof req.query.scopeHash === "string" ? req.query.scopeHash : null;
+  return scopeHash ? deEquipamento.filter((v) => v.scopeHash === scopeHash) : deEquipamento;
+}
+
+/**
+ * As competências que a fonte Real pode analisar.
+ *
+ * `GET /finame/competencias?scopeHash=&operacao=&tipo=`
+ *
+ * Devolve os meses do **remunerado** — que é o lado que sempre existe — e diz,
+ * por mês, se o realizado tem aquele mês. A tela precisa das duas informações
+ * na mesma resposta: um seletor que oferecesse só a interseção esconderia de
+ * quem audita justamente a pergunta "por que setembro não aparece?", e um que
+ * oferecesse só o remunerado deixaria a pessoa escolher um mês para descobrir
+ * depois que não há nada do outro lado.
+ *
+ * **Não inventa quinzena.** A competência é mensal porque o realizado é mensal;
+ * as vigências que sustentam cada mês viajam junto, para a tela poder dizer
+ * *quais* entregas remuneradas compõem aquele mês sem sugerir que o mês se
+ * divide.
+ */
+router.get("/finame/competencias", async (req, res): Promise<void> => {
+  const query = req.query as Record<string, unknown>;
+  if (fonteDaConsulta({ query }, res, ["REAL", "REMUNERADO"]) === null) return;
+  const tipos = tiposDaConsulta({ query }, res);
+  if (tipos === null) return;
+
+  const vigencias = await vigenciasDoRecorte({ query }, tipos);
+  const competencias = competenciasDasDatas(vigencias.map((v) => v.effectiveDate));
+
+  const fonte = fonteDoRealizadoEmUso();
+  const doRealizado = await fonte.competenciasDisponiveis({
+    scopeHash: typeof query.scopeHash === "string" ? query.scopeHash : null,
+    canal: typeof query.operacao === "string" ? query.operacao : null,
+    entityTypes: tipos,
+  });
+  const comRealizado = new Set<Competencia>(
+    "competencias" in doRealizado ? doRealizado.competencias : [],
+  );
+
+  res.json({
+    competencias: competencias.map((competencia) => ({
+      competencia,
+      rotulo: rotuloDaCompetencia(competencia),
+      /* As entregas remuneradas do mês — a evidência de que ele é um mês
+         inteiro, e o que a consolidação vai exigir que batam. */
+      vigencias: vigencias
+        .filter((v) => competenciaDe(v.effectiveDate) === competencia)
+        .map((v) => ({
+          id: v.id,
+          effectiveDate: v.effectiveDate,
+          sourceLabel: v.sourceLabel,
+        })),
+      temRealizado: comRealizado.has(competencia),
+    })),
+    realizado:
+      "indisponivel" in doRealizado
+        ? { disponivel: false, fonte: fonte.nome, ...doRealizado.indisponivel }
+        : { disponivel: true, fonte: fonte.nome },
+  });
+});
+
+/**
+ * O confronto de uma competência — remunerado contra realizado.
+ *
+ * `GET /finame/confronto?competencia=2026-09&scopeHash=&operacao=&tipo=`
+ *
+ * ---------------------------------------------------------------------------
+ * Por que é uma rota, e não um parâmetro de `/finame/comparacao`
+ * ---------------------------------------------------------------------------
+ * Porque a pergunta é outra e a resposta tem outra forma. `/finame/comparacao`
+ * devolve alterações entre duas vigências, com estado por variável e impacto
+ * deduplicado; esta devolve uma linha por placa com os dois lados do mês. Um
+ * parâmetro que trocasse o formato da resposta faria os dois clientes
+ * carregarem os dois formatos — e o dia em que um deles esquecesse de olhar o
+ * parâmetro, leria sobra como impacto.
+ *
+ * ---------------------------------------------------------------------------
+ * As contas não moram aqui
+ * ---------------------------------------------------------------------------
+ * A rota lê, consolida e confronta chamando `@workspace/comparison` — a mesma
+ * regra que os testes amarram e que o navegador nunca refaz. O que é desta
+ * rota é o recorte: operação, unidade, tipo de ativo e competência.
+ *
+ * ---------------------------------------------------------------------------
+ * Sem fonte do realizado, a resposta é a verdade
+ * ---------------------------------------------------------------------------
+ * Não há confronto e não há zero: há `indisponivel`, com a frase que a tela
+ * escreve. O lado remunerado do mês vai junto mesmo assim — ele existe, foi
+ * consolidado, e mostrar quantas placas ele tem é o que permite a quem opera
+ * conferir que a falta está do outro lado.
+ */
+router.get("/finame/confronto", async (req, res): Promise<void> => {
+  const query = req.query as Record<string, unknown>;
+  if (fonteDaConsulta({ query }, res, ["REAL"]) === null) return;
+  const tipos = tiposDaConsulta({ query }, res);
+  if (tipos === null) return;
+
+  const competencia = typeof query.competencia === "string" ? query.competencia : "";
+  if (!ehCompetencia(competencia)) {
+    res.status(400).json({ error: "Informe a competência no formato AAAA-MM." });
+    return;
+  }
+
+  const vigencias = await vigenciasDoRecorte({ query }, tipos);
+  const doMes = vigencias.filter((v) => competenciaDe(v.effectiveDate) === competencia);
+
+  if (doMes.length === 0) {
+    res.status(404).json({
+      error: `Não há vigência remunerada em ${rotuloDaCompetencia(competencia)} neste recorte.`,
+    });
+    return;
+  }
+
+  /* A mesma autorização por recurso das outras rotas: um id de outra operação
+     não é atendido só por ter chegado dentro de um mês. */
+  for (const v of doMes) {
+    await exigirOperacaoDoRecurso(req, "vigência", v.id, () => operacaoDoSnapshot(db, v.id));
+  }
+
+  const parcelas: ParcelaNaVigencia[] = [];
+  /*
+    Veículos sem placa no acervo — contados, nunca descartados em silêncio.
+
+    A conciliação com o realizado é **por placa**: uma linha sem placa não tem
+    como achar o par dela, e forçá-la a uma chave vazia juntaria num só ativo
+    todos os sem-placa da frota. Ela fica de fora do confronto e o número
+    aparece na resposta, que é o que permite a quem audita perguntar por que
+    seis veículos não estão lá.
+  */
+  let semPlaca = 0;
+  try {
+    for (const snapshot of doMes) {
+      for (const entityType of tipos) {
+        /* O código da parcela sai do catálogo — a mesma fonte de `/finame/totais`.
+           Duas listas do que é "a parcela" dariam dois totais para o mês. */
+        const code = PARCELA?.codigo[entityType as "CAVALO" | "CARRETA"];
+        if (!code) continue;
+        const tabela = await getEntityTable(
+          db,
+          entityType,
+          [code],
+          contextoDoPar(snapshot, req),
+          snapshot.effectiveDate,
+        );
+        if (!tabela) continue;
+        for (const linha of tabela.rows) {
+          if (linha.label === null || linha.label === "") {
+            semPlaca += 1;
+            continue;
+          }
+          const bruto = linha.values[code]?.value ?? null;
+          const numero = bruto === null ? null : Number(bruto);
+          parcelas.push({
+            effectiveDate: snapshot.effectiveDate,
+            entityLabel: linha.label,
+            entityType,
+            /* Ausência atravessa como ausência. `Number("")` é 0, e um zero aqui
+               afirmaria que a Ambev remunerou zero naquele veículo. */
+            valor: numero !== null && Number.isFinite(numero) ? numero : null,
+          });
+        }
+      }
+    }
+  } catch (err) {
+    const desfecho = classificarFalha(err);
+    if (desfecho.tipo !== "REGRA") throw err;
+    req.log.warn({ err }, "Confronto de FINAME recusado");
+    res.status(422).json({ error: desfecho.mensagem });
+    return;
+  }
+
+  const remunerado = consolidarCompetencia({
+    competencia,
+    vigenciasDoMes: doMes.map((v) => v.effectiveDate),
+    parcelas,
+  });
+
+  const fonte = fonteDoRealizadoEmUso();
+  const doRealizado = await fonte.valoresDaCompetencia(
+    {
+      scopeHash: typeof query.scopeHash === "string" ? query.scopeHash : null,
+      canal: typeof query.operacao === "string" ? query.operacao : null,
+      entityTypes: tipos,
+    },
+    competencia,
+  );
+
+  const ladoRemunerado = {
+    veiculos: remunerado.length,
+    consolidados: remunerado.filter((r) => r.situacao === "CONSOLIDADO").length,
+    /*
+      A soma do lado remunerado do mês — publicada mesmo sem o outro lado.
+
+      Ela é a **parcela mensal** de cada placa consolidada, somada uma vez: com
+      duas quinzenas no mês, o total do mês é igual ao de uma quinzena, e não ao
+      dobro. É esse número que confere contra a soma da coluna de parcela na
+      origem, e é por isso que ele sai da resposta em vez de ficar só no
+      confronto — sem fonte do realizado, ele é a única evidência de que o lado
+      que existe foi lido inteiro.
+    */
+    totalConsolidado: Number(
+      remunerado
+        .filter((r) => r.situacao === "CONSOLIDADO" && r.valor !== null)
+        .reduce((a, r) => a + (r.valor ?? 0), 0)
+        .toFixed(2),
+    ),
+    divergencias: remunerado.filter((r) => r.situacao === "DIVERGENCIA_INTRAMENSAL").length,
+    coberturaParcial: remunerado.filter((r) => r.situacao === "COBERTURA_PARCIAL").length,
+    semValor: remunerado.filter((r) => r.situacao === "SEM_VALOR").length,
+    /** Linhas do acervo sem placa — impossíveis de conciliar, e por isso ditas. */
+    semPlaca,
+    vigencias: doMes.map((v) => ({
+      id: v.id,
+      effectiveDate: v.effectiveDate,
+      sourceLabel: v.sourceLabel,
+    })),
+  };
+
+  if ("indisponivel" in doRealizado) {
+    res.json({
+      competencia,
+      rotulo: rotuloDaCompetencia(competencia),
+      remunerado: ladoRemunerado,
+      realizado: { disponivel: false, fonte: fonte.nome, ...doRealizado.indisponivel },
+      confronto: null,
+    });
+    return;
+  }
+
+  const confronto = confrontar({
+    competencia,
+    remunerado,
+    realizado: doRealizado.valores,
+  });
+
+  res.json({
+    competencia,
+    rotulo: rotuloDaCompetencia(competencia),
+    remunerado: ladoRemunerado,
+    realizado: { disponivel: true, fonte: fonte.nome },
+    confronto,
+  });
+});
+
+/**
+ * A evolução da fonte Real — remunerado e realizado, competência a competência.
+ *
+ * `GET /finame/confronto/evolucao?scopeHash=&operacao=&tipo=`
+ *
+ * ---------------------------------------------------------------------------
+ * Por que ela não é a evolução remunerada com uma linha a mais
+ * ---------------------------------------------------------------------------
+ * Porque a pergunta dela é a distância entre os dois lados ao longo do tempo, e
+ * essa distância só existe onde os dois lados existem. Uma série que desenhasse
+ * o remunerado de doze meses e o realizado de três mostraria um descolamento
+ * gigante nos nove meses em que não há nada do outro lado — um gráfico que
+ * mente com dados verdadeiros.
+ *
+ * Por isso cada ponto carrega `conciliados`: os totais do mês são **dos
+ * conciliados daquele mês**, e o ponto diz quantos são. Um mês com dois
+ * veículos conciliados não é comparável a um com cento e quatro, e a série não
+ * finge que é.
+ *
+ * ---------------------------------------------------------------------------
+ * Sem fonte do realizado, não há série
+ * ---------------------------------------------------------------------------
+ * `serie: null`, com o motivo. Uma série só do remunerado devolvida por esta
+ * rota seria o dado de uma fonte sob o nome da outra.
+ */
+router.get("/finame/confronto/evolucao", async (req, res): Promise<void> => {
+  const query = req.query as Record<string, unknown>;
+  if (fonteDaConsulta({ query }, res, ["REAL"]) === null) return;
+  const tipos = tiposDaConsulta({ query }, res);
+  if (tipos === null) return;
+
+  const escopo = {
+    scopeHash: typeof query.scopeHash === "string" ? query.scopeHash : null,
+    canal: typeof query.operacao === "string" ? query.operacao : null,
+    entityTypes: tipos,
+  };
+
+  const vigencias = await vigenciasDoRecorte({ query }, tipos);
+  const competencias = competenciasDasDatas(vigencias.map((v) => v.effectiveDate));
+
+  const fonte = fonteDoRealizadoEmUso();
+  const disponiveis = await fonte.competenciasDisponiveis(escopo);
+  if ("indisponivel" in disponiveis) {
+    res.json({
+      serie: null,
+      realizado: { disponivel: false, fonte: fonte.nome, ...disponiveis.indisponivel },
+    });
+    return;
+  }
+
+  const serie: unknown[] = [];
+  for (const competencia of competencias) {
+    const doMes = vigencias.filter((v) => competenciaDe(v.effectiveDate) === competencia);
+    if (doMes.length === 0) continue;
+
+    const valores = await fonte.valoresDaCompetencia(escopo, competencia);
+    if ("indisponivel" in valores) continue;
+
+    const parcelas: ParcelaNaVigencia[] = [];
+    for (const snapshot of doMes) {
+      for (const entityType of tipos) {
+        const code = PARCELA?.codigo[entityType as "CAVALO" | "CARRETA"];
+        if (!code) continue;
+        const tabela = await getEntityTable(
+          db,
+          entityType,
+          [code],
+          contextoDoPar(snapshot, req),
+          snapshot.effectiveDate,
+        );
+        if (!tabela) continue;
+        for (const linha of tabela.rows) {
+          if (linha.label === null || linha.label === "") continue;
+          const bruto = linha.values[code]?.value ?? null;
+          const numero = bruto === null ? null : Number(bruto);
+          parcelas.push({
+            effectiveDate: snapshot.effectiveDate,
+            entityLabel: linha.label,
+            entityType,
+            valor: numero !== null && Number.isFinite(numero) ? numero : null,
+          });
+        }
+      }
+    }
+
+    const { resumo } = confrontar({
+      competencia,
+      remunerado: consolidarCompetencia({
+        competencia,
+        vigenciasDoMes: doMes.map((v) => v.effectiveDate),
+        parcelas,
+      }),
+      realizado: valores.valores,
+    });
+
+    serie.push({
+      competencia,
+      rotulo: rotuloDaCompetencia(competencia),
+      remunerado: resumo.totalRemunerado,
+      realizado: resumo.totalRealizado,
+      diferenca: resumo.resultadoLiquido,
+      /* Quantos veículos sustentam o ponto. Sem isto, dois pontos de alturas
+         muito diferentes pareceriam um movimento, e podem ser só cobertura. */
+      conciliados: resumo.veiculosConciliados,
+    });
+  }
+
+  res.json({ serie, realizado: { disponivel: true, fonte: fonte.nome } });
 });
 
 export default router;

@@ -26,6 +26,9 @@ import {
   type RecorteDeTipo,
 } from "@/components/comparacao/recorte-de-equipamento";
 import { CartoesDeFiname } from "@/components/finame/cartoes";
+import { SeletorDeFonte } from "@/components/finame/seletor-de-fonte";
+import { ConfrontoDeFiname } from "@/components/finame/confronto";
+import { EvolucaoDoConfronto } from "@/components/finame/evolucao-do-confronto";
 import {
   AlteracoesPorVariavel,
   DistribuicaoPorEstado,
@@ -53,6 +56,15 @@ import {
   type FiltrosDeFiname,
   type TotaisDeFiname,
 } from "@/lib/finame";
+import {
+  competenciaDaBusca,
+  competenciaReconciliada,
+  enderecoDaCompetencia,
+  enderecoDaFonte,
+  fonteDaBusca,
+  SEMANTICA_DA_FONTE,
+} from "@/lib/fonte-de-finame";
+import type { Competencia } from "@workspace/comparison/competencia-de-finame";
 import { useCandidatosDoPar } from "@/hooks/use-candidatos-do-par";
 import { JustificarDialog } from "@/components/justificativas/justificar-dialog";
 import { useJustificarNaTabela } from "@/lib/justificar-na-tabela";
@@ -207,6 +219,39 @@ export default function AuditoriaDeFiname() {
 
   const trocarNaUrl = (mudancas: Record<string, string | null>) =>
     navegar(enderecoComTroca(busca, mudancas));
+
+  /**
+   * A FONTE ANALISADA — e por que ela é `fonte=` e não `modo=`.
+   *
+   * `modo` já existe nesta tela, e vale `comparacao | evolucao`. A fonte é um
+   * eixo ortogonal a ele — dá para estar na Evolução de qualquer uma das duas —,
+   * e empilhar as duas intenções numa chave só tornaria impossível escrever um
+   * link que dissesse as duas. Ver `CHAVE_DA_FONTE`, em
+   * `@workspace/comparison/fonte-de-finame`, onde a decisão está escrita.
+   *
+   * Um link sem a chave abre em Remunerado, que é o que esta tela sempre foi.
+   */
+  const fonte = fonteDaBusca(busca);
+  const semantica = SEMANTICA_DA_FONTE[fonte];
+
+  /** A competência que o endereço pede — o eixo temporal da fonte Real. */
+  const competenciaPedida = competenciaDaBusca(busca);
+  const [competenciasDaFonte, setCompetenciasDaFonte] = useState<Competencia[]>([]);
+  const competencia = competenciaReconciliada(competenciaPedida, competenciasDaFonte);
+
+  /**
+   * O endereço nunca guarda uma competência que a fonte não tem.
+   *
+   * É a mesma promessa que `parReconciliado` faz do lado remunerado: o que
+   * está na lista fica, e o que não está é substituído pela última válida — na
+   * tela **e** na URL. Sem esta reescrita, um link com `competencia=2025-01`
+   * mostraria setembro sob um endereço que promete janeiro.
+   */
+  useEffect(() => {
+    if (fonte !== "REAL" || competencia === null) return;
+    if (competenciaPedida === competencia) return;
+    navegar(enderecoDaCompetencia("/custo-fixo-finame", busca, competencia), { replace: true });
+  }, [fonte, competencia, competenciaPedida, busca, navegar]);
 
   /** O contexto da unidade aberta, que atravessa os dois modos sem ser tocado. */
   const consultaDoContexto = useMemo(() => {
@@ -429,11 +474,24 @@ export default function AuditoriaDeFiname() {
    * fôlegos diferentes seria diferença sem motivo. O que esta tela decide é só
    * o que é dela — a rubrica, o "Para" aberto e a unidade do recorte.
    */
-  const candidatos = useCandidatosDoPar("finame", comparada, escopoAberto);
+  const candidatos = useCandidatosDoPar(
+    "finame",
+    fonte === "REMUNERADO" ? comparada : "",
+    escopoAberto,
+  );
 
+  /*
+    As duas consultas do remunerado não saem na fonte Real.
+
+    O par continua no estado — `parReconciliado` o mantém, e é o que faz a volta
+    para Remunerado cair na mesma comparação de antes —, mas pedir ao servidor a
+    comparação entre vigências enquanto a tela mostra o confronto seria trabalho
+    jogado fora e, pior, dado de uma fonte carregado sob a outra. A separação
+    das fontes vale também para o que **não** se pergunta.
+  */
   const comparacao = useQuery({
     queryKey: ["finame", "comparacao", base, comparada, comSemAlteracao],
-    enabled: Boolean(base && comparada),
+    enabled: fonte === "REMUNERADO" && Boolean(base && comparada),
     queryFn: () =>
       fetchJson<ComparacaoDeFiname>(
         `/finame/comparacao?base=${base}&comparada=${comparada}` +
@@ -443,7 +501,7 @@ export default function AuditoriaDeFiname() {
 
   const totais = useQuery({
     queryKey: ["finame", "totais", base, comparada],
-    enabled: Boolean(base && comparada),
+    enabled: fonte === "REMUNERADO" && Boolean(base && comparada),
     queryFn: () => fetchJson<TotaisDeFiname>(`/finame/totais?base=${base}&comparada=${comparada}`),
   });
 
@@ -600,15 +658,38 @@ export default function AuditoriaDeFiname() {
           <span className="flex flex-wrap items-center gap-2.5">
             Auditoria de FINAME
             <span className="rounded-full border border-brand/25 bg-brand/10 px-2.5 py-0.5 text-xs font-semibold text-brand">
-              {modo === "evolucao" ? "Evolução anual" : "Comparação entre vigências"}
+              {/* O selo segue a fonte **e** o modo: os dois mudam a pergunta, e
+                  um selo que ignorasse qualquer um deles poria o número de um
+                  recorte sob o título de outro. */}
+              {modo === "evolucao"
+                ? fonte === "REAL"
+                  ? "Remunerado × Realizado por competência"
+                  : "Evolução anual"
+                : semantica.selo}
             </span>
           </span>
         }
         icone={Banknote}
         descricao={
-          modo === "evolucao"
-            ? "Como o financiamento de cada veículo se moveu ao longo do ano, uma coluna por vigência — com o impacto dos movimentos e a variação ponta a ponta lidos separadamente."
-            : "O que mudou no financiamento de cada veículo entre duas vigências: parcela, juros, amortização, taxa, prazo, carência, entrada e base de compra."
+          <>
+            {modo === "evolucao"
+              ? fonte === "REAL"
+                ? "Como o remunerado e o realizado se moveram, competência a competência, e a distância entre os dois."
+                : "Como o financiamento de cada veículo se moveu ao longo do ano, uma coluna por vigência — com o impacto dos movimentos e a variação ponta a ponta lidos separadamente."
+              : fonte === "REAL"
+                ? "Quanto a Ambev remunerou de FINAME e quanto a operação de fato realizou, placa a placa, dentro da mesma competência."
+                : "O que mudou no financiamento de cada veículo entre duas vigências: parcela, juros, amortização, taxa, prazo, carência, entrada e base de compra."}
+            {/*
+              A linha da fonte — discreta, e logo abaixo da descrição.
+
+              Ela existe porque o seletor, sozinho, diz *qual botão está
+              marcado*; esta linha diz **o que aquilo significa**. São duas
+              coisas diferentes, e quem chega por um link direto só tem esta.
+            */}
+            <span className="mt-1 block text-sm text-muted-foreground/80">
+              {semantica.linhaDeContexto}
+            </span>
+          </>
         }
         atualizando={
           modo === "comparacao" && comparacao.isFetching && !comparacao.isLoading
@@ -635,6 +716,21 @@ export default function AuditoriaDeFiname() {
               }}
               disponiveis={disponiveis}
               idPrefixo="finame"
+              aoLado={
+                <SeletorDeFonte
+                  valor={fonte}
+                  onValor={(nova) => {
+                    if (nova === fonte) return;
+                    /*
+                      Trocar de fonte troca o **eixo temporal inteiro**: o par de
+                      vigências e a competência não sobrevivem um ao outro. Quem
+                      garante isso é `enderecoDaFonte`, e é ele que impede a URL
+                      de guardar uma vigência incompatível com a fonte aberta.
+                    */
+                    navegar(enderecoDaFonte("/custo-fixo-finame", busca, nova));
+                  }}
+                />
+              }
               abaExtra={{
                 rotulo: "Evolução",
                 ativa: modo === "evolucao",
@@ -647,7 +743,7 @@ export default function AuditoriaDeFiname() {
                   : {}),
               }}
             />
-            {modo === "evolucao" && (
+            {modo === "evolucao" && fonte === "REMUNERADO" && (
               <PainelDaEvolucao
                 rubrica={EVOLUCAO_DO_FINAME}
                 consulta={consultaDoContexto}
@@ -659,7 +755,17 @@ export default function AuditoriaDeFiname() {
                 disponiveis={disponiveis}
               />
             )}
-            {modo === "comparacao" && (
+            {/*
+              A evolução da fonte Real é **outra série**, e não a remunerada com
+              outro rótulo: ela põe remunerado e realizado lado a lado, mês a
+              mês. Mostrar aqui a série remunerada sob o seletor marcado em Real
+              seria a contaminação exata que a separação das fontes existe para
+              impedir — o dado de uma fonte sob o nome da outra.
+            */}
+            {modo === "evolucao" && fonte === "REAL" && (
+              <EvolucaoDoConfronto consulta={consultaDoContexto} tipo={recorteDeTipo} />
+            )}
+            {modo === "comparacao" && fonte === "REMUNERADO" && (
             <SeletorDoPar
               vigencias={daUnidade}
               foco={recorteDeTipo === "TODOS" ? null : recorteDeTipo}
@@ -692,7 +798,25 @@ export default function AuditoriaDeFiname() {
           dizendo que a comparação falhou, sobre uma comparação que nunca
           existiu.
         */}
-        {modo === "comparacao" && (
+        {/*
+          A fonte Real ocupa o mesmo lugar da comparação entre vigências — um
+          seletor, cartões, tabela — e nada dela é o bloco de baixo com outro
+          texto: os cartões contam cobertura e resultado, e não estados de
+          mudança. Ver `ConfrontoDeFiname`.
+        */}
+        {modo === "comparacao" && fonte === "REAL" && (
+          <ConfrontoDeFiname
+            consulta={consultaDoContexto}
+            tipo={recorteDeTipo}
+            competencia={competencia}
+            onCompetencia={(c) =>
+              navegar(enderecoDaCompetencia("/custo-fixo-finame", busca, c))
+            }
+            onCompetenciasCarregadas={setCompetenciasDaFonte}
+          />
+        )}
+
+        {modo === "comparacao" && fonte === "REMUNERADO" && (
           <>
         {semParPossivel && (
           <EstadoVazio
