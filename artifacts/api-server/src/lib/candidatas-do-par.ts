@@ -70,6 +70,23 @@ export const TETO_DE_CANDIDATAS_MS = 12_000;
 export interface BaldeDoImpacto {
   periodicidade: string;
   valor: number;
+  /**
+   * De que **régua** é este dinheiro — ausente em quem tem uma só.
+   *
+   * As dezesseis telas de rubrica não o preenchem, e não têm o que preencher:
+   * ali todo balde é da mesma família de custo, e um rótulo repetido em toda
+   * linha do menu só roubaria espaço do número.
+   *
+   * Quem o preenche é o catálogo de Alterações por Módulo, e ali ele é
+   * obrigatório pela recusa que `alteracoes-por-modulo.ts` escreve por extenso:
+   * custo fixo publica reais do período, custo variável publica razões (R$/km,
+   * minutos) que só viram dinheiro multiplicadas por produção, e as duas coisas
+   * não somam. Com a periodicidade sozinha por chave, o `MENSAL` de uma cairia
+   * no mesmo balde que o `MENSAL` da outra — duas réguas fundidas numa, que é
+   * exatamente o "total geral" que aquele arquivo proíbe. O rótulo é o que
+   * mantém as linhas separadas na tela e a soma separada aqui.
+   */
+  rotulo?: string;
 }
 
 /**
@@ -111,7 +128,8 @@ export interface MovimentoDePercentual {
  *
  * Nasceu nos Impostos, e o par março/2026 → agosto/2026 do acervo é o caso
  * inteiro: `0 alterações`, `sem movimento de alíquota` — e R$ 99 mil a menos de
- * PIS/COFINS de carreta no total da tela, porque cinco carretas saíram. As duas
+ * PIS/COFINS de carreta no total da tela, porque nove carretas saíram e quatro
+ * entraram, sem uma única alíquota se mover. As duas
  * leituras estão certas e falam de coisas diferentes; sem esta terceira, quem lê
  * o menu junta as duas e entende "o imposto não mudou", quando o que se pode
  * afirmar é "nenhum ativo teve o imposto mexido".

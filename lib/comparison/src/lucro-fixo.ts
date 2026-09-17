@@ -66,10 +66,12 @@
 import { escopoDeConjunto } from "./composition";
 import {
   chaveDoVeiculo,
+  ehEntradaOuSaidaDoGrao,
   estadoDaAlteracao,
   GRAVIDADE,
   numero,
   ROTULO_DO_ESTADO,
+  TIPOS_DE_EQUIPAMENTO,
   type EstadoDaLinha,
   type MedidaDaVariavel,
   type AlteracaoDoMotor,
@@ -325,7 +327,7 @@ export function linhaDeLucroFixoDaAlteracao(
     sumir com elas esconderia a metade mais visível do que mudou na frota.
   */
   if (!variavel) {
-    if (a.changeType !== "ENTITY_ADDED" && a.changeType !== "ENTITY_REMOVED") return null;
+    if (!ehEntradaOuSaidaDoGrao(a, TIPOS_DE_EQUIPAMENTO)) return null;
     return {
       id: a.id ?? null,
       entityLabel: a.entityLabel,

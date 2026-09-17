@@ -10,9 +10,8 @@ import {
 } from "@workspace/comparison/recorte-de-rubrica";
 import { rotuloDaVigencia } from "@workspace/comparison/labels";
 import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
-import { numerosDaLinha, type CandidatosDoPar } from "@/lib/candidatos";
-import { cn } from "@/lib/utils";
+import { ColunaDeNumeros } from "@/components/comparacao/coluna-de-numeros";
+import { type CandidatosDoPar } from "@/lib/candidatos";
 import {
   Select,
   SelectContent,
@@ -261,9 +260,6 @@ export function SeletorDoPar({
       )} disponível para comparação. Importe os dados correspondentes na vigência desejada.`
     : "";
 
-  const numerosDe = (id: string) =>
-    numerosDaLinha(candidatos?.candidatos.find((c) => c.id === id)?.numeros ?? null);
-
   /**
    * Ainda vem número — e é isto, não "há requisição no ar", que o esqueleto diz.
    *
@@ -284,8 +280,9 @@ export function SeletorDoPar({
    * "está vindo" sem escrever um valor, que é a única coisa que não se pode
    * fazer aqui (ver `numerosDaLinha`). Quando a fila termina, ele some: uma
    * linha que ficasse em esqueleto para sempre prometeria um número que não
-   * vem.
+   * vem. Quem a desenha é `ColunaDeNumeros`, partilhada com o seletor mestre.
    */
+
   /**
    * O `ItemText` do Radix encolhe, e era ele que desalinhava a coluna direita.
    *
@@ -303,100 +300,31 @@ export function SeletorDoPar({
     v: VigenciaEscolhivel,
     comNumeros: boolean,
     coberturaDiferente = false,
-  ) => {
-    const n = comNumeros && !coberturaDiferente ? numerosDe(v.id) : null;
-    return (
-      <span className="flex w-full items-center justify-between gap-6">
-        <span>{rotulo(v)}</span>
-        {/*
-          Como o arquivo veio composto, escrito onde o número estaria.
+  ) => (
+    <span className="flex w-full items-center justify-between gap-6">
+      <span>{rotulo(v)}</span>
+      {/*
+        Como o arquivo veio composto, escrito onde o número estaria.
 
-          Estas linhas nunca terão número: o servidor não as considera
-          candidatas, porque o motor não compara vigências de composição
-          diferente. Deixá-las em branco ao lado das que dizem "R$ 0,00 · 0
-          alterações" é convidar a ler ausência de conta como ausência de
-          mudança. "Somente cavalo" responde a pergunta certa — é o que separa
-          esta linha das de cima, e não o equipamento, que é o mesmo.
-        */}
-        {coberturaDiferente ? (
-          <span className="text-xs text-muted-foreground">
-            {composicaoDoArquivo(v.entityTypeSet, foco)}
-          </span>
-        ) : n ? (
-          <span className="flex flex-col items-end text-xs leading-tight">
-            {n.valores.map((valor) => (
-              <span
-                key={valor.texto}
-                className={cn(
-                  "font-semibold tabular-nums",
-                  /*
-                    A cor sai da **mesma** leitura que escolheu o sinal
-                    (`numerosDaLinha`), e não de uma segunda conta sobre o
-                    número. Era o defeito que havia: a cor lia o sinal aqui, o
-                    texto o escrevia lá, e bastaria uma das duas mudar para a
-                    linha escrever `−` em verde.
-
-                    Zero não é positivo nem negativo: a linha zerada fica na cor
-                    do texto secundário, e o verde/vermelho continua reservado a
-                    quem tem direção.
-                  */
-                  valor.leitura === "NEUTRO"
-                    ? "text-muted-foreground"
-                    : valor.leitura === "GANHO"
-                      ? "text-emerald-700"
-                      : "text-destructive",
-                )}
-              >
-                {valor.texto}
-              </span>
-            ))}
-            {/*
-              O movimento da alíquota, quando o recorte o audita.
-
-              Fica entre o dinheiro e a contagem porque é isso que ele é: uma
-              segunda grandeza do mesmo par, e não um detalhe da contagem. Nos
-              Impostos ele é a grandeza que manda — ali o `R$ 0,00` de cima é
-              estrutural (o montante de ICMS nunca foi preenchido no acervo) e
-              seria a única coisa escrita em toda linha do menu.
-
-              Sem cor, e de propósito: verde e vermelho são a direção do
-              dinheiro. Uma alíquota que sobe não é perda nem ganho enquanto o
-              regime tributário do ativo não estiver no acervo — ver
-              `percentuaisDaLinha`.
-            */}
-            {n.percentuais.map((texto) => (
-              <span key={texto} className="tabular-nums text-muted-foreground">
-                {texto}
-              </span>
-            ))}
-            {/*
-              A frota, logo abaixo da alíquota e acima da contagem — e é a ordem
-              que faz a coluna se ler.
-
-              As três de cima falam do ativo presente nas duas pontas: quanto
-              mudou de dinheiro, quanto andou de alíquota, quantas variáveis se
-              moveram. Esta fala do **conjunto**, e é a única que explica dois
-              totais diferentes embaixo de um `0 alterações` — foi o par
-              março/2026 → agosto/2026, com R$ 99 mil a menos de PIS/COFINS de
-              carreta e nenhuma variável movida, que mostrou que a linha não
-              sabia dizer isso.
-
-              Sem cor, como a alíquota: ativo que sai da frota não é perda
-              enquanto a tela não souber por que ele saiu (ver `frotaDaLinha`).
-            */}
-            {n.frota.map((texto) => (
-              <span key={texto} className="tabular-nums text-muted-foreground">
-                {texto}
-              </span>
-            ))}
-            <span className="text-muted-foreground">{n.alteracoes}</span>
-          </span>
-        ) : comNumeros && faltamNumeros ? (
-          <Skeleton className="h-3 w-24 rounded" />
-        ) : null}
-      </span>
-    );
-  };
+        Estas linhas nunca terão número: o servidor não as considera
+        candidatas, porque o motor não compara vigências de composição
+        diferente. Deixá-las em branco ao lado das que dizem "R$ 0,00 · 0
+        alterações" é convidar a ler ausência de conta como ausência de
+        mudança. "Somente cavalo" responde a pergunta certa — é o que separa
+        esta linha das de cima, e não o equipamento, que é o mesmo.
+      */}
+      {coberturaDiferente ? (
+        <span className="text-xs text-muted-foreground">
+          {composicaoDoArquivo(v.entityTypeSet, foco)}
+        </span>
+      ) : comNumeros ? (
+        <ColunaDeNumeros
+          numeros={candidatos?.candidatos.find((c) => c.id === v.id)?.numeros ?? null}
+          faltam={faltamNumeros}
+        />
+      ) : null}
+    </span>
+  );
 
   return (
     <section className="superficie px-4 py-3" aria-label="Par de vigências">

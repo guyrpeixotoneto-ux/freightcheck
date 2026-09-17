@@ -91,6 +91,20 @@ describe("escolher uma unidade", () => {
   });
 
   /*
+    Ativos e Parados, pela mesma promessa e no commit em que ela passa a ser
+    cumprida: a tela lia o acervo inteiro com um seletor próprio enquanto a
+    lateral nomeava uma unidade, e trocar de unidade ali não trocava número
+    nenhum. Agora o `scopeHash` chega à tela — e é ele que a rota resolve para a
+    unidade cadastrada antes de contar placa alguma.
+  */
+  it("Ativos e Parados lê o escopo, então trocar de unidade nela não troca de tela", () => {
+    const destino = enderecoDe(CAMACARI, "/ativos-e-parados", "");
+
+    expect(tela(destino)).toBe("/ativos-e-parados");
+    expect(consulta(destino).scopeHash).toBe("scope-camacari");
+  });
+
+  /*
     `ano` é o recorte temporal do Painel e de mais nenhuma tela. Levá-lo para
     Parâmetros seria sujar todo link colado por aí com um parâmetro que ninguém
     lê do outro lado.
@@ -148,6 +162,22 @@ describe("escolher a Visão Geral", () => {
       visaoGeral: "1",
       period: "2026-08-01",
     });
+  });
+
+  /*
+    A outra metade de Ativos e Parados: "todas as unidades" era o padrão mudo da
+    tela e passou a ser escolha escrita. Sem esta linha, pedir a Visão Geral
+    estando nela expulsaria para o Resumo executivo quem só queria a soma — e a
+    soma é justamente o que a rota devolve quando ninguém manda escopo.
+  */
+  it("mantém Ativos e Parados na Visão Geral, e larga o escopo", () => {
+    const destino = enderecoDeVisaoGeral(
+      "/ativos-e-parados",
+      "?scopeHash=scope-camacari&canal=EMPURRADA",
+    );
+
+    expect(tela(destino)).toBe("/ativos-e-parados");
+    expect(consulta(destino)).toEqual({ visaoGeral: "1" });
   });
 
   it("continua desviando para o Resumo executivo onde não há Visão Geral", () => {

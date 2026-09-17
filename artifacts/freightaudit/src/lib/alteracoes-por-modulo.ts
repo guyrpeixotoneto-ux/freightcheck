@@ -1,4 +1,5 @@
 import {
+  COBERTURAS,
   ROTULO_DA_COBERTURA,
   type CartaoDeModulo,
   type CoberturaDoCatalogo,
@@ -14,13 +15,15 @@ import { escreverModulo } from "@/lib/monitor-equipe";
  * rótulo o domínio **de propósito** não publica.
  */
 
-/** As quatro coberturas, na ordem em que a tela as oferece. */
-export const COBERTURAS: readonly CoberturaDoCatalogo[] = [
-  "EQUIPAMENTO",
-  "TRECHO",
-  "QLP_OPERACIONAL",
-  "QLP_ADMINISTRATIVO",
-];
+/*
+  As quatro coberturas, na ordem em que a tela as oferece — do domínio.
+
+  A lista morava aqui, e desceu para `@workspace/comparison` quando a rota de
+  candidatas do catálogo passou a percorrer as mesmas quatro do lado de lá. A
+  reexportação é o que evita a segunda lista: uma quinta cobertura entra num
+  arquivo só, e não numa tela que a oferece e num servidor que a ignora.
+*/
+export { COBERTURAS };
 
 /**
  * O sufixo de cada cobertura no endereço — e é o mesmo que a rota lê.

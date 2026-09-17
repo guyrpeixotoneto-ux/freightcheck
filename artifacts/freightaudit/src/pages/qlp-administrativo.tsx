@@ -74,14 +74,16 @@ import { ComparacaoDoQuadro } from "@/components/qlp-comparacao/comparacao";
  *
  * A tela responde três perguntas, uma por aba:
  *
+ * - **Comparação** — o que mudou entre duas vigências do quadro. O diff é o do
+ *   motor canônico (`POST /change-sets`), o mesmo de Comparar Vigências: esta
+ *   aba só escolhe o par e apresenta — nenhuma diferença é calculada aqui. É a
+ *   primeira aba e a que abre por padrão: quem chega ao quadro chega com a
+ *   pergunta do que mudou.
  * - **Quadro** — quem está no quadro desta vigência e com que valores, unidade
  *   a unidade. Clicar num cargo abre a ficha com os 35 atributos e a célula de
  *   origem de cada um.
  * - **Evolução** — a presença de cada cargo, quinzena a quinzena. É onde
  *   entrada, saída e quinzena sem arquivo ficam visíveis sem conta nenhuma.
- * - **Alterações** — o que mudou entre duas vigências do quadro. O diff é o do
- *   motor canônico (`POST /change-sets`), o mesmo de Comparar Vigências: esta
- *   aba só escolhe o par e apresenta — nenhuma diferença é calculada aqui.
  * - **Auditoria** — as contas que o quadro declara sobre si mesmo, dentro desta
  *   vigência: `Quantidade × Valor = Despesa`, uma por rubrica, e o efetivo
  *   contra o quadro de referência. É a aba que existe **apesar** do travamento
@@ -98,11 +100,11 @@ import { ComparacaoDoQuadro } from "@/components/qlp-comparacao/comparacao";
  * no lugar de um número que não existe.
  */
 
-type Aba = "quadro" | "evolucao" | "comparacao" | "auditoria" | "inconsistencias";
+type Aba = "comparacao" | "quadro" | "evolucao" | "auditoria" | "inconsistencias";
 const ABAS: { id: Aba; rotulo: string }[] = [
+  { id: "comparacao", rotulo: "Comparação" },
   { id: "quadro", rotulo: "Quadro" },
   { id: "evolucao", rotulo: "Evolução" },
-  { id: "comparacao", rotulo: "Comparação" },
   { id: "auditoria", rotulo: "Auditoria" },
   { id: "inconsistencias", rotulo: "Inconsistências" },
 ];
@@ -113,7 +115,9 @@ const ABAS: { id: Aba; rotulo: string }[] = [
  * `?aba=alteracoes` está em link salvo, em favorito e no **Monitor Custo Fixo**,
  * que manda para cá com o par já escolhido. Ele continua abrindo a comparação —
  * a pergunta é a mesma, o grão é que mudou —, e mandar quem clicou para a aba
- * do Quadro seria responder outra coisa sem dizer que trocou.
+ * do Quadro seria responder outra coisa sem dizer que trocou. O mapa continua
+ * aqui mesmo com a comparação virando a aba padrão: o endereço antigo diz qual
+ * aba foi pedida, e não é o mesmo que não pedir nenhuma.
  */
 const ABAS_RENOMEADAS: Record<string, Aba> = { alteracoes: "comparacao" };
 
@@ -125,7 +129,7 @@ export default function QlpAdministrativo() {
   const params = new URLSearchParams(search);
 
   const pedida = ABAS_RENOMEADAS[params.get("aba") ?? ""] ?? params.get("aba") ?? "";
-  const aba: Aba = ABAS.some((a) => a.id === pedida) ? (pedida as Aba) : "quadro";
+  const aba: Aba = ABAS.some((a) => a.id === pedida) ? (pedida as Aba) : "comparacao";
   const period = params.get("period") ?? "";
   const [busca, setBusca] = useState("");
   const [unidade, setUnidade] = useState(TODAS);

@@ -53,9 +53,11 @@ import { cn } from "@/lib/utils";
  * ---------------------------------------------------------------------------
  * As duas abas, e por que a comparação é uma delas
  * ---------------------------------------------------------------------------
- * A Auditoria confere **dentro** de uma vigência; a Comparação confere **entre
- * duas**, cargo a cargo, no mesmo recorte de rubrica que FINAME, IPVA e Lucro
- * Fixo usam por placa. São perguntas diferentes sobre o mesmo quadro, e as duas
+ * A Comparação confere **entre duas** vigências, cargo a cargo, no mesmo
+ * recorte de rubrica que FINAME, IPVA e Lucro Fixo usam por placa; a Auditoria
+ * confere **dentro** de uma vigência. A comparação vem primeiro e é a aba que
+ * abre por padrão: é ela que responde o que mudou, que é a pergunta com que se
+ * chega ao quadro. São perguntas diferentes sobre o mesmo quadro, e as duas
  * moram aqui porque o quadro é um só: mandar quem compara o operacional para
  * outra tela faria o mesmo cargo ser lido em dois endereços.
  *
@@ -65,17 +67,17 @@ import { cn } from "@/lib/utils";
  * usa nas abas dele.
  */
 
-type Aba = "auditoria" | "comparacao";
+type Aba = "comparacao" | "auditoria";
 const ABAS: { id: Aba; rotulo: string }[] = [
-  { id: "auditoria", rotulo: "Auditoria" },
   { id: "comparacao", rotulo: "Comparação" },
+  { id: "auditoria", rotulo: "Auditoria" },
 ];
 export default function QlpOperacional() {
   const search = useSearch();
   const [, navigate] = useLocation();
   const params = new URLSearchParams(search);
   const pedida = params.get("aba") ?? "";
-  const aba: Aba = ABAS.some((a) => a.id === pedida) ? (pedida as Aba) : "auditoria";
+  const aba: Aba = ABAS.some((a) => a.id === pedida) ? (pedida as Aba) : "comparacao";
 
   /** O contexto da tela: vigência, unidade e canal, como as demais rotas de QLP o leem. */
   const comum = useMemo(() => {

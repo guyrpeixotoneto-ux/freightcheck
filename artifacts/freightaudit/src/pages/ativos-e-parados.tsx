@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { Link, useLocation, useSearch } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import {
   Bar,
@@ -26,6 +27,10 @@ import {
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 import { fetchJson } from "@/lib/api";
+import { useContextosDaCasca } from "@/lib/contextos";
+import { escopoDaTela, type EscopoDaTela } from "@/lib/escopo-da-tela";
+import { enderecoDeVisaoGeral } from "@/lib/navegacao-do-escopo";
+import { nomeDaUnidade } from "@/lib/recorte";
 import {
   JANELAS,
   avisoDeCobertura,
@@ -33,6 +38,8 @@ import {
   numeroOuTraco,
   percentual,
   pontosDoGrafico,
+  recusaDoEscopo,
+  rotuloDaChave,
   rotuloLongo,
   sentido,
   ultimaMedida,
@@ -91,12 +98,30 @@ const CORES = {
   parados: "hsl(var(--chart-2))",
 };
 
-function useSerie(unidade: string | null, janela: JanelaDeQuinzenas) {
+/**
+ * A série do recorte — e o recorte é o da lateral, não o de um seletor daqui.
+ *
+ * O `scopeHash` entra na chave **antes** da janela, e não só na URL: no React
+ * Query a chave *é* a identidade da consulta, e sem ele trocar de unidade
+ * devolveria do cache a frota da anterior — dois acervos debaixo de uma chave
+ * só, que é o defeito que `pages/dados.tsx` documenta na mesma linha.
+ *
+ * A consulta não sai enquanto o escopo é indefinido (endereço sem `scopeHash` e
+ * `/contexts` em voo): medir agora devolveria o acervo inteiro e, um instante
+ * depois, a unidade — e o primeiro número, o errado, é o que fica na memória de
+ * quem estava olhando.
+ */
+function useSerie(escopo: EscopoDaTela, janela: JanelaDeQuinzenas) {
+  const scopeHash = escopo.visaoGeral ? null : (escopo.contexto?.scopeHash ?? null);
   return useQuery({
-    queryKey: ["frota-quinzenas", unidade, janela],
+    queryKey: [
+      "frota-quinzenas",
+      escopo.visaoGeral ? "todas" : scopeHash,
+      janela,
+    ],
     queryFn: () => {
       const busca = new URLSearchParams({ limite: String(janela) });
-      if (unidade) busca.set("unidade", unidade);
+      if (scopeHash) busca.set("scopeHash", scopeHash);
       /*
         Caminho nu, sem `getApiUrl`: `fetchJson` já o chama por dentro, e é ele
         que carimba a operação da auditoria aberta na consulta. Passar o
@@ -106,13 +131,41 @@ function useSerie(unidade: string | null, janela: JanelaDeQuinzenas) {
         `/fechamento/frota/quinzenas?${busca.toString()}`,
       );
     },
+    enabled: !escopo.indefinido,
   });
 }
 
 export default function AtivosEParados() {
-  const [unidade, setUnidade] = useState<string | null>(null);
   const [janela, setJanela] = useState<JanelaDeQuinzenas>(12);
-  const serie = useSerie(unidade, janela);
+
+  /*
+    De quem é esta tela — a mesma régua das outras que honram escopo
+    (`escopoDaTela`, e `TELAS_QUE_HONRAM_ESCOPO` em `lib/navegacao-do-escopo.ts`).
+
+    Havia aqui um seletor de unidade próprio, e ele abria sempre em "todas as
+    unidades" enquanto a caixa "Unidade atual" da lateral, a cinco centímetros,
+    nomeava uma — a mesma contradição da Cobertura de dados, e pela mesma causa.
+    Ele não virou um seletor que acompanha a lateral: virou nenhum seletor.
+    Dois seletores de unidade na mesma tela obrigam a mesma pergunta duas vezes,
+    que é a razão por que o botão "Trocar unidade" saiu das outras telas quando a
+    lateral passou a ser o único lugar onde ela se responde.
+
+    "Todas as unidades" continua existindo e passou a ser dita: é a Visão Geral
+    da lateral, escrita por quem escolheu.
+  */
+  const search = useSearch();
+  const [pathname] = useLocation();
+  const { contextos, carregando: carregandoContextos } = useContextosDaCasca();
+  const escopo = escopoDaTela({
+    contextos,
+    carregando: carregandoContextos,
+    pathname,
+    search,
+  });
+  const unidade = escopo.contexto ? nomeDaUnidade(escopo.contexto) : null;
+
+  const serie = useSerie(escopo, janela);
+  const recusa = recusaDoEscopo(serie.data?.escopo ?? null, unidade);
 
   const quinzenas = serie.data?.quinzenas ?? [];
   const ultima = useMemo(() => ultimaMedida(quinzenas), [quinzenas]);
@@ -131,31 +184,30 @@ export default function AtivosEParados() {
               ativos e quantos parados, e o que mudou de uma quinzena para a
               seguinte.
             </p>
+            {/*
+              De quem é o que está em tela, escrito na tela.
+
+              A lateral já nomeia a unidade, e esta linha parece redundante até o
+              dia em que ela não é: com a Visão Geral ligada, a lateral escreve
+              "Visão Geral" e os números aqui passam a ser de várias unidades
+              somadas — e é a soma, não a unidade, que se lê errado quando nada a
+              nomeia.
+            */}
+            <p className="mt-1 text-xs text-muted-foreground">
+              {escopo.visaoGeral ? (
+                <>
+                  Todas as unidades com competência no acervo — a soma por
+                  período.
+                </>
+              ) : unidade ? (
+                <>
+                  Unidade: <strong>{unidade}</strong>
+                </>
+              ) : null}
+            </p>
           </div>
 
           <div className="flex items-end gap-3">
-            <label className="space-y-1 text-xs text-muted-foreground">
-              <span>Unidade</span>
-              <Select
-                value={unidade ?? "todas"}
-                onValueChange={(valor) =>
-                  setUnidade(valor === "todas" ? null : valor)
-                }
-              >
-                <SelectTrigger className="w-64" aria-label="Unidade">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="todas">Todas as unidades</SelectItem>
-                  {(serie.data?.unidades ?? []).map((u) => (
-                    <SelectItem key={u.codigo} value={u.codigo}>
-                      {u.nome ? `${u.codigo} — ${u.nome}` : u.codigo}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </label>
-
             <label className="space-y-1 text-xs text-muted-foreground">
               <span>Janela</span>
               <Select
@@ -188,26 +240,84 @@ export default function AtivosEParados() {
           />
         )}
 
-        {serie.isLoading && (
+        {(serie.isLoading || escopo.indefinido) && (
           <div className="space-y-4">
             <Skeleton className="h-28 w-full" />
             <Skeleton className="h-80 w-full" />
           </div>
         )}
 
-        {serie.data && quinzenas.length === 0 && (
+        {/*
+          O escopo que não resolve — e a tela dizendo qual é o conserto.
+
+          Não é o vazio logo abaixo, e confundir os dois manda a pessoa ao lugar
+          errado: ali não há competência importada, e o conserto é importar; aqui
+          pode haver acervo inteiro do outro lado, e o que falta é o cadastro
+          dizer que aquele escopo é aquela unidade.
+        */}
+        {recusa && (
           <Alert>
-            <Info className="h-4 w-4" />
-            <AlertDescription>
-              Não há competência de fechamento neste recorte ainda. Esta leitura
-              nasce dos relatórios de frota do Promax (01.22.02.00 e
-              01.22.08.00) importados no Fechamento — sem eles não há série, e
-              um zero aqui seria invenção.
+            <TriangleAlert className="h-4 w-4" />
+            <AlertDescription className="space-y-2">
+              <p>{recusa.problema}</p>
+              <p>{recusa.conserto}</p>
+              {/*
+                O caminho de volta só aparece quando há para onde voltar.
+                Oferecer "ver todas as unidades" sobre um acervo de zero
+                unidades é um convite a uma tela igualmente vazia, com um "0"
+                ao lado que parece contradizer a frase acima.
+              */}
+              {(serie.data?.unidades ?? []).length > 0 && (
+                <p>
+                  <Link
+                    href={enderecoDeVisaoGeral(pathname, search)}
+                    className="font-medium text-brand underline underline-offset-4"
+                  >
+                    Ver todas as unidades
+                  </Link>{" "}
+                  — o acervo tem {(serie.data?.unidades ?? []).length}{" "}
+                  unidade(s) com competência de fechamento.
+                </p>
+              )}
             </AlertDescription>
           </Alert>
         )}
 
-        {serie.data && quinzenas.length > 0 && (
+        {serie.data && !recusa && quinzenas.length === 0 && (
+          <Alert>
+            <Info className="h-4 w-4" />
+            <AlertDescription className="space-y-2">
+              <p>
+                {unidade && !escopo.visaoGeral
+                  ? `${unidade} não tem competência de fechamento aberta ainda.`
+                  : "Não há competência de fechamento neste recorte ainda."}{" "}
+                Esta leitura nasce dos relatórios de frota do Promax (01.22.02.00
+                e 01.22.08.00) importados no Fechamento — sem eles não há série,
+                e um zero aqui seria invenção.
+              </p>
+              {/*
+                O caminho de volta, e o número que o justifica: o recorte por
+                unidade pode ter escondido um acervo cheio, e dizer só "não há"
+                faria a tela contradizer o próprio banco. É a mesma recusa de
+                `deOutrasUnidades`, em `pages/importacoes.tsx`.
+              */}
+              {!escopo.visaoGeral && (serie.data?.unidades ?? []).length > 0 && (
+                <p>
+                  <Link
+                    href={enderecoDeVisaoGeral(pathname, search)}
+                    className="font-medium text-brand underline underline-offset-4"
+                  >
+                    Ver todas as unidades
+                  </Link>{" "}
+                  — o acervo tem {(serie.data?.unidades ?? []).length}{" "}
+                  unidade(s) com competência de fechamento.
+                </p>
+              )}
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {serie.data && !recusa && quinzenas.length > 0 && (
           <>
             <Manchete quinzena={ultima} />
 
@@ -331,7 +441,7 @@ function Manchete({ quinzena }: { quinzena: QuinzenaDaFrota | null }) {
       <p className="text-sm text-muted-foreground">
         Última quinzena com relatório: <strong>{rotuloLongo(quinzena)}</strong>
         {quinzena.variacao && (
-          <> — variação contra {quinzena.variacao.contra}</>
+          <> — variação contra {rotuloDaChave(quinzena.variacao.contra)}</>
         )}
       </p>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

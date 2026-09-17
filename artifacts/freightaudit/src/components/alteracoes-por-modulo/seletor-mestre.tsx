@@ -15,6 +15,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { cn } from "@/lib/utils";
+import { ColunaDeNumeros } from "@/components/comparacao/coluna-de-numeros";
+import type { CandidatosDoPar } from "@/lib/candidatos";
 import type { ParMestre, SituacaoDaCobertura } from "@/lib/seletor-mestre";
 
 /**
@@ -62,6 +64,9 @@ export function SeletorMestre({
   onPara,
   onInverter,
   carregando = false,
+  candidatos,
+  carregandoCandidatos = false,
+  erroDosCandidatos = null,
   children,
 }: {
   /** As datas que o acervo inteiro oferece — a união das quatro listas. */
@@ -76,10 +81,61 @@ export function SeletorMestre({
   onPara: (data: string) => void;
   onInverter: () => void;
   carregando?: boolean;
+  /**
+   * O que cada data candidata a "De" produz no catálogo — **por data**, e não
+   * por id de vigência.
+   *
+   * É a diferença desta resposta para a das dezesseis auditorias, e ela é o
+   * assunto inteiro deste menu: uma quinzena aqui é até quatro vigências, uma
+   * por cobertura, e o número ao lado dela é o que as quatro produzem juntas.
+   * Quem soma é o servidor (`/alteracoes-por-modulo/candidatos`), pelos mesmos
+   * pares que o clique nesta linha escreve no endereço.
+   *
+   * `undefined` enquanto a pergunta está no ar; uma entrada com `numeros: null`
+   * é a data que o servidor ainda não calculou. Os dois casos escrevem a mesma
+   * coisa na linha: **nada**.
+   */
+  candidatos?: CandidatosDoPar;
+  /** Há pergunta em voo: as linhas sem número mostram esqueleto, não vazio. */
+  carregandoCandidatos?: boolean;
+  /** A falha da pergunta pelos números, quando houve uma. */
+  erroDosCandidatos?: string | null;
   /** Os quatro seletores por cobertura, que moram dentro da gaveta. */
   children: ReactNode;
 }) {
   const [aberta, setAberta] = useState(false);
+
+  /*
+    Ainda vem número — a mesma régua do seletor de par, e pela mesma razão: entre
+    duas rodadas o carregamento é falso com metade das linhas sem número, e um
+    esqueleto amarrado só a ele faria a lista piscar enquanto se preenche.
+  */
+  const faltamNumeros = carregandoCandidatos || (candidatos?.pendentes ?? 0) > 0;
+
+  /**
+   * A linha do menu: a data à esquerda, o que o catálogo produz à direita.
+   *
+   * Só o campo **De** a escreve, e é a mesma assimetria das dezesseis
+   * auditorias: a coluna responde *o que esta candidata produz contra o "Para"
+   * aberto*, e no campo do "Para" essa pergunta não tem sujeito — cada linha
+   * ali mudaria a própria base da conta.
+   *
+   * O `ItemText` do Radix encolhe (ver `SeletorDoPar`), e é por isso que o
+   * item precisa de `ITEM_LARGO` para a coluna direita ter uma régua comum.
+   */
+  const ITEM_LARGO = "[&>span:last-child]:w-full";
+
+  const linha = (data: string, comNumeros: boolean) => (
+    <span className="flex w-full items-center justify-between gap-6">
+      <span>{rotuloDaData(data)}</span>
+      {comNumeros ? (
+        <ColunaDeNumeros
+          numeros={candidatos?.candidatos.find((c) => c.id === data)?.numeros ?? null}
+          faltam={faltamNumeros}
+        />
+      ) : null}
+    </span>
+  );
 
   const seguem = situacoes.filter((s) => s.estado === "SEGUE");
   const proprias = situacoes.filter((s) => s.estado === "PROPRIO");
@@ -129,10 +185,20 @@ export function SeletorMestre({
             </SelectTrigger>
             <SelectContent>
               {datas.map((data) => (
-                <SelectItem key={data} value={data}>
-                  {rotuloDaData(data)}
+                <SelectItem key={data} value={data} className={ITEM_LARGO}>
+                  {linha(data, true)}
                 </SelectItem>
               ))}
+              {/*
+                A falha não tira o menu do ar: escolher a vigência continua
+                possível, e o que se perde é só a coluna da direita. A frase é a
+                do servidor — desde `apresentar-erro.ts`, ela é uma frase.
+              */}
+              {erroDosCandidatos && (
+                <p className="border-t px-2 py-1.5 text-xs text-muted-foreground">
+                  {erroDosCandidatos}
+                </p>
+              )}
             </SelectContent>
           </Select>
         </div>
@@ -168,8 +234,8 @@ export function SeletorMestre({
             </SelectTrigger>
             <SelectContent>
               {datas.map((data) => (
-                <SelectItem key={data} value={data}>
-                  {rotuloDaData(data)}
+                <SelectItem key={data} value={data} className={ITEM_LARGO}>
+                  {linha(data, false)}
                 </SelectItem>
               ))}
             </SelectContent>

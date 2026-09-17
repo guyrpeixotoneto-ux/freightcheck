@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { db } from "@workspace/db";
+import { db, type Database } from "@workspace/db";
 import {
   CODIGOS_DO_DETALHE,
   CODIGOS_DO_DETALHE_DE_ALUGUEL,
@@ -51,17 +51,29 @@ import {
   operacaoDoSnapshot,
   rotaDoModuloDeEquipe,
   resumirModulosDeEquipe,
+  datasDoAcervo,
+  paresDoMestre,
   variaveisAlteradasDeTma,
+  vigenciasDaUnidade,
   vigenciasQueCobrem,
   type AlteracaoDoMotor,
   type CartaoDeModulo,
   type CoberturaDoCatalogo,
+  type Operacao,
   type ParDoCartao,
   type QuadroDeQlp,
   type VigenciaEmparelhavel,
 } from "@workspace/comparison";
 import { DATASET_FAMILY_QUADRO_DE_PESSOAL } from "@workspace/ingest/tipos";
 import { classificarFalha } from "../lib/classificar-falha";
+import {
+  ORCAMENTO_DE_CANDIDATAS_MS,
+  TETO_DE_CANDIDATAS_MS,
+  type BaldeDoImpacto,
+  type CandidatasDoPar,
+  type NumerosDoPar,
+} from "../lib/candidatas-do-par";
+import { comTetoDeRota } from "../lib/timeout-de-rota";
 import { exigirOperacaoDoRecurso, operacaoDaConsulta } from "../lib/operacao";
 import { consolidadoDosModulos } from "./monitor-custo-fixo";
 
@@ -386,11 +398,11 @@ router.get("/alteracoes-por-modulo/consolidado", async (req, res, next): Promise
     const changeSets: Record<string, string> = {};
 
     cartoes.push(
-      ...(await cartoesDeEquipamento(pares.equipamento, deEquipamento, changeSets)),
+      ...(await cartoesDeEquipamento(db, pares.equipamento, deEquipamento, changeSets)),
     );
-    cartoes.push(...(await cartoesDeTrecho(pares.trecho, deEquipamento, changeSets)));
+    cartoes.push(...(await cartoesDeTrecho(db, pares.trecho, deEquipamento, changeSets)));
     for (const quadro of ["OPERACIONAL", "ADMINISTRATIVO"] as const) {
-      cartoes.push(...(await cartoesDeEquipe(quadro, pares[quadro], doQuadro, changeSets)));
+      cartoes.push(...(await cartoesDeEquipe(db, quadro, pares[quadro], doQuadro, changeSets)));
     }
 
     res.json({ changeSets, areas: agruparPorArea(cartoes) });
@@ -415,6 +427,7 @@ router.get("/alteracoes-por-modulo/consolidado", async (req, res, next): Promise
  * cabeçalhos de `aquisicao.ts` e `seguro.ts` escrevem.
  */
 async function cartoesDeEquipamento(
+  db: Database,
   par: { base: string; comparada: string } | null,
   vigencias: readonly (VigenciaEmparelhavel & {
     sourceLabel: string | null;
@@ -507,6 +520,7 @@ async function cartoesDeEquipamento(
 
 /** A cobertura de trecho — as quatro rubricas da malha, mais o TMA. */
 async function cartoesDeTrecho(
+  db: Database,
   par: { base: string; comparada: string } | null,
   vigencias: readonly (VigenciaEmparelhavel & { sourceLabel: string | null })[],
   changeSets: Record<string, string>,
@@ -617,6 +631,7 @@ async function cartoesDeTrecho(
  * cobertura.
  */
 async function cartoesDeEquipe(
+  db: Database,
   quadro: QuadroDeQlp,
   par: { base: string; comparada: string } | null,
   vigencias: readonly (VigenciaEmparelhavel & { sourceLabel: string | null })[],
@@ -680,6 +695,242 @@ async function cartoesDeEquipe(
       par: cartao,
       semImpacto: SEM_IMPACTO_FINANCEIRO,
     }),
+  );
+}
+
+// ---------------------------------------------------------------------------
+// As candidatas do seletor mestre
+// ---------------------------------------------------------------------------
+
+/**
+ * O que cada data candidata a "De" produz no catálogo inteiro.
+ *
+ * ---------------------------------------------------------------------------
+ * Por que esta rota é por DATA, e não por id de vigência
+ * ---------------------------------------------------------------------------
+ * Porque é isso que o seletor mestre oferece, e ele não tinha como oferecer
+ * outra coisa: as quatro coberturas têm ids diferentes para a mesma quinzena —
+ * equipamento e trecho saem de `/snapshots`, os dois quadros do QLP de outra
+ * consulta. As dezesseis rotas de candidatas que já existem são todas por id
+ * porque cada uma responde por **uma** cobertura; esta responde pelas quatro,
+ * e a data é a única chave que as quatro compartilham.
+ *
+ * A tradução de data para os ids de cada cobertura é `paresDoMestre`, a
+ * **mesma** função que a tela usa para escrever o par no endereço ao clicar na
+ * linha. É o que garante o contrato deste menu: o número ao lado de uma data é
+ * o número que o clique naquela data entrega — nunca uma segunda conta, nunca
+ * um par vizinho.
+ *
+ * ---------------------------------------------------------------------------
+ * Por que o dinheiro sai rotulado por área, e não somado
+ * ---------------------------------------------------------------------------
+ * Porque `alteracoes-por-modulo.ts` recusa o total geral por escrito, e a
+ * recusa é do domínio: custo fixo publica reais do período, custo variável
+ * publica razões (R$/km, minutos) que só viram dinheiro multiplicadas por
+ * produção, e a equipe não publica dinheiro nenhum enquanto a curadoria não
+ * confirmar a semântica das colunas do QLP. As três chaves de periodicidade são
+ * as mesmas (`MENSAL`, `ANUAL`, `PONTUAL`), então somar balde a balde entre
+ * áreas **fundiria** as réguas sem que nada na tela dissesse.
+ *
+ * Cada balde sai, portanto, com o nome da área junto, e a linha do menu escreve
+ * uma por régua — a mesma separação que os cartões do catálogo já publicam.
+ *
+ * O orçamento, o reaproveitamento do que já foi comparado e o `numeros: null`
+ * de quem não coube são os de `lib/candidatas-do-par.ts`, como nas dezesseis
+ * outras. O que muda é a unidade de trabalho: ali uma candidata é uma
+ * comparação, aqui é **até quatro** — uma por cobertura que forma o par.
+ */
+export function numerosDoCatalogo(cartoes: readonly CartaoDeModulo[]): NumerosDoPar {
+  const baldes: BaldeDoImpacto[] = [];
+  let alteracoes = 0;
+
+  for (const area of agruparPorArea([...cartoes])) {
+    alteracoes += area.alteracoes;
+    for (const [periodicidade, valor] of Object.entries(area.porPeriodicidade)) {
+      baldes.push({ periodicidade, valor, rotulo: area.rotulo });
+    }
+  }
+
+  /*
+    `R$ 0,00` só é dizível onde alguma área **mede** dinheiro.
+
+    Um mestre que só forma par nos dois quadros do QLP apura contagem e mais
+    nada: ali o balde vazio não é uma conta que deu zero, é uma conta que
+    ninguém fez, e escrever `R$ 0,00` afirmaria que o dinheiro não se moveu numa
+    leitura que nunca olhou para ele. É a mesma régua de `impactoPublicavel`, um
+    nível acima — e a frase é a que aquelas telas já publicam.
+  */
+  const mede = cartoes.some((c) => c.par !== null && c.semImpacto === null);
+  return baldes.length === 0 && !mede
+    ? { alteracoes, impacto: { baldes }, semImpacto: SEM_IMPACTO_FINANCEIRO }
+    : { alteracoes, impacto: { baldes } };
+}
+
+/**
+ * `GET /alteracoes-por-modulo/candidatos?para=<YYYY-MM-DD>`
+ *
+ * `scopeHash` recorta a frota pela unidade aberta — e é obrigatório aqui no
+ * sentido em que a tela sempre o manda quando o tem. As rotas por id não
+ * precisam dele porque a unidade vem do próprio destino (`formamParDeVigencias`
+ * exige mesma unidade); uma data não carrega unidade nenhuma, então sem este
+ * recorte o menu ofereceria as quinzenas de Pernambuco a quem está em Camaçari
+ * — e elas nem formariam par.
+ */
+router.get("/alteracoes-por-modulo/candidatos", async (req, res, next): Promise<void> => {
+  const query = req.query as Record<string, unknown>;
+  const para = texto(query.para);
+  if (!para) {
+    res.status(400).json({ error: "Informe a data de destino." });
+    return;
+  }
+  const operacao = operacaoDaConsulta(query);
+  const scopeHash = texto(query.scopeHash);
+
+  try {
+    const resposta = await comTetoDeRota(TETO_DE_CANDIDATAS_MS, (dbComTeto) =>
+      candidatasDoCatalogo(dbComTeto, { para, operacao, scopeHash }),
+    );
+    res.json(resposta);
+  } catch (err) {
+    const desfecho = classificarFalha(err);
+    if (desfecho.tipo !== "REGRA") {
+      next(err);
+      return;
+    }
+    req.log.warn({ err }, "Candidatas do catálogo recusadas");
+    res.status(422).json({ error: desfecho.mensagem });
+  }
+});
+
+async function candidatasDoCatalogo(
+  db: Database,
+  { para, operacao, scopeHash }: {
+    para: string;
+    operacao: Operacao | null;
+    scopeHash: string | null;
+  },
+): Promise<CandidatasDoPar> {
+  const [daFrota, doQuadro] = await Promise.all([
+    listComparableSnapshots(db, { operacao }),
+    listComparableSnapshots(db, {
+      datasetFamily: DATASET_FAMILY_QUADRO_DE_PESSOAL,
+      operacao,
+    }),
+  ]);
+
+  /*
+    As quatro listas, recortadas exatamente como a tela as recorta
+    (`pages/alteracoes-por-modulo.tsx`). Uma divergência aqui não daria erro:
+    daria um menu oferecendo datas que a tela não oferece, ou calando sobre
+    datas que ela oferece — e as duas coisas se leem como número que falta.
+  */
+  const frota = vigenciasDaUnidade(daFrota, scopeHash);
+  const listas = {
+    EQUIPAMENTO: vigenciasQueCobrem(frota, TIPOS_DE_EQUIPAMENTO),
+    TRECHO: vigenciasQueCobrem(frota, TIPO_DO_CONSUMO),
+    QLP_OPERACIONAL: vigenciasQueCobrem(doQuadro, TIPO_DO_QUADRO.OPERACIONAL),
+    QLP_ADMINISTRATIVO: vigenciasQueCobrem(doQuadro, TIPO_DO_QUADRO.ADMINISTRATIVO),
+  };
+
+  /* Da mais recente para a mais antiga: quem abre o menu olha primeiro as de
+     cima, então são elas que ganham o orçamento. A mesma ordem de
+     `candidatasDoPar`, e a mesma que o seletor desenha. */
+  const candidatas = datasDoAcervo(listas)
+    .filter((data) => data !== para)
+    .map((data) => ({ data, pares: paresDoMestre({ de: data, para }, listas) }))
+    /* Uma data que não forma par em cobertura nenhuma não é candidata: ela sai
+       da lista em vez de voltar com `numeros: null`, que ali significaria
+       "ainda não sei" e prometeria um número que nunca vem. */
+    .filter(({ pares }) => Object.keys(pares).length > 0);
+
+  const limite = Date.now() + ORCAMENTO_DE_CANDIDATAS_MS;
+  const candidatos: CandidatasDoPar["candidatos"] = [];
+  let pendentes = 0;
+
+  for (const { data, pares } of candidatas) {
+    const entradas = Object.entries(pares) as [
+      CoberturaDoCatalogo,
+      { base: string; comparada: string },
+    ][];
+
+    /*
+      O orçamento é conferido por **data**, e não por cobertura.
+
+      Uma data apurada pela metade — equipamento calculado, trecho ainda não —
+      publicaria uma contagem menor do que o clique entrega, e a tela não teria
+      como dizer que falta parte: a linha do menu só sabe escrever número ou
+      esqueleto. Então ou a data inteira cabe, ou ela volta sem número e a
+      rodada seguinte a pega do começo — barata, porque o que já foi calculado
+      ficou gravado.
+    */
+    const gravados = await Promise.all(
+      entradas.map(([, par]) => getChangeSetForPair(db, par.base, par.comparada)),
+    );
+    if (gravados.some((g) => !g) && Date.now() >= limite) {
+      candidatos.push({ id: data, numeros: null });
+      pendentes++;
+      continue;
+    }
+
+    const cartoes: CartaoDeModulo[] = [];
+    const changeSets: Record<string, string> = {};
+    for (const [cobertura, par] of entradas) {
+      if (cobertura === "EQUIPAMENTO") {
+        cartoes.push(...(await cartoesDeEquipamento(db, par, frota, changeSets)));
+      } else if (cobertura === "TRECHO") {
+        cartoes.push(...(await cartoesDeTrecho(db, par, frota, changeSets)));
+      } else {
+        const quadro: QuadroDeQlp =
+          cobertura === "QLP_OPERACIONAL" ? "OPERACIONAL" : "ADMINISTRATIVO";
+        cartoes.push(...(await cartoesDeEquipe(db, quadro, par, doQuadro, changeSets)));
+      }
+    }
+
+    candidatos.push({ id: data, numeros: numerosDoCatalogo(cartoes) });
+  }
+
+  return { para, candidatos: semRotuloRedundante(candidatos), pendentes };
+}
+
+/**
+ * O rótulo da régua só existe onde há **mais de uma** — decidido sobre a lista
+ * inteira, e não linha a linha.
+ *
+ * Ele está lá para impedir uma fusão: com custo fixo e custo variável no mesmo
+ * menu, o `MENSAL` de um não pode cair na mesma linha que o `MENSAL` do outro.
+ * Num acervo em que só uma área publica dinheiro — o caso comum, e o de toda
+ * unidade que ainda não importou trecho — não há o que separar, e a palavra
+ * vira ruído repetido em cada linha do menu, roubando a largura do número que
+ * a pessoa veio ler.
+ *
+ * A decisão é sobre a resposta inteira pela mesma razão que o desempate dos
+ * rótulos de vigência é sobre a lista inteira (`rotulosDasVigencias`): só
+ * olhando as outras linhas dá para saber se **esta** precisa se distinguir.
+ * Fosse por linha, uma candidata com duas áreas sairia rotulada e a de cima,
+ * com uma só, sairia sem — e a ausência do rótulo passaria a significar duas
+ * coisas no mesmo menu.
+ */
+function semRotuloRedundante(
+  candidatos: CandidatasDoPar["candidatos"],
+): CandidatasDoPar["candidatos"] {
+  const reguas = new Set<string>();
+  for (const c of candidatos) {
+    for (const b of c.numeros?.impacto.baldes ?? []) if (b.rotulo) reguas.add(b.rotulo);
+  }
+  if (reguas.size > 1) return candidatos;
+
+  return candidatos.map((c) =>
+    c.numeros
+      ? {
+          ...c,
+          numeros: {
+            ...c.numeros,
+            impacto: {
+              baldes: c.numeros.impacto.baldes.map(({ rotulo: _rotulo, ...balde }) => balde),
+            },
+          },
+        }
+      : c,
   );
 }
 
