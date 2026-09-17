@@ -432,6 +432,34 @@ export interface DefinicaoDeAcervo {
    * "que ativos esta auditoria mostra", que é outra pergunta.
    */
   tipos?: TipoDeImportacao[];
+  /**
+   * O período que um arquivo deste acervo cobre.
+   *
+   * O remunerado é quinzenal: a fonte entrega quinzena a quinzena, e o rótulo
+   * dentro do arquivo diz qual. O real é **mensal** — o extrato do banco fecha
+   * por competência, e não há quinzena nele para declarar.
+   *
+   * Isto é declaração, e não dedução da família, pela razão que o cabeçalho
+   * deste arquivo repete: a data de uma competência e a da 1ª quinzena do mesmo
+   * mês são a mesma (`2026-03-01` nas duas), e no dia em que um segundo acervo
+   * mensal aparecer, ou em que o real passar a chegar quinzenal por API, uma
+   * dedução vira mentira sem que nada quebre.
+   */
+  granularidade: "QUINZENAL" | "MENSAL";
+  /**
+   * A forma do arquivo que este acervo recebe.
+   *
+   * `MODELO` é o export de remuneração: uma linha por entidade por vigência,
+   * com a coluna `Vigencia` dentro. É o que `workbook.ts` lê desde sempre.
+   *
+   * `EXTRATO_ERP` é o razão contábil: a linha é um lançamento, a mesma placa
+   * aparece quantas vezes o mês tiver lançamentos dela, e o período vem de
+   * `MES` + `ANO` em vez de um rótulo. Ler um com o leitor do outro não dá
+   * erro — dá **silêncio**: sem a coluna `Vigencia` a aba é rebaixada a pivô, e
+   * a importação termina aprovada e vazia. Daí o layout ser declarado no acervo,
+   * onde a tela já sabe qual é.
+   */
+  layout: "MODELO" | "EXTRATO_ERP";
 }
 
 /**
@@ -455,6 +483,8 @@ export const ACERVOS: DefinicaoDeAcervo[] = [
     descricao:
       "O que a Ambev paga: o export de remuneração dos ativos e o quadro de " +
       "lotação de pessoal, por vigência.",
+    granularidade: "QUINZENAL",
+    layout: "MODELO",
   },
   {
     code: "REAL",
@@ -465,6 +495,14 @@ export const ACERVOS: DefinicaoDeAcervo[] = [
       "veículos. Entra por planilha enquanto a API não existe.",
     familiaFixa: DATASET_FAMILY_FINANCIAMENTO_REAL,
     tipos: ["CAVALO", "CARRETA", "CAMINHAO", "CARROCERIA", "EMPILHADEIRA"],
+    /*
+      Mensal, e lido como razão contábil. As duas declarações andam juntas
+      porque descrevem o mesmo arquivo por dois ângulos: o extrato do banco
+      fecha por competência (não há quinzena a declarar) e chega no grão do
+      lançamento (não há coluna de vigência a procurar).
+    */
+    granularidade: "MENSAL",
+    layout: "EXTRATO_ERP",
   },
 ];
 
@@ -492,6 +530,21 @@ export function familiaDeclarada(
 ): string | null {
   if (acervo?.familiaFixa !== undefined) return acervo.familiaFixa;
   return tipo?.familia ?? null;
+}
+
+/**
+ * A granularidade que um envio declara — a competência do acervo.
+ *
+ * Existe como função, e não como leitura direta do campo, pela mesma razão de
+ * {@link familiaDeclarada}: quem chama é o envio, e o valor vai para o
+ * `declared_granularity` do run, de onde a promoção o lê. Sem acervo declarado
+ * não há declaração — e `null` é o que descreve isso, em vez de a quinzenal
+ * entrar como padrão silencioso.
+ */
+export function granularidadeDeclarada(
+  acervo: DefinicaoDeAcervo | null,
+): "QUINZENAL" | "MENSAL" | null {
+  return acervo?.granularidade ?? null;
 }
 
 /** Se este acervo aceita receber um arquivo daquele tipo. */

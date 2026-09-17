@@ -15,6 +15,8 @@ export * from "./fonte-de-finame";
 export * from "./competencia-de-finame";
 export * from "./confronto-de-finame";
 export * from "./realizado-de-finame";
+export * from "./fonte-real-do-acervo";
+export * from "./pendencias-do-real";
 export * from "./ipva";
 export * from "./aquisicao";
 export * from "./aluguel";

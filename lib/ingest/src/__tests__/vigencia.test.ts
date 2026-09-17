@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { channelOf, parseVigenciaLabel } from "../vigencia";
+import { channelOf, parseVigenciaLabel, rotuloMensal } from "../vigencia";
 
 describe("parseVigenciaLabel", () => {
   it("preserves the source label verbatim", () => {
@@ -157,5 +157,56 @@ describe("outros canais", () => {
     // Os três grupos do fim ganham; o resto é canal, mesmo com dígitos.
     expect(channelOf("R2_1_8_2026")).toBe("R2");
     expect(parseVigenciaLabel("R2_1_8_2026").effectiveDate).toBe("2026-08-01");
+  });
+});
+
+describe("a competência mensal do acervo Real", () => {
+  it("lê o rótulo mensal e o faz começar no dia 1", () => {
+    const r = parseVigenciaLabel("EMPURRADA_MENSAL_3_2026");
+    expect(r.effectiveDate).toBe("2026-03-01");
+    expect(r.channel).toBe("EMPURRADA");
+    expect(r.granularidade).toBe("MENSAL");
+  });
+
+  it("não devolve quinzena para uma competência mensal", () => {
+    /*
+      O erro que este teste impede. A data de uma competência mensal e a da 1ª
+      quinzena do mesmo mês são a mesma — `2026-03-01` nas duas. Se o mensal
+      saísse com `quinzena: 1`, a tela escreveria "1ª quinzena de março" sobre o
+      extrato do banco, que fecha por mês, e a 2ª quinzena de março apareceria
+      vazia: um mês em que o financiamento teria custado metade.
+    */
+    expect(parseVigenciaLabel("EMPURRADA_MENSAL_3_2026").quinzena).toBeNull();
+  });
+
+  it("distingue a competência da quinzena que cai no mesmo dia", () => {
+    const mensal = parseVigenciaLabel("EMPURRADA_MENSAL_3_2026");
+    const quinzenal = parseVigenciaLabel("EMPURRADA_1_3_2026");
+    expect(mensal.effectiveDate).toBe(quinzenal.effectiveDate);
+    expect(mensal.granularidade).not.toBe(quinzenal.granularidade);
+  });
+
+  it("recusa um mês impossível sem inventar data", () => {
+    const r = parseVigenciaLabel("EMPURRADA_MENSAL_13_2026");
+    expect(r.effectiveDate).toBeNull();
+    expect(r.failureCode).toBe("IMPOSSIBLE_DATE");
+  });
+
+  it("não muda nada do que já era aceito", () => {
+    /*
+      A gramática mensal é aditiva: `MENSAL` nunca casou com `\d{1,2}`, então
+      nenhum rótulo quinzenal muda de leitura por ela existir.
+    */
+    expect(parseVigenciaLabel("EMPURRADA_2_12_2025").effectiveDate).toBe("2025-12-16");
+    expect(parseVigenciaLabel("EMPURRADA_2_12_2025").granularidade).toBe("QUINZENAL");
+    expect(parseVigenciaLabel("1_8_2026").failureCode).toBe("UNRECOGNISED_FORMAT");
+    expect(parseVigenciaLabel("1_8_2026").granularidade).toBeNull();
+  });
+
+  it("rotuloMensal escreve o rótulo que o leitor entende", () => {
+    expect(rotuloMensal("empurrada", 3, 2026)).toBe("EMPURRADA_MENSAL_3_2026");
+    expect(parseVigenciaLabel(rotuloMensal("EMPURRADA", 9, 2026)).effectiveDate).toBe(
+      "2026-09-01",
+    );
   });
 });
