@@ -154,6 +154,14 @@ export function SeletorDoParDoPanorama({
               {formatBrlShort(opcao.impacto)}
             </span>
           )}
+          {/* Ver a mesma nota no seletor do cabeçalho: a linha com contagem e
+              sem dinheiro na régua da coluna diz por que o dinheiro não está
+              ali, em vez de deixar o espaço vazio responder por ela. */}
+          {opcao.impacto == null && opcao.nota && (
+            <span title={opcao.nota.porque} className="italic text-muted-foreground">
+              {opcao.nota.curto}
+            </span>
+          )}
           {opcao.alteracoes !== null && (
             <span className="text-muted-foreground tabular-nums">
               {opcao.alteracoes.toLocaleString("pt-BR")}{" "}

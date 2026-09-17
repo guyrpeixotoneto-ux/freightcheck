@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { periodicitySuffix } from "@workspace/comparison/labels";
 import { fetchJsonOrNull } from "@/lib/api";
 import { opcoesDoIntervaloGeral } from "@/lib/intervalo-da-linha-do-tempo";
 import type { Movimentos } from "@/lib/analise";
@@ -17,6 +18,21 @@ export interface ResumoDaVigencia {
    * vigência em que ganhos e perdas se anularam.
    */
   impacto: number | null;
+  /**
+   * As periodicidades em que esta vigência **tem** dinheiro, quando a da
+   * coluna não é uma delas.
+   *
+   * Existe para a linha muda poder dizer por que está muda. Uma vigência com
+   * `impacto: null` e esta lista cheia não é uma vigência sem impacto: é uma
+   * vigência cujo impacto está escrito noutra régua, e a coluna — que é de uma
+   * régua só, ver `periodicidade` — não tem onde publicá-lo. Sem isso a linha
+   * fica igual à da vigência que realmente não apurou nada, e as duas são
+   * fatos diferentes.
+   *
+   * Vazia quando a vigência tem o balde da coluna, ou quando não tem balde
+   * nenhum.
+   */
+  outrasPeriodicidades: string[];
 }
 
 /**
@@ -67,15 +83,34 @@ export interface LinhaDoIntervalo {
 /**
  * A periodicidade que manda na coluna, e a coluna escrita nela.
  *
- * Dominante é a que **mais moveu dinheiro no intervalo** — soma dos módulos,
- * não do líquido: uma periodicidade em que ganhos e perdas se anulam moveu
- * tudo o que moveu, e um líquido perto de zero não a torna irrelevante. É a
- * mesma régua de `impactosDaVigencia` e da série do Dashboard, para que o
- * menu não abra numa periodicidade e o gráfico atrás dele em outra.
+ * ---------------------------------------------------------------------------
+ * Dominante é a que aparece em **mais vigências**, e não a que moveu mais
+ * dinheiro
+ * ---------------------------------------------------------------------------
+ * Era o volume, e a régua parecia óbvia: a periodicidade que virou o intervalo
+ * do avesso é a que merece a coluna. O que ela produzia, medido em Camaçari em
+ * 17/09/2026: uma única vigência com −R$ 590.438/ano ganhava de oito vigências
+ * com dezenas de milhares de reais **por mês** cada, e a coluna saía escrita
+ * em R$/ano — muda em nove das onze linhas, porque as outras não têm balde
+ * anual. Um menu em branco não diz "esta régua não se aplica aqui"; diz "não
+ * teve nada", que é falso, e que o FINAME desmentia na tela ao lado.
+ *
+ * A cobertura não tem esse defeito: ela pergunta em quantas vigências aquela
+ * régua **existe**, que é exatamente a pergunta de quem escolhe uma coluna
+ * para comparar linhas. O volume continua no desempate, e é ele que decide
+ * entre duas periodicidades igualmente presentes — ali a régua antiga estava
+ * certa, e continua: soma dos módulos, não do líquido, porque uma
+ * periodicidade em que ganhos e perdas se anularam moveu tudo o que moveu.
+ *
+ * Quem tem dinheiro fora da coluna não some: a linha diz em que régua ele está
+ * (`outrasPeriodicidades`, e a nota que `motivoSemNumeros` escreve a partir
+ * dela). A recusa que não muda é a de misturar as duas numa coluna só — R$/mês
+ * e R$/ano não se comparam, e uma coluna que alternasse convidaria a ler
+ * −R$ 30.000/ano acima de −R$ 2.500/mês como "doze vezes pior".
  *
  * O desempate por nome existe só para a escolha ser estável entre duas
- * renderizações com o mesmo dado; empate exato entre periodicidades é raro e
- * não tem resposta melhor.
+ * renderizações com o mesmo dado; empate exato é raro e não tem resposta
+ * melhor.
  */
 export function resumirIntervalo(
   linhas: readonly LinhaDoIntervalo[],
@@ -87,30 +122,47 @@ export function resumirIntervalo(
   },
 ): ResumoDasVigencias {
   const movimento = new Map<string, number>();
+  const vigencias = new Map<string, number>();
   for (const linha of linhas) {
     for (const [periodicidade, valor] of Object.entries(linha.impact.byPeriodicity)) {
       movimento.set(periodicidade, (movimento.get(periodicidade) ?? 0) + Math.abs(valor));
+      vigencias.set(periodicidade, (vigencias.get(periodicidade) ?? 0) + 1);
     }
   }
 
   const dominante =
-    [...movimento.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0] ?? null;
+    [...movimento.entries()].sort(
+      (a, b) =>
+        // Em quantas vigências ela existe — ver o cabeçalho.
+        (vigencias.get(b[0]) ?? 0) - (vigencias.get(a[0]) ?? 0) ||
+        // Empatadas na presença, decide o que moveu.
+        b[1] - a[1] ||
+        a[0].localeCompare(b[0]),
+    )[0]?.[0] ?? null;
 
   return {
     periodicidade: dominante,
     semComparacao: new Set((contorno?.gaps ?? []).map((g) => g.period)),
     primeira: contorno?.inicio ?? null,
     porVigencia: new Map(
-      linhas.map((linha) => [
-        linha.period,
-        {
-          alteracoes: linha.changes,
-          // `?? null`, e não `?? 0`: o balde ausente é a vigência sem valor
-          // apurado nesta periodicidade, e a lista não inventa um saldo zero
-          // para preencher a coluna.
-          impacto: dominante === null ? null : (linha.impact.byPeriodicity[dominante] ?? null),
-        },
-      ]),
+      linhas.map((linha) => {
+        // `?? null`, e não `?? 0`: o balde ausente é a vigência sem valor
+        // apurado nesta periodicidade, e a lista não inventa um saldo zero
+        // para preencher a coluna.
+        const impacto = dominante === null ? null : (linha.impact.byPeriodicity[dominante] ?? null);
+        return [
+          linha.period,
+          {
+            alteracoes: linha.changes,
+            impacto,
+            // Só quando a coluna ficou sem o que publicar: com número na
+            // coluna, dizer "e também tem R$/mês" seria roubar a atenção do
+            // número que a pessoa veio ler.
+            outrasPeriodicidades:
+              impacto === null ? Object.keys(linha.impact.byPeriodicity).sort() : [],
+          },
+        ];
+      }),
     ),
   };
 }
@@ -238,12 +290,32 @@ export function useResumoPorVigenciaGeral(periodos: string[]): ResumoDasVigencia
  * leitura não chegou, "não sei ainda" é a verdade, e escrevê-la como "sem
  * comparação" seria trocar uma ambiguidade por uma afirmação falsa que some
  * um segundo depois.
+ *
+ * Há uma quarta, e ela não deixa a linha inteira em branco — só a metade de
+ * cima, a do dinheiro: a vigência apurou impacto, mas noutra periodicidade que
+ * não a da coluna. Ali a contagem continua escrita, e sem a nota o espaço
+ * vazio acima dela seria lido como "não saiu preço de nada aqui", quando saiu.
  */
 export function motivoSemNumeros(
   data: string,
   resumo: ResumoDasVigencias,
 ): { curto: string; porque: string } | null {
-  if (resumo.porVigencia.has(data)) return null;
+  const lida = resumo.porVigencia.get(data);
+  if (lida) {
+    const outras = lida.outrasPeriodicidades;
+    if (lida.impacto !== null || outras.length === 0 || resumo.periodicidade === null) return null;
+    const daColuna = `R$${periodicitySuffix(resumo.periodicidade)}`;
+    const delas = outras.map((p) => `R$${periodicitySuffix(p)}`).join(" e ");
+    return {
+      curto: `sem ${daColuna}`,
+      porque:
+        `Esta vigência apurou impacto em ${delas}, e não em ${daColuna}. A ` +
+        `coluna é de uma periodicidade só — R$/mês e R$/ano não se comparam, e ` +
+        `alternar entre as duas na mesma lista convidaria a ler um valor anual ` +
+        `como se fosse doze vezes um mensal. A Linha do Tempo separa as duas e ` +
+        `mostra as duas.`,
+    };
+  }
   if (resumo.semComparacao.has(data)) {
     return {
       curto: "sem comparação",
