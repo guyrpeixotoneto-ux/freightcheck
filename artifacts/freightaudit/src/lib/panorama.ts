@@ -1,5 +1,4 @@
 import {
-  equipamentoMaisTocado,
   escreverImpacto,
   escreverPercentual,
   frotaTotal,
@@ -7,20 +6,25 @@ import {
   participacao,
   ultimaImportacao,
   variacao,
+  type ImpactoDeFamilia,
   type LadosDoImpacto,
   type Tom,
   type UltimaImportacao,
 } from "./visao-geral";
 import {
   coberturaDaVigencia,
+  filtrarMudancas,
   ondeAgirAgora,
   outrasPeriodicidades,
   situacaoDaApuracao,
+  valorDaMudanca,
   type AcaoAgora,
   type CoberturaApurada,
+  type FiltroDeMudanca,
+  type MudancaRelevante,
   type SituacaoDaApuracao,
 } from "./impacto-apurado";
-import { linkDeAlteracoes, type Recorte } from "./recorte";
+import { linkDeAlteracoes, RECORTE_VAZIO, type Recorte } from "./recorte";
 import type { ItemCockpit } from "./cockpit";
 import type { BalancoDoRecorte } from "@/components/balanco/tipos";
 import type { FamiliesOverview, FamiliesView } from "@/components/inicio/types";
@@ -135,7 +139,14 @@ export function leituraDaUnidade(view: FamiliesView): LeituraDoPanorama {
     tiposDeAlteracao: view.totals.groups,
     veiculos: view.totals.vehiclesTouched,
     veiculosDeduplicados: true,
-    frota: frotaTotal(view),
+    /*
+      `?? null` porque `CockpitKpis.fleet` é declarado `number` e pode chegar
+      ausente de uma resposta anterior ainda em cache. O campo daqui promete
+      `number | null` — "`null` sem denominador confiável" —, e `undefined`
+      passando por ele fazia todo consumidor que testa `=== null` tratar a
+      ausência como um número.
+    */
+    frota: frotaTotal(view) ?? null,
     ativosNaFrota: view.cockpit.kpis.ativosNaFrota ?? 0,
     inativosNaFrota: view.cockpit.kpis.inativosNaFrota ?? 0,
     entraram: view.totals.entitiesAdded,
@@ -158,7 +169,7 @@ export function leituraDaVisaoGeral(overview: FamiliesOverview): LeituraDoPanora
     tiposDeAlteracao: overview.consolidado.gruposNoTotal,
     veiculos: distinto ?? overview.summary.vehiclesTouched,
     veiculosDeduplicados: distinto !== undefined,
-    frota: overview.consolidado.totals.fleet,
+    frota: overview.consolidado.totals.fleet ?? null,
     ativosNaFrota: overview.consolidado.totals.ativosNaFrota ?? 0,
     inativosNaFrota: overview.consolidado.totals.inativosNaFrota ?? 0,
     entraram: overview.consolidado.totals.entitiesAdded,
@@ -426,7 +437,321 @@ function notaDeVeiculos(leitura: LeituraDoPanorama, fatia: number | null): strin
 }
 
 // ---------------------------------------------------------------------------
-// Andar 5 — o mapa
+// Dobra 2 — o ranking de onde o dinheiro se mexeu
+// ---------------------------------------------------------------------------
+
+/** Os dois grãos do ranking. A família agrega; o parâmetro é o degrau abaixo. */
+export const GRAOS_DO_RANKING = ["familia", "parametro"] as const;
+
+export type GraoDoRanking = (typeof GRAOS_DO_RANKING)[number];
+
+export function graoValido(valor: string | null): valor is GraoDoRanking {
+  return valor === "familia" || valor === "parametro";
+}
+
+export const ROTULO_DO_GRAO: Record<GraoDoRanking, string> = {
+  familia: "Família",
+  parametro: "Parâmetro",
+};
+
+/**
+ * Uma linha do ranking — **a mesma forma nos dois grãos**, e é isso que ela
+ * existe para garantir.
+ *
+ * O Panorama tinha três blocos lendo a mesma lista de famílias: dois cartões de
+ * pódio (o que somou, o que tirou) e uma lista de parâmetros. Eram três cartões
+ * de largura inteira, com três títulos, três subtítulos e três notas de rodapé,
+ * para responder uma pergunta só em dois grãos — *onde o dinheiro se mexeu, e
+ * quanto?* Empilhados, eles reimprimiam o líquido da vigência quatro vezes e
+ * gastavam duas telas de rolagem para mostrar, num recorte de uma família, três
+ * linhas de conteúdo.
+ *
+ * Aqui é um cartão, com duas chaves: o **grão** (família ou parâmetro) e o
+ * **lado** (todos, ganhos, perdas) — que é o filtro que a lista de parâmetros
+ * já tinha. As quatro leituras que os três cartões davam continuam todas
+ * alcançáveis, e nenhuma delas custa rolagem.
+ *
+ * Tipar as duas por uma forma só é o que impede os dois grãos de divergirem com
+ * o tempo, como os três cartões divergiram: quem monta a linha é este módulo,
+ * testado fora do JSX, e o componente só desenha o que chega.
+ */
+export interface LinhaDoRanking {
+  /** A chave estável do que a linha nomeia — o `code` da família, a `key` do parâmetro. */
+  chave: string;
+  nome: string;
+  /** A linha de baixo: de que família vem, quantas alterações, quantos veículos. */
+  contexto: string;
+  /**
+   * Como a linha se lê — a mesma régua de `MudancaRelevante.classificacao`,
+   * inclusive o "compensado" de quem se mexeu nos dois sentidos e voltou.
+   */
+  classificacao: "ganho" | "perda" | "compensado";
+  /** O número publicado: o líquido no recorte inteiro, o do lado nos recortes de um lado. */
+  valor: number;
+  /**
+   * O líquido embaixo, quando o número de cima é a parcela de um lado —
+   * `null` no recorte "todos", onde o de cima **é** o líquido e repeti-lo diria
+   * duas vezes a mesma coisa.
+   */
+  liquido: number | null;
+  /** Do maior valor da lista: 0 a 1. É o comprimento da barra, e nada mais. */
+  proporcao: number;
+}
+
+/**
+ * O ranking por família — o pódio dos dois cartões antigos, numa lista.
+ *
+ * A ordem é pelo **módulo do valor publicado**, que é a régua dos dois pódios
+ * que esta lista substitui: no recorte de um lado, quanto aquele lado mexeu;
+ * no recorte inteiro, quanto sobrou. Uma família sem nada do lado pedido não
+ * entra na lista — não é uma família de valor zero, é uma família que não
+ * participou daquele lado.
+ */
+export function rankingPorFamilia(
+  familias: ImpactoDeFamilia[],
+  filtro: FiltroDeMudanca,
+  limite: number,
+): LinhaDoRanking[] {
+  const valorDo = (f: ImpactoDeFamilia) =>
+    filtro === "ganhos" ? f.ganhos : filtro === "perdas" ? f.perdas : f.liquido;
+
+  const doLado = familias.filter((f) =>
+    filtro === "ganhos" ? f.ganhos > 0 : filtro === "perdas" ? f.perdas < 0 : f.movimento > 0,
+  );
+
+  const ordenadas = [...doLado]
+    .sort((a, b) => Math.abs(valorDo(b)) - Math.abs(valorDo(a)))
+    .slice(0, limite);
+
+  const teto = ordenadas.reduce((maior, f) => Math.max(maior, Math.abs(valorDo(f))), 0);
+
+  return ordenadas.map((familia) => {
+    const valor = valorDo(familia);
+    /*
+      As alterações **do lado pedido**, e não as da família inteira — a mesma
+      correção que o pódio partido em dois já fazia: repetir "59 alterações" nos
+      dois lados diria que 118 alterações somaram e tiraram nesta vigência.
+    */
+    const contagem =
+      filtro === "todos"
+        ? familia.alteracoes
+        : familia.parametros[filtro].reduce((n, l) => n + l.changes, 0);
+
+    return {
+      chave: familia.code,
+      nome: familia.name,
+      contexto: `${contagem.toLocaleString("pt-BR")} ${contagem === 1 ? "alteração" : "alterações"}`,
+      classificacao: classificar(familia.ganhos, familia.perdas, filtro),
+      valor,
+      /* No recorte inteiro o número de cima já é o líquido. */
+      liquido: filtro === "todos" ? null : familia.liquido,
+      proporcao: teto === 0 ? 0 : Math.abs(valor) / teto,
+    };
+  });
+}
+
+/**
+ * O ranking por parâmetro — o degrau abaixo da família, sobre a mesma lista de
+ * `mudancasRelevantes`.
+ *
+ * Ele não repete o de cima: o grão é outro, e uma família some daqui quando o
+ * movimento dela está espalhado em muitos parâmetros pequenos — que é
+ * exatamente a diferença que se quer ver ao descer um degrau. O filtro de lado
+ * é o mesmo `filtrarMudancas` que a lista já usava, com a reclassificação que
+ * ele faz por dentro.
+ */
+export function rankingPorParametro(
+  mudancas: MudancaRelevante[],
+  filtro: FiltroDeMudanca,
+  limite: number,
+): LinhaDoRanking[] {
+  return filtrarMudancas(mudancas, filtro)
+    .slice(0, limite)
+    .map((linha) => ({
+      chave: linha.key,
+      nome: linha.name,
+      contexto: [
+        linha.familyName,
+        `${linha.alteracoes.toLocaleString("pt-BR")} ${linha.alteracoes === 1 ? "alteração" : "alterações"}`,
+        ...(linha.veiculos > 0
+          ? [`${linha.veiculos.toLocaleString("pt-BR")} ${linha.veiculos === 1 ? "veículo" : "veículos"}`]
+          : []),
+      ].join(" · "),
+      classificacao: linha.classificacao,
+      valor: valorDaMudanca(linha, filtro),
+      liquido: filtro === "todos" ? null : linha.liquido,
+      proporcao: linha.proporcao,
+    }));
+}
+
+/**
+ * A palavra da linha no recorte inteiro, e a do lado nos recortes de um lado.
+ *
+ * "Compensado" é o caso que o saldo esconde: mexeu para os dois lados e voltou
+ * quase ao mesmo lugar. Chamá-lo de ganho ou de perda daria um veredito a um
+ * número que não tem sinal — a mesma recusa de `mudancasRelevantes`.
+ */
+function classificar(
+  ganhos: number,
+  perdas: number,
+  filtro: FiltroDeMudanca,
+): LinhaDoRanking["classificacao"] {
+  if (filtro === "ganhos") return "ganho";
+  if (filtro === "perdas") return "perda";
+  const liquido = ganhos + perdas;
+  if (ganhos > 0 && perdas < 0 && liquido === 0) return "compensado";
+  return liquido < 0 ? "perda" : "ganho";
+}
+
+// ---------------------------------------------------------------------------
+// Dobra 2 — o que puxou a janela
+// ---------------------------------------------------------------------------
+
+/**
+ * O que vem puxando o resultado ao longo da janela do gráfico.
+ *
+ * **A pergunta é outra, e é a diferença que justifica o cartão.** "Onde o
+ * dinheiro se mexeu" (dobra 3) responde pela **competência aberta**; isto
+ * responde pelas **últimas vigências** — quem empurra o resultado ao longo do
+ * tempo, e se foi um solavanco de uma vigência só ou uma pressão que volta toda
+ * quinzena. As duas leituras discordarem é o normal: o parâmetro que dominou
+ * esta competência pode ser estreante, e o que sangra há seis vigências pode
+ * não ter se mexido nesta.
+ *
+ * **O dado já estava na resposta do gráfico.** `Movimentos.byParameter`
+ * (`/changes/range`) soma cada parâmetro ao longo do intervalo, e o campo que
+ * torna a leitura interessante é `periods`: em quantas das vigências da janela
+ * aquele parâmetro se mexeu. Nenhuma requisição nova — ver
+ * `lib/serie-de-impacto.ts`, que passou a devolver a resposta crua por isso.
+ *
+ * **Só na leitura de unidade.** `/changes/range/overview` soma unidade a
+ * unidade e por isso não tem rollup de parâmetro para oferecer — é a mesma
+ * assimetria do mapa, e aqui ela vira ausência declarada: sem janela, a página
+ * não desenha o cartão.
+ */
+export interface JanelaDoImpacto {
+  /** "julho/2026 · 2ªq → agosto/2026 · 1ªq" — o intervalo, escrito. */
+  rotulo: string;
+  /** Quantas vigências a janela cobre — o denominador do "em N de". */
+  vigencias: number;
+  /** A periodicidade em que a janela foi lida. `null` quando não há líquido. */
+  periodicity: string | null;
+  linhas: LinhaDoRanking[];
+}
+
+/**
+ * A janela em linhas — a mesma forma das outras listas da tela.
+ *
+ * Ordena pelo **módulo do líquido da janela**, que é o que o gráfico ao lado
+ * desenha. Parâmetro sem líquido apurado na periodicidade lida não entra: ele
+ * não é um parâmetro de R$ 0 na janela, é um parâmetro que a janela não sabe
+ * valorar — e a contagem dele já está no "sem impacto calculável" da manchete.
+ */
+export function janelaDoImpacto(
+  movimentos: MovimentosDaJanela | null,
+  /** A periodicidade da manchete — a mesma régua do resto da tela. */
+  periodicidade: string | null,
+  limite: number,
+): JanelaDoImpacto | null {
+  if (movimentos === null) return null;
+
+  /*
+    A periodicidade da manchete quando ela existe; a dominante da janela quando
+    não. Uma vigência sem valor apurado ainda pode ter janela com valor — e ler
+    a janela numa grandeza e o gráfico noutra seria a divergência calada que
+    este módulo existe para não ter, então quem manda é a mesma escolha que o
+    gráfico faz.
+  */
+  const balde =
+    periodicidade !== null && movimentos.impact.byPeriodicity[periodicidade] !== undefined
+      ? periodicidade
+      : (Object.entries(movimentos.impact.byPeriodicity).sort(
+          (a, b) => Math.abs(b[1]) - Math.abs(a[1]),
+        )[0]?.[0] ?? null);
+
+  const vigencias = movimentos.periods.filter(
+    (p) => p.date >= movimentos.from && p.date <= movimentos.to,
+  ).length;
+
+  const rotulo = `${movimentos.fromLabel} → ${movimentos.toLabel}`;
+
+  if (balde === null) {
+    return { rotulo, vigencias, periodicity: null, linhas: [] };
+  }
+
+  const comValor = (movimentos.byParameter ?? []).filter(
+    (p) => p.impact.byPeriodicity[balde] !== undefined && p.impact.byPeriodicity[balde] !== 0,
+  );
+
+  const ordenados = [...comValor]
+    .sort(
+      (a, b) =>
+        Math.abs(b.impact.byPeriodicity[balde]!) - Math.abs(a.impact.byPeriodicity[balde]!),
+    )
+    .slice(0, limite);
+
+  const teto = ordenados.reduce(
+    (maior, p) => Math.max(maior, Math.abs(p.impact.byPeriodicity[balde]!)),
+    0,
+  );
+
+  return {
+    rotulo,
+    vigencias,
+    periodicity: balde,
+    linhas: ordenados.map((p) => {
+      const valor = p.impact.byPeriodicity[balde]!;
+      return {
+        chave: p.parameterKey,
+        nome: p.parameterName,
+        /*
+          "em N de M vigências" é o que esta lista tem e as outras não: ele
+          separa o solavanco de uma quinzena da pressão que volta sempre, que é
+          a razão de o cartão existir.
+        */
+        contexto: [
+          p.familyName,
+          `em ${p.periods.toLocaleString("pt-BR")} de ${vigencias.toLocaleString("pt-BR")} ${vigencias === 1 ? "vigência" : "vigências"}`,
+          `${p.changes.toLocaleString("pt-BR")} ${p.changes === 1 ? "alteração" : "alterações"}`,
+        ].join(" · "),
+        classificacao: valor < 0 ? "perda" : "ganho",
+        valor,
+        /* O número de cima **é** o líquido da janela: não há parcela a pôr
+           embaixo, e repeti-lo diria duas vezes o mesmo. */
+        liquido: null,
+        proporcao: teto === 0 ? 0 : Math.abs(valor) / teto,
+      };
+    }),
+  };
+}
+
+/**
+ * O que esta leitura precisa de `/changes/range` — e nada além.
+ *
+ * Tipar pelo mínimo, e não por `Movimentos` inteiro, é o que mantém a função
+ * testável com um objeto de seis campos em vez de uma resposta de servidor
+ * inteira, e o que impede este módulo de passar a depender, sem querer, de um
+ * campo que a Visão Geral do intervalo não tem.
+ */
+export interface MovimentosDaJanela {
+  from: string;
+  to: string;
+  fromLabel: string;
+  toLabel: string;
+  periods: { date: string; label: string }[];
+  impact: { byPeriodicity: Record<string, number> };
+  byParameter?: {
+    parameterKey: string;
+    parameterName: string;
+    familyName: string;
+    changes: number;
+    periods: number;
+    impact: { byPeriodicity: Record<string, number> };
+  }[];
+}
+
+// ---------------------------------------------------------------------------
+// Dobra 3 — o mapa: onde aconteceu
 // ---------------------------------------------------------------------------
 
 /** Uma unidade no ranking da Visão Geral. */
@@ -438,26 +763,80 @@ export interface LinhaDoMapa {
   /** O sinal, para o tom. `null` quando não há impacto. */
   negativo: boolean | null;
   alteracoes: number;
+  /** Do maior impacto do ranking: 0 a 1. É o comprimento da barra, e nada mais. */
+  proporcao: number;
+}
+
+/**
+ * Um tipo de ativo na vigência — cavalo, carreta, trecho.
+ *
+ * É o que responde *onde isso aconteceu* dentro de uma unidade, e o dado
+ * sempre esteve na resposta: `cockpit.panorama.byEquipment` traz, por tipo,
+ * quantas alterações, quantos parâmetros e de que tamanho é a frota daquele
+ * tipo. O cartão antigo lia **um** balde desta lista — o mais tocado — e o
+ * publicava como um número solto ao lado de três que não respondiam a pergunta
+ * do andar.
+ */
+export interface LinhaDoTipo {
+  /** O `entityType` — `CAVALO`, `CARRETA`. É ele que viaja no filtro da URL. */
+  chave: string;
+  /** Como se lê — "Cavalo". O servidor manda os dois, e são dois vocabulários. */
+  nome: string;
+  alteracoes: number;
+  /** Parâmetros da remuneração tocados neste tipo. */
+  parametros: number;
+  /** A frota deste tipo — `null` quando a resposta não a declara. */
+  frota: number | null;
+  /**
+   * A linha de baixo, já escrita — parâmetros tocados e tamanho da frota.
+   *
+   * É a razão entre os dois que qualifica a contagem de alterações: 244
+   * alterações em 15 parâmetros de uma frota de 62 é uma vigência que mexeu em
+   * quase tudo do cavalo; o mesmo número em 1 parâmetro seria uma correção de
+   * uma coluna só. Vazia quando a resposta não soube dizer nem um nem outro.
+   */
+  contexto: string;
+  /** Do tipo mais tocado: 0 a 1. */
+  proporcao: number;
+  /** A lista de alterações deste tipo — `null` na Visão Geral. */
+  href: string | null;
+}
+
+/**
+ * A movimentação da frota — **o rodapé do cartão, e não o corpo dele.**
+ *
+ * Estes quatro números eram quatro tiles do tamanho de um KPI, e nenhum deles
+ * responde "onde aconteceu": eles dizem como a população mudou, que é contexto
+ * do recorte e não o assunto do andar. Numa vigência sem entrada nem saída, dois
+ * deles anunciavam `+0` e `−0` em corpo grande.
+ *
+ * **E um deles estava errado.** O tile dizia "Veículos ativos" e publicava
+ * `frota` — a frota inteira que a vigência entregou, não os que respondem
+ * `ATIVO` na coluna. Eram 133 equipamentos entregues e 46 em ATIVO, e a tela
+ * chamava 133 de ativos, ao lado de uma régua que já publicava os dois números
+ * com os nomes certos. Aqui as duas pontas viajam separadas e nomeadas, com a
+ * mesma recusa de {@link LeituraDoPanorama}: quem não trouxe a coluna não é
+ * parado, é sem resposta.
+ */
+export interface MovimentoDaFrota {
+  frota: number | null;
+  ativos: number;
+  inativos: number;
+  entraram: number;
+  sairam: number;
 }
 
 /**
  * Onde a vigência aconteceu — **o único andar que troca de forma entre as duas
  * leituras**.
  *
- * A soma de unidades não tem uma frota a movimentar (o `byEquipment` mora no
+ * A soma de unidades não tem tipos de ativo a ranquear (o `byEquipment` mora no
  * cockpit de uma vigência, e o overview não mescla cockpits), e uma unidade não
  * tem um ranking de unidades. Fingir simetria aqui produziria um cartão vazio
  * numa das duas leituras — e cartão sem dado não aparece.
  */
 export type MapaDoPanorama =
-  | {
-      eixo: "frota";
-      entraram: number;
-      sairam: number;
-      ativos: number | null;
-      /** O equipamento mais tocado — `null` quando o cockpit não sabe dizer. */
-      equipamento: { nome: string; entityType: string | null; mudancas: number } | null;
-    }
+  | { eixo: "tipos"; tipos: LinhaDoTipo[]; movimento: MovimentoDaFrota }
   | { eixo: "unidades"; linhas: LinhaDoMapa[] };
 
 export function mapaDoPanorama(
@@ -466,8 +845,19 @@ export function mapaDoPanorama(
   view: FamiliesView | null,
   /** As unidades já ranqueadas — `unidadesPorImpacto`. Vazio na unidade. */
   unidades: { chave: string; label: string; impacto: { periodicity: string; amount: number } | null; alteracoes: number }[],
+  {
+    recorte,
+    /**
+     * Se as linhas podem apontar para uma tela — falso na Visão Geral, pela
+     * mesma razão do placar: um endereço sem `scopeHash` cai na unidade padrão
+     * do servidor, e a linha abriria a lista de **uma** unidade debaixo de um
+     * número que somou todas.
+     */
+    comDestino,
+  }: { recorte: Recorte; comDestino: boolean } = { recorte: RECORTE_VAZIO, comDestino: false },
 ): MapaDoPanorama {
   if (view === null) {
+    const teto = unidades.reduce((maior, u) => Math.max(maior, Math.abs(u.impacto?.amount ?? 0)), 0);
     return {
       eixo: "unidades",
       linhas: unidades.map((u) => ({
@@ -476,17 +866,108 @@ export function mapaDoPanorama(
         impacto: u.impacto ? escreverImpacto(u.impacto) : null,
         negativo: u.impacto ? u.impacto.amount < 0 : null,
         alteracoes: u.alteracoes,
+        proporcao: teto === 0 ? 0 : Math.abs(u.impacto?.amount ?? 0) / teto,
       })),
     };
   }
 
   return {
-    eixo: "frota",
-    entraram: leitura.entraram,
-    sairam: leitura.sairam,
-    ativos: leitura.frota,
-    equipamento: equipamentoMaisTocado(view),
+    eixo: "tipos",
+    tipos: tiposDaVigencia(view, { recorte, comDestino }),
+    movimento: {
+      frota: leitura.frota,
+      ativos: leitura.ativosNaFrota,
+      inativos: leitura.inativosNaFrota,
+      entraram: leitura.entraram,
+      sairam: leitura.sairam,
+    },
   };
+}
+
+/**
+ * Os tipos de ativo, do mais tocado para o menos.
+ *
+ * **Ordena por alteração, e não por frota.** A pergunta é onde a vigência
+ * mexeu: uma frota de 71 carretas com 23 alterações mexeu menos que uma de 62
+ * cavalos com 244, e ranquear por tamanho de frota responderia uma pergunta que
+ * ninguém fez — a frota é a mesma de vigência em vigência.
+ *
+ * Tipo sem alteração não entra: ele não é um tipo de zero alterações, é um tipo
+ * que esta vigência não tocou, e uma linha de barra vazia no ranking do "onde"
+ * diria que ali aconteceu algo de tamanho nenhum.
+ *
+ * O `contexto` da linha é montado aqui, e não no desenho, porque **quais**
+ * cláusulas ele tem depende do que a resposta soube dizer.
+ */
+function tiposDaVigencia(
+  view: FamiliesView,
+  { recorte, comDestino }: { recorte: Recorte; comDestino: boolean },
+): LinhaDoTipo[] {
+  const baldes = view.cockpit.panorama.byEquipment.filter((b) => b.changes > 0);
+  const ordenados = [...baldes].sort(
+    (a, b) => b.changes - a.changes || a.equipment.localeCompare(b.equipment, "pt-BR"),
+  );
+  const teto = ordenados.reduce((maior, b) => Math.max(maior, b.changes), 0);
+
+  return ordenados.map((balde) => ({
+    /* Sem `entityType` a linha ainda se lê, e é o nome que a identifica: o que
+       ela perde é o link, porque é o código que o filtro da URL entende. */
+    chave: balde.entityType ?? balde.equipment,
+    nome: balde.equipment,
+    alteracoes: balde.changes,
+    /*
+      `?? 0` e `?? null` porque a resposta pode ser de uma versão anterior, ainda
+      em cache, que não trazia os dois campos — e o tipo não protege contra o que
+      já está gravado no navegador de quem abre a tela. Zero parâmetros e frota
+      nula são os dois casos em que a linha **cala** sobre a cláusula, em vez de
+      publicar "0 parâmetros" para um tipo que teve 244 alterações.
+    */
+    parametros: balde.groups ?? 0,
+    frota: balde.fleet ?? null,
+    contexto: contextoDoTipo(balde.groups ?? 0, balde.fleet ?? null),
+    proporcao: teto === 0 ? 0 : balde.changes / teto,
+    href:
+      comDestino && balde.entityType
+        ? linkDeAlteracoes({ recorte, filtros: { entityType: balde.entityType } })
+        : null,
+  }));
+}
+
+/** As cláusulas que a resposta sustenta — nunca um zero de enfeite. */
+function contextoDoTipo(parametros: number, frota: number | null): string {
+  const partes: string[] = [];
+  if (parametros > 0) {
+    partes.push(
+      `${parametros.toLocaleString("pt-BR")} ${parametros === 1 ? "parâmetro" : "parâmetros"}`,
+    );
+  }
+  if (frota !== null) partes.push(`frota de ${frota.toLocaleString("pt-BR")}`);
+  return partes.join(" · ");
+}
+
+/**
+ * Se o mapa tem o que desenhar — os dois vazios, numa regra só.
+ *
+ * Nenhuma unidade no ranking, ou uma frota que não se moveu e não tem nada a
+ * contar: nos dois o cartão não aparece, em vez de publicar zeros.
+ *
+ * Ela nasceu quando o cartão dividia uma dobra de duas colunas com o gráfico —
+ * ali um cartão que se apaga por dentro deixava **a coluna** dele em branco, e
+ * a página precisava saber antes de montar a grade. O cartão desde então passou
+ * para uma faixa de largura inteira (o lugar ao lado do gráfico é de quem lê a
+ * mesma janela que ele), e nessa forma apagar-se não deixa buraco nenhum: a
+ * função continua aqui porque a decisão é de leitura, e é o componente quem a
+ * consulta.
+ */
+export function mapaVazio(mapa: MapaDoPanorama): boolean {
+  if (mapa.eixo === "unidades") return mapa.linhas.length === 0;
+  const { movimento } = mapa;
+  return (
+    mapa.tipos.length === 0 &&
+    movimento.entraram === 0 &&
+    movimento.sairam === 0 &&
+    movimento.frota === null
+  );
 }
 
 // ---------------------------------------------------------------------------

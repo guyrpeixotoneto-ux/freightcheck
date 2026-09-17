@@ -84,11 +84,22 @@ const corDa = (linha: LinhaDaPonte) =>
 export function PonteDoImpactoGrafico({
   ponte,
   onAbrirFamilia,
+  altura = 300,
   className,
 }: {
   ponte: PonteDoImpacto;
   /** `null` quando não há gaveta a abrir — a Visão Geral não tem unidade a quem perguntar. */
   onAbrirFamilia: ((code: string) => void) | null;
+  /**
+   * A altura do desenho, em pixels.
+   *
+   * Ela é do chamador porque a leitura que a justifica é dele: 300px é a altura
+   * de uma escada de oito ou dez degraus, onde os do meio precisam de espaço
+   * para não virarem fatias de dois pixels. Uma vigência com **uma** família
+   * apurada desenha duas barras — a família e o líquido —, e 300px ali é meia
+   * tela de rolagem para mostrar duas barras que a mesma informação dá em 200.
+   */
+  altura?: number;
   className?: string;
 }) {
   const linhas = linhasDaPonte(ponte);
@@ -96,7 +107,7 @@ export function PonteDoImpactoGrafico({
 
   return (
     <div className={cn("w-full", className)}>
-      <ResponsiveContainer width="100%" height={300}>
+      <ResponsiveContainer width="100%" height={altura}>
         <ComposedChart data={linhas} margin={{ top: 24, right: 8, bottom: 8, left: 8 }}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--card-border))" />
           <XAxis

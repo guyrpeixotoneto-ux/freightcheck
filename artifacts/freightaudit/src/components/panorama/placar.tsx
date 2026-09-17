@@ -6,63 +6,99 @@ import {
   Truck,
   type LucideIcon,
 } from "lucide-react";
-import { CartaoDeIndicador } from "@/components/ui/cartao-de-indicador";
+import { Link } from "wouter";
+import { Ajuda } from "@/components/ui/cartao-de-indicador";
+import { cn } from "@/lib/utils";
 import type { MedidaDoPlacar } from "@/lib/panorama";
 import type { Tom } from "@/lib/visao-geral";
 
 /**
- * Andar 2 — o placar. *"E os outros números?"*
+ * O placar da vigência — *"e os outros números?"* —, agora **dentro** do cartão
+ * do veredito, e em régua e não em fileira de cartões.
  *
- * Cinco medidas na mesma régua: o superconjunto dos quatro cartões do Impacto
- * Líquido e dos cinco do Resumo executivo, publicado uma vez só.
+ * Eram cinco cartões de KPI, do tamanho dos cartões de KPI do resto do produto,
+ * numa faixa própria embaixo da manchete. Três coisas estavam erradas nisso:
  *
- * **Cinco cartões do mesmo tamanho, e um deles em destaque.** O destaque é o
- * líquido, e existe porque ele é o número que o andar de cima acabou de
- * anunciar: sem ele, a régua igual faria "impacto líquido" e "veículos
- * afetados" parecerem duas medidas do mesmo peso, quando uma é o resultado e a
- * outra é contexto dele.
+ * 1. **O primeiro deles era o número da manchete.** "Impacto líquido", com os
+ *    mesmos ganhos e perdas embaixo, reimpresso a 200 pixels de onde a tela o
+ *    tinha acabado de anunciar em corpo 48. A medida não saiu da leitura — ela
+ *    é a manchete, e {@link MedidaDoPlacar} continua publicando-a para quem
+ *    precise dela solta; quem não a desenha aqui é esta régua.
+ * 2. **Dois outros repetiam a faixa de cobertura** que vinha logo abaixo:
+ *    "Sem impacto calculável · 5.433" e "Cobertura da apuração · 15% · 947 de
+ *    6.380" são exatamente os números da frase da faixa.
+ * 3. **Cinco cartões custam ~180px de altura** para publicar quatro números de
+ *    contexto — e contexto que compete em peso visual com a resposta deixa de
+ *    ser contexto.
  *
- * **Medida sem dado não aparece.** `valor === null` faz o cartão sumir e a
- * grade fechar — nada aqui mostra "0" para preencher lugar. É a mesma recusa
- * que o Resumo executivo já declarava, e a razão pela qual a Visão Geral não
- * desenha um cartão vazio onde a soma não sustenta resposta.
- *
- * **A definição de cada número vive no ⓘ, e não numa legenda.** Foi o que
- * permitiu, no andar de baixo, separar as duas coberturas que o produto tinha
- * com nomes parecidos: quem passa o mouse aqui lê que esta é a da **apuração**,
- * e que a auditada — percentual de célula de planilha — mora na procedência, no
- * fim da tela.
- *
- * **O desenho do cartão saiu daqui** e virou `CartaoDeIndicador`: era o quarto
- * KPI do produto desenhado à mão, e o quarto com um corpo de número diferente
- * dos outros três. O que sobra neste arquivo é o que é do placar — quais são as
- * cinco medidas, qual ícone abre cada uma e como a severidade vira cor.
+ * A régua diz os mesmos números na mesma ordem, com o mesmo ⓘ de definição e o
+ * mesmo tom de severidade, em uma linha. O que ela tira é a moldura: sem
+ * medalhão, sem borda por medida e sem corpo de número grande — porque a
+ * hierarquia desta dobra é *um* número grande, e ele está à esquerda.
  */
-export function Placar({ medidas }: { medidas: MedidaDoPlacar[] }) {
-  const visiveis = medidas.filter((m) => m.valor !== null);
+export function Placar({
+  medidas,
+  className,
+}: {
+  medidas: MedidaDoPlacar[];
+  className?: string;
+}) {
+  /*
+    Medida sem dado não aparece, e a régua fecha — nada aqui mostra "0" para
+    preencher lugar. É a mesma recusa que o Resumo executivo já declarava.
+
+    E o líquido não aparece **nunca**: ele é a manchete ao lado, e `destaque` é
+    exatamente a marca de quem é. Filtrar pela marca, e não pela chave, é o que
+    mantém a regra verdadeira se um dia a manchete for outra medida.
+  */
+  const visiveis = medidas.filter((m) => m.valor !== null && !m.destaque);
   if (visiveis.length === 0) return null;
 
   return (
     <div
-      className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5"
+      className={cn("flex flex-wrap items-start gap-x-8 gap-y-4", className)}
       aria-label="O placar da vigência"
       role="group"
     >
       {visiveis.map((medida) => (
-        <CartaoDeIndicador
-          key={medida.chave}
-          rotulo={medida.rotulo}
-          valor={medida.valor}
-          nota={medida.nota}
-          ajuda={medida.ajuda}
-          icone={ICONE_DA_MEDIDA[medida.chave]}
-          corDoIcone={medida.tom ? MEDALHAO_DO_TOM[medida.tom] : "bg-brand/10 text-brand"}
-          corDoValor={medida.tom ? COR_DO_TOM[medida.tom] : undefined}
-          destaque={medida.destaque}
-          href={medida.href}
-        />
+        <Medida key={medida.chave} medida={medida} />
       ))}
     </div>
+  );
+}
+
+function Medida({ medida }: { medida: MedidaDoPlacar }) {
+  const Icone = ICONE_DA_MEDIDA[medida.chave];
+  const corpo = (
+    <>
+      <p className="flex items-center gap-1.5 text-3xs uppercase tracking-[0.1em] font-bold text-muted-foreground">
+        {Icone && <Icone className="w-3.5 h-3.5 shrink-0" />}
+        <span className="truncate">{medida.rotulo}</span>
+        {medida.ajuda && <Ajuda texto={medida.ajuda} />}
+      </p>
+      <p
+        className={cn(
+          "text-xl font-extrabold tabular-nums leading-none mt-1.5 tracking-[-0.01em]",
+          medida.tom ? COR_DO_TOM[medida.tom] : "text-foreground",
+        )}
+      >
+        {medida.valor}
+      </p>
+      {medida.nota && (
+        <p className="text-[0.6875rem] text-muted-foreground mt-1 leading-snug">{medida.nota}</p>
+      )}
+    </>
+  );
+
+  /* Com destino, a medida inteira é o alvo — a mesma régua do cartão de KPI. */
+  if (!medida.href) return <div className="min-w-0 max-w-[15rem]">{corpo}</div>;
+  return (
+    <Link
+      href={medida.href}
+      className="min-w-0 max-w-[15rem] rounded-lg -mx-2 px-2 py-1 -my-1 hover:bg-accent/60 transition-colors"
+    >
+      {corpo}
+    </Link>
   );
 }
 
@@ -70,13 +106,13 @@ export function Placar({ medidas }: { medidas: MedidaDoPlacar[] }) {
  * O ícone de cada medida — **desenho, e não dado**, e por isso ele mora aqui e
  * não em `lib/panorama.ts`.
  *
- * A camada de leitura publica cinco medidas com chave estável; o que cada uma
+ * A camada de leitura publica as medidas com chave estável; o que cada uma
  * *parece* é decisão desta tela. Pôr o ícone lá dentro faria a aritmética da
  * vigência carregar um `LucideIcon` para ser testada.
  *
- * Chave sem ícone cai em `undefined`, e o cartão simplesmente não desenha o
- * medalhão — uma medida nova aparece sem enfeite em vez de aparecer com o
- * enfeite errado.
+ * Chave sem ícone cai em `undefined`, e a medida simplesmente não desenha o
+ * glifo — uma medida nova aparece sem enfeite em vez de aparecer com o enfeite
+ * errado.
  */
 const ICONE_DA_MEDIDA: Record<string, LucideIcon | undefined> = {
   liquido: Gauge,
@@ -88,24 +124,12 @@ const ICONE_DA_MEDIDA: Record<string, LucideIcon | undefined> = {
 
 /*
   A mesma paleta de tom que `OndeAgirAgora` usa, e pelo mesmo motivo: os dois
-  andares publicam severidade lida da mesma régua (`qualidadeDaCobertura`,
-  `Tom`), e duas escalas de cor para a mesma severidade fariam o placar e a fila
-  discordarem sobre a gravidade do mesmo fato.
+  publicam severidade lida da mesma régua (`qualidadeDaCobertura`, `Tom`), e
+  duas escalas de cor para a mesma severidade fariam os dois discordarem sobre a
+  gravidade do mesmo fato.
 */
 const COR_DO_TOM: Record<Tom, string> = {
   grave: "text-red-700",
   atencao: "text-amber-700",
   ok: "text-emerald-700",
-};
-
-/*
-  O medalhão repete o tom do número em fundo esmaecido, e é o que permite ler a
-  severidade da fileira inteira de relance, antes de ler número nenhum. Ele é a
-  **mesma** régua da linha acima — nunca uma segunda opinião sobre a gravidade
-  do mesmo fato.
-*/
-const MEDALHAO_DO_TOM: Record<Tom, string> = {
-  grave: "bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300",
-  atencao: "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300",
-  ok: "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300",
 };

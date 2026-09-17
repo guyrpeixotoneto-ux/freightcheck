@@ -91,7 +91,16 @@ export function CartaoDeIndicador({
   );
 }
 
-function Ajuda({ texto }: { texto: string }) {
+/**
+ * O ⓘ de uma medida — exportado porque a definição do número é do número, e não
+ * do cartão.
+ *
+ * A régua compacta do Panorama (`components/panorama/placar.tsx`) publica as
+ * mesmas medidas sem a moldura do cartão, e precisa do mesmo ⓘ: reescrevê-lo lá
+ * daria dois botões de ajuda com dois tamanhos de alvo e duas larguras de
+ * dica para o mesmo texto.
+ */
+export function Ajuda({ texto }: { texto: string }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>

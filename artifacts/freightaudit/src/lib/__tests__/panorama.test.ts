@@ -1,15 +1,24 @@
 import { describe, expect, it } from "vitest";
 import {
   estadoDaProcedencia,
+  graoValido,
+  janelaDoImpacto,
   leituraDaUnidade,
   leituraDaVisaoGeral,
   mapaDoPanorama,
+  mapaVazio,
   placarDoPanorama,
   procedenciaDoPanorama,
+  rankingPorFamilia,
+  rankingPorParametro,
   vereditoDoPanorama,
 } from "../panorama";
-import { ladosDoImpacto } from "../visao-geral";
-import { coberturaDaVigencia, situacaoDaApuracao } from "../impacto-apurado";
+import { impactoPorFamilia, ladosDoImpacto } from "../visao-geral";
+import {
+  coberturaDaVigencia,
+  mudancasRelevantes,
+  situacaoDaApuracao,
+} from "../impacto-apurado";
 import type { ItemCockpit } from "../cockpit";
 import type { BalancoDoRecorte } from "@/components/balanco/tipos";
 import type {
@@ -488,6 +497,174 @@ describe("o placar", () => {
 // 3. As duas leituras, e o que cada uma sabe responder
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// 2b. O ranking — um cartão, dois grãos
+// ---------------------------------------------------------------------------
+
+/*
+  O ranking substituiu três cartões que liam a mesma lista: dois pódios de
+  família e uma lista de parâmetros. O risco da fusão é o oposto do da
+  duplicação — uma régua só que responda errado a um dos recortes —, e é ele que
+  estes testes vigiam: quem participa de cada lado, qual número cada linha
+  publica, e a que a barra se compara.
+*/
+describe("o ranking da dobra 2", () => {
+  /*
+    Uma vigência com três famílias: uma que só somou, uma que só tirou, e uma
+    que fez as duas e voltou ao mesmo lugar — a que o saldo esconde.
+  */
+  const familias = () =>
+    impactoPorFamilia(
+      vigencia({
+        summary: sumario({
+          sides: [
+            {
+              periodicity: "MENSAL",
+              net: 6000,
+              gains: {
+                total: 46000,
+                changes: 7,
+                vehicles: 40,
+                parameters: [
+                  contribuinte("financiamento", "AQUISICAO", 6000, { changes: 2 }),
+                  contribuinte("ipva", "TRIBUTOS", 40000, { changes: 5 }),
+                ],
+              },
+              losses: {
+                total: -40000,
+                changes: 4,
+                vehicles: 9,
+                parameters: [
+                  contribuinte("promocao", "COMERCIAL", -10000, { changes: 1 }),
+                  contribuinte("licenciamento", "TRIBUTOS", -30000, { changes: 3 }),
+                ],
+              },
+            },
+          ],
+        }),
+      }),
+      "MENSAL",
+    );
+
+  it("no recorte inteiro publica o líquido, e não repete o líquido embaixo", () => {
+    const linhas = rankingPorFamilia(familias(), "todos", 6);
+
+    /* TRIBUTOS somou 40 mil e tirou 30 mil: líquido de 10 mil. */
+    const tributos = linhas.find((l) => l.chave === "TRIBUTOS")!;
+    expect(tributos.valor).toBe(10000);
+    expect(tributos.classificacao).toBe("ganho");
+    /* O número de cima já é o líquido — repeti-lo embaixo diria duas vezes o
+       mesmo. */
+    expect(tributos.liquido).toBeNull();
+  });
+
+  it("no recorte de um lado publica a parcela, com o líquido embaixo", () => {
+    const perdas = rankingPorFamilia(familias(), "perdas", 6);
+    const tributos = perdas.find((l) => l.chave === "TRIBUTOS")!;
+
+    expect(tributos.valor).toBe(-30000);
+    expect(tributos.liquido).toBe(10000);
+    expect(tributos.classificacao).toBe("perda");
+  });
+
+  it("a família que não participou do lado pedido não entra na lista", () => {
+    /*
+      AQUISICAO só somou. Nos ganhos ela é linha; nas perdas ela **não é zero**,
+      ela não participou — e uma linha de R$ 0 ali diria que a família perdeu
+      dinheiro e o valor foi nenhum.
+    */
+    expect(rankingPorFamilia(familias(), "ganhos", 6).map((l) => l.chave)).toContain("AQUISICAO");
+    expect(rankingPorFamilia(familias(), "perdas", 6).map((l) => l.chave)).not.toContain(
+      "AQUISICAO",
+    );
+  });
+
+  it("as alterações da linha são as do lado pedido, e nunca as das duas somadas", () => {
+    /*
+      TRIBUTOS tem 5 alterações que somaram e 3 que tiraram. Repetir "8
+      alterações" nos dois lados afirmaria que 16 alterações mexeram nesta
+      família.
+    */
+    const ganhos = rankingPorFamilia(familias(), "ganhos", 6).find((l) => l.chave === "TRIBUTOS")!;
+    const perdas = rankingPorFamilia(familias(), "perdas", 6).find((l) => l.chave === "TRIBUTOS")!;
+
+    expect(ganhos.contexto).toContain("5");
+    expect(perdas.contexto).toContain("3");
+  });
+
+  it("a barra mede contra a maior linha da própria lista", () => {
+    const perdas = rankingPorFamilia(familias(), "perdas", 6);
+
+    /* A maior perda enche a barra; a outra se mede contra ela. */
+    expect(perdas[0]!.proporcao).toBe(1);
+    expect(perdas[1]!.proporcao).toBeCloseTo(10000 / 30000, 5);
+  });
+
+  it("o grão do parâmetro é o degrau abaixo — mesma forma de linha, outro grão", () => {
+    const resumo = vigencia();
+    const linhas = rankingPorParametro(
+      mudancasRelevantes(resumo, "MENSAL"),
+      "todos",
+      6,
+    );
+
+    expect(linhas.map((l) => l.chave)).toEqual(["financiamento", "promocao"]);
+    /* A linha diz de que família o parâmetro vem — é o que a família, no grão
+       de cima, não precisa dizer. */
+    expect(linhas[0]!.contexto).toContain("AQUISICAO");
+  });
+
+  it("o limite é do chamador, e a lista respeita", () => {
+    expect(rankingPorFamilia(familias(), "todos", 2)).toHaveLength(2);
+  });
+
+  it("grão de URL inválido não vira grão", () => {
+    expect(graoValido("familia")).toBe(true);
+    expect(graoValido("parametro")).toBe(true);
+    expect(graoValido("placa")).toBe(false);
+    expect(graoValido(null)).toBe(false);
+  });
+});
+
+describe("o mapa vazio", () => {
+  /*
+    A pergunta é de grade, e não de cartão: o mapa divide a dobra 3 com o
+    gráfico da trajetória, e um cartão que se apaga por dentro deixa metade da
+    faixa em branco. Quem monta a grade precisa saber disto antes de desenhar —
+    e precisa saber pela **mesma** regra que o cartão usa.
+  */
+  it("uma vigência sem tipo tocado e sem frota declarada não tem mapa", () => {
+    const vazia = vigencia({
+      totals: {
+        changes: 0,
+        formatOnlyChanges: 0,
+        groups: 0,
+        vehiclesTouched: 0,
+        entitiesAdded: 0,
+        entitiesRemoved: 0,
+        unchanged: 0,
+        inconclusive: 0,
+      },
+      cockpit: {
+        baseline: { hasBaseline: true, seriesWithoutBaseline: [] },
+        kpis: {},
+        panorama: { byEquipment: [] },
+      } as unknown as CockpitView,
+    });
+    expect(mapaVazio(mapaDoPanorama(leituraDaUnidade(vazia), vazia, []))).toBe(true);
+  });
+
+  it("com tipo tocado ou frota declarada, tem", () => {
+    const leitura = leituraDaUnidade(vigencia());
+    expect(mapaVazio(mapaDoPanorama(leitura, vigencia(), []))).toBe(false);
+  });
+
+  it("na Visão Geral sem unidade no ranking, não tem", () => {
+    const leitura = leituraDaVisaoGeral(overviewDe());
+    expect(mapaVazio(mapaDoPanorama(leitura, null, []))).toBe(true);
+  });
+});
+
 describe("as duas leituras", () => {
   it("a unidade conta ativos distintos; a Visão Geral usa a união quando existe", () => {
     expect(leituraDaUnidade(vigencia()).veiculosDeduplicados).toBe(true);
@@ -506,36 +683,328 @@ describe("as duas leituras", () => {
 // 4. O mapa — o único andar que troca de eixo
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// 4b. A janela — o que vem puxando o resultado
+// ---------------------------------------------------------------------------
+
+/*
+  A janela responde por **várias vigências**, e é a única leitura da tela que
+  faz isso. O risco dela é o de sempre neste módulo — ser lida como se falasse
+  da competência aberta —, e o que estes testes prendem é o que impede isso: o
+  intervalo escrito, o denominador "em N de M vigências", e a grandeza sendo a
+  mesma que a manchete publica.
+*/
+describe("a janela do gráfico", () => {
+  const parametro = (
+    nome: string,
+    mensal: number | null,
+    over: { periods?: number; changes?: number; familyName?: string } = {},
+  ) => ({
+    parameterKey: nome.toLowerCase(),
+    parameterName: nome,
+    familyName: over.familyName ?? "Aquisição e financiamento",
+    changes: over.changes ?? 4,
+    periods: over.periods ?? 1,
+    impact: { byPeriodicity: mensal === null ? {} : { MENSAL: mensal } },
+  });
+
+  const movimentos = (
+    byParameter: ReturnType<typeof parametro>[],
+    impact: Record<string, number> = { MENSAL: 11917 },
+  ) => ({
+    from: "2026-05-16",
+    to: "2026-08-01",
+    fromLabel: "maio/2026 · 2ªq",
+    toLabel: "agosto/2026 · 1ªq",
+    periods: [
+      { date: "2026-04-16", label: "abril/2026 · 2ªq" },
+      { date: "2026-05-16", label: "maio/2026 · 2ªq" },
+      { date: "2026-06-16", label: "junho/2026 · 2ªq" },
+      { date: "2026-07-16", label: "julho/2026 · 2ªq" },
+      { date: "2026-08-01", label: "agosto/2026 · 1ªq" },
+    ],
+    impact: { byPeriodicity: impact },
+    byParameter,
+  });
+
+  it("escreve o intervalo e conta só as vigências dentro dele", () => {
+    /*
+      `periods` lista o histórico inteiro que o servidor conhece; a janela lida
+      é `from`→`to`. Contar tudo faria o denominador de "em N de M" falar de
+      vigências que o gráfico ao lado não desenha.
+    */
+    const janela = janelaDoImpacto(movimentos([parametro("Financiamento", 14939)]), "MENSAL", 6)!;
+
+    expect(janela.rotulo).toBe("maio/2026 · 2ªq → agosto/2026 · 1ªq");
+    expect(janela.vigencias).toBe(4);
+    expect(janela.linhas[0].contexto).toContain("em 1 de 4 vigências");
+  });
+
+  it("ordena pelo módulo do líquido da janela — a perda grande vem antes do ganho pequeno", () => {
+    const janela = janelaDoImpacto(
+      movimentos([
+        parametro("Lucro fixo", 4678),
+        parametro("Depreciação", -7700),
+        parametro("Financiamento", 14939),
+      ]),
+      "MENSAL",
+      6,
+    )!;
+
+    expect(janela.linhas.map((l) => l.nome)).toEqual([
+      "Financiamento",
+      "Depreciação",
+      "Lucro fixo",
+    ]);
+    expect(janela.linhas[1].classificacao).toBe("perda");
+    /* O número de cima é o líquido da janela: não há parcela a pôr embaixo. */
+    expect(janela.linhas[1].liquido).toBeNull();
+    expect(janela.linhas[1].proporcao).toBeCloseTo(7700 / 14939, 5);
+  });
+
+  it("lê na periodicidade da manchete — e nunca mistura duas grandezas", () => {
+    /*
+      A janela pode ter R$/ano e R$/mês. Lida numa grandeza e desenhada noutra,
+      o cartão diria um número que o gráfico ao lado não desenha — a divergência
+      calada que este módulo existe para não ter.
+    */
+    const mistura = movimentos(
+      [
+        { ...parametro("Financiamento", 14939), impact: { byPeriodicity: { MENSAL: 14939 } } },
+        { ...parametro("IPVA", null), impact: { byPeriodicity: { ANUAL: 90000 } } },
+      ],
+      { MENSAL: 11917, ANUAL: 90000 },
+    );
+
+    const janela = janelaDoImpacto(mistura, "MENSAL", 6)!;
+    expect(janela.periodicity).toBe("MENSAL");
+    expect(janela.linhas.map((l) => l.nome)).toEqual(["Financiamento"]);
+  });
+
+  it("sem periodicidade na manchete, cai na dominante da janela", () => {
+    /* Uma vigência sem valor apurado ainda pode ter janela com valor — e aí a
+       grandeza é a que mais pesa no intervalo, que é a que o gráfico usa. */
+    const janela = janelaDoImpacto(
+      movimentos([parametro("Financiamento", 14939)], { MENSAL: 11917 }),
+      null,
+      6,
+    )!;
+    expect(janela.periodicity).toBe("MENSAL");
+    expect(janela.linhas).toHaveLength(1);
+  });
+
+  it("parâmetro sem líquido apurado na janela não entra na lista", () => {
+    /*
+      Ele não é um parâmetro de R$ 0 no intervalo: é um parâmetro que o
+      intervalo não sabe valorar, e a contagem dele já está no "sem impacto
+      calculável" da manchete.
+    */
+    const janela = janelaDoImpacto(
+      movimentos([parametro("Financiamento", 14939), parametro("Manutenção", null)]),
+      "MENSAL",
+      6,
+    )!;
+    expect(janela.linhas.map((l) => l.nome)).toEqual(["Financiamento"]);
+  });
+
+  it("sem intervalo lido não há janela — e é diferente de janela vazia", () => {
+    /*
+      `null` é "não há comparação no intervalo" (a primeira vigência de um
+      histórico, ou a Visão Geral, que não tem rollup de parâmetro). Janela sem
+      líquido é outra coisa: ela existe, e o cartão diz que não há o que
+      ranquear.
+    */
+    expect(janelaDoImpacto(null, "MENSAL", 6)).toBeNull();
+
+    const semValor = janelaDoImpacto(movimentos([], {}), "MENSAL", 6)!;
+    expect(semValor.periodicity).toBeNull();
+    expect(semValor.linhas).toEqual([]);
+    expect(semValor.rotulo).toBe("maio/2026 · 2ªq → agosto/2026 · 1ªq");
+  });
+
+  it("o limite é do chamador", () => {
+    const janela = janelaDoImpacto(
+      movimentos([
+        parametro("A", 100),
+        parametro("B", 90),
+        parametro("C", 80),
+      ]),
+      "MENSAL",
+      2,
+    )!;
+    expect(janela.linhas).toHaveLength(2);
+  });
+});
+
 describe("o mapa", () => {
-  it("dentro de uma unidade fala de frota, com o equipamento mais tocado", () => {
+  const comTipos = (baldes: { equipment: string; entityType: string | null; changes: number; groups?: number; fleet?: number | null }[]) =>
+    vigencia({
+      cockpit: {
+        baseline: { hasBaseline: true, seriesWithoutBaseline: [] },
+        kpis: { fleet: 144, ativosNaFrota: 120, inativosNaFrota: 24 },
+        panorama: { byEquipment: baldes },
+      } as unknown as CockpitView,
+    });
+
+  const DESTINO = { recorte: RECORTE, comDestino: true };
+
+  it("dentro de uma unidade ranqueia os tipos de ativo, e por alteração", () => {
+    /*
+      A carreta tem a frota maior e mexeu menos. Ranquear por frota responderia
+      uma pergunta que ninguém fez — a frota é a mesma de vigência em vigência;
+      o que muda, e o que o andar pergunta, é onde esta vigência mexeu.
+    */
+    const view = comTipos([
+      { equipment: "Carreta", entityType: "CARRETA", changes: 23, groups: 5, fleet: 71 },
+      { equipment: "Cavalo", entityType: "CAVALO", changes: 244, groups: 15, fleet: 62 },
+    ]);
+    const mapa = mapaDoPanorama(leituraDaUnidade(view), view, [], DESTINO);
+
+    expect(mapa.eixo).toBe("tipos");
+    if (mapa.eixo !== "tipos") throw new Error("eixo errado");
+    expect(mapa.tipos.map((t) => t.nome)).toEqual(["Cavalo", "Carreta"]);
+    expect(mapa.tipos[0].alteracoes).toBe(244);
+    expect(mapa.tipos[0].proporcao).toBe(1);
+    expect(mapa.tipos[1].proporcao).toBeCloseTo(23 / 244, 5);
+    /* A linha diz em quantos parâmetros, e de que frota — é a razão entre os
+       dois que qualifica a contagem. */
+    expect(mapa.tipos[0].contexto).toBe("15 parâmetros · frota de 62");
+  });
+
+  it("ranqueia **todos** os tipos que a vigência trouxe, e não só o mais tocado", () => {
+    /*
+      Esta é a promessa que o cartão antigo quebrava, e ela não é de estilo.
+
+      `byEquipment` é montado no servidor a partir de `group.entityType`, sem
+      lista fixa (`lib/comparison/src/cockpit.ts`): o balde existe porque a
+      vigência trouxe aquele tipo. Trecho é da **mesma família** do cavalo e da
+      carreta (`REMUNERACAO_EQUIPAMENTO`, em `lib/ingest/src/tipos.ts`), e por
+      isso ele chega aqui pelo mesmo caminho, sem nada a acrescentar.
+
+      O cartão antigo lia `equipamentoMaisTocado` — um balde, o do topo — e o
+      publicava como "Cavalo — o mais tocado". Numa vigência de cavalo, carreta
+      e trecho, dois terços do "onde aconteceu" não apareciam na tela, e nada
+      dizia que existiam. Este teste prende o contrário: entrou na resposta,
+      está na lista.
+    */
+    const view = comTipos([
+      { equipment: "Cavalo", entityType: "CAVALO", changes: 244, groups: 15, fleet: 62 },
+      { equipment: "Trecho", entityType: "TRECHO", changes: 118, groups: 6, fleet: 940 },
+      { equipment: "Carreta", entityType: "CARRETA", changes: 23, groups: 5, fleet: 71 },
+    ]);
+    const mapa = mapaDoPanorama(leituraDaUnidade(view), view, [], DESTINO);
+    if (mapa.eixo !== "tipos") throw new Error("eixo errado");
+
+    expect(mapa.tipos.map((t) => t.nome)).toEqual(["Cavalo", "Trecho", "Carreta"]);
+    /* O trecho não é identificado por placa — a "frota" dele é a contagem de
+       chaves de trecho da vigência, e a linha a publica como as outras. */
+    expect(mapa.tipos[1].contexto).toBe("6 parâmetros · frota de 940");
+    expect(mapa.tipos[1].href).toContain("entityType=TRECHO");
+  });
+
+  it("a linha leva à lista de alterações daquele tipo, pelo código e não pelo nome", () => {
+    const view = comTipos([
+      { equipment: "Cavalo", entityType: "CAVALO", changes: 244, groups: 15, fleet: 62 },
+    ]);
+    const mapa = mapaDoPanorama(leituraDaUnidade(view), view, [], DESTINO);
+    if (mapa.eixo !== "tipos") throw new Error("eixo errado");
+
+    expect(mapa.tipos[0].href).toContain("entityType=CAVALO");
+    expect(mapa.tipos[0].href).toContain("scopeHash=hash-pe");
+  });
+
+  it("na Visão Geral a linha do tipo não aponta para tela de unidade", () => {
+    /*
+      A mesma recusa do placar: um endereço sem `scopeHash` cai na unidade
+      padrão do servidor, e a linha abriria a lista de **uma** debaixo de
+      números que somaram todas. (Aqui o eixo é o de unidades, e o de tipos nem
+      existe — o teste do destino vale para o caminho de unidade sem destino.)
+    */
+    const view = comTipos([
+      { equipment: "Cavalo", entityType: "CAVALO", changes: 244, groups: 15, fleet: 62 },
+    ]);
+    const mapa = mapaDoPanorama(leituraDaUnidade(view), view, [], {
+      recorte: RECORTE,
+      comDestino: false,
+    });
+    if (mapa.eixo !== "tipos") throw new Error("eixo errado");
+    expect(mapa.tipos[0].href).toBeNull();
+  });
+
+  it("um tipo sem alteração não entra na lista", () => {
+    /* Não é um tipo de zero alterações: é um tipo que esta vigência não tocou. */
+    const view = comTipos([
+      { equipment: "Cavalo", entityType: "CAVALO", changes: 244, groups: 15, fleet: 62 },
+      { equipment: "Trecho", entityType: "TRECHO", changes: 0, groups: 0, fleet: 9 },
+    ]);
+    const mapa = mapaDoPanorama(leituraDaUnidade(view), view, [], DESTINO);
+    if (mapa.eixo !== "tipos") throw new Error("eixo errado");
+    expect(mapa.tipos.map((t) => t.nome)).toEqual(["Cavalo"]);
+  });
+
+  it("uma resposta sem os dois campos novos não quebra a linha — ela cala", () => {
+    /*
+      `groups` e `fleet` podem faltar numa resposta de versão anterior ainda em
+      cache, e o tipo não protege contra o que já está gravado no navegador.
+      Zero parâmetros e frota nula são os dois casos em que a cláusula some, em
+      vez de publicar "0 parâmetros" para um tipo que teve 244 alterações.
+    */
+    const view = comTipos([{ equipment: "Cavalo", entityType: "CAVALO", changes: 244 }]);
+    const mapa = mapaDoPanorama(leituraDaUnidade(view), view, [], DESTINO);
+    if (mapa.eixo !== "tipos") throw new Error("eixo errado");
+
+    expect(mapa.tipos[0].alteracoes).toBe(244);
+    expect(mapa.tipos[0].contexto).toBe("");
+    expect(mapa.tipos[0].frota).toBeNull();
+  });
+
+  it("a movimentação da frota vem separada, e com a frota nomeada como frota", () => {
+    /*
+      O cartão antigo publicava `ativos: leitura.frota` debaixo do rótulo
+      "Veículos ativos" — 144 entregues onde os que respondem ATIVO eram 120.
+      Aqui as duas pontas viajam nomeadas, e a terceira (quem não trouxe a
+      coluna) não é inventada pela subtração.
+    */
     const view = vigencia();
-    const mapa = mapaDoPanorama(leituraDaUnidade(view), view, []);
-    expect(mapa.eixo).toBe("frota");
-    if (mapa.eixo !== "frota") throw new Error("eixo errado");
-    expect(mapa.entraram).toBe(3);
-    expect(mapa.sairam).toBe(1);
-    expect(mapa.ativos).toBe(144);
-    expect(mapa.equipamento?.nome).toBe("Carreta");
+    const mapa = mapaDoPanorama(leituraDaUnidade(view), view, [], DESTINO);
+    if (mapa.eixo !== "tipos") throw new Error("eixo errado");
+
+    expect(mapa.movimento).toEqual({
+      frota: 144,
+      ativos: 120,
+      inativos: 24,
+      entraram: 3,
+      sairam: 1,
+    });
   });
 
   it("na Visão Geral fala de unidades, e não desenha uma frota que não existe", () => {
-    const mapa = mapaDoPanorama(leituraDaVisaoGeral(overviewDe()), null, [
-      {
-        chave: "hash-pe",
-        label: "Pernambuco",
-        impacto: { periodicity: "MENSAL", amount: -18420 },
-        alteracoes: 61,
-      },
-      { chave: "hash-ba", label: "Bahia", impacto: null, alteracoes: 12 },
-    ]);
+    const mapa = mapaDoPanorama(
+      leituraDaVisaoGeral(overviewDe()),
+      null,
+      [
+        {
+          chave: "hash-pe",
+          label: "Pernambuco",
+          impacto: { periodicity: "MENSAL", amount: -18420 },
+          alteracoes: 61,
+        },
+        { chave: "hash-ba", label: "Bahia", impacto: null, alteracoes: 12 },
+      ],
+      { recorte: RECORTE, comDestino: false },
+    );
     expect(mapa.eixo).toBe("unidades");
     if (mapa.eixo !== "unidades") throw new Error("eixo errado");
     expect(mapa.linhas[0].negativo).toBe(true);
     expect(mapa.linhas[0].impacto).toContain("/mês");
+    /* A barra da unidade mede contra a maior do ranking — a mesma régua das
+       outras duas listas da tela. */
+    expect(mapa.linhas[0].proporcao).toBe(1);
     /* Sem valor apurado é `null`, e não R$ 0: a unidade pode ter alterações
        das quais nenhuma virou dinheiro. */
     expect(mapa.linhas[1].impacto).toBeNull();
     expect(mapa.linhas[1].negativo).toBeNull();
+    expect(mapa.linhas[1].proporcao).toBe(0);
   });
 });
 

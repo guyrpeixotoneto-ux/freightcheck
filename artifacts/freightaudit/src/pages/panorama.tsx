@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
 import { BarChart3, Clock, FileSearch, History } from "lucide-react";
@@ -13,14 +13,22 @@ import { EstadoVazio } from "@/components/ui/estado-vazio";
 import { ApiErrorNotice } from "@/components/api-error";
 import { EmAtualizacao, classeDeAtualizacao } from "@/components/ui/em-atualizacao";
 import { cn } from "@/lib/utils";
-import { fetchJson } from "@/lib/api";
+import { fetchJson, fetchJsonOrNull } from "@/lib/api";
 import { GESTAO_A_VISTA, LINHA_DO_TEMPO, PANORAMA } from "@/lib/ambiente";
 import { consultaDoRecorte, opcoesDaVigencia } from "@/lib/leitura-da-vigencia";
 import { LEITURA_DE_APURACAO } from "@/lib/frescor-das-leituras";
 import { contextoAberto, useContextosDaCasca } from "@/lib/contextos";
 import { useFamiliesOverviewQuery } from "@/lib/families-overview";
-import { useSerieDeImpacto, useSerieDeImpactoGeral } from "@/lib/serie-de-impacto";
+import {
+  useJanelaDesenhada,
+  useSerieDeImpacto,
+  useSerieDeImpactoGeral,
+} from "@/lib/serie-de-impacto";
+import { JANELA_PADRAO, type Janela } from "@/lib/janela-de-vigencias";
+import { recorteDaJanela } from "@/components/dashboard/grafico-de-impacto";
 import { lerRecorte, nomeDaUnidade, type Recorte } from "@/lib/recorte";
+import { travessiaDoQuadro, type LinhaDaTravessia } from "@/lib/travessia-do-quadro";
+import type { AuditoriaDoQuadro } from "@/lib/qlp-auditoria";
 import {
   detalheDaFamilia,
   detalheDoImpacto,
@@ -36,13 +44,19 @@ import {
 } from "@/lib/impacto-apurado";
 import {
   estadoDaProcedencia,
+  graoValido,
+  janelaDoImpacto,
   procedenciaDoPanorama,
   leituraDaUnidade,
   leituraDaVisaoGeral,
   mapaDoPanorama,
   placarDoPanorama,
+  rankingPorFamilia,
+  rankingPorParametro,
   vereditoDoPanorama,
   type EstadoDaProcedencia,
+  type GraoDoRanking,
+  type JanelaDoImpacto,
   type LeituraDoPanorama,
   type Veredito as DadosDoVeredito,
 } from "@/lib/panorama";
@@ -55,6 +69,8 @@ import {
   SeletorDeVigenciaGeral,
 } from "@/components/vigencia/seletor-de-vigencia";
 import { SeletorDoParDoPanorama } from "@/components/panorama/seletor-do-par";
+import { TravessiaDoQuadro } from "@/components/panorama/travessia-do-quadro";
+import { OQuePuxou } from "@/components/panorama/o-que-puxou";
 import { motivoSemNumeros, useResumoPorVigencia } from "@/hooks/use-resumo-por-vigencia";
 import {
   aoEscolherDe,
@@ -65,16 +81,14 @@ import {
   opcoesDoPar,
   parEmTela,
 } from "@/lib/par-do-panorama";
-import { FaixaDeCobertura, FaixaSemAlteracao } from "@/components/impacto-apurado/faixa-de-cobertura";
+import { FaixaSemAlteracao } from "@/components/impacto-apurado/faixa-de-cobertura";
 import { PonteDoImpactoGrafico } from "@/components/impacto-apurado/ponte-do-impacto";
-import { PrincipaisMudancas } from "@/components/impacto-apurado/principais-mudancas";
 import { Veredito } from "@/components/panorama/veredito";
-import { Placar } from "@/components/panorama/placar";
+import { Ranking } from "@/components/panorama/ranking";
 import { Mapa } from "@/components/panorama/mapa";
 import { Procedencia } from "@/components/panorama/procedencia";
 import { GraficoDeImpacto } from "@/components/dashboard/grafico-de-impacto";
 import { DetalheDaFamilia } from "@/components/inicio/detalhe-da-familia";
-import { MaioresImpactos } from "@/components/inicio/maiores-impactos";
 import { DetalheDoImpacto } from "@/components/inicio/detalhe-do-impacto";
 import { unidadesPorImpacto } from "@/components/inicio/visao-geral-consolidada";
 import type { UnidadeDoDrill } from "@/lib/drill-da-familia";
@@ -95,15 +109,25 @@ import type { FamiliesOverview, FamiliesView, GroupedView } from "@/components/i
  * Esta tela é o quinto módulo, e ela **não é os quatro empilhados** — empilhar
  * trocaria quatro telas redundantes por uma tela longa e redundante. Onde três
  * módulos desenhavam a mesma coisa de três jeitos, aqui se desenha o melhor dos
- * três, uma vez. São **seis andares**, e a ordem é a das perguntas que uma
- * diretoria faz:
+ * três, uma vez.
  *
- * 1. **O veredito** — quanto custou esta vigência?
- * 2. **O placar** — e os outros números?
- * 3. **A composição** — de onde vem esse número?
- * 4. **A trajetória** — estamos melhorando ou piorando?
- * 5. **O mapa** — onde isso aconteceu?
- * 6. **A procedência** — posso confiar nisto?
+ * São **três dobras**, e a ordem é a das perguntas que uma diretoria faz:
+ *
+ * | # | Pergunta | O que responde |
+ * |---|---|---|
+ * | 1 | Quanto custou, e dá para confiar? | a manchete: veredito, régua de medidas, cobertura |
+ * | 2 | É um mês comum? E onde aconteceu? | a trajetória e o ranking dos tipos de ativo |
+ * | 3 | De onde vem esse número? | a ponte por família e o ranking do dinheiro |
+ * | — | Posso confiar no dado? | a procedência, no rodapé |
+ * | — | E o pessoal? | a travessia para o quadro, a última linha |
+ *
+ * **Eram nove blocos em coluna única, em outra ordem.** Os seis andares
+ * originais — veredito, placar, composição, trajetória, mapa, procedência —
+ * eram as perguntas certas e custavam cinco telas de rolagem, com o líquido
+ * apurado impresso seis vezes. As dobras agrupam cada pergunta com o seu par de
+ * cartões; a composição desceu para a terceira porque a segunda pergunta de
+ * quem abre a tela de manhã não é "de onde vem", é "isto é normal?" — e quem
+ * responde essa é o histórico.
  *
  * **A fila ("o que eu faço agora") saiu.** Ela era o único andar que não
  * respondia sobre a vigência lida: fundia três listas de trabalho e mandava
@@ -285,6 +309,56 @@ export default function Panorama() {
     queryFn: () => fetchJson<BalancoDoRecorte>(`/balance/recorte?${consultaDaProcedencia}`),
   });
 
+  /*
+    O quadro de pessoal — a faixa de travessia do rodapé.
+
+    **Sai depois do conteúdo principal**, pela mesma razão da procedência: não
+    alimenta a resposta que traz alguém à tela, e disputaria o mesmo pool de
+    conexões com a leitura que alimenta.
+
+    **E sai sem o recorte desta tela.** O QLP é da família `QUADRO_DE_PESSOAL`,
+    que tem os seus próprios contextos: mandar o `scopeHash` de um contexto de
+    equipamento pediria uma unidade que aquela lista não tem. Sem ele, a rota
+    resolve o contexto do quadro — que é consolidado entre unidades por desenho
+    (`lib/qlp/src/contexto.ts`) —, e a faixa diz isso em vez de fingir que o
+    número é da unidade do cabeçalho.
+
+    A chave de cache é a mesma que a tela do QLP usa para a mesma consulta
+    (`["qlp", "auditoria", "quadro=X"]`, em `components/qlp-auditoria`): quem
+    clica na faixa abre o módulo sem pedir nada de novo ao servidor.
+
+    404 aqui não é falha: é "este quadro não tem vigência importada", e
+    `fetchJsonOrNull` o traduz em `null` — o quadro não vira linha, e sem linha
+    nenhuma não há faixa.
+
+    **E não há como saber antes se há quadro.** A casca lista contextos só da
+    família de equipamento, de propósito (`lib/comparison/src/series.ts`), então
+    as duas perguntas saem sem portão — o custo delas e as alternativas estão
+    pesados no cabeçalho de `lib/travessia-do-quadro.ts`.
+  */
+  const administrativo = useQuery({
+    queryKey: ["qlp", "auditoria", "quadro=ADMINISTRATIVO"],
+    enabled: principalPronto,
+    retry: false,
+    ...LEITURA_DE_APURACAO,
+    queryFn: () => fetchJsonOrNull<AuditoriaDoQuadro>("/qlp/auditoria?quadro=ADMINISTRATIVO"),
+  });
+  const operacional = useQuery({
+    queryKey: ["qlp", "auditoria", "quadro=OPERACIONAL"],
+    enabled: principalPronto,
+    retry: false,
+    ...LEITURA_DE_APURACAO,
+    queryFn: () => fetchJsonOrNull<AuditoriaDoQuadro>("/qlp/auditoria?quadro=OPERACIONAL"),
+  });
+  const travessia = useMemo(
+    () =>
+      travessiaDoQuadro({
+        ADMINISTRATIVO: administrativo.data ?? null,
+        OPERACIONAL: operacional.data ?? null,
+      }),
+    [administrativo.data, operacional.data],
+  );
+
   const serieDaUnidade = useSerieDeImpacto(visaoGeral ? null : view, consulta, !visaoGeral);
   const serieGeral = useSerieDeImpactoGeral(
     periodosOverview,
@@ -351,7 +425,7 @@ export default function Panorama() {
         evoluírem.
 
         O que continua sendo desta tela é o que só ela sabe: o nome do recorte
-        aberto, a frase que indexa os seis andares e os três controles.
+        aberto, a frase que indexa as dobras e os três controles.
       */}
       <CabecalhoDePagina
         titulo={`Panorama — ${visaoGeral ? "Visão Geral" : (unidade ?? "")}`}
@@ -429,6 +503,7 @@ export default function Panorama() {
                   onTrocar={trocarPara}
                   procedencia={procedencia}
                   onRelerProcedencia={relerProcedencia}
+                  travessia={travessia}
                 />
               </div>
             )}
@@ -485,6 +560,7 @@ export default function Panorama() {
                   onTrocar={trocarPara}
                   procedencia={procedencia}
                   onRelerProcedencia={relerProcedencia}
+                  travessia={travessia}
                 />
               </div>
             )}
@@ -598,7 +674,7 @@ function ParDaLeitura({
 }
 
 /**
- * Os seis andares — **iguais nas duas leituras**.
+ * As três dobras — **iguais nas duas leituras**.
  *
  * A Visão Geral e a unidade desenham o mesmo corpo, e não duas telas parecidas:
  * `LeituraDoPanorama` é o que as duas respostas do servidor têm em comum, e os
@@ -623,6 +699,7 @@ function Corpo({
   onTrocar,
   procedencia,
   onRelerProcedencia,
+  travessia,
 }: {
   leitura: LeituraDoPanorama;
   /** A unidade aberta — `null` na Visão Geral. */
@@ -640,6 +717,8 @@ function Corpo({
   onTrocar: (mudancas: Record<string, string | null>) => void;
   procedencia: EstadoDaProcedencia;
   onRelerProcedencia: () => void;
+  /** O quadro de pessoal alcançável daqui — vazio quando não há QLP importado. */
+  travessia: LinhaDaTravessia[];
 }) {
   const daVigencia: Recorte = { ...recorte, period: vigenciaAberta };
   const comDestino = view !== null;
@@ -682,10 +761,75 @@ function Corpo({
           alteracoes: unidade.summary.changes,
         }))
       : [],
+    /* O recorte é o mesmo dos outros cartões, e o destino segue a regra do
+       placar: na Visão Geral a linha não aponta para tela de unidade. */
+    { recorte: daVigencia, comDestino },
   );
 
   const familiaAberta = parametros.get("familia");
   const impactoAberto = parametros.get("impacto");
+
+  /*
+    O ranking da dobra 2 — o grão e o lado, lidos do endereço.
+
+    Os dois são chave de URL porque os dois são leitura, e não preferência de
+    quem está na frente da tela: um link colado abre o mesmo recorte que quem
+    colou estava lendo. `familia` é o padrão e não vai ao endereço — a URL
+    descreve o que foge do padrão, como no resto do produto.
+
+    As contagens saem da **mesma** função que monta a lista, sem limite: é ela
+    que decide quem participa de cada lado, e contar aqui por fora daria um
+    botão habilitado sobre uma lista vazia no dia em que a regra mudasse.
+  */
+  const pedidoDeGrao = parametros.get("grao");
+  const grao: GraoDoRanking = graoValido(pedidoDeGrao) ? pedidoDeGrao : "familia";
+  const filtro = filtroAberto(parametros);
+  const doGrao = (f: FiltroDeMudanca, limite: number) =>
+    grao === "familia"
+      ? rankingPorFamilia(podio, f, limite)
+      : rankingPorParametro(mudancas, f, limite);
+  const linhasDoRanking = doGrao(filtro, LINHAS_DO_RANKING);
+  const contagensDoRanking: Record<FiltroDeMudanca, number> = {
+    todos: doGrao("todos", Infinity).length,
+    ganhos: doGrao("ganhos", Infinity).length,
+    perdas: doGrao("perdas", Infinity).length,
+  };
+
+
+  /*
+    A janela do gráfico — **uma, para os dois cartões da dobra 2.**
+
+    O seletor (3 · 6 · 12 vigências ou meses) era estado do gráfico, e agora é
+    da página: o cartão ao lado lê o mesmo intervalo por parâmetro, e um seletor
+    que mudasse só o desenho deixaria os dois falando de janelas diferentes lado
+    a lado — seis vigências no gráfico e nove no cartão, sem nada acusando. Foi
+    exatamente o que aconteceu na primeira versão desta dobra.
+  */
+  const [janelaAberta, setJanelaAberta] = useState<Janela>(JANELA_PADRAO);
+  const desenhados = useMemo(() => recorteDaJanela(pontos, janelaAberta), [pontos, janelaAberta]);
+  /*
+    O rollup por parâmetro é somado **pelo servidor** sobre o intervalo pedido,
+    e não se corta no navegador: `byParameter` traz o total de cada parâmetro na
+    janela, não a fatia dele por vigência. Então o cartão pede o recorte que o
+    gráfico desenha — e quando o desenhado é o carregado (quem tem menos
+    vigências que o teto da série), a chave é a mesma e nada sai para a rede.
+    Ver `opcoesDoIntervalo`.
+  */
+  const intervalo = useJanelaDesenhada(
+    consulta,
+    desenhados[0]?.periodo ?? null,
+    vigenciaAberta,
+    /* Na Visão Geral não há rollup a pedir: `/changes/range/overview` soma
+       unidade a unidade e não traz parâmetro. */
+    view !== null && desenhados.length > 0,
+  );
+  const janela = janelaDoImpacto(intervalo.movimentos, periodicidade, LINHAS_DO_RANKING);
+  /*
+    A coluna da direita existe onde a leitura **tem** janela — na unidade, sempre
+    (mesmo carregando, e aí o cartão desenha o esqueleto); na Visão Geral, nunca.
+    Metade de uma faixa em fundo de página se lê como cartão que não carregou.
+  */
+  const comJanela = view !== null;
   const detalheFamilia = detalheDaFamilia(leitura.resumo, familiaAberta, periodicidade);
   const detalheImpacto = detalheDoImpacto(view, impactoAberto, periodicidade);
 
@@ -702,195 +846,234 @@ function Corpo({
 
   return (
     <>
-      {/* ---- Andar 1 · o veredito ---- */}
-      <Veredito veredito={veredito} />
-
-      {veredito.cobertura ? (
-        <FaixaDeCobertura
-          cobertura={veredito.cobertura}
-          verDetalhes={
-            comDestino
-              ? linkDasSemPreco(daVigencia)
-              : /* Na Visão Geral o destino cairia na unidade padrão do servidor. */
-                null
-          }
-        />
-      ) : (
-        <FaixaSemAlteracao temAnterior={view ? view.cockpit.baseline.hasBaseline : true} />
-      )}
-
-      {/* ---- Andar 2 · o placar ---- */}
-      <Placar medidas={placar} />
-
-      {/* ---- Andar 3 · a composição ---- */}
+      {/* ---- Dobra 1 · a manchete ---- */}
       {/*
-        A ponte ocupa a faixa inteira, e não dois terços dela.
-
-        O terço ao lado era das Principais mudanças, que desceram para o andar 4
-        (a razão está lá). O que sobra aqui é um waterfall, e um waterfall
-        espremido perde exatamente o que ele existe para mostrar: com oito ou
-        dez famílias, os degraus do meio viravam fatias de dois pixels com o
-        rótulo cortado.
+        Eram três blocos: o cartão do veredito, a faixa de cobertura de largura
+        inteira e a fileira de cinco cartões do placar. O primeiro cartão do
+        placar era o número da manchete outra vez, e dois outros eram os números
+        da faixa outra vez — ~700px, três molduras e o mesmo líquido impresso
+        duas vezes a 200px de distância. Agora é um cartão com três linhas, e
+        `components/panorama/veredito.tsx` explica a hierarquia delas.
       */}
-      <Superficie className="px-6 py-5 min-w-0">
-        <CabecalhoDaSuperficie
-          titulo="Composição do impacto líquido"
-          descricao="De onde vem o resultado apurado desta vigência"
-          acao={<span className={cn(BOTAO_DE_TROCA, "cursor-default")}>{DECOMPOSICOES.familia}</span>}
-        />
-        {ponte && ponte.degraus.length > 0 ? (
-          <PonteDoImpactoGrafico
-            ponte={ponte}
-            onAbrirFamilia={view ? (code) => onTrocar({ familia: code, impacto: null }) : null}
-            className="mt-5"
-          />
-        ) : (
-          /*
-            O vazio deixou de ser uma linha cinza no meio de uma faixa alta de
-            cartão. Uma frase solta em `py-20` é lida como carregamento que não
-            terminou; um bloco com ícone, título e explicação é lido como o que
-            é — a tela inteira, sem dado a desenhar.
-          */
-          <EstadoVazio
-            icone={BarChart3}
-            titulo="Nenhuma família tem valor apurado nesta vigência"
-            descricao="Quando houver alterações com impacto financeiro, a composição aparece aqui por família da remuneração, com o quanto cada uma somou ou tirou do resultado."
-          />
-        )}
-      </Superficie>
-
-      {/* ---- Andar 4 · a trajetória ---- */}
-      <Superficie className="px-6 py-5">
-        {/*
-          Barras divergentes, e não a linha do líquido sozinha.
-
-          A linha respondia "estamos melhorando ou piorando" e parava aí: uma
-          vigência de líquido zero desenhava o mesmo ponto tendo havido R$ 0 de
-          movimento ou R$ 120 mil somados contra R$ 120 mil tirados — e são
-          duas vigências completamente diferentes de se administrar. Aqui os
-          dois lados aparecem inteiros, cada um crescendo do zero para o seu
-          lado, com o líquido passando por cima: a mesma pergunta continua
-          respondida pela linha, e a de baixo dela deixa de sumir.
-
-          Uma barra por vigência **entregue**, e não por mês de calendário: duas
-          vigências no mesmo mês aparecem pelo dia, uma ao lado da outra, nunca
-          somadas — somá-las inventaria uma vigência que ninguém entregou.
-
-          É o gráfico do Dashboard, o mesmo componente e a mesma série — este
-          andar não é uma quinta verdade sobre o mesmo dado.
-        */}
-        {/*
-          Só o título aqui. O gráfico escreve a própria linha de subtítulo
-          ("Ganhos e perdas por vigência, em R$/mês — últimas 6 vigências com
-          dado"), e a que havia neste lugar começava com as mesmas três
-          palavras: duas frases quase idênticas, empilhadas, sobre o mesmo
-          gráfico. O que a segunda tinha de próprio — uma barra por vigência
-          entregue, nunca somadas — desceu para o comentário acima, onde
-          explica a decisão a quem lê o código, em vez de ocupar a tela de quem
-          lê o número.
-        */}
-        <CabecalhoDaSuperficie titulo="Impacto das alterações por vigência" className="mb-1" />
-        <GraficoDeImpacto
-          pontos={pontos}
-          periodicity={periodicityDaSerie ?? periodicidade}
-          carregando={serieCarregando}
-          vigenciaAtiva={vigenciaAberta}
-          onEscolherVigencia={(periodo) => onTrocar({ period: periodo })}
-        />
-        {/*
-          A leitura por tipo de ativo — cavalo, carreta, trecho — **não** é um
-          controle deste cartão, e essa é uma correção à proposta original.
-
-          Trocar o tipo troca a **população** de todo número, e não o recorte de
-          um gráfico: com "Carreta" ligado aqui, este andar falaria de carretas
-          enquanto os outros cinco continuariam falando da frota inteira, na
-          mesma tela e sem nada acusando a divergência — exatamente a classe de
-          defeito que o Panorama existe para desfazer.
-
-          A Linha do Tempo pode fazê-lo porque lá o tipo é aba **de página**: a
-          tela inteira troca de população junto. Daí o link, e não a pastilha.
-        */}
-        <p className="text-xs text-muted-foreground mt-4 pt-4 border-t flex items-center gap-1.5 flex-wrap">
-          <History className="w-3.5 h-3.5 shrink-0" />
-          Para ler este mesmo histórico por tipo de ativo — a população inteira trocada, e não só
-          este gráfico —
-          <Link
-            href={consulta.toString() ? `${LINHA_DO_TEMPO}?${consulta}` : LINHA_DO_TEMPO}
-            className="font-semibold text-brand hover:underline"
-          >
-            abra a Linha do Tempo
-          </Link>
-          .
-        </p>
-      </Superficie>
-
-      {/*
-        Debaixo do gráfico, o pódio partido em dois: o que somou à esquerda, o
-        que tirou à direita — os mesmos dois cartões do Dashboard, do mesmo
-        componente (`components/inicio/maiores-impactos.tsx`).
-
-        A ponte do andar 3 e este pódio leem a mesma lista de famílias e não
-        dizem a mesma coisa: a ponte mostra o **líquido** de cada família,
-        empilhado até o número da manchete — é a resposta a "de onde vem este
-        resultado". Estes cartões abrem cada família nos **dois lados**, e é a
-        resposta a "onde eu ganhei" e "onde eu perdi", que a ponte apaga por
-        construção: a família que somou R$ 40 mil e tirou R$ 39 mil é um degrau
-        de R$ 1.000 lá em cima e o maior acontecimento da vigência aqui.
-
-        Sem preço apurado em lugar nenhum não há dois lados a separar, e dois
-        cartões vazios lado a lado diriam duas vezes o mesmo nada — aí a faixa
-        some, e quem já disse isso é o andar 3, uma vez.
-      */}
-      {podio.length > 0 && periodicidade !== null && (
-        <div className="grid gap-5 lg:grid-cols-2">
-          <MaioresImpactos
-            lado="ganhos"
-            familias={podio}
-            periodicidade={periodicidade}
-            familiaAberta={familiaAberta}
-            onAbrirFamilia={view ? (code) => onTrocar({ familia: code, impacto: null }) : null}
-            nota={view ? undefined : NOTA_DO_PODIO}
-          />
-          <MaioresImpactos
-            lado="perdas"
-            familias={podio}
-            periodicidade={periodicidade}
-            familiaAberta={familiaAberta}
-            onAbrirFamilia={view ? (code) => onTrocar({ familia: code, impacto: null }) : null}
-            nota={view ? undefined : NOTA_DO_PODIO}
-          />
-        </div>
-      )}
-
-      {/*
-        E o degrau seguinte: o parâmetro.
-
-        Esta lista estava no andar 3, ao lado da ponte, e ali ela invertia o
-        funil — a tela descia ao parâmetro no andar 3 e voltava à família no 4,
-        de modo que o detalhe chegava antes do agregado que ele detalha. Aqui o
-        andar 4 desce inteiro e numa direção só: a vigência no gráfico, a
-        família nos dois cartões, o parâmetro nesta lista.
-
-        Ela não repete os cartões acima: o grão é outro. Uma família some da
-        lista de parâmetros quando o seu movimento está espalhado em muitos
-        parâmetros pequenos, e é exatamente essa diferença que se quer ver ao
-        descer um degrau.
-      */}
-      <PrincipaisMudancas
-        linhas={mudancas}
-        periodicity={periodicidade}
-        filtro={filtroAberto(parametros)}
-        onFiltro={(f) => onTrocar({ mudancas: f === "todos" ? null : f })}
-        onAbrir={view ? (key) => onTrocar({ impacto: key, familia: null }) : null}
-        limite={6}
-        nota={
-          view
-            ? undefined
-            : "Em Visão Geral a lista soma as unidades e não abre por dentro: o detalhe de um parâmetro só existe dentro de um contexto."
+      <Veredito
+        veredito={veredito}
+        medidas={placar}
+        verDetalhes={
+          comDestino
+            ? linkDasSemPreco(daVigencia)
+            : /* Na Visão Geral o destino cairia na unidade padrão do servidor. */
+              null
         }
       />
 
-      {/* ---- Andar 5 · o mapa ---- */}
+      {/*
+        Sem cobertura a medir a manchete não tem a linha de confiança, e aí a
+        faixa continua: as duas causas disso — nada mudou, ou não há vigência
+        anterior — são a notícia da tela, e não uma nota de pé de cartão.
+      */}
+      {!veredito.cobertura && (
+        <FaixaSemAlteracao temAnterior={view ? view.cockpit.baseline.hasBaseline : true} />
+      )}
+
+      {/* ---- Dobra 2 · a janela ---- */}
+      {/*
+        **A dobra da janela: as duas metades falam das mesmas vigências.** À
+        esquerda o gráfico — ganhos e perdas por vigência, "esta competência é
+        fora do normal?" —, e à direita quem vem puxando esse movimento, por
+        parâmetro, no mesmo intervalo. Antes o lado direito era o cartão dos
+        tipos de ativo, que pareava por ser curto e não por responder a mesma
+        pergunta: ele fala da competência aberta, e desceu para a faixa depois
+        da dobra 3, junto das outras leituras dela.
+
+        **Ela vem antes da composição, e a ordem é de leitura.** As duas dobras
+        já foram na ordem inversa: a composição — de onde vem o número — subia
+        colada na manchete, e o histórico ficava para o fim. Quem abre a tela de
+        manhã não pergunta "de onde vem" antes de saber se a vigência é fora do
+        normal, e é o gráfico que responde isso: um líquido de R$ 11.917 não
+        diz nada sozinho, e dito ao lado de seis vigências passa a dizer se é
+        um mês comum ou o maior movimento do semestre. A decomposição é o
+        degrau seguinte — e continua a um rolar de distância, na dobra 3.
+      */}
+      <div className={cn("grid gap-5 items-start", comJanela && "xl:grid-cols-2")}>
+        <Superficie className="px-6 py-5 min-w-0">
+          {/*
+            Barras divergentes, e não a linha do líquido sozinha.
+
+            A linha respondia "estamos melhorando ou piorando" e parava aí: uma
+            vigência de líquido zero desenhava o mesmo ponto tendo havido R$ 0 de
+            movimento ou R$ 120 mil somados contra R$ 120 mil tirados — e são
+            duas vigências completamente diferentes de se administrar. Aqui os
+            dois lados aparecem inteiros, cada um crescendo do zero para o seu
+            lado, com o líquido passando por cima.
+
+            Uma barra por vigência **entregue**, e não por mês de calendário: duas
+            vigências no mesmo mês aparecem pelo dia, uma ao lado da outra, nunca
+            somadas — somá-las inventaria uma vigência que ninguém entregou.
+
+            É o gráfico do Dashboard, o mesmo componente e a mesma série — esta
+            dobra não é uma quinta verdade sobre o mesmo dado.
+          */}
+          {/*
+            Só o título aqui. O gráfico escreve a própria linha de subtítulo, e a
+            que havia neste lugar começava com as mesmas três palavras.
+          */}
+          <CabecalhoDaSuperficie titulo="Impacto das alterações por vigência" className="mb-1" />
+          <GraficoDeImpacto
+            pontos={pontos}
+            periodicity={periodicityDaSerie ?? periodicidade}
+            carregando={serieCarregando}
+            vigenciaAtiva={vigenciaAberta}
+            onEscolherVigencia={(periodo) => onTrocar({ period: periodo })}
+            janela={janelaAberta}
+            onJanela={setJanelaAberta}
+          />
+          {/*
+            A leitura por tipo de ativo — cavalo, carreta, trecho — **não** é um
+            controle deste cartão, e essa é uma correção à proposta original.
+
+            Trocar o tipo troca a **população** de todo número, e não o recorte de
+            um gráfico: com "Carreta" ligado aqui, esta dobra falaria de carretas
+            enquanto o resto da tela continuaria falando da frota inteira, sem
+            nada acusando a divergência — exatamente a classe de defeito que o
+            Panorama existe para desfazer.
+
+            A Linha do Tempo pode fazê-lo porque lá o tipo é aba **de página**: a
+            tela inteira troca de população junto. Daí o link, e não a pastilha.
+          */}
+          <p className="text-xs text-muted-foreground mt-4 pt-4 border-t flex items-center gap-1.5 flex-wrap">
+            <History className="w-3.5 h-3.5 shrink-0" />
+            Para ler este mesmo histórico por tipo de ativo — a população inteira trocada, e não só
+            este gráfico —
+            <Link
+              href={consulta.toString() ? `${LINHA_DO_TEMPO}?${consulta}` : LINHA_DO_TEMPO}
+              className="font-semibold text-brand hover:underline"
+            >
+              abra a Linha do Tempo
+            </Link>
+            .
+          </p>
+        </Superficie>
+
+        {/*
+          À direita do gráfico, a leitura da **mesma** janela — e não a da
+          competência aberta, que mora na dobra 3. As duas podem discordar, e é
+          bom que discordem: o parâmetro que dominou esta quinzena pode ser
+          estreante, e o que sangra há seis vigências pode não ter se mexido
+          nesta. Ver `components/panorama/o-que-puxou.tsx`.
+
+          Sem janela a faixa vira uma coluna só: é o caso da Visão Geral, onde o
+          intervalo soma unidade a unidade e não tem rollup de parâmetro para
+          oferecer.
+        */}
+        {comJanela && (
+          <OQuePuxou janela={janela} carregando={serieCarregando || intervalo.carregando} />
+        )}
+      </div>
+      {/* ---- Dobra 3 · de onde vem ---- */}
+      {/*
+        Duas colunas, e cada uma responde uma metade da pergunta: a ponte diz
+        **como o número se formou** (a escada de famílias até o líquido), e o
+        ranking ao lado diz **onde ele se mexeu**, em dois grãos.
+
+        Eram três cartões de largura inteira aqui: a ponte, os dois pódios de
+        família e a lista de parâmetros — quatro blocos, ~1.900px, todos lendo a
+        mesma lista de famílias. Os três últimos viraram um
+        (`components/panorama/ranking.tsx`), porque o que os separava eram duas
+        escolhas, e escolha é chave: `?grao=` e `?mudancas=`.
+
+        Esta é a **última** dobra de leitura, e é onde ela pertence: quem desce
+        até aqui já sabe quanto custou (dobra 1) e se a vigência é fora do
+        normal (dobra 2), e o que vem agora é a decomposição — o degrau em que
+        se para de ler e se começa a investigar, com as gavetas abrindo daqui.
+
+        3 e 2 de cinco, e não a metade: a ponte é um desenho com escala e
+        rótulos de eixo, e o ranking é uma lista de texto — dar a mesma largura
+        às duas faria a escada apertar para sobrar espaço em branco na lista.
+      */}
+      {/*
+        Cada cartão para na altura do próprio conteúdo (`items-start`).
+
+        Esticá-los juntos foi a primeira tentativa, e ela troca um vazio por
+        outro pior: a lista de duas linhas ao lado de um gráfico de 300px ganha
+        um vão de 200px **dentro** da própria borda, e vão dentro de caixa se lê
+        como conteúdo que não carregou. Fundo de página embaixo de um cartão que
+        terminou não é vazio — é o fim do cartão.
+      */}
+      <div className="grid gap-5 items-start xl:grid-cols-5">
+        <Superficie className="px-6 py-5 min-w-0 xl:col-span-3">
+          <CabecalhoDaSuperficie
+            titulo="Composição do impacto líquido"
+            descricao="De onde vem o resultado apurado desta vigência"
+            acao={<span className={cn(BOTAO_DE_TROCA, "cursor-default")}>{DECOMPOSICOES.familia}</span>}
+          />
+          {ponte && ponte.degraus.length > 0 ? (
+            <PonteDoImpactoGrafico
+              ponte={ponte}
+              onAbrirFamilia={view ? (code) => onTrocar({ familia: code, impacto: null }) : null}
+              /*
+                A regra de densidade: a altura segue o que há para desenhar.
+
+                300px é a altura de uma escada de oito ou dez degraus. Uma
+                vigência com uma família apurada desenha duas barras — a família
+                e o líquido —, e ali 300px é altura gasta em branco entre o topo
+                das barras e a borda do cartão.
+              */
+              altura={ponte.degraus.length <= 2 ? 220 : 300}
+              className="mt-5"
+            />
+          ) : (
+            /*
+              O vazio deixou de ser uma linha cinza no meio de uma faixa alta de
+              cartão. Uma frase solta em `py-20` é lida como carregamento que não
+              terminou; um bloco com ícone, título e explicação é lido como o que
+              é — a tela inteira, sem dado a desenhar.
+            */
+            <EstadoVazio
+              icone={BarChart3}
+              titulo="Nenhuma família tem valor apurado nesta vigência"
+              descricao="Quando houver alterações com impacto financeiro, a composição aparece aqui por família da remuneração, com o quanto cada uma somou ou tirou do resultado."
+            />
+          )}
+        </Superficie>
+
+        <Ranking
+          className="xl:col-span-2"
+          linhas={linhasDoRanking}
+          grao={grao}
+          filtro={filtro}
+          periodicidade={periodicidade}
+          contagens={contagensDoRanking}
+          chaveAberta={grao === "familia" ? familiaAberta : impactoAberto}
+          onGrao={(g) => onTrocar({ grao: g === "familia" ? null : g })}
+          onFiltro={(f) => onTrocar({ mudancas: f === "todos" ? null : f })}
+          onAbrir={
+            view
+              ? (chave) =>
+                  onTrocar(
+                    grao === "familia"
+                      ? { familia: chave, impacto: null }
+                      : { impacto: chave, familia: null },
+                  )
+              : null
+          }
+          nota={view ? undefined : NOTA_DA_VISAO_GERAL[grao]}
+        />
+      </div>
+      {/* ---- A faixa dos tipos de ativo ---- */}
+      {/*
+        "Onde aconteceu" em largura inteira, e não mais ao lado do gráfico.
+
+        Ele pareava com a trajetória por ser curto, não por responder a mesma
+        pergunta: a trajetória fala da janela de vigências e ele fala da
+        competência aberta. Com o cartão da janela ocupando aquele lugar — a
+        leitura da mesma população do gráfico —, este desce para depois da
+        decomposição, junto das outras leituras da competência, e ganha a faixa
+        inteira: são duas a quatro linhas com um rodapé de frota, que numa
+        coluna estreita deixavam o nome do tipo apertado contra a contagem.
+
+        Na Visão Geral é o ranking de unidades que desenha aqui — o mesmo cartão,
+        o outro eixo (`mapaDoPanorama`).
+      */}
       <Mapa
         mapa={mapa}
         onAbrirUnidade={
@@ -898,9 +1081,9 @@ function Corpo({
         }
       />
 
-      {/* ---- Andar 6 · a procedência ---- */}
+      {/* ---- O rodapé · a procedência ---- */}
       {/*
-        Dentro de uma unidade o andar desenha nos seis desfechos — é justamente o
+        Dentro de uma unidade o cartão desenha nos seis desfechos — é justamente o
         sumiço calado dele que `estadoDaProcedencia` desfaz. Na Visão Geral ele
         não existe: a procedência é de um recorte, e não há recorte de uma
         unidade debaixo de números que somaram todas.
@@ -908,6 +1091,17 @@ function Corpo({
       {view !== null && (
         <Procedencia estado={procedencia} onTentarDeNovo={onRelerProcedencia} />
       )}
+
+      {/*
+        E a última linha da tela: a travessia para o quadro de pessoal.
+
+        Depois da procedência porque é o fim da leitura — respondidas as seis
+        perguntas desta competência, o que sobra é para onde ir. Ela é faixa e
+        não cartão, e cada linha traz a vigência do próprio quadro colada no
+        número: ver `lib/travessia-do-quadro.ts` para o motivo de o QLP não ser
+        uma linha do ranking do "onde aconteceu".
+      */}
+      <TravessiaDoQuadro linhas={travessia} />
 
       {/* As gavetas — as mesmas do Impacto Apurado, sobre o mesmo recorte. */}
       {view && detalheFamilia && (
@@ -935,16 +1129,34 @@ function Corpo({
 }
 
 /**
- * Por que o pódio não abre em Visão Geral.
+ * Por que o ranking não abre em Visão Geral — **uma frase por grão**.
  *
  * A gaveta de uma família (`DetalheDaFamilia`) desce até o parâmetro e, dentro
- * dele, até a placa — e placa é de uma unidade. Somadas as unidades, o número
- * do cartão é verdadeiro e a gaveta dele não teria a quem perguntar. A linha
- * deixa de ser botão, e o cartão diz por quê em vez de deixar o clique morrer
- * em silêncio.
+ * dele, até a placa — e placa é de uma unidade. Somadas as unidades, o número da
+ * linha é verdadeiro e a gaveta dele não teria a quem perguntar. A linha deixa
+ * de ser botão, e o cartão diz por quê em vez de deixar o clique morrer em
+ * silêncio.
+ *
+ * As duas frases não são a mesma porque o que falta não é o mesmo: no grão da
+ * família falta o contexto da placa; no do parâmetro falta a árvore inteira, que
+ * o overview não responde.
  */
-const NOTA_DO_PODIO =
-  "Em Visão Geral os números somam as unidades e não abrem por dentro: de onde vem o impacto de uma família só existe dentro de um contexto.";
+const NOTA_DA_VISAO_GERAL: Record<GraoDoRanking, string> = {
+  familia:
+    "Em Visão Geral os números somam as unidades e não abrem por dentro: de onde vem o impacto de uma família só existe dentro de um contexto.",
+  parametro:
+    "Em Visão Geral a lista soma as unidades e não abre por dentro: o detalhe de um parâmetro só existe dentro de um contexto.",
+};
+
+/**
+ * Quantas linhas o ranking publica.
+ *
+ * Cinco era o teto dos pódios e seis o da lista de parâmetros — dois tetos para
+ * a mesma lista, herdados de dois cartões. Seis aqui porque o cartão agora
+ * divide a dobra com a ponte, e é a altura da escada que ele precisa acompanhar
+ * para as duas colunas fecharem juntas.
+ */
+const LINHAS_DO_RANKING = 6;
 
 /** O endereço das alterações sem preço — a população que a faixa de cobertura conta. */
 function linkDasSemPreco(recorte: Recorte): string {
@@ -989,7 +1201,7 @@ function UltimaAtualizacao({ quando }: { quando: number }) {
  * "Carregando o Panorama…" numa página em branco não diz o que vem: quem abre
  * a tela fica sem saber se o que chega é um número, uma tabela ou um erro, e a
  * página salta inteira quando o conteúdo entra. O esqueleto desenha a forma dos
- * dois primeiros andares — o veredito e os cinco cartões do placar —, de modo
+ * duas primeiras dobras — a manchete e as duas colunas da composição —, de modo
  * que a chegada do dado preenche uma silhueta que já estava no lugar certo.
  *
  * Ele é `aria-hidden` com um `role="status"` ao lado: para quem lê a tela por
@@ -1011,14 +1223,20 @@ function Carregando() {
           </div>
         </div>
       </div>
-      <div aria-hidden className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
-        {[0, 1, 2, 3, 4].map((i) => (
-          <div key={i} className="superficie px-5 py-4 space-y-3">
-            <div className="h-8 w-8 rounded-xl bg-muted animate-pulse" />
-            <div className="h-6 w-20 rounded bg-muted animate-pulse" />
-            <div className="h-3 w-24 rounded bg-muted animate-pulse" />
-          </div>
-        ))}
+      <div aria-hidden className="grid gap-5 items-start xl:grid-cols-5">
+        <div className="superficie px-6 py-5 space-y-4 xl:col-span-3">
+          <div className="h-3 w-48 rounded bg-muted animate-pulse" />
+          <div className="h-[220px] rounded-md bg-muted/40 animate-pulse" />
+        </div>
+        <div className="superficie px-6 py-5 space-y-4 xl:col-span-2">
+          <div className="h-3 w-40 rounded bg-muted animate-pulse" />
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="space-y-2">
+              <div className="h-4 w-32 rounded bg-muted animate-pulse" />
+              <div className="h-1.5 w-full rounded-full bg-muted animate-pulse" />
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );

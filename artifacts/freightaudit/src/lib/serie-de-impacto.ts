@@ -14,6 +14,42 @@ import type { FamiliesOverview, FamiliesView } from "@/components/inicio/types";
 import type { Movimentos } from "@/lib/analise";
 
 /**
+ * As opções da consulta de um intervalo — **a chave escrita uma vez**.
+ *
+ * Quem lê um intervalo desta série são dois: o gráfico, que carrega a janela
+ * inteira (`TETO_DA_SERIE`) para o seletor recortar sem ir ao servidor, e o
+ * cartão da janela no Panorama, que precisa do rollup por parâmetro **do
+ * recorte desenhado** — o servidor soma o rollup sobre o intervalo pedido, e
+ * não há como cortá-lo no navegador (o rollup traz o total de cada parâmetro,
+ * não a fatia dele por vigência).
+ *
+ * Com a chave numa função só, os dois se encontram no cache sempre que pedem o
+ * mesmo intervalo — janela desenhada igual à carregada é **zero** requisição —,
+ * e quando diferem é uma consulta a mais, de um minuto de validade, disparada
+ * depois do conteúdo principal. Escrita duas vezes, bastaria uma delas mudar de
+ * formato para as duas leituras passarem a falar de janelas diferentes sem que
+ * nada acusasse.
+ *
+ * A chave começa em `changes-range` de propósito: é o prefixo que
+ * `invalidarApuracao` alcança (`lib/frescor-das-leituras.ts`), e é ele que
+ * sustenta o `staleTime` de `LEITURA_DE_APURACAO` — nenhum cache entra aqui sem
+ * a invalidação que o corrige quando a apuração muda.
+ */
+export function opcoesDoIntervalo(chave: string, de: string | null, ate: string | null) {
+  return {
+    queryKey: ["changes-range", "dashboard-impacto", chave, de ?? "", ate ?? ""],
+    queryFn: () => {
+      const q = new URLSearchParams(chave);
+      q.delete("period");
+      q.set("from", de!);
+      q.set("to", ate!);
+      return fetchJsonOrNull<Movimentos>(`/changes/range?${q}`);
+    },
+    ...LEITURA_DE_APURACAO,
+  };
+}
+
+/**
  * A série do gráfico "Impacto das alterações por vigência" — a conta que o
  * Dashboard e o Resumo executivo dividem.
  *
@@ -43,7 +79,24 @@ export function useSerieDeImpacto(
     desenha. Quem chama diz qual dos dois casos é o seu.
   */
   habilitado = true,
-): { pontos: PontoDeImpacto[]; periodicity: string | null; carregando: boolean } {
+): {
+  pontos: PontoDeImpacto[];
+  periodicity: string | null;
+  carregando: boolean;
+  /**
+   * A resposta crua do intervalo — para quem precisa do **rollup da janela**, e
+   * não só dos pontos do gráfico.
+   *
+   * Ela já vinha nesta consulta: `Movimentos.byParameter` soma cada parâmetro
+   * ao longo das vigências lidas, e é a única leitura do produto que responde
+   * "quem vem puxando o resultado" em vez de "quanto pesou nesta competência".
+   * Devolvê-la aqui é o que permite ao Panorama desenhar o cartão da janela ao
+   * lado do gráfico **sem uma segunda ida ao servidor** — a alternativa era
+   * repetir a chave de cache noutro lugar, e duas chamadoras da mesma chave é
+   * onde as duas começam a divergir sobre qual janela estão lendo.
+   */
+  movimentos: Movimentos | null;
+} {
   /*
     De onde saem as vigências da janela — e por que não de `view`.
 
@@ -91,30 +144,14 @@ export function useSerieDeImpacto(
 
   const chave = consulta.toString();
   const range = useQuery({
+    ...opcoesDoIntervalo(chave, janela?.[0] ?? null, ate),
     /*
-      A chave começa em `changes-range` de propósito: é o prefixo que
-      `invalidarApuracao` alcança (`lib/frescor-das-leituras.ts`), e é ele que
-      sustenta o `staleTime` de `LEITURA_DE_APURACAO` — nenhum cache entra aqui
-      sem a invalidação que o corrige quando a apuração muda. Com o nome antigo
-      (`dashboard-impacto`) o gráfico ficava fora de toda invalidação.
+      A política de frescor vem de `opcoesDoIntervalo`: o minuto de `staleTime`
+      faz voltar a uma unidade já vista desenhar o gráfico no primeiro quadro, e
+      o `placeholderData` faz a troca de unidade manter o gráfico anterior em
+      tela em vez de apagá-lo.
     */
-    queryKey: ["changes-range", "dashboard-impacto", chave, janela?.[0] ?? "", ate ?? ""],
-    queryFn: () => {
-      const q = new URLSearchParams(chave);
-      q.delete("period");
-      q.set("from", janela![0]);
-      q.set("to", ate!);
-      return fetchJsonOrNull<Movimentos>(`/changes/range?${q}`);
-    },
     enabled: habilitado && janela !== null && ate !== null,
-    /*
-      A mesma política das outras leituras de apuração destas telas: o minuto de
-      `staleTime` faz voltar a uma unidade já vista desenhar o gráfico no
-      primeiro quadro, e o `placeholderData` faz a troca de unidade manter o
-      gráfico anterior em tela em vez de apagá-lo — a página inteira já se
-      comporta assim, e o gráfico era o único pedaço que sumia.
-    */
-    ...LEITURA_DE_APURACAO,
   });
 
   const dominante = view ? (impactosDaVigencia(view)[0]?.periodicity ?? null) : null;
@@ -145,7 +182,38 @@ export function useSerieDeImpacto(
     return pontosDeImpacto(ordenadas, movimentos.entries, dominante);
   }, [movimentos, dominante]);
 
-  return { ...serie, carregando };
+  return { ...serie, carregando, movimentos };
+}
+
+/**
+ * O intervalo **desenhado** — o rollup por parâmetro do que o gráfico mostra.
+ *
+ * O seletor do gráfico (3 · 6 · 12 vigências ou meses) recorta o que já veio;
+ * este hook pede ao servidor o rollup daquele recorte, porque rollup não se
+ * corta no navegador. Quando o recorte desenhado coincide com o carregado — o
+ * caso de quem tem menos vigências que o teto da série —, a chave é a mesma da
+ * consulta do gráfico e nada sai para a rede.
+ *
+ * `null` em `de` é "ainda não sei qual é a janela": sem pontos desenhados não há
+ * recorte a pedir, e a consulta fica desligada em vez de pedir o intervalo
+ * inteiro e publicá-lo como se fosse o do gráfico.
+ */
+export function useJanelaDesenhada(
+  consulta: URLSearchParams,
+  de: string | null,
+  ate: string | null,
+  habilitado: boolean,
+): { movimentos: Movimentos | null; carregando: boolean } {
+  const chave = consulta.toString();
+  const range = useQuery({
+    ...opcoesDoIntervalo(chave, de, ate),
+    enabled: habilitado && de !== null && ate !== null,
+  });
+
+  return {
+    movimentos: range.data ?? null,
+    carregando: habilitado && (range.isLoading || range.isPlaceholderData),
+  };
 }
 
 /**

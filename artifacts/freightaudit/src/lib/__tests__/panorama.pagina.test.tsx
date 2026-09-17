@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 //
-// A página inteira, montada — os seis andares de ponta a ponta.
+// A página inteira, montada — as três dobras de ponta a ponta.
 //
 // O Panorama consolida quatro módulos que liam a mesma resposta do servidor, e
 // o risco que ele traz é o inverso da redundância que desfaz: publicar um
@@ -32,17 +32,17 @@ vi.mock("@/components/layout/layout", () => ({
   Layout: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
 
-const CONTEXTOS: Contexto[] = [
-  {
-    scopeHash: "hash-pe",
-    channel: "EMPURRADA",
-    label: "PERNAMBUCO · EMPURRADA",
-    scopes: [{ scopeType: "UNIDADE", code: "BR07", name: "PERNAMBUCO" }],
-    latestPeriod: "2026-08-01",
-    periods: 6,
-    periodosDisponiveis: ["2026-07-01", "2026-08-01"],
-  },
-];
+const DA_UNIDADE: Contexto = {
+  scopeHash: "hash-pe",
+  channel: "EMPURRADA",
+  label: "PERNAMBUCO · EMPURRADA",
+  scopes: [{ scopeType: "UNIDADE", code: "BR07", name: "PERNAMBUCO" }],
+  latestPeriod: "2026-08-01",
+  periods: 6,
+  periodosDisponiveis: ["2026-07-01", "2026-08-01"],
+};
+
+const CONTEXTOS: Contexto[] = [DA_UNIDADE];
 
 vi.mock("@/lib/contextos", async (original) => ({
   ...(await original<typeof import("@/lib/contextos")>()),
@@ -181,7 +181,14 @@ const VIGENCIA = {
     panorama: {
       bySeverity: [],
       byBadge: [],
-      byEquipment: [{ equipment: "Carreta", entityType: "CARRETA", changes: 61 }],
+      /*
+        Dois tipos, e o menos tocado com a frota maior: é o par que prova que o
+        ranking do "onde" ordena por alteração e não por tamanho de frota.
+      */
+      byEquipment: [
+        { equipment: "Carreta", entityType: "CARRETA", changes: 61, groups: 9, fleet: 71 },
+        { equipment: "Cavalo", entityType: "CAVALO", changes: 23, groups: 4, fleet: 62 },
+      ],
       pricing: {
         calculatedChanges: 7,
         excludedChanges: 0,
@@ -220,15 +227,158 @@ const PROCEDENCIA = {
   },
 };
 
+/*
+  Sem QLP importado — o caso comum, e o 404 que a rota do quadro devolve. Todo
+  servidor de mentira desta suíte o responde de propósito: cair no `return` da
+  série faria a faixa de travessia receber um corpo que não é quadro, e uma
+  faixa que desenha o que não entendeu é pior que faixa nenhuma.
+*/
+const SEM_QLP = () => resposta({ error: "Nenhuma vigência de QLP importada ainda." }, 404);
+
+/**
+ * O intervalo como `/changes/range` o entrega — com o rollup por parâmetro.
+ *
+ * É a mesma resposta que o gráfico da dobra 2 desenha, e é dela que sai o
+ * cartão "O que puxou a janela": `byParameter` soma cada parâmetro ao longo das
+ * vigências lidas, e `periods` diz em quantas delas ele se mexeu.
+ */
+const INTERVALO = {
+  from: "2026-07-01",
+  to: "2026-08-01",
+  fromLabel: "julho/2026",
+  toLabel: "agosto/2026",
+  periods: [
+    { date: "2026-07-01", label: "julho/2026" },
+    { date: "2026-08-01", label: "agosto/2026" },
+  ],
+  movements: [],
+  gaps: [],
+  impact: { byPeriodicity: { MENSAL: 21931 }, notCalculable: 95 },
+  lossesByPeriodicity: { MENSAL: -4652 },
+  gainsByPeriodicity: { MENSAL: 26583 },
+  totals: { changes: 102, vehiclesTouched: 80, comparisons: 2 },
+  byParameter: [
+    {
+      parameterKey: "financiamento",
+      parameterName: "Financiamento",
+      family: "AQUISICAO",
+      familyName: "Aquisição e financiamento",
+      changes: 12,
+      vehicles: 10,
+      impact: { byPeriodicity: { MENSAL: 14939 }, notCalculable: 0 },
+      periods: 2,
+      notCalculable: 0,
+    },
+    {
+      parameterKey: "depreciacao",
+      parameterName: "Depreciação",
+      family: "AQUISICAO",
+      familyName: "Aquisição e financiamento",
+      changes: 1,
+      vehicles: 1,
+      impact: { byPeriodicity: { MENSAL: -7700 }, notCalculable: 0 },
+      periods: 1,
+      notCalculable: 0,
+    },
+  ],
+  /*
+    As entradas do intervalo — sem elas não há periodicidade na série, e sem
+    periodicidade o gráfico não tem ponto nenhum a desenhar. O cartão da janela
+    lê o recorte **desenhado**, então uma série vazia desligaria a consulta
+    dele: é este par de linhas que faz a dobra 2 existir no teste como existe na
+    tela.
+  */
+  entries: [
+    {
+      key: "e1",
+      period: "2026-07-01",
+      periodLabel: "julho/2026",
+      parameterKey: "financiamento",
+      parameterName: "Financiamento",
+      family: "AQUISICAO",
+      attributeCode: "financiamento",
+      title: "Financiamento",
+      equipment: "Cavalo",
+      entityType: "CAVALO",
+      vehicles: 10,
+      unit: null,
+      amount: 14939,
+      periodicity: "MENSAL",
+      confidence: "CALCULATED",
+      reason: null,
+      badge: "DINHEIRO",
+      badgeLabel: "dinheiro",
+      group: {},
+    },
+    {
+      key: "e2",
+      period: "2026-08-01",
+      periodLabel: "agosto/2026",
+      parameterKey: "depreciacao",
+      parameterName: "Depreciação",
+      family: "AQUISICAO",
+      attributeCode: "depreciacao",
+      title: "Depreciação",
+      equipment: "Cavalo",
+      entityType: "CAVALO",
+      vehicles: 1,
+      unit: null,
+      amount: -7700,
+      periodicity: "MENSAL",
+      confidence: "CALCULATED",
+      reason: null,
+      badge: "DINHEIRO",
+      badgeLabel: "dinheiro",
+      group: {},
+    },
+  ],
+};
+
 /** Todo endpoint que a página toca, com a resposta que o servidor daria. */
 const servidor = () =>
   vi.fn(async (entrada: RequestInfo | URL) => {
     const url = String(entrada);
     if (url.includes("/changes/families")) return resposta(VIGENCIA);
     if (url.includes("/changes/grouped")) return resposta(VIGENCIA);
+    if (url.includes("/qlp/auditoria")) return SEM_QLP();
     if (url.includes("/balance/recorte")) return resposta(PROCEDENCIA);
-    /* A série do gráfico — o intervalo, que a tela pede depois. */
-    return resposta({ from: "2026-07-01", to: "2026-08-01", periods: [], entries: [] });
+    /* A série do gráfico — o intervalo, que a tela pede depois. Ele traz o
+       rollup por parâmetro, que é o que o cartão da janela lê. */
+    return resposta(INTERVALO);
+  });
+
+/** O quadro de pessoal como a rota o entrega — com a vigência **dele**. */
+const QUADRO = (quadro: "ADMINISTRATIVO" | "OPERACIONAL") => ({
+  quadro,
+  /*
+    Ago/2026 · 2ª quinzena, enquanto a tela lê agosto do equipamento: é o ponto
+    do teste. As duas famílias formam vigências próprias, e é por isso que a
+    faixa escreve a do quadro em vez de herdar a da tela.
+  */
+  effectiveDate: "2026-08-16",
+  /* Mensal, como o servidor o escreve — é a tela que escreve a quinzena. */
+  periodLabel: "agosto/2026",
+  serieEntregue: true,
+  colunasDesconhecidas: [],
+  resumo: { quadro, cargos: 34, conferem: 30, divergem: 4, semBase: 0, efetivo: 412, foraDaSoma: 9 },
+  contas: [],
+  benchmark: null,
+  abono: null,
+  linhas: [],
+});
+
+/** O mesmo servidor, com o administrativo importado e o operacional não. */
+const servidorComQuadro = () =>
+  vi.fn(async (entrada: RequestInfo | URL) => {
+    const url = String(entrada);
+    if (url.includes("/qlp/auditoria?quadro=ADMINISTRATIVO")) {
+      return resposta(QUADRO("ADMINISTRATIVO"));
+    }
+    if (url.includes("/qlp/auditoria")) return SEM_QLP();
+    if (url.includes("/changes/families")) return resposta(VIGENCIA);
+    if (url.includes("/changes/grouped")) return resposta(VIGENCIA);
+    if (url.includes("/balance/recorte")) return resposta(PROCEDENCIA);
+    return resposta(INTERVALO);
   });
 
 function montar(Tela: () => React.ReactElement = Panorama) {
@@ -278,45 +428,66 @@ describe("a página do Panorama", () => {
   });
 
   /*
-    Os seis andares, de ponta a ponta. É o único teste que percorre a página
+    As três dobras, de ponta a ponta. É o único teste que percorre a página
     inteira com dado em mãos, e o único que pegaria um erro de montagem que só
     aparece quando há o que desenhar.
   */
-  it("monta os seis andares", async () => {
+  it("monta as três dobras", async () => {
     vi.stubGlobal("fetch", servidor());
     montar();
 
-    // 1 — o veredito
+    // 1 — a manchete: a resposta, o contexto e a confiança, num cartão
     await waitFor(() => expect(screen.getByText("+R$ 21.931")).toBeTruthy());
     expect(screen.getByText("Impacto líquido apurado")).toBeTruthy();
     // a composição do líquido, na coluna ao lado do número
     expect(screen.getByText("Composição")).toBeTruthy();
     expect(screen.getByText("ganhos")).toBeTruthy();
     expect(screen.getByText("perdas")).toBeTruthy();
-    // a faixa de confiança, logo abaixo
-    expect(screen.getByText(/apenas 7 de 102 alterações/)).toBeTruthy();
-
-    // 2 — o placar
+    // a régua de medidas, na segunda linha do mesmo cartão
     expect(screen.getByText("Alterações detectadas")).toBeTruthy();
     expect(screen.getByText("Veículos afetados")).toBeTruthy();
     expect(screen.getByText("Sem impacto calculável")).toBeTruthy();
     expect(screen.getByText("Cobertura da apuração")).toBeTruthy();
+    // e a confiança, na terceira
+    expect(screen.getByText(/apenas 7 de 102 alterações/)).toBeTruthy();
 
-    // 3 — a composição
-    expect(screen.getByText("Composição do impacto líquido")).toBeTruthy();
-
-    // 4 — a trajetória, e o funil que desce dela
+    // 2 — a janela: o gráfico e quem a puxou, lado a lado
     expect(screen.getByText("Impacto das alterações por vigência")).toBeTruthy();
-    expect(screen.getByText("Maiores impactos positivos desta vigência")).toBeTruthy();
-    expect(screen.getByText("Maiores impactos negativos desta vigência")).toBeTruthy();
-    expect(screen.getByText("Principais mudanças")).toBeTruthy();
     expect(screen.getByText("abra a Linha do Tempo")).toBeTruthy();
+    expect(screen.getByText("O que puxou a janela")).toBeTruthy();
+    /*
+      A leitura da janela é por parâmetro e diz em quantas vigências ele se
+      mexeu — é o que a separa do ranking da competência, duas dobras abaixo.
+    */
+    await waitFor(() => expect(screen.getByText("Financiamento")).toBeTruthy());
+    expect(screen.getByText(/em 2 de 2 vigências/)).toBeTruthy();
+    /* E o intervalo vem escrito, para o número não ser lido como desta
+       competência. */
+    expect(screen.getByText(/julho\/2026 → agosto\/2026/)).toBeTruthy();
 
-    // 5 — o mapa
-    expect(screen.getByText("Movimentação da frota")).toBeTruthy();
-    expect(screen.getByText("Carreta — o mais tocado")).toBeTruthy();
+    // 3 — de onde vem: a ponte e o ranking, lado a lado
+    expect(screen.getByText("Composição do impacto líquido")).toBeTruthy();
+    expect(screen.getByText("Onde o dinheiro se mexeu")).toBeTruthy();
 
-    // 6 — a procedência
+    // e a faixa dos tipos de ativo, depois da decomposição
+    expect(screen.getByText("Onde aconteceu")).toBeTruthy();
+    /*
+      O ranking dos tipos, e não quatro tiles. O de baixo tem a frota maior e
+      aparece depois — a ordem é por alteração, que é a pergunta do andar.
+    */
+    const tipos = screen.getAllByRole("listitem").filter((li) => /frota de/.test(li.textContent!));
+    expect(tipos.map((li) => li.textContent)).toEqual([
+      expect.stringContaining("Carreta"),
+      expect.stringContaining("Cavalo"),
+    ]);
+    expect(tipos[0]!.textContent).toContain("9 parâmetros");
+    expect(tipos[0]!.textContent).toContain("frota de 71");
+    /* E a movimentação da frota virou rodapé, com o rótulo certo: 1.284 é a
+       frota entregue, e o cartão antigo a chamava de "Veículos ativos". */
+    expect(screen.getByText(/na frota/)).toBeTruthy();
+    expect(screen.queryByText("Veículos ativos")).toBeNull();
+
+    // o rodapé — a procedência
     await waitFor(() => expect(screen.getByText("De onde vêm estes números")).toBeTruthy());
     expect(screen.getByText("Fontes deste recorte")).toBeTruthy();
 
@@ -333,21 +504,84 @@ describe("a página do Panorama", () => {
   });
 
   /*
-    A ordem do andar 4 é o ponto dele, e `getByText` não a vê: os quatro
-    títulos passariam na ordem inversa. A leitura desce um degrau por vez —
-    a vigência no gráfico, a família nos dois cartões, o parâmetro na lista —,
-    e é isso que este teste prende.
+    **O número da vigência aparece uma vez.**
+
+    Este é o teste da refeitura das dobras, e ele vigia o defeito que ela
+    desfez: o líquido apurado estava impresso seis vezes na mesma tela — a
+    manchete, o primeiro cartão do placar, a barra final da ponte, o rodapé dos
+    dois cartões de pódio e a linha da lista de parâmetros. Não era desacordo
+    entre números (eles concordavam, e os outros testes desta suíte garantem
+    isso): era a mesma verdade ocupando cinco telas de rolagem, que é o que
+    fazia a leitura executiva não caber numa leitura.
+
+    A régua é o texto exato da manchete. A ponte desenha o líquido numa barra de
+    SVG, sem nó de texto, e por isso ela não conta aqui — o que este teste
+    proíbe é **reimprimir o número**.
   */
-  it("desce o andar 4 em grão: vigência, família, parâmetro", async () => {
+  it("publica o líquido da vigência uma vez, e não seis", async () => {
     vi.stubGlobal("fetch", servidor());
     montar();
 
-    await waitFor(() => expect(screen.getByText("Impacto das alterações por vigência")).toBeTruthy());
+    await waitFor(() => expect(screen.getByText("+R$ 21.931")).toBeTruthy());
+    expect(screen.getAllByText("+R$ 21.931")).toHaveLength(1);
+
+    /* E o par que o produz, idem: ele é da coluna da composição, e de mais
+       ninguém. */
+    expect(screen.getAllByText("+R$ 26.583")).toHaveLength(1);
+  });
+
+  /*
+    O ranking é um cartão com duas chaves, e não três cartões.
+
+    Eram dois pódios de família (o que somou, o que tirou) e uma lista de
+    parâmetros — três blocos de largura inteira sobre a mesma lista. Aqui o grão
+    é uma pastilha, e o que ela troca é a lista **no mesmo cartão**: a família
+    sai, o parâmetro entra, e o título continua sendo um só.
+  */
+  it("o ranking desce de família para parâmetro sem virar outro cartão", async () => {
+    vi.stubGlobal("fetch", servidor());
+    montar();
+
+    await waitFor(() => expect(screen.getByText("Onde o dinheiro se mexeu")).toBeTruthy());
+
+    /* O grão de abertura é a família — o agregado antes do detalhe. */
+    expect(screen.getByText(/por família da remuneração/)).toBeTruthy();
+    expect(screen.getByText("AQUISICAO")).toBeTruthy();
+    expect(screen.queryByText("financiamento")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Parâmetro" }));
+
+    /* O parâmetro que compõe a família — o degrau abaixo, no mesmo cartão. */
+    await waitFor(() => expect(screen.getByText("financiamento")).toBeTruthy());
+    expect(screen.getByText(/por parâmetro/)).toBeTruthy();
+    expect(screen.queryByText("AQUISICAO")).toBeNull();
+    /* Um cartão, e não dois: o título não se multiplicou. */
+    expect(screen.getAllByText("Onde o dinheiro se mexeu")).toHaveLength(1);
+  });
+
+  /*
+    A ordem das dobras é a ordem das perguntas, e `getByText` não a vê: os
+    títulos passariam na ordem inversa.
+
+    A leitura desce da resposta ("quanto custou") para a trajetória ("isto é
+    normal?") e só então para a composição ("de onde vem"). As duas últimas já
+    estiveram invertidas, e esta é a ordem que este teste prende: a decomposição
+    é o degrau em que se para de ler e se começa a investigar, e ela não vem
+    antes de quem lê saber se a vigência é fora do normal.
+  */
+  it("desce em ordem: a resposta, a janela, de onde vem, os tipos", async () => {
+    vi.stubGlobal("fetch", servidor());
+    montar();
+
+    await waitFor(() => expect(screen.getByText("Onde o dinheiro se mexeu")).toBeTruthy());
 
     const ordem = [
+      "Impacto líquido apurado",
       "Impacto das alterações por vigência",
-      "Maiores impactos positivos desta vigência",
-      "Principais mudanças",
+      "O que puxou a janela",
+      "Composição do impacto líquido",
+      "Onde o dinheiro se mexeu",
+      "Onde aconteceu",
     ].map((titulo) => screen.getByText(titulo));
 
     for (let i = 1; i < ordem.length; i += 1) {
@@ -360,6 +594,50 @@ describe("a página do Panorama", () => {
         ordem[i - 1].compareDocumentPosition(ordem[i]) & Node.DOCUMENT_POSITION_FOLLOWING,
       ).toBeTruthy();
     }
+  });
+
+  /*
+    A travessia para o quadro de pessoal — a faixa do rodapé.
+
+    Ela existe porque o QLP **não pode** ser uma linha do ranking do "onde
+    aconteceu": é outra família de dados, com vigência própria e consolidada
+    entre unidades (`lib/travessia-do-quadro.ts`). O que estes dois testes
+    prendem é o par de estados que ela tem de acertar — a faixa que não nasce
+    sem quadro, e a vigência do quadro escrita quando ele existe.
+  */
+  it("sem quadro importado, a faixa não aparece — e o 404 não vira tela de erro", async () => {
+    vi.stubGlobal("fetch", servidor());
+    montar();
+
+    await waitFor(() => expect(screen.getByText("De onde vêm estes números")).toBeTruthy());
+
+    expect(screen.queryByText(/também tem quadro de pessoal/)).toBeNull();
+    expect(screen.queryByText("QLP Administrativo")).toBeNull();
+    /* E a tela inteira continua de pé: o 404 do quadro é uma afirmação sobre o
+       acervo, não uma falha da leitura que traz alguém aqui. */
+    expect(screen.getByText("+R$ 21.931")).toBeTruthy();
+  });
+
+  it("com QLP importado, a faixa nomeia a vigência do quadro — não a da tela", async () => {
+    vi.stubGlobal("fetch", servidorComQuadro());
+    montar();
+
+    await waitFor(() => expect(screen.getByText("QLP Administrativo")).toBeTruthy());
+    expect(screen.getByText(/também tem quadro de pessoal/)).toBeTruthy();
+
+    /*
+      A tela está lendo agosto/2026 do equipamento; o quadro respondeu pela 2ª
+      quinzena. É a vigência **do quadro** que sai colada no número.
+    */
+    expect(screen.getByText("agosto/2026 · 2ª quinzena")).toBeTruthy();
+    expect(screen.getByText("34 cargos · efetivo de 412")).toBeTruthy();
+
+    /* O operacional, que não tem arquivo, não vira linha. */
+    expect(screen.queryByText("QLP Operacional")).toBeNull();
+
+    /* E a faixa diz que o que ela publica não entra em nada acima: contagem de
+       cargos não é comparável com as alterações da vigência lida. */
+    expect(screen.getByText(/não entram em nada acima/)).toBeTruthy();
   });
 
   /*
@@ -425,8 +703,9 @@ describe("a procedência, quando ela não tem o que publicar", () => {
       const url = String(entrada);
       if (url.includes("/changes/families")) return resposta(VIGENCIA);
       if (url.includes("/changes/grouped")) return resposta(VIGENCIA);
+      if (url.includes("/qlp/auditoria")) return SEM_QLP();
       if (url.includes("/balance/recorte")) return recorte();
-      return resposta({ from: "2026-07-01", to: "2026-08-01", periods: [], entries: [] });
+      return resposta(INTERVALO);
     });
 
   const caiu = () => resposta({ error: "indisponível" }, 503);
@@ -532,8 +811,9 @@ describe("o par do Panorama", () => {
       if (url.includes("/changes/families/par")) return doPar();
       if (url.includes("/changes/families")) return resposta(VIGENCIA);
       if (url.includes("/changes/grouped")) return resposta(VIGENCIA);
+      if (url.includes("/qlp/auditoria")) return SEM_QLP();
       if (url.includes("/balance/recorte")) return resposta(PROCEDENCIA);
-      return resposta({ from: "2026-07-01", to: "2026-08-01", periods: [], entries: [] });
+      return resposta(INTERVALO);
     });
 
   /* A volta, como o servidor a devolveria: o mesmo corpo, com a chegada em

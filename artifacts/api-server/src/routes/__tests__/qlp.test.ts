@@ -473,6 +473,26 @@ describe("a superfície do QLP Administrativo, na ordem em que a vida acontece",
     expect(operacional.body.error).toMatch(/QLP Operacional/);
   });
 
+  /*
+    A vigência do quadro, no corpo da resposta.
+
+    Ela não estava lá porque as telas de QLP nunca precisaram: o seletor delas
+    escolhe a quinzena, então elas já sabem qual estão lendo. Passou a viajar
+    por causa de quem lê esta rota de **fora** do módulo — a faixa de travessia
+    do Panorama, cuja tela tem vigência de outra família de dados. Publicar "34
+    cargos" ali sem dizer de que quinzena é seria o número certo debaixo do
+    título errado, e é essa a garantia que este teste prende.
+  */
+  it("a auditoria nomeia a vigência do quadro que ela leu", async () => {
+    const { status, body } = await get("/qlp/auditoria?quadro=ADMINISTRATIVO");
+    expect(status).toBe(200);
+    /* A data é a da série do QLP — a mesma que `serieEntregue` qualifica —, e
+       não a mais recente do contexto de equipamento. */
+    expect(body.effectiveDate).toBe("2026-08-01");
+    expect(typeof body.periodLabel).toBe("string");
+    expect(body.periodLabel).not.toBe("");
+  });
+
   it("a ficha do cargo traz cada fato com a célula de origem, no mesmo pedido", async () => {
     const { status, body } = await get(
       `/qlp/administrativo/entidades/${entityIdDoAnalista}`,

@@ -159,6 +159,8 @@ export function GraficoDeImpacto({
   carregando = false,
   vigenciaAtiva = null,
   onEscolherVigencia,
+  janela: janelaPedida,
+  onJanela,
 }: {
   pontos: PontoDeImpacto[];
   periodicity: string | null;
@@ -173,14 +175,27 @@ export function GraficoDeImpacto({
   vigenciaAtiva?: string | null;
   /** Quando existe, clicar numa barra leva a tela inteira para aquela vigência. */
   onEscolherVigencia?: (periodo: string) => void;
+  /**
+   * A janela, quando quem manda nela é a página — e por que isso existe.
+   *
+   * Ela nasceu como estado do gráfico, e continua sendo isso por padrão: trocar
+   * "últimas 6 vigências" por "últimos 12 meses" é um recorte do que já veio na
+   * mesma consulta, sem requisição nenhuma, e nenhuma outra tela precisava saber
+   * qual recorte estava aberto.
+   *
+   * O Panorama precisa: lá o gráfico divide a dobra com um cartão que lê o
+   * **mesmo** intervalo por parâmetro, e um seletor que mudasse só o desenho
+   * deixaria os dois falando de janelas diferentes lado a lado — seis vigências
+   * no gráfico e nove no cartão ao lado, sem nada acusando. Passadas as duas
+   * pontas, a página é a dona; sem elas, o estado local segue mandando, e o
+   * Dashboard não muda.
+   */
+  janela?: Janela;
+  onJanela?: (janela: Janela) => void;
 }) {
-  /*
-    A janela é estado do gráfico, não da página: trocar "últimas 6 vigências"
-    por "últimos 12 meses" é um recorte do que já veio na mesma consulta — a
-    série é buscada até `TETO_DA_SERIE` e cortada aqui. Trocar a janela não
-    dispara requisição nenhuma, e por isso o gráfico não pisca na troca.
-  */
-  const [janela, setJanela] = useState<Janela>(JANELA_PADRAO);
+  const [janelaLocal, setJanelaLocal] = useState<Janela>(JANELA_PADRAO);
+  const janela = janelaPedida ?? janelaLocal;
+  const trocarJanela = onJanela ?? setJanelaLocal;
   const desenhados = recorteDaJanela(pontos, janela);
 
   if (pontos.length === 0 || periodicity === null) {
@@ -256,7 +271,7 @@ export function GraficoDeImpacto({
           gráfico e prometeriam uma escolha que não existe.
         */}
         {pontos.length > QUANTIDADES[0] && (
-          <SeletorDeJanela janela={janela} onJanela={setJanela} />
+          <SeletorDeJanela janela={janela} onJanela={trocarJanela} />
         )}
       </div>
       <ResponsiveContainer width="100%" height={300}>
