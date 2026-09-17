@@ -209,7 +209,8 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
       */
       id: "visao-executiva",
       titulo: "Visão executiva",
-      descricao: "O que mudou desde a última competência, e o retrato do conjunto",
+      descricao:
+        "O que mudou desde a última competência, e o retrato do conjunto",
       icon: Radar,
       cor: "text-nav-executiva",
       itens: [
@@ -245,7 +246,11 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
           guardado, e mudá-la agora quebraria links que ninguém pediu para
           quebrar.
         */
-        { href: ENTRADA_DA_AUDITORIA, label: "Painel de Unidades", icon: LayoutDashboard },
+        {
+          href: ENTRADA_DA_AUDITORIA,
+          label: "Painel de Unidades",
+          icon: LayoutDashboard,
+        },
         /*
           As **Alterações por Módulo** vêm em terceiro, e é a altitude que as põe
           aqui: o Panorama e o Painel respondem pelo conjunto; esta responde pelo
@@ -258,7 +263,11 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
           se sabe qual módulo abrir. O clique de cada cartão leva à auditoria
           daquele módulo com o par junto.
         */
-        { href: ALTERACOES_POR_MODULO, label: "Alterações por Módulo", icon: Layers },
+        {
+          href: ALTERACOES_POR_MODULO,
+          label: "Alterações por Módulo",
+          icon: Layers,
+        },
         /*
           Daqui para baixo vêm os quatro módulos que o Panorama consolida, **e
           eles ficam**. É a decisão do caminho B da proposta: o Panorama entra
@@ -281,7 +290,11 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
             é a razão de o Panorama linkar para cá em vez de embutir a pastilha.
         */
         { href: DASHBOARD, label: "Impacto Líquido", icon: Radar },
-        { href: IMPACTO_APURADO, label: "Impacto Apurado", icon: CircleDollarSign },
+        {
+          href: IMPACTO_APURADO,
+          label: "Impacto Apurado",
+          icon: CircleDollarSign,
+        },
         { href: RESUMO_EXECUTIVO, label: "Resumo executivo", icon: House },
         { href: LINHA_DO_TEMPO, label: "Linha do Tempo", icon: History },
         /*
@@ -500,13 +513,20 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
         a auditoria de origem assim que a resposta exige profundidade. Quem abre
         o dia começa nele; quem investiga um número termina numa das cinco.
 
-        **Aquisição vem primeiro, e não é ordem alfabética**: ela é a base das
-        outras. O valor de nota que ela confere é o denominador do IPVA, do ICMS
-        e do PIS/COFINS, e é o que o FINAME financia — ler a nota antes de ler o
-        que sai dela é a ordem em que a conta se faz. Ela é também a mais quieta
-        das cinco: no acervo inteiro nenhuma coluna de aquisição mudou de valor
-        (`docs/ACHADO-AQUISICAO.md`), e por isso a tela dela é uma conferência de
-        base, e não um painel de alterações.
+        **As rubricas ficam em ordem alfabética, e o Monitor fica fora dela.**
+        A seção já ordenou pela conta — Aquisição primeiro, porque o valor de
+        nota que ela confere é o denominador do IPVA, do ICMS e do PIS/COFINS e
+        é o que o FINAME financia —, e essa ordem é a de quem já sabe como a
+        conta se faz. Quem usa o menu procura **um nome**, e numa lista de sete
+        rubricas que não se lê em sequência o alfabeto acha o nome em um
+        relance, enquanto a ordem da conta obriga a varrer a lista inteira. O
+        Monitor continua na primeira linha porque ele não é uma rubrica: é a
+        tela por onde a seção se abre.
+
+        Aquisição segue sendo a mais quieta das rubricas: no acervo inteiro
+        nenhuma coluna de aquisição mudou de valor (`docs/ACHADO-AQUISICAO.md`),
+        e por isso a tela dela é uma conferência de base, e não um painel de
+        alterações.
 
         Ele consolida **as cinco**, e nunca consolidou o quadro de gente — nem
         no tempo em que ele era linha desta seção: QLP Operacional e
@@ -524,18 +544,35 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
       */
       id: "custo-fixo",
       titulo: "Custo Fixo",
-      descricao: "O que se paga por ter o ativo e a estrutura, rubrica a rubrica",
+      descricao:
+        "O que se paga por ter o ativo e a estrutura, rubrica a rubrica",
       icon: CircleDollarSign,
       cor: "text-nav-custo-fixo",
       itens: [
-        { href: "/monitor-custo-fixo", label: "Monitor Custo Fixo", icon: LineChart },
-        { href: "/custo-fixo-aquisicao", label: "Aquisição", icon: ShoppingCart },
-        { href: "/custo-fixo-finame", label: "Finame", icon: Banknote },
+        {
+          href: "/monitor-custo-fixo",
+          label: "Monitor Custo Fixo",
+          icon: LineChart,
+        },
         { href: "/custo-fixo-aluguel", label: "Aluguel de Frota", icon: Key },
-        { href: "/custo-fixo-ipva", label: "IPVA", icon: Receipt },
-        { href: "/custo-fixo-lucro-fixo", label: "Lucro Fixo", icon: TrendingUp },
+        {
+          href: "/custo-fixo-aquisicao",
+          label: "Aquisição",
+          icon: ShoppingCart,
+        },
+        { href: "/custo-fixo-finame", label: "Finame", icon: Banknote },
         { href: "/custo-fixo-impostos", label: "Impostos", icon: Landmark },
-        { href: "/custo-fixo-seguro", label: "Seguro e Aparato", icon: ShieldCheck },
+        { href: "/custo-fixo-ipva", label: "IPVA", icon: Receipt },
+        {
+          href: "/custo-fixo-lucro-fixo",
+          label: "Lucro Fixo",
+          icon: TrendingUp,
+        },
+        {
+          href: "/custo-fixo-seguro",
+          label: "Seguro e Aparato",
+          icon: ShieldCheck,
+        },
       ],
     },
     {
@@ -574,7 +611,13 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
         **Os itens do segundo bloco saem do catálogo, não desta lista.**
         `modulosDoQlp()` (`@workspace/comparison/qlp-comparacao`) deriva um
         módulo por rubrica das colunas que os dois quadros declaram, e é ele que
-        decide quais existem e em que quadro cada um acende. Uma lista escrita
+        decide quais existem e em que quadro cada um acende. **A lateral só
+        reordena**: os módulos saem do catálogo na ordem em que as colunas do
+        export aparecem — que é a ordem da planilha da Ambev, e não uma ordem de
+        leitura — e aqui são postos em ordem alfabética pelo rótulo, porque numa
+        lista de dezesseis rubricas a única pergunta que o menu responde é *onde
+        está o vale-transporte*. O `localeCompare` é em pt-BR de propósito: sem
+        isso "Diária" e "Salário" caem fora do lugar por causa do acento. Uma lista escrita
         aqui concordaria com o catálogo no dia em que fosse escrita: hoje o
         export administrativo traz benefício numa coluna só e o operacional o
         decompõe em nove, então plano de saúde e refeição só existem no
@@ -600,7 +643,8 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
       */
       id: "modulos-do-qlp",
       titulo: "Equipe",
-      descricao: "O quadro de pessoal — os dois quadros inteiros, e cada rubrica por assunto",
+      descricao:
+        "O quadro de pessoal — os dois quadros inteiros, e cada rubrica por assunto",
       icon: Users,
       cor: "text-nav-custo-fixo",
       itens: [
@@ -625,11 +669,14 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
           icon: ClipboardList,
           tambemAceso: ["/qlp-administrativo"],
         },
-        ...modulosDoQlp().map((modulo) => ({
-          href: `/qlp/${modulo.chave}`,
-          label: ROTULO_DO_MODULO[modulo.chave] ?? modulo.chave.replace(/_/g, " "),
-          icon: ICONE_DO_MODULO[modulo.chave] ?? Layers,
-        })),
+        ...modulosDoQlp()
+          .map((modulo) => ({
+            href: `/qlp/${modulo.chave}`,
+            label:
+              ROTULO_DO_MODULO[modulo.chave] ?? modulo.chave.replace(/_/g, " "),
+            icon: ICONE_DO_MODULO[modulo.chave] ?? Layers,
+          }))
+          .sort((a, b) => a.label.localeCompare(b.label, "pt-BR")),
       ],
     },
     {
@@ -638,11 +685,15 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
         mesma conta: ali, o que se paga por **ter** o ativo; aqui, o que se paga
         por **rodar** com ele.
 
-        **A ordem da seção é a ordem em que o custo do quilômetro se monta**, e
-        não a ordem em que as telas nasceram: Manutenção, Pneu e Consumo são as
-        três parcelas que o desgaste e o combustível produzem; Km Rodado e
-        Velocidade Média são o quanto se rodou e como se rodou; TMA é o tempo
-        parado; e Salário e Lucro Variável fecham com o que a produção remunera.
+        **A seção fica em ordem alfabética**, pela mesma razão do Custo Fixo
+        acima. A ordem anterior era a de como o custo do quilômetro se monta —
+        Manutenção, Pneu e Consumo, as três parcelas que o desgaste e o
+        combustível produzem; Km Rodado e Velocidade Média, o quanto se rodou e
+        como se rodou; TMA, o tempo parado; e Salário e Lucro Variável, o que a
+        produção remunera. Essa sequência explica a conta, mas ninguém abre as
+        oito telas em fila: abre-se **uma**, pelo nome, e para achar um nome o
+        alfabeto é mais rápido que a narrativa. A conta continua contada aqui,
+        que é onde ela informa sem custar uma varredura da lista.
 
         **Manutenção e Pneu eram um item só**, e deixaram de ser porque eram dois
         assuntos em dois grãos: o contrato de manutenção é de um cavalo, e o pneu
@@ -661,14 +712,30 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
       icon: ChartNoAxesCombined,
       cor: "text-nav-custo-variavel",
       itens: [
-        { href: "/custo-variavel-manutencao", label: "Manutenção", icon: Wrench },
-        { href: "/custo-variavel-pneu", label: "Pneu", icon: CircleDot },
         { href: "/custo-variavel-consumo", label: "Consumo", icon: Fuel },
         { href: "/custo-variavel-km-rodado", label: "Km Rodado", icon: Route },
-        { href: "/custo-variavel-velocidade-media", label: "Velocidade Média", icon: Gauge },
+        {
+          href: "/custo-variavel-lucro-variavel",
+          label: "Lucro Variável",
+          icon: TrendingUp,
+        },
+        {
+          href: "/custo-variavel-manutencao",
+          label: "Manutenção",
+          icon: Wrench,
+        },
+        { href: "/custo-variavel-pneu", label: "Pneu", icon: CircleDot },
+        {
+          href: "/custo-variavel-salario-variavel",
+          label: "Salário Variável",
+          icon: Wallet,
+        },
         { href: "/custo-variavel-tma", label: "TMA", icon: Timer },
-        { href: "/custo-variavel-salario-variavel", label: "Salário Variável", icon: Wallet },
-        { href: "/custo-variavel-lucro-variavel", label: "Lucro Variável", icon: TrendingUp },
+        {
+          href: "/custo-variavel-velocidade-media",
+          label: "Velocidade Média",
+          icon: Gauge,
+        },
       ],
     },
     {
@@ -678,8 +745,17 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
       icon: ScanSearch,
       cor: "text-nav-auditoria",
       itens: [
-        { href: "/alteracoes", label: "Alterações", icon: ArrowRightLeft, contador: "alteracoes" },
-        { href: "/comparar", label: "Comparar vigências", icon: GitCompareArrows },
+        {
+          href: "/alteracoes",
+          label: "Alterações",
+          icon: ArrowRightLeft,
+          contador: "alteracoes",
+        },
+        {
+          href: "/comparar",
+          label: "Comparar vigências",
+          icon: GitCompareArrows,
+        },
         { href: "/parametros", label: "Parâmetros", icon: SlidersVertical },
         { href: "/vigencias", label: "Vigências", icon: CalendarDays },
         /*
@@ -688,7 +764,11 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
           (Impacto financeiro), quanto custou vira o que disso é anormal
           (Anomalias), e o anormal vira um caso com dono (Auditorias).
         */
-        { href: "/impacto-financeiro", label: "Impacto financeiro", icon: CircleDollarSign },
+        {
+          href: "/impacto-financeiro",
+          label: "Impacto financeiro",
+          icon: CircleDollarSign,
+        },
         { href: "/anomalias", label: "Anomalias", icon: TriangleAlert },
         { href: "/auditorias", label: "Auditorias", icon: ClipboardCheck },
       ],
@@ -717,14 +797,24 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
       icon: Database,
       cor: "text-nav-dados",
       itens: [
-        { href: "/importacoes", label: "Importações", icon: CloudDownload, contador: "importacoes" },
+        {
+          href: "/importacoes",
+          label: "Importações",
+          icon: CloudDownload,
+          contador: "importacoes",
+        },
         /*
           O Rastreio de Dados vem logo depois de Importações porque é a conferência
           dela: a pergunta que ele faz — toda célula que o arquivo trouxe chegou a
           algum lugar? — só existe a respeito do arquivo que acabou de entrar.
         */
         { href: "/rastreio-de-dados", label: "Rastreio de Dados", icon: Scale },
-        { href: "/curadoria", label: "Curadoria", icon: FileSearch, contador: "curadoria" },
+        {
+          href: "/curadoria",
+          label: "Curadoria",
+          icon: FileSearch,
+          contador: "curadoria",
+        },
         { href: "/categorias", label: "Categorias", icon: FolderTree },
         /*
           Cobertura de dados não estava no desenho do menu, e entrou aqui porque a
@@ -733,10 +823,22 @@ export function navGroupsAuditoria(ambiente: AmbienteDeAuditoria): NavGroup[] {
         */
         { href: "/dados", label: "Cobertura de dados", icon: ClipboardList },
         { href: "/versoes", label: "Versões", icon: Layers },
-        { href: "/qualidade-dados", label: "Qualidade de dados", icon: BadgeCheck },
+        {
+          href: "/qualidade-dados",
+          label: "Qualidade de dados",
+          icon: BadgeCheck,
+        },
         { href: "/fontes-dados", label: "Fontes de dados", icon: Database },
-        { href: "/historico-decisoes", label: "Histórico de decisões", icon: History },
-        { href: "/logs-sistema", label: "Logs de sistema", icon: SquareTerminal },
+        {
+          href: "/historico-decisoes",
+          label: "Histórico de decisões",
+          icon: History,
+        },
+        {
+          href: "/logs-sistema",
+          label: "Logs de sistema",
+          icon: SquareTerminal,
+        },
         /*
           Integrações fecha a seção, abaixo dos Logs, e a posição é a do assunto:
           é a porta pela qual o dado pode entrar sem passar por Importações — e
@@ -818,7 +920,11 @@ function secaoDaFrota(ambiente: AmbienteDeAuditoria): NavGroup {
         ? [{ href: "/radar-trechos", label: "Radar de Trechos", icon: Gauge }]
         : []),
       { href: "/dre-veiculo", label: "DRE do veículo", icon: FileSpreadsheet },
-      { href: "/benchmark-unidades", label: "Benchmark de unidades", icon: ChartColumn },
+      {
+        href: "/benchmark-unidades",
+        label: "Benchmark de unidades",
+        icon: ChartColumn,
+      },
     ],
   };
 }
