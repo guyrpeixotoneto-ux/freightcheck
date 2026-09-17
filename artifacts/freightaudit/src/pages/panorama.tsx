@@ -55,7 +55,7 @@ import {
   SeletorDeVigenciaGeral,
 } from "@/components/vigencia/seletor-de-vigencia";
 import { SeletorDoParDoPanorama } from "@/components/panorama/seletor-do-par";
-import { useResumoPorVigencia } from "@/hooks/use-resumo-por-vigencia";
+import { motivoSemNumeros, useResumoPorVigencia } from "@/hooks/use-resumo-por-vigencia";
 import {
   aoEscolherDe,
   aoEscolherPara,
@@ -539,8 +539,13 @@ function ParDaLeitura({
     mude de nome conforme o estado em que a tela está.
   */
   const opcoes = useMemo(() => {
-    const numeros = (data: string) =>
-      resumo.porVigencia.get(data) ?? { alteracoes: null, impacto: null };
+    const numeros = (data: string) => ({
+      ...(resumo.porVigencia.get(data) ?? { alteracoes: null, impacto: null }),
+      // Sem números, a linha diz por quê. Em branco ela é lida como "não teve
+      // importação" — a única coisa que não pode ser, já que a lista sai das
+      // vigências importadas do contexto.
+      nota: motivoSemNumeros(data, resumo),
+    });
     if (view) {
       return [...view.periods]
         .sort((a, b) => b.date.localeCompare(a.date))

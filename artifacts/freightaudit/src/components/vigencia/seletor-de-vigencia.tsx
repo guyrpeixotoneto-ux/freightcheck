@@ -11,6 +11,7 @@ import {
 import { cn } from "@/lib/utils";
 import { formatBrlShort } from "@/lib/format";
 import {
+  motivoSemNumeros,
   useResumoPorVigencia,
   useResumoPorVigenciaGeral,
 } from "@/hooks/use-resumo-por-vigencia";
@@ -45,10 +46,12 @@ export const BOTAO_DE_TROCA =
  * nem a data nem a contagem sozinhas respondem isso.
  *
  * Os números vêm de `/changes/range` (o mesmo dado da Linha do Tempo) e são
- * opcionais por construção: enquanto não chegam — ou para a vigência mais
- * antiga do histórico, que não tem anterior contra a qual ser comparada —, a
- * linha mostra só a vigência. Nada aqui inventa "0 alterações" nem "R$ 0" para
- * preencher coluna.
+ * opcionais por construção: enquanto não chegam, a linha mostra só a vigência.
+ * Depois que chegam, a linha sem números diz **por que** não os tem — é a
+ * primeira do histórico, ou está importada sem comparação calculada (ver
+ * `motivoSemNumeros`). Nada aqui inventa "0 alterações" nem "R$ 0" para
+ * preencher coluna, e nada fica em branco deixando a ausência ser lida como
+ * "essa vigência não foi importada", que é o que ela nunca é.
  *
  * Estava escrito três vezes (Visão Geral, Linha do Tempo, Dashboard) e nas
  * três com uma diferença: no Dashboard a contagem simplesmente não existia.
@@ -107,6 +110,7 @@ export function SeletorDeVigencia({
           valor: data,
           ...rotuloDeListaDaVigencia(data, doContexto),
           ...(resumo.porVigencia.get(data) ?? { alteracoes: null, impacto: null }),
+          semNumeros: motivoSemNumeros(data, resumo),
         }))}
       ativa={view.period}
       onEscolher={(data) => onTrocar({ period: data })}
@@ -170,6 +174,7 @@ export function SeletorDeVigenciaGeral({
         valor: data,
         ...rotuloDeListaDaVigencia(data, periodos),
         ...(resumo.porVigencia.get(data) ?? { alteracoes: null, impacto: null }),
+        semNumeros: motivoSemNumeros(data, resumo),
       }))}
       ativa={ativa}
       onEscolher={(data) => onTrocar({ period: data })}
@@ -225,6 +230,14 @@ export function MenuDeVigencias({
     alteracoes: number | null;
     /** O líquido da vigência na periodicidade acima — ver `ResumoDaVigencia`. */
     impacto?: number | null;
+    /**
+     * Por que esta linha não tem números — ver `motivoSemNumeros`.
+     *
+     * Existe para que a coluna da direita nunca fique simplesmente vazia sem
+     * dizer por quê: vazio é lido como "esse mês não teve importação", e uma
+     * vigência que não foi importada não estaria nesta lista.
+     */
+    semNumeros?: { curto: string; porque: string } | null;
   }[];
   ativa: string | null;
   onEscolher: (valor: string) => void;
@@ -268,6 +281,14 @@ export function MenuDeVigencias({
                 </span>
               )}
             </span>
+            {opcao.impacto == null && opcao.alteracoes === null && opcao.semNumeros && (
+              <span
+                title={opcao.semNumeros.porque}
+                className="shrink-0 text-xs font-normal italic text-muted-foreground"
+              >
+                {opcao.semNumeros.curto}
+              </span>
+            )}
             {(opcao.impacto != null || opcao.alteracoes !== null) && (
               <span className="flex flex-col items-end shrink-0 leading-tight">
                 {opcao.impacto != null && (

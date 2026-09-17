@@ -34,6 +34,27 @@ export interface ResumoDasVigencias {
   porVigencia: Map<string, ResumoDaVigencia>;
   /** `null` quando nenhuma vigência do intervalo tem impacto apurado. */
   periodicidade: string | null;
+  /**
+   * As vigências que estão importadas e **não** têm comparação — as `gaps` da
+   * leitura do intervalo.
+   *
+   * Elas nunca aparecem em `porVigencia`, e é por isso que este conjunto
+   * precisa existir: sem ele, "não comparada" e "ainda não li" são a mesma
+   * linha vazia na tela, e quem lê conclui o que quiser da ausência — em
+   * geral, que a vigência não foi importada, que é o contrário do que houve.
+   */
+  semComparacao: Set<string>;
+  /**
+   * A vigência mais antiga da leitura — a ponta de partida do intervalo.
+   *
+   * Ela também sai sem números, e pela terceira razão possível: é a primeira
+   * do histórico, não há uma anterior contra a qual compará-la. Não é lacuna
+   * (não há comparação faltando) e não é falta de leitura; é a régua.
+   *
+   * `null` enquanto a leitura não chegou — e é esse `null` que impede a tela
+   * de chamar de "primeira do histórico" a linha que ela só ainda não leu.
+   */
+  primeira: string | null;
 }
 
 /** O que a série de um intervalo precisa ter para virar coluna — `RangeMovement` e `RangeOverviewPoint`. */
@@ -56,7 +77,15 @@ export interface LinhaDoIntervalo {
  * renderizações com o mesmo dado; empate exato entre periodicidades é raro e
  * não tem resposta melhor.
  */
-export function resumirIntervalo(linhas: readonly LinhaDoIntervalo[]): ResumoDasVigencias {
+export function resumirIntervalo(
+  linhas: readonly LinhaDoIntervalo[],
+  contorno?: {
+    /** As vigências importadas sem comparação — `gaps` de `/changes/range`. */
+    gaps?: readonly { period: string }[];
+    /** A ponta de partida que o servidor resolveu para o intervalo. */
+    inicio?: string | null;
+  },
+): ResumoDasVigencias {
   const movimento = new Map<string, number>();
   for (const linha of linhas) {
     for (const [periodicidade, valor] of Object.entries(linha.impact.byPeriodicity)) {
@@ -69,6 +98,8 @@ export function resumirIntervalo(linhas: readonly LinhaDoIntervalo[]): ResumoDas
 
   return {
     periodicidade: dominante,
+    semComparacao: new Set((contorno?.gaps ?? []).map((g) => g.period)),
+    primeira: contorno?.inicio ?? null,
     porVigencia: new Map(
       linhas.map((linha) => [
         linha.period,
@@ -128,7 +159,17 @@ export function useResumoPorVigencia(
   // que `fetchJsonOrNull` devolve num 204, e o que um servidor de teste
   // devolve quando só o resto do corpo interessa), e a lista abre com as
   // vigências e sem as colunas em vez de derrubar o cabeçalho da tela.
-  return useMemo(() => resumirIntervalo(movimentos.data?.movements ?? []), [movimentos.data]);
+  return useMemo(
+    () =>
+      resumirIntervalo(movimentos.data?.movements ?? [], {
+        gaps: movimentos.data?.gaps,
+        // A ponta vem da resposta, e não de `ordenadas[0]`: é o servidor quem
+        // resolve `from` contra o histórico do contexto, e é a ponta que ele
+        // leu que a lista precisa marcar como primeira.
+        inicio: movimentos.data?.from ?? null,
+      }),
+    [movimentos.data],
+  );
 }
 
 /**
@@ -171,5 +212,55 @@ export function useResumoPorVigenciaGeral(periodos: string[]): ResumoDasVigencia
     enabled: ordenadas.length > 1,
   });
 
-  return useMemo(() => resumirIntervalo(overview.data?.serie ?? []), [overview.data]);
+  return useMemo(
+    () =>
+      resumirIntervalo(overview.data?.serie ?? [], {
+        gaps: overview.data?.gaps,
+        inicio: overview.data?.from ?? null,
+      }),
+    [overview.data],
+  );
+}
+
+/**
+ * O que escrever na linha de uma vigência que saiu sem números — e quando não
+ * escrever nada.
+ *
+ * A linha em branco era ambígua por construção. Três coisas diferentes
+ * produzem uma: a vigência está importada e ninguém a comparou; ela é a
+ * primeira do histórico e não tem anterior; ou a leitura do intervalo ainda
+ * não chegou. As três somem na mesma ausência, e quem lê preenche o silêncio
+ * sozinho — a leitura mais natural é "esse mês não teve importação", que é
+ * justamente a única das três que não pode ser: uma vigência que não foi
+ * importada não estaria na lista.
+ *
+ * Então a lista diz qual das três é, e diz `null` para a terceira: enquanto a
+ * leitura não chegou, "não sei ainda" é a verdade, e escrevê-la como "sem
+ * comparação" seria trocar uma ambiguidade por uma afirmação falsa que some
+ * um segundo depois.
+ */
+export function motivoSemNumeros(
+  data: string,
+  resumo: ResumoDasVigencias,
+): { curto: string; porque: string } | null {
+  if (resumo.porVigencia.has(data)) return null;
+  if (resumo.semComparacao.has(data)) {
+    return {
+      curto: "sem comparação",
+      porque:
+        "Vigência importada sem comparação: a comparação com a anterior ainda " +
+        "não foi calculada. O que houve aqui não está somado — e não está " +
+        "contado como zero.",
+    };
+  }
+  if (resumo.primeira === data) {
+    return {
+      curto: "primeira do histórico",
+      porque:
+        "É a vigência mais antiga da leitura: não há uma anterior contra a " +
+        "qual compará-la, então nem a contagem nem o impacto são perguntas " +
+        "com resposta aqui.",
+    };
+  }
+  return null;
 }

@@ -862,6 +862,23 @@ export interface RangeOverview {
   unitsExcluded: RangeOverviewUnitExcluded[];
   /** A série do intervalo, competência a competência, somada entre as unidades incluídas. */
   serie: RangeOverviewPoint[];
+  /**
+   * As competências do intervalo que **nenhuma** unidade incluída conseguiu
+   * comparar — as `gaps` de cada leitura, somadas com a mesma régua.
+   *
+   * Elas não entram na `serie`: uma competência sem comparação não é uma
+   * competência de zero alterações, e somá-la como ponto de valor zero
+   * afirmaria calma onde não se olhou. Mas some da resposta ela também não
+   * pode, senão a tela que lista as competências (o seletor de vigência da
+   * Visão Geral, entre outras) mostra a linha em branco e deixa quem lê
+   * concluir o que quiser — em geral, que não houve importação, que é
+   * justamente o que não aconteceu.
+   *
+   * Uma competência que uma unidade comparou e outra não **não** entra aqui:
+   * o que a série publica dela é a soma de quem comparou, e isso é um número
+   * apurado, não uma lacuna.
+   */
+  gaps: { period: string; label: string; reason: string }[];
 }
 
 /** A mesma régua de `comSinal` na tela: sem sinal apurado, a linha não é ganho nem perda. */
@@ -964,6 +981,29 @@ function serieConsolidada(leituras: LeituraDaUnidade[]): RangeOverviewPoint[] {
   }
 
   return [...pontos.values()].sort((a, b) => a.period.localeCompare(b.period));
+}
+
+/**
+ * As competências que ficaram sem comparação em **todas** as unidades incluídas.
+ *
+ * O rótulo é o da primeira leitura que nomeou a competência — é o mesmo texto
+ * que a unidade usaria, porque sai da mesma função (`rotuloCurtoDaVigencia`).
+ */
+function lacunasConsolidadas(leituras: LeituraDaUnidade[]) {
+  const comparadas = new Set<string>();
+  for (const { analysis } of leituras) {
+    for (const m of analysis.movements) comparadas.add(m.period);
+  }
+
+  const lacunas = new Map<string, { period: string; label: string; reason: string }>();
+  for (const { analysis } of leituras) {
+    for (const g of analysis.gaps) {
+      if (comparadas.has(g.period) || lacunas.has(g.period)) continue;
+      lacunas.set(g.period, g);
+    }
+  }
+
+  return [...lacunas.values()].sort((a, b) => a.period.localeCompare(b.period));
 }
 
 export async function getRangeOverview(
@@ -1092,5 +1132,6 @@ export async function getRangeOverview(
     unitsIncluded,
     unitsExcluded,
     serie: serieConsolidada(analisesIncluidas),
+    gaps: lacunasConsolidadas(analisesIncluidas),
   };
 }

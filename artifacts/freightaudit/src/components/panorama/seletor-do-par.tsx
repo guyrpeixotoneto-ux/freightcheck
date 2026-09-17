@@ -23,6 +23,15 @@ export interface VigenciaDoPar {
   alteracoes: number | null;
   /** O líquido dela na periodicidade abaixo. */
   impacto: number | null;
+  /**
+   * Por que esta vigência não tem números — ver `motivoSemNumeros`.
+   *
+   * A linha sem números e sem nota era lida como "esse mês não teve
+   * importação", que é a única explicação impossível: uma vigência não
+   * importada não chega a esta lista. A nota diz qual das explicações
+   * possíveis é — sem comparação calculada, ou primeira do histórico.
+   */
+  nota?: { curto: string; porque: string } | null;
 }
 
 /**
@@ -105,8 +114,9 @@ export function SeletorDoParDoPanorama({
     É a mesma coluna do seletor que este controle substituiu, e ela é o que faz
     a lista valer a abertura: entre seis datas iguais, "714 alterações" e "6
     alterações" separam a vigência que mudou o contrato da que corrigiu um
-    cadastro. Sem número apurado, a linha é só a vigência — nada aqui inventa
-    "R$ 0" nem "0 alterações" para preencher coluna.
+    cadastro. Sem número apurado, a linha diz **por que** não há número — nada
+    aqui inventa "R$ 0" nem "0 alterações" para preencher coluna, e nada fica
+    em branco deixando a ausência ser interpretada (ver `motivoSemNumeros`).
 
     A coluna é sempre a leitura **de ida** de cada vigência (o que ela trouxe
     contra a anterior dela), inclusive quando o par em tela está invertido: ela
@@ -116,6 +126,14 @@ export function SeletorDoParDoPanorama({
   const linha = (opcao: VigenciaDoPar) => (
     <span className="flex w-full items-center justify-between gap-6">
       <span>{opcao.rotulo}</span>
+      {opcao.impacto == null && opcao.alteracoes === null && opcao.nota && (
+        <span
+          title={opcao.nota.porque}
+          className="shrink-0 text-xs italic text-muted-foreground"
+        >
+          {opcao.nota.curto}
+        </span>
+      )}
       {(opcao.impacto != null || opcao.alteracoes !== null) && (
         <span className="flex shrink-0 flex-col items-end text-xs leading-tight">
           {opcao.impacto != null && (

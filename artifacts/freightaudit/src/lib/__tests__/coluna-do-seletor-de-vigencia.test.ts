@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { resumirIntervalo } from "@/hooks/use-resumo-por-vigencia";
+import { motivoSemNumeros, resumirIntervalo } from "@/hooks/use-resumo-por-vigencia";
 
 /**
  * A coluna de números do seletor "Trocar vigência".
@@ -66,12 +66,58 @@ describe("resumirIntervalo", () => {
   });
 
   it("um intervalo vazio não inventa periodicidade", () => {
-    expect(resumirIntervalo([])).toEqual({ periodicidade: null, porVigencia: new Map() });
+    expect(resumirIntervalo([])).toEqual({
+      periodicidade: null,
+      porVigencia: new Map(),
+      semComparacao: new Set(),
+      primeira: null,
+    });
   });
 
   it("a escolha é estável no empate — a mesma lista não muda de coluna entre renderizações", () => {
     const linhas = [linha("2026-07-01", 10, { ANUAL: -1_000, MENSAL: 1_000 })];
     expect(resumirIntervalo(linhas).periodicidade).toBe("ANUAL");
     expect(resumirIntervalo([...linhas].reverse()).periodicidade).toBe("ANUAL");
+  });
+});
+
+/**
+ * A linha em branco do menu — e por que ela não podia continuar em branco.
+ *
+ * Uma vigência sem números tinha três causas possíveis e uma aparência só. A
+ * leitura que sobrava para quem abre o menu era a única impossível: "esse mês
+ * não teve importação". Vigência não importada não entra na lista — a lista é
+ * feita das vigências importadas do contexto.
+ */
+describe("motivoSemNumeros", () => {
+  const resumo = resumirIntervalo(
+    [linha("2026-07-01", 400, { MENSAL: -12_000 }), linha("2026-08-01", 6, { MENSAL: -40 })],
+    { gaps: [{ period: "2026-06-01" }], inicio: "2026-05-01" },
+  );
+
+  it("cala na vigência que tem números — a nota é só para a linha vazia", () => {
+    expect(motivoSemNumeros("2026-07-01", resumo)).toBeNull();
+  });
+
+  it("diz 'sem comparação' na vigência importada que ninguém comparou", () => {
+    expect(motivoSemNumeros("2026-06-01", resumo)?.curto).toBe("sem comparação");
+  });
+
+  it("diz 'primeira do histórico' na ponta de partida da leitura", () => {
+    expect(motivoSemNumeros("2026-05-01", resumo)?.curto).toBe("primeira do histórico");
+  });
+
+  it("cala enquanto a leitura não chegou — 'não sei ainda' não vira 'sem comparação'", () => {
+    /*
+      É o estado da tela recém-aberta, e também o da Visão Geral servida por
+      uma resposta antiga de cache, sem `gaps`. Escrever a nota aqui trocaria
+      uma ausência ambígua por uma afirmação falsa que some um segundo depois.
+    */
+    const semLeitura = resumirIntervalo([]);
+    expect(motivoSemNumeros("2026-06-01", semLeitura)).toBeNull();
+  });
+
+  it("cala na vigência fora do intervalo lido — ela não é lacuna nem ponta", () => {
+    expect(motivoSemNumeros("2026-09-01", resumo)).toBeNull();
   });
 });

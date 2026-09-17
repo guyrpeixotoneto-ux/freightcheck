@@ -150,6 +150,46 @@ describe("a lista de vigências", () => {
     expect(julho.textContent).not.toContain("R$");
   });
 
+  it("a linha sem números diz por que não os tem — em branco ela vira 'não teve importação'", () => {
+    /*
+      Era o defeito relatado na tela: um mês no meio da lista, vazio dos dois
+      lados, lido como "esse mês não teve importação". Vigência não importada
+      não chega a esta lista — a lista é feita das vigências importadas do
+      contexto. O que aquele mês tem é falta de **comparação**, e a nota
+      carrega o motivo inteiro no `title`.
+    */
+    const menu = abrir(
+      [
+        VIGENCIAS[0],
+        {
+          ...VIGENCIAS[3],
+          alteracoes: null,
+          impacto: null,
+          semNumeros: { curto: "sem comparação", porque: "Vigência importada sem comparação." },
+        },
+      ],
+      "MENSAL",
+    );
+    const julho = within(menu)
+      .getAllByRole("menuitem")
+      .find((l) => l.textContent?.includes("julho/2026"))!;
+
+    expect(within(julho).getByText("sem comparação").title).toContain(
+      "importada sem comparação",
+    );
+    expect(julho.textContent).not.toContain("alterações");
+  });
+
+  it("a nota não disputa espaço com os números — quando eles existem, ela não aparece", () => {
+    const menu = abrir(
+      [{ ...VIGENCIAS[1], semNumeros: { curto: "sem comparação", porque: "..." } }],
+      "MENSAL",
+    );
+
+    expect(menu.textContent).toContain("383 alterações");
+    expect(menu.textContent).not.toContain("sem comparação");
+  });
+
   it("sem impacto em lugar nenhum, a coluna e o cabeçalho dela somem, e a contagem fica", () => {
     const menu = abrir(
       VIGENCIAS.map((v) => ({ ...v, impacto: null })),
