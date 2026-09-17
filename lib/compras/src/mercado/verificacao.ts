@@ -45,7 +45,9 @@ export type MotivoDeDescarte =
   /** O trecho é uma frase em forma de instrução — o número está numa injeção. */
   | "PRECO_EM_TEXTO_DE_INSTRUCAO"
   /** Preço ausente, zero ou negativo. */
-  | "PRECO_INVALIDO";
+  | "PRECO_INVALIDO"
+  /** A mesma oferta já foi aceita — mesma página, mesmo produto, mesmo preço. */
+  | "OFERTA_DUPLICADA";
 
 export const ROTULO_DO_DESCARTE: Record<MotivoDeDescarte, string> = {
   URL_NAO_BAIXADA: "A oferta cita uma página que a busca não baixou",
@@ -54,6 +56,7 @@ export const ROTULO_DO_DESCARTE: Record<MotivoDeDescarte, string> = {
   PRECO_EM_TEXTO_DE_INSTRUCAO:
     "O preço foi lido de uma frase que tenta dar instruções ao agente, e não de uma oferta",
   PRECO_INVALIDO: "Preço ausente, zero ou negativo",
+  OFERTA_DUPLICADA: "A mesma oferta já foi aceita nesta pesquisa",
 };
 
 export interface Descarte {
@@ -133,6 +136,18 @@ export function conferirOfertas(
   const porUrl = new Map(paginas.map((p) => [normalizarUrl(p.url), p]));
   const aceitas: OfertaCapturada[] = [];
   const descartadas: Descarte[] = [];
+  /*
+    A mesma oferta contada duas vezes desloca a mediana e infla o volume — os
+    dois números que mais pesam na recomendação e na confiança. O extrator
+    repete quando relê a mesma listagem, e a deduplicação de páginas não
+    alcança isso: ela impede a página de entrar duas vezes, não o produto de
+    ser lido duas vezes da mesma página.
+
+    A identidade é página + produto + preço. Deliberadamente **não** inclui
+    fornecedor: a mesma listagem pode anunciar o mesmo pneu pelo mesmo preço em
+    dois blocos, e isso é uma oferta só.
+  */
+  const jaAceitas = new Set<string>();
 
   for (const oferta of ofertas) {
     const descartar = (motivo: MotivoDeDescarte) =>
@@ -193,6 +208,17 @@ export function conferirOfertas(
       descartar("PRECO_EM_TEXTO_DE_INSTRUCAO");
       continue;
     }
+
+    const identidade = [
+      normalizarUrl(oferta.url),
+      (oferta.produto ?? "").trim().toLowerCase(),
+      oferta.preco.toFixed(2),
+    ].join("|");
+    if (jaAceitas.has(identidade)) {
+      descartar("OFERTA_DUPLICADA");
+      continue;
+    }
+    jaAceitas.add(identidade);
 
     const { url: _url, ...resto } = oferta;
     aceitas.push({

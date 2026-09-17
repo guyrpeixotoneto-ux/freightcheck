@@ -121,6 +121,8 @@ export interface PesquisaDeMercado {
   };
   /** Erros que `web_search`/`web_fetch` devolveram sem levantar exceção. */
   errosDeFerramenta: { ferramenta: string; codigo: string }[];
+  /** Quantas fontes realmente independentes sustentam a conta. Medição, não nota. */
+  concentracao: Concentracao;
 }
 
 export interface PedidoDePesquisa {
@@ -261,6 +263,7 @@ export async function pesquisarMercado(
     frescor,
     medicao: resultado.medicao,
     errosDeFerramenta: resultado.errosDeFerramenta,
+    concentracao: medirConcentracao(ofertas),
   };
 }
 
@@ -341,5 +344,72 @@ function calcularMargem(
     margemUnitaria,
     quantidade,
     margemTotal: quantidade !== null ? margemUnitaria * quantidade : null,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Concentração
+// ---------------------------------------------------------------------------
+
+/**
+ * A CONCENTRAÇÃO — quantas fontes realmente independentes sustentam a conta.
+ *
+ * Dezessete ofertas parecem dezessete evidências. Numa pesquisa real deste
+ * agente elas vieram de **dois** domínios, e um deles era um agregador cujas
+ * ofertas eram de Magazine Luiza e Shopee. Os três níveis respondem a
+ * perguntas diferentes e não devem ser somados como se fossem o mesmo:
+ *
+ * · **domínio** — de onde o preço foi lido. É a unidade de proveniência.
+ * · **fornecedor** — com quem se compraria. É a unidade de negociação.
+ * · **vendedor** — quem entrega, quando o marketplace o distingue.
+ *
+ * Um agregador com sete anúncios é **uma** página e possivelmente sete
+ * fornecedores. Tratá-lo como sete fontes independentes superestima a
+ * evidência; tratá-lo como um fornecedor só subestima o mercado.
+ *
+ * Isto é **medição, não nota**. Nada aqui entra no cálculo de confiança: com
+ * uma execução observada, mudar a fórmula seria ajustá-la ao caso em vez de ao
+ * problema. O que este bloco faz é pôr o número na mesa para quem decide.
+ */
+export interface Concentracao {
+  /** Quantas ofertas por chave, da maior para a menor. */
+  porDominio: { chave: string; ofertas: number }[];
+  porFornecedor: { chave: string; ofertas: number }[];
+  porVendedor: { chave: string; ofertas: number }[];
+  /** A fatia do maior domínio, de 0 a 1. É a medida de concentração que importa. */
+  fatiaDoMaiorDominio: number;
+  fatiaDoMaiorFornecedor: number;
+  /** Quantas ofertas não declaram vendedor — o buraco da leitura. */
+  semVendedor: number;
+}
+
+function contar(chaves: (string | null)[]): { chave: string; ofertas: number }[] {
+  const mapa = new Map<string, number>();
+  for (const c of chaves) {
+    const chave = (c ?? "").trim();
+    if (chave === "") continue;
+    mapa.set(chave, (mapa.get(chave) ?? 0) + 1);
+  }
+  return [...mapa.entries()]
+    .map(([chave, ofertas]) => ({ chave, ofertas }))
+    .sort((a, b) => b.ofertas - a.ofertas);
+}
+
+/** A concentração das ofertas que entraram na conta. */
+export function medirConcentracao(ofertas: OfertaAnalisada[]): Concentracao {
+  const naConta = ofertas.filter((o) => o.entrouNaConta);
+  const total = naConta.length;
+
+  const porDominio = contar(naConta.map((o) => o.oferta.proveniencia.fonte));
+  const porFornecedor = contar(naConta.map((o) => o.oferta.fornecedor));
+  const porVendedor = contar(naConta.map((o) => o.oferta.vendedor));
+
+  return {
+    porDominio,
+    porFornecedor,
+    porVendedor,
+    fatiaDoMaiorDominio: total === 0 ? 0 : (porDominio[0]?.ofertas ?? 0) / total,
+    fatiaDoMaiorFornecedor: total === 0 ? 0 : (porFornecedor[0]?.ofertas ?? 0) / total,
+    semVendedor: naConta.filter((o) => (o.oferta.vendedor ?? "").trim() === "").length,
   };
 }

@@ -226,7 +226,11 @@ Para cada oferta com preço visível, devolva um objeto com estes campos:
   ponto decimal (3080.50);
 - \`unidadeDoPreco\`: UNIDADE, CAIXA, PACOTE, KG, LITRO, METRO, MES ou DESCONHECIDA;
 - \`unidadesPorEmbalagem\`: quantas unidades vêm na caixa/pacote, quando for o caso;
-- \`fornecedor\`, \`produto\`, \`marca\`, \`especificacao\`: como a página os escreve;
+- \`fornecedor\`: o marketplace ou distribuidor que publica a oferta (Magazine Luiza,
+  Shopee, PneuStore). Num agregador, é a loja de destino — **não** o agregador;
+- \`vendedor\`: dentro de um marketplace, a loja que de fato vende, quando a
+  página a identifica. Null quando o marketplace não distingue os dois;
+- \`produto\`, \`marca\`, \`especificacao\`: como a página os escreve;
 - \`quantidadeMinima\`, \`disponibilidade\`, \`frete\`, \`freteIncluso\`,
   \`impostos\`, \`prazoEmDias\`, \`condicaoComercial\`: quando a página declarar.
 
@@ -567,6 +571,7 @@ export function lerOfertasDeJson(texto: string): OfertaBruta[] {
 
     ofertas.push({
       fornecedor: texto_(o["fornecedor"]),
+      vendedor: texto_(o["vendedor"]),
       produto: texto_(o["produto"]),
       marca: texto_(o["marca"]),
       especificacao: texto_(o["especificacao"]),

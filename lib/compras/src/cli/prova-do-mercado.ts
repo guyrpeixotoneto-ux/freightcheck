@@ -64,6 +64,53 @@ function argumento(nome: string, padrao: string | null): string | null {
   return i >= 0 && process.argv[i + 1] ? process.argv[i + 1]! : padrao;
 }
 
+/**
+ * A execução anterior, medida — não estimada.
+ *
+ * Números da primeira pesquisa real deste agente, em 17/09/2026, com quatro
+ * buscas por consulta: pneu 295/80 R22.5, 40 unidades, Camaçari/BA. Ficam aqui
+ * por extenso porque a comparação precisa de um ponto fixo e auditável; um
+ * arquivo de estado se perde entre ambientes, e um número lembrado de cabeça
+ * não é medição.
+ *
+ * Quando o corte de buscas for aprovado, esta constante passa a ser a linha de
+ * base nova — e a troca é uma decisão registrada em commit, não um efeito
+ * colateral de rodar o comando.
+ */
+const ANTERIOR = {
+  quando: "2026-09-17, com 4 buscas por consulta",
+  custoUsd: 2.1995,
+  tokensEntrada: 378_733,
+  tokensSaida: 12_235,
+  latenciaMs: 269_626,
+  paginas: 4,
+  buscas: 4,
+  fetches: 6,
+  aceitas: 17,
+  exatas: 16,
+  compativeis: 1,
+  dominios: 2,
+  menor: 1709.9,
+  maior: 2839.46,
+  mediana: 2129.9,
+  alvoPiso: 1709.9,
+  alvoTeto: 2129.9,
+  confianca: "MEDIA",
+  pontos: 70,
+};
+
+/** O custo em tokens, pela tabela do Opus 5. Busca de servidor é cobrada à parte. */
+function custoEmTokens(entrada: number, saida: number): number {
+  return (entrada / 1e6) * 5 + (saida / 1e6) * 25;
+}
+
+function delta(agora: number, antes: number, casas = 0): string {
+  if (antes === 0) return agora === 0 ? "=" : "novo";
+  const variacao = ((agora - antes) / antes) * 100;
+  const sinal = variacao > 0 ? "+" : "";
+  return `${sinal}${variacao.toFixed(casas)}%`;
+}
+
 function titulo(texto: string): void {
   console.log(`\n${"─".repeat(78)}\n${texto}\n${"─".repeat(78)}`);
 }
@@ -278,6 +325,209 @@ function conferirQueFoiReal(r: PesquisaDeMercado): string[] {
   return falhas;
 }
 
+/**
+ * O antes e o depois, com os cinco critérios de aceite julgados em código.
+ *
+ * Comparar duas execuções a olho, lendo dois blocos de terminal, é como se
+ * perde uma regressão: o número que piorou está na décima linha de um relatório
+ * que já disse "PESQUISA REAL CONFIRMADA" no fim. Aqui cada critério tem um
+ * teste, e o bloco diz APROVADA ou REPROVADA com o que falhou nomeado.
+ */
+function relatarComparacao(r: PesquisaDeMercado): void {
+  if (r.medicao.modelo === null) return;
+
+  const m = r.medicao;
+  const naConta = r.ofertas.filter((o) => o.entrouNaConta);
+  const exatas = naConta.filter((o) => o.match.classe === "EXATO").length;
+  const compativeis = naConta.filter(
+    (o) => o.match.classe === "COMPATIVEL",
+  ).length;
+  const custo = custoEmTokens(m.tokensEntrada, m.tokensSaida);
+  const duplicadas = r.descartadas.filter(
+    (d) => d.motivo === "OFERTA_DUPLICADA",
+  ).length;
+
+  titulo(`11. COMPARAÇÃO COM A EXECUÇÃO ANTERIOR (${ANTERIOR.quando})`);
+  const linha = (rotulo: string, agora: string, antes: string, d: string) =>
+    console.log(
+      `   ${rotulo.padEnd(26)} ${agora.padStart(14)}   ${antes.padStart(14)}   ${d.padStart(8)}`,
+    );
+
+  linha("", "AGORA", "ANTES", "Δ");
+  linha(
+    "Custo em tokens (US$)",
+    custo.toFixed(4),
+    ANTERIOR.custoUsd.toFixed(4),
+    delta(custo, ANTERIOR.custoUsd),
+  );
+  linha(
+    "Tokens de entrada",
+    String(m.tokensEntrada),
+    String(ANTERIOR.tokensEntrada),
+    delta(m.tokensEntrada, ANTERIOR.tokensEntrada),
+  );
+  linha(
+    "Tokens de saída",
+    String(m.tokensSaida),
+    String(ANTERIOR.tokensSaida),
+    delta(m.tokensSaida, ANTERIOR.tokensSaida),
+  );
+  linha(
+    "Latência (s)",
+    (m.latenciaMs / 1000).toFixed(1),
+    (ANTERIOR.latenciaMs / 1000).toFixed(1),
+    delta(m.latenciaMs, ANTERIOR.latenciaMs),
+  );
+  linha(
+    "Buscas executadas",
+    String(m.buscasServidor),
+    String(ANTERIOR.buscas),
+    delta(m.buscasServidor, ANTERIOR.buscas),
+  );
+  linha(
+    "Fetches executados",
+    String(m.fetchesServidor),
+    String(ANTERIOR.fetches),
+    delta(m.fetchesServidor, ANTERIOR.fetches),
+  );
+  linha(
+    "Páginas abertas",
+    String(r.paginas.length),
+    String(ANTERIOR.paginas),
+    delta(r.paginas.length, ANTERIOR.paginas),
+  );
+  linha(
+    "Ofertas aceitas",
+    String(naConta.length),
+    String(ANTERIOR.aceitas),
+    delta(naConta.length, ANTERIOR.aceitas),
+  );
+  linha(
+    "  das quais EXATO",
+    String(exatas),
+    String(ANTERIOR.exatas),
+    delta(exatas, ANTERIOR.exatas),
+  );
+  linha(
+    "  das quais COMPATIVEL",
+    String(compativeis),
+    String(ANTERIOR.compativeis),
+    delta(compativeis, ANTERIOR.compativeis),
+  );
+  linha(
+    "Domínios distintos",
+    String(r.concentracao.porDominio.length),
+    String(ANTERIOR.dominios),
+    delta(r.concentracao.porDominio.length, ANTERIOR.dominios),
+  );
+  linha(
+    "Mediana (R$)",
+    r.leitura ? r.leitura.mediana.toFixed(2) : "—",
+    ANTERIOR.mediana.toFixed(2),
+    r.leitura ? delta(r.leitura.mediana, ANTERIOR.mediana, 1) : "—",
+  );
+  linha(
+    "Alvo — piso (R$)",
+    temFaixa(r.alvo) ? r.alvo.piso.toFixed(2) : "—",
+    ANTERIOR.alvoPiso.toFixed(2),
+    temFaixa(r.alvo) ? delta(r.alvo.piso, ANTERIOR.alvoPiso, 1) : "—",
+  );
+  linha(
+    "Alvo — teto (R$)",
+    temFaixa(r.alvo) ? r.alvo.teto.toFixed(2) : "—",
+    ANTERIOR.alvoTeto.toFixed(2),
+    temFaixa(r.alvo) ? delta(r.alvo.teto, ANTERIOR.alvoTeto, 1) : "—",
+  );
+  linha(
+    "Confiança",
+    `${r.confianca.confianca} ${r.confianca.pontos}`,
+    `${ANTERIOR.confianca} ${ANTERIOR.pontos}`,
+    delta(r.confianca.pontos, ANTERIOR.pontos),
+  );
+
+  titulo("12. OS TRÊS NÍVEIS DE ORIGEM (não se somam)");
+  console.log("   Domínio da página — de onde o preço foi lido:");
+  for (const d of r.concentracao.porDominio)
+    console.log(`     · ${d.chave}: ${d.ofertas} oferta(s)`);
+  console.log("\n   Fornecedor / marketplace — com quem se compraria:");
+  for (const f of r.concentracao.porFornecedor)
+    console.log(`     · ${f.chave}: ${f.ofertas} oferta(s)`);
+  console.log("\n   Vendedor real — quem entrega, quando identificável:");
+  if (r.concentracao.porVendedor.length === 0)
+    console.log(
+      "     (nenhuma oferta declarou vendedor distinto do fornecedor)",
+    );
+  for (const v of r.concentracao.porVendedor)
+    console.log(`     · ${v.chave}: ${v.ofertas} oferta(s)`);
+  console.log(
+    `\n   Concentração: o maior domínio responde por ${(r.concentracao.fatiaDoMaiorDominio * 100).toFixed(0)}% das ofertas;` +
+      ` o maior fornecedor, ${(r.concentracao.fatiaDoMaiorFornecedor * 100).toFixed(0)}%.`,
+  );
+  console.log(
+    `   ${r.concentracao.semVendedor} oferta(s) não declararam vendedor.` +
+      " Um agregador com N anúncios é UMA página — não N fontes independentes.",
+  );
+
+  titulo("13. CRITÉRIOS DE ACEITE DA OTIMIZAÇÃO");
+  const criterios: { nome: string; passou: boolean; nota: string }[] = [
+    {
+      nome: "1. Custo cai de forma material (≥25%)",
+      passou: custo <= ANTERIOR.custoUsd * 0.75,
+      nota: `US$ ${custo.toFixed(4)} contra US$ ${ANTERIOR.custoUsd.toFixed(4)} (${delta(custo, ANTERIOR.custoUsd)})`,
+    },
+    {
+      nome: "2. Sem regressão na medida 295/80 R22.5",
+      passou:
+        exatas >= ANTERIOR.exatas ||
+        (naConta.length > 0 &&
+          exatas / naConta.length >= ANTERIOR.exatas / ANTERIOR.aceitas),
+      nota: `${exatas} de ${naConta.length} EXATO agora; ${ANTERIOR.exatas} de ${ANTERIOR.aceitas} antes`,
+    },
+    {
+      nome: "3. Nenhuma duplicidade reapareceu",
+      passou: duplicadas === 0,
+      nota:
+        duplicadas === 0
+          ? "nenhuma oferta duplicada descartada"
+          : `${duplicadas} oferta(s) duplicada(s) barradas`,
+    },
+    {
+      nome: "4. Faixa e preço-alvo defensáveis",
+      passou:
+        temFaixa(r.alvo) &&
+        r.leitura !== null &&
+        naConta.length >= 5 &&
+        r.alvo.piso > 0 &&
+        r.alvo.teto >= r.alvo.piso,
+      nota: temFaixa(r.alvo)
+        ? `faixa sobre ${naConta.length} ofertas, piso ${r.alvo.piso.toFixed(2)} e teto ${r.alvo.teto.toFixed(2)}`
+        : "sem faixa derivada",
+    },
+    {
+      nome: "5. Sem concentração excessiva (maior domínio <80%)",
+      passou:
+        r.concentracao.fatiaDoMaiorDominio < 0.8 &&
+        r.concentracao.porDominio.length >= 2,
+      nota:
+        `maior domínio com ${(r.concentracao.fatiaDoMaiorDominio * 100).toFixed(0)}%` +
+        ` em ${r.concentracao.porDominio.length} domínio(s)`,
+    },
+  ];
+
+  for (const c of criterios) {
+    console.log(
+      `   ${c.passou ? "PASSOU " : "FALHOU "} ${c.nome}\n            ${c.nota}`,
+    );
+  }
+
+  const reprovados = criterios.filter((c) => !c.passou);
+  console.log(
+    reprovados.length === 0
+      ? "\n   OTIMIZAÇÃO APROVADA pelos cinco critérios."
+      : `\n   OTIMIZAÇÃO REPROVADA — ${reprovados.length} critério(s) falharam. Não promova o corte.`,
+  );
+}
+
 async function principal(): Promise<void> {
   console.log(
     "PROVA DA PESQUISA DE MERCADO — Agente de Compras / FreightCheck",
@@ -341,6 +591,8 @@ async function principal(): Promise<void> {
   }
 
   relatarPesquisa(pesquisa);
+
+  relatarComparacao(pesquisa);
 
   titulo("VEREDITO");
   const falhas = conferirQueFoiReal(pesquisa);

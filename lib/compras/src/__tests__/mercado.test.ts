@@ -53,6 +53,7 @@ function oferta(
 ): OfertaBruta {
   return {
     fornecedor: null,
+    vendedor: null,
     produto: null,
     marca: null,
     especificacao: null,
@@ -133,8 +134,14 @@ describe("a especificação sai do que o FreightCheck já sabe", () => {
   });
 
   it("a oferta com medida em hífen é EXATO contra a especificação com barra", () => {
-    const e = especificarCompra({ item: "pneu", descricao: "Pneu 295/80 R22.5" });
-    const p = pagina("https://x.example/a", "Jogo 2 Pneus 295-80R22.5 por R$ 1.000,00");
+    const e = especificarCompra({
+      item: "pneu",
+      descricao: "Pneu 295/80 R22.5",
+    });
+    const p = pagina(
+      "https://x.example/a",
+      "Jogo 2 Pneus 295-80R22.5 por R$ 1.000,00",
+    );
     const { aceitas } = conferirOfertas(
       [
         oferta({
@@ -864,6 +871,134 @@ describe("a cadeia inteira, de ponta a ponta", () => {
 });
 
 // ---------------------------------------------------------------------------
+
+describe("os três níveis de origem não se somam", () => {
+  /*
+    Dezessete ofertas pareciam dezessete evidências. Numa pesquisa real elas
+    vieram de dois domínios, e um era agregador cujas ofertas eram de Magazine
+    Luiza e Shopee. Domínio, fornecedor e vendedor respondem a perguntas
+    diferentes — de onde li, com quem compro, quem entrega.
+  */
+  const agora = new Date("2026-09-17T12:00:00Z");
+  const agregador = pagina(
+    "https://agregador.example/p",
+    "A R$ 1.000,00 B R$ 1.100,00 C R$ 1.200,00",
+  );
+  const varejista = pagina("https://loja.example/p", "D R$ 1.050,00");
+
+  const ofertas = [
+    oferta({
+      preco: 1000,
+      trecho: "A R$ 1.000,00",
+      url: agregador.url,
+      produto: "Pneu 295/80R22.5 A",
+      fornecedor: "Magazine Luiza",
+      vendedor: "Loja X",
+    }),
+    oferta({
+      preco: 1100,
+      trecho: "B R$ 1.100,00",
+      url: agregador.url,
+      produto: "Pneu 295-80R22.5 B",
+      fornecedor: "Shopee",
+      vendedor: "Loja Y",
+    }),
+    oferta({
+      preco: 1200,
+      trecho: "C R$ 1.200,00",
+      url: agregador.url,
+      produto: "Pneu 295/80R22.5 C",
+      fornecedor: "Shopee",
+      vendedor: "Loja Y",
+    }),
+    /* A mesma oferta outra vez: mesma página, mesmo produto, mesmo preço. */
+    oferta({
+      preco: 1000,
+      trecho: "A R$ 1.000,00",
+      url: agregador.url,
+      produto: "Pneu 295/80R22.5 A",
+      fornecedor: "Magazine Luiza",
+      vendedor: "Loja X",
+    }),
+    oferta({
+      preco: 1050,
+      trecho: "D R$ 1.050,00",
+      url: varejista.url,
+      produto: "Pneu 295-80 R22.5 D",
+      fornecedor: "PneuStore",
+    }),
+  ];
+
+  it("conta domínio, fornecedor e vendedor separadamente", async () => {
+    const r = await pesquisarMercado(
+      buscaDeFixture([agregador, varejista], ofertas),
+      {
+        item: "pneu",
+        descricao: "Pneu 295/80 R22.5",
+        quantidade: 40,
+        agora,
+      },
+    );
+
+    expect(r.concentracao.porDominio.map((d) => d.ofertas)).toEqual([3, 1]);
+    expect(r.concentracao.porFornecedor.map((f) => f.chave)).toContain(
+      "Shopee",
+    );
+    expect(r.concentracao.porFornecedor).toHaveLength(3);
+    expect(r.concentracao.porVendedor).toHaveLength(2);
+    /* Três domínios de fornecedor sobre um domínio de página só. */
+    expect(r.concentracao.porFornecedor.length).toBeGreaterThan(
+      r.concentracao.porDominio.length,
+    );
+  });
+
+  it("mede a concentração do maior domínio, que é o que engana", async () => {
+    const r = await pesquisarMercado(
+      buscaDeFixture([agregador, varejista], ofertas),
+      {
+        item: "pneu",
+        descricao: "Pneu 295/80 R22.5",
+        quantidade: 40,
+        agora,
+      },
+    );
+    expect(r.concentracao.fatiaDoMaiorDominio).toBeCloseTo(0.75, 2);
+    expect(r.concentracao.semVendedor).toBe(1);
+  });
+
+  it("a mesma oferta duas vezes entra uma vez só", async () => {
+    /* Contá-la duas vezes desloca a mediana e infla o volume. */
+    const r = await pesquisarMercado(
+      buscaDeFixture([agregador, varejista], ofertas),
+      {
+        item: "pneu",
+        descricao: "Pneu 295/80 R22.5",
+        quantidade: 40,
+        agora,
+      },
+    );
+    expect(r.ofertas.filter((o) => o.entrouNaConta)).toHaveLength(4);
+    expect(
+      r.descartadas.filter((d) => d.motivo === "OFERTA_DUPLICADA"),
+    ).toHaveLength(1);
+  });
+
+  it("a mesma página baixada duas vezes conta uma vez", () => {
+    /* O modelo relê uma listagem enquanto monta o resultado; a ferramenta atende. */
+    const { aceitas } = conferirOfertas(
+      [
+        oferta({
+          preco: 1000,
+          trecho: "A R$ 1.000,00",
+          url: agregador.url,
+          produto: "P",
+        }),
+      ],
+      [agregador, { ...agregador }],
+    );
+    expect(aceitas).toHaveLength(1);
+  });
+});
 
 describe("a falha da chamada vira frase acionável, não corpo de erro", () => {
   /*

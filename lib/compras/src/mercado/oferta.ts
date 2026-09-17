@@ -62,7 +62,30 @@ export const ROTULO_DA_UNIDADE: Record<UnidadeDoPreco, string> = {
  * sem trecho não há como conferir que o preço estava mesmo na página.
  */
 export interface OfertaBruta {
+  /**
+   * Quem oferta — o marketplace ou o distribuidor que publica o preço.
+   *
+   * "Magazine Luiza", "Shopee", "PNEUSTORE". É a entidade comercial com quem a
+   * compra seria feita, e **não** é o mesmo que o domínio da página: uma
+   * pesquisa real trouxe sete ofertas de `pneus.org`, um agregador, e os
+   * fornecedores delas eram Magazine Luiza e Shopee.
+   */
   fornecedor: string | null;
+  /**
+   * O vendedor de verdade, quando o marketplace o identifica.
+   *
+   * Num marketplace, quem publica e quem vende podem ser diferentes: a Shopee
+   * é o fornecedor, e o vendedor é a loja dentro dela. Três níveis, então, e
+   * cada um responde a uma pergunta diferente:
+   *
+   * · **domínio** (`proveniencia.fonte`) — de onde este preço foi lido;
+   * · **fornecedor** — com quem se compraria;
+   * · **vendedor** — quem entrega.
+   *
+   * Confundi-los é o que faz um agregador com sete anúncios parecer sete
+   * fontes independentes. Nulo quando a página não distingue os dois.
+   */
+  vendedor: string | null;
   produto: string | null;
   marca: string | null;
   especificacao: string | null;
