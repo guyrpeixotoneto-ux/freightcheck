@@ -272,6 +272,19 @@ router.get("/qlp/auditoria", async (req, res): Promise<void> => {
 
   res.json({
     quadro,
+    /*
+      A vigência **deste** quadro, nomeada na resposta.
+
+      `lerQuadroParaAuditoria` já a resolvia e a guardava para si: as telas de
+      QLP sabiam qual quinzena estavam lendo porque o seletor delas a escolheu, e
+      por isso o corpo não precisava dizê-la. Precisa agora — quem lê esta rota
+      de fora do módulo (a faixa de travessia do Panorama) está numa tela cuja
+      vigência é de **outra família de dados**, e publicar uma contagem de QLP
+      sem dizer de que quinzena ela é seria o número certo sob o título errado.
+      A régua do QLP é própria: ver o cabeçalho de `lib/qlp/src/contexto.ts`.
+    */
+    effectiveDate: tabela.effectiveDate,
+    periodLabel: tabela.periodLabel,
     /* O diagnóstico da leitura viaja junto: uma tabela vazia com colunas
        desconhecidas tem duas causas com conserto oposto, e a leitura do quadro
        já as distingue. */

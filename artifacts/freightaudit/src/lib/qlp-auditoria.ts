@@ -29,6 +29,18 @@ import { formatBrl, formatNumber } from "@/lib/format";
 /** O que a API de `/qlp/auditoria` devolve. */
 export interface AuditoriaDoQuadro {
   quadro: QuadroDeQlp;
+  /**
+   * A vigência **deste quadro** — a régua do QLP, que não é a do equipamento.
+   *
+   * As telas de QLP sabem qual quinzena estão lendo porque o seletor delas a
+   * escolheu, e por isso o corpo da resposta não a dizia. Ela passou a viajar
+   * por causa de quem lê esta rota de fora do módulo: a faixa de travessia do
+   * Panorama está numa tela cuja vigência é de outra família de dados, e uma
+   * contagem de QLP sem a quinzena dela seria o número certo sob o título
+   * errado. Ver `lib/qlp/src/contexto.ts`, no servidor.
+   */
+  effectiveDate: string;
+  periodLabel: string;
   serieEntregue: boolean;
   colunasDesconhecidas: string[];
   resumo: ResumoDoQuadro;

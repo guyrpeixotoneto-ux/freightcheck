@@ -65,6 +65,20 @@ export interface Contexto {
    * para montar o seletor de competência sem uma segunda chamada.
    */
   periodosDisponiveis: string[];
+  /**
+   * A família de dados deste contexto — `REMUNERACAO_EQUIPAMENTO`,
+   * `QUADRO_DE_PESSOAL`, `FINANCIAMENTO_REAL`.
+   *
+   * Como `periodosDisponiveis`, já chegava no JSON de `/contexts`
+   * (`ContextInfo.datasetFamily`) e só faltava o tipo aqui reconhecê-la. Quem a
+   * pediu foi a faixa de travessia do Panorama: é por ela que a tela sabe, **sem
+   * pedir nada**, que o acervo tem quadro de pessoal — e é por ela que a tela
+   * não sai perguntando pelo quadro num acervo que só tem equipamento.
+   *
+   * Opcional porque uma resposta anterior ainda em cache não a traz, e a
+   * ausência tem de significar "não sei", nunca "não é".
+   */
+  datasetFamily?: string | null;
 }
 
 /**

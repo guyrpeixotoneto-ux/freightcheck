@@ -13,7 +13,7 @@ import { EstadoVazio } from "@/components/ui/estado-vazio";
 import { ApiErrorNotice } from "@/components/api-error";
 import { EmAtualizacao, classeDeAtualizacao } from "@/components/ui/em-atualizacao";
 import { cn } from "@/lib/utils";
-import { fetchJson } from "@/lib/api";
+import { fetchJson, fetchJsonOrNull } from "@/lib/api";
 import { GESTAO_A_VISTA, LINHA_DO_TEMPO, PANORAMA } from "@/lib/ambiente";
 import { consultaDoRecorte, opcoesDaVigencia } from "@/lib/leitura-da-vigencia";
 import { LEITURA_DE_APURACAO } from "@/lib/frescor-das-leituras";
@@ -21,6 +21,12 @@ import { contextoAberto, useContextosDaCasca } from "@/lib/contextos";
 import { useFamiliesOverviewQuery } from "@/lib/families-overview";
 import { useSerieDeImpacto, useSerieDeImpactoGeral } from "@/lib/serie-de-impacto";
 import { lerRecorte, nomeDaUnidade, type Recorte } from "@/lib/recorte";
+import {
+  acervoTemQuadro,
+  travessiaDoQuadro,
+  type LinhaDaTravessia,
+} from "@/lib/travessia-do-quadro";
+import type { AuditoriaDoQuadro } from "@/lib/qlp-auditoria";
 import {
   detalheDaFamilia,
   detalheDoImpacto,
@@ -60,6 +66,7 @@ import {
   SeletorDeVigenciaGeral,
 } from "@/components/vigencia/seletor-de-vigencia";
 import { SeletorDoParDoPanorama } from "@/components/panorama/seletor-do-par";
+import { TravessiaDoQuadro } from "@/components/panorama/travessia-do-quadro";
 import { motivoSemNumeros, useResumoPorVigencia } from "@/hooks/use-resumo-por-vigencia";
 import {
   aoEscolherDe,
@@ -288,6 +295,57 @@ export default function Panorama() {
     queryFn: () => fetchJson<BalancoDoRecorte>(`/balance/recorte?${consultaDaProcedencia}`),
   });
 
+  /*
+    O quadro de pessoal — a faixa de travessia do rodapé.
+
+    **Sai depois do conteúdo principal**, pela mesma razão da procedência: não
+    alimenta a resposta que traz alguém à tela, e disputaria o mesmo pool de
+    conexões com a leitura que alimenta.
+
+    **E sai sem o recorte desta tela.** O QLP é da família `QUADRO_DE_PESSOAL`,
+    que tem os seus próprios contextos: mandar o `scopeHash` de um contexto de
+    equipamento pediria uma unidade que aquela lista não tem. Sem ele, a rota
+    resolve o contexto do quadro — que é consolidado entre unidades por desenho
+    (`lib/qlp/src/contexto.ts`) —, e a faixa diz isso em vez de fingir que o
+    número é da unidade do cabeçalho.
+
+    A chave de cache é a mesma que a tela do QLP usa para a mesma consulta
+    (`["qlp", "auditoria", "quadro=X"]`, em `components/qlp-auditoria`): quem
+    clica na faixa abre o módulo sem pedir nada de novo ao servidor.
+
+    404 aqui não é falha: é "este quadro não tem vigência importada", e
+    `fetchJsonOrNull` o traduz em `null` — o quadro não vira linha, e sem linha
+    nenhuma não há faixa.
+
+    **E não se pergunta num acervo que não tem quadro.** A casca já lista os
+    contextos de todas as famílias, e `acervoTemQuadro` lê dali — dois pedidos
+    que respondem 404 a cada abertura da tela mais aberta do produto, para
+    desenhar nada, é custo que a lista em memória dispensa.
+  */
+  const temQuadro = acervoTemQuadro(contextos.contextos);
+  const administrativo = useQuery({
+    queryKey: ["qlp", "auditoria", "quadro=ADMINISTRATIVO"],
+    enabled: principalPronto && temQuadro,
+    retry: false,
+    ...LEITURA_DE_APURACAO,
+    queryFn: () => fetchJsonOrNull<AuditoriaDoQuadro>("/qlp/auditoria?quadro=ADMINISTRATIVO"),
+  });
+  const operacional = useQuery({
+    queryKey: ["qlp", "auditoria", "quadro=OPERACIONAL"],
+    enabled: principalPronto && temQuadro,
+    retry: false,
+    ...LEITURA_DE_APURACAO,
+    queryFn: () => fetchJsonOrNull<AuditoriaDoQuadro>("/qlp/auditoria?quadro=OPERACIONAL"),
+  });
+  const travessia = useMemo(
+    () =>
+      travessiaDoQuadro({
+        ADMINISTRATIVO: administrativo.data ?? null,
+        OPERACIONAL: operacional.data ?? null,
+      }),
+    [administrativo.data, operacional.data],
+  );
+
   const serieDaUnidade = useSerieDeImpacto(visaoGeral ? null : view, consulta, !visaoGeral);
   const serieGeral = useSerieDeImpactoGeral(
     periodosOverview,
@@ -432,6 +490,7 @@ export default function Panorama() {
                   onTrocar={trocarPara}
                   procedencia={procedencia}
                   onRelerProcedencia={relerProcedencia}
+                  travessia={travessia}
                 />
               </div>
             )}
@@ -488,6 +547,7 @@ export default function Panorama() {
                   onTrocar={trocarPara}
                   procedencia={procedencia}
                   onRelerProcedencia={relerProcedencia}
+                  travessia={travessia}
                 />
               </div>
             )}
@@ -626,6 +686,7 @@ function Corpo({
   onTrocar,
   procedencia,
   onRelerProcedencia,
+  travessia,
 }: {
   leitura: LeituraDoPanorama;
   /** A unidade aberta — `null` na Visão Geral. */
@@ -643,6 +704,8 @@ function Corpo({
   onTrocar: (mudancas: Record<string, string | null>) => void;
   procedencia: EstadoDaProcedencia;
   onRelerProcedencia: () => void;
+  /** O quadro de pessoal alcançável daqui — vazio quando não há QLP importado. */
+  travessia: LinhaDaTravessia[];
 }) {
   const daVigencia: Recorte = { ...recorte, period: vigenciaAberta };
   const comDestino = view !== null;
@@ -938,6 +1001,17 @@ function Corpo({
       {view !== null && (
         <Procedencia estado={procedencia} onTentarDeNovo={onRelerProcedencia} />
       )}
+
+      {/*
+        E a última linha da tela: a travessia para o quadro de pessoal.
+
+        Depois da procedência porque é o fim da leitura — respondidas as seis
+        perguntas desta competência, o que sobra é para onde ir. Ela é faixa e
+        não cartão, e cada linha traz a vigência do próprio quadro colada no
+        número: ver `lib/travessia-do-quadro.ts` para o motivo de o QLP não ser
+        uma linha do ranking do "onde aconteceu".
+      */}
+      <TravessiaDoQuadro linhas={travessia} />
 
       {/* As gavetas — as mesmas do Impacto Apurado, sobre o mesmo recorte. */}
       {view && detalheFamilia && (

@@ -32,17 +32,32 @@ vi.mock("@/components/layout/layout", () => ({
   Layout: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
 }));
 
-const CONTEXTOS: Contexto[] = [
-  {
-    scopeHash: "hash-pe",
-    channel: "EMPURRADA",
-    label: "PERNAMBUCO · EMPURRADA",
-    scopes: [{ scopeType: "UNIDADE", code: "BR07", name: "PERNAMBUCO" }],
-    latestPeriod: "2026-08-01",
-    periods: 6,
-    periodosDisponiveis: ["2026-07-01", "2026-08-01"],
-  },
-];
+const DA_UNIDADE: Contexto = {
+  scopeHash: "hash-pe",
+  channel: "EMPURRADA",
+  label: "PERNAMBUCO · EMPURRADA",
+  scopes: [{ scopeType: "UNIDADE", code: "BR07", name: "PERNAMBUCO" }],
+  latestPeriod: "2026-08-01",
+  periods: 6,
+  periodosDisponiveis: ["2026-07-01", "2026-08-01"],
+  datasetFamily: "REMUNERACAO_EQUIPAMENTO",
+};
+
+/** O contexto do quadro de pessoal — a prova de que há quadro a atravessar. */
+const DO_QUADRO: Contexto = {
+  ...DA_UNIDADE,
+  scopeHash: "hash-qlp",
+  label: "PERNAMBUCO · QLP",
+  datasetFamily: "QUADRO_DE_PESSOAL",
+};
+
+/*
+  A lista da casca é **mutável** de propósito: é ela que decide se a tela
+  pergunta pelo quadro de pessoal (`acervoTemQuadro`), e os dois estados — acervo
+  só de equipamento e acervo com quadro — são os dois casos da faixa de
+  travessia. `afterEach` a devolve ao padrão.
+*/
+let CONTEXTOS: Contexto[] = [DA_UNIDADE];
 
 vi.mock("@/lib/contextos", async (original) => ({
   ...(await original<typeof import("@/lib/contextos")>()),
@@ -52,6 +67,7 @@ vi.mock("@/lib/contextos", async (original) => ({
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  CONTEXTOS = [DA_UNIDADE];
 });
 
 /** Uma resposta do servidor, com o carimbo que `fetchJson` confere. */
@@ -227,14 +243,56 @@ const PROCEDENCIA = {
   },
 };
 
+/*
+  Sem QLP importado — o caso comum, e o 404 que a rota do quadro devolve. Todo
+  servidor de mentira desta suíte o responde de propósito: cair no `return` da
+  série faria a faixa de travessia receber um corpo que não é quadro, e uma
+  faixa que desenha o que não entendeu é pior que faixa nenhuma.
+*/
+const SEM_QLP = () => resposta({ error: "Nenhuma vigência de QLP importada ainda." }, 404);
+
 /** Todo endpoint que a página toca, com a resposta que o servidor daria. */
 const servidor = () =>
   vi.fn(async (entrada: RequestInfo | URL) => {
     const url = String(entrada);
     if (url.includes("/changes/families")) return resposta(VIGENCIA);
     if (url.includes("/changes/grouped")) return resposta(VIGENCIA);
+    if (url.includes("/qlp/auditoria")) return SEM_QLP();
     if (url.includes("/balance/recorte")) return resposta(PROCEDENCIA);
     /* A série do gráfico — o intervalo, que a tela pede depois. */
+    return resposta({ from: "2026-07-01", to: "2026-08-01", periods: [], entries: [] });
+  });
+
+/** O quadro de pessoal como a rota o entrega — com a vigência **dele**. */
+const QUADRO = (quadro: "ADMINISTRATIVO" | "OPERACIONAL") => ({
+  quadro,
+  /*
+    Ago/2026 · 2ª quinzena, enquanto a tela lê agosto do equipamento: é o ponto
+    do teste. As duas famílias formam vigências próprias, e é por isso que a
+    faixa escreve a do quadro em vez de herdar a da tela.
+  */
+  effectiveDate: "2026-08-16",
+  periodLabel: "Ago/2026 · 2ª quinzena",
+  serieEntregue: true,
+  colunasDesconhecidas: [],
+  resumo: { quadro, cargos: 34, conferem: 30, divergem: 4, semBase: 0, efetivo: 412, foraDaSoma: 9 },
+  contas: [],
+  benchmark: null,
+  abono: null,
+  linhas: [],
+});
+
+/** O mesmo servidor, com o administrativo importado e o operacional não. */
+const servidorComQuadro = () =>
+  vi.fn(async (entrada: RequestInfo | URL) => {
+    const url = String(entrada);
+    if (url.includes("/qlp/auditoria?quadro=ADMINISTRATIVO")) {
+      return resposta(QUADRO("ADMINISTRATIVO"));
+    }
+    if (url.includes("/qlp/auditoria")) return SEM_QLP();
+    if (url.includes("/changes/families")) return resposta(VIGENCIA);
+    if (url.includes("/changes/grouped")) return resposta(VIGENCIA);
+    if (url.includes("/balance/recorte")) return resposta(PROCEDENCIA);
     return resposta({ from: "2026-07-01", to: "2026-08-01", periods: [], entries: [] });
   });
 
@@ -435,6 +493,56 @@ describe("a página do Panorama", () => {
   });
 
   /*
+    A travessia para o quadro de pessoal — a faixa do rodapé.
+
+    Ela existe porque o QLP **não pode** ser uma linha do ranking do "onde
+    aconteceu": é outra família de dados, com vigência própria e consolidada
+    entre unidades (`lib/travessia-do-quadro.ts`). O que estes dois testes
+    prendem é o par de estados que ela tem de acertar — a faixa que não nasce
+    sem quadro, e a vigência do quadro escrita quando ele existe.
+  */
+  it("sem quadro no acervo, a tela não pergunta pelo quadro — nem desenha faixa", async () => {
+    const fetchDeMentira = servidor();
+    vi.stubGlobal("fetch", fetchDeMentira);
+    montar();
+
+    await waitFor(() => expect(screen.getByText("De onde vêm estes números")).toBeTruthy());
+
+    expect(screen.queryByText(/também tem quadro de pessoal/)).toBeNull();
+    expect(screen.queryByText("QLP Administrativo")).toBeNull();
+    /*
+      E nenhum pedido saiu: a lista de contextos da casca já diz que este acervo
+      só tem equipamento. Dois 404 por abertura, para desenhar nada, é o que
+      `acervoTemQuadro` dispensa.
+    */
+    const pedidos = fetchDeMentira.mock.calls.map(([entrada]) => String(entrada));
+    expect(pedidos.filter((url) => url.includes("/qlp/"))).toEqual([]);
+  });
+
+  it("com QLP importado, a faixa nomeia a vigência do quadro — não a da tela", async () => {
+    CONTEXTOS = [DA_UNIDADE, DO_QUADRO];
+    vi.stubGlobal("fetch", servidorComQuadro());
+    montar();
+
+    await waitFor(() => expect(screen.getByText("QLP Administrativo")).toBeTruthy());
+    expect(screen.getByText(/também tem quadro de pessoal/)).toBeTruthy();
+
+    /*
+      A tela está lendo agosto/2026 do equipamento; o quadro respondeu pela 2ª
+      quinzena. É a vigência **do quadro** que sai colada no número.
+    */
+    expect(screen.getByText("Ago/2026 · 2ª quinzena")).toBeTruthy();
+    expect(screen.getByText("34 cargos · efetivo de 412")).toBeTruthy();
+
+    /* O operacional, que não tem arquivo, não vira linha. */
+    expect(screen.queryByText("QLP Operacional")).toBeNull();
+
+    /* E a faixa diz que o que ela publica não entra em nada acima: contagem de
+       cargos não é comparável com as alterações da vigência lida. */
+    expect(screen.getByText(/não entram em nada acima/)).toBeTruthy();
+  });
+
+  /*
     **A promessa central do módulo, no nível da página.**
 
     O Panorama existe para desfazer uma redundância entre quatro telas que liam
@@ -497,6 +605,7 @@ describe("a procedência, quando ela não tem o que publicar", () => {
       const url = String(entrada);
       if (url.includes("/changes/families")) return resposta(VIGENCIA);
       if (url.includes("/changes/grouped")) return resposta(VIGENCIA);
+      if (url.includes("/qlp/auditoria")) return SEM_QLP();
       if (url.includes("/balance/recorte")) return recorte();
       return resposta({ from: "2026-07-01", to: "2026-08-01", periods: [], entries: [] });
     });
@@ -604,6 +713,7 @@ describe("o par do Panorama", () => {
       if (url.includes("/changes/families/par")) return doPar();
       if (url.includes("/changes/families")) return resposta(VIGENCIA);
       if (url.includes("/changes/grouped")) return resposta(VIGENCIA);
+      if (url.includes("/qlp/auditoria")) return SEM_QLP();
       if (url.includes("/balance/recorte")) return resposta(PROCEDENCIA);
       return resposta({ from: "2026-07-01", to: "2026-08-01", periods: [], entries: [] });
     });

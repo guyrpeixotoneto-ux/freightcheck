@@ -717,6 +717,37 @@ describe("o mapa", () => {
     expect(mapa.tipos[0].contexto).toBe("15 parâmetros · frota de 62");
   });
 
+  it("ranqueia **todos** os tipos que a vigência trouxe, e não só o mais tocado", () => {
+    /*
+      Esta é a promessa que o cartão antigo quebrava, e ela não é de estilo.
+
+      `byEquipment` é montado no servidor a partir de `group.entityType`, sem
+      lista fixa (`lib/comparison/src/cockpit.ts`): o balde existe porque a
+      vigência trouxe aquele tipo. Trecho é da **mesma família** do cavalo e da
+      carreta (`REMUNERACAO_EQUIPAMENTO`, em `lib/ingest/src/tipos.ts`), e por
+      isso ele chega aqui pelo mesmo caminho, sem nada a acrescentar.
+
+      O cartão antigo lia `equipamentoMaisTocado` — um balde, o do topo — e o
+      publicava como "Cavalo — o mais tocado". Numa vigência de cavalo, carreta
+      e trecho, dois terços do "onde aconteceu" não apareciam na tela, e nada
+      dizia que existiam. Este teste prende o contrário: entrou na resposta,
+      está na lista.
+    */
+    const view = comTipos([
+      { equipment: "Cavalo", entityType: "CAVALO", changes: 244, groups: 15, fleet: 62 },
+      { equipment: "Trecho", entityType: "TRECHO", changes: 118, groups: 6, fleet: 940 },
+      { equipment: "Carreta", entityType: "CARRETA", changes: 23, groups: 5, fleet: 71 },
+    ]);
+    const mapa = mapaDoPanorama(leituraDaUnidade(view), view, [], DESTINO);
+    if (mapa.eixo !== "tipos") throw new Error("eixo errado");
+
+    expect(mapa.tipos.map((t) => t.nome)).toEqual(["Cavalo", "Trecho", "Carreta"]);
+    /* O trecho não é identificado por placa — a "frota" dele é a contagem de
+       chaves de trecho da vigência, e a linha a publica como as outras. */
+    expect(mapa.tipos[1].contexto).toBe("6 parâmetros · frota de 940");
+    expect(mapa.tipos[1].href).toContain("entityType=TRECHO");
+  });
+
   it("a linha leva à lista de alterações daquele tipo, pelo código e não pelo nome", () => {
     const view = comTipos([
       { equipment: "Cavalo", entityType: "CAVALO", changes: 244, groups: 15, fleet: 62 },
