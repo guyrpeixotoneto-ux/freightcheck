@@ -15,7 +15,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { useCandidatosDoPar } from "../use-candidatos-do-par";
+import { TETO_DA_ESPERA_MS, useCandidatosDoPar } from "../use-candidatos-do-par";
 import { SeletorDoPar, type VigenciaEscolhivel } from "@/components/comparacao/seletor-do-par";
 import type { CandidatosDoPar } from "@/lib/candidatos";
 
@@ -76,8 +76,16 @@ const comNumeros = (id: string, valor: number, alteracoes: number) => ({
 });
 
 /** A tela como a auditoria a monta: o hook alimentando o seletor, e nada mais. */
-function Tela({ para, escopo }: { para: string; escopo: string | null }) {
-  const candidatos = useCandidatosDoPar("finame", para, escopo);
+function Tela({
+  para,
+  escopo,
+  esperarPor,
+}: {
+  para: string;
+  escopo: string | null;
+  esperarPor?: boolean;
+}) {
+  const candidatos = useCandidatosDoPar("finame", para, escopo, "", esperarPor);
   return (
     <SeletorDoPar
       vigencias={VIGENCIAS}
@@ -95,19 +103,19 @@ function Tela({ para, escopo }: { para: string; escopo: string | null }) {
   );
 }
 
-function montar(para = "v-ago", escopo: string | null = "ca") {
+function montar(para = "v-ago", escopo: string | null = "ca", esperarPor?: boolean) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const utils = render(
     <QueryClientProvider client={client}>
-      <Tela para={para} escopo={escopo} />
+      <Tela para={para} escopo={escopo} esperarPor={esperarPor} />
     </QueryClientProvider>,
   );
   return {
     ...utils,
-    trocar: (p: string, e: string | null = "ca") =>
+    trocar: (p: string, e: string | null = "ca", esperar?: boolean) =>
       utils.rerender(
         <QueryClientProvider client={client}>
-          <Tela para={p} escopo={e} />
+          <Tela para={p} escopo={e} esperarPor={esperar} />
         </QueryClientProvider>,
       ),
   };
@@ -240,4 +248,49 @@ describe("os números do menu De", () => {
     expect(pedidos.length).toBe(anterior);
     expect(anterior).toBeLessThanOrEqual(6);
   }, 30_000);
+});
+
+/**
+ * A ORDEM, que é o que impede o menu de disputar conexão com o conteúdo.
+ *
+ * A promessa do bloco de cima continua valendo — ninguém abre o menu para os
+ * números começarem. O que estes casos prendem é a promessa nova, e ela é sobre
+ * *quando*: a rota das candidatas drena uma fila pedindo de novo a cada 300ms e
+ * cada pedido pode segurar uma conexão por até doze segundos, no mesmo pool de
+ * dez que serve a comparação e os totais. Saindo junto, ela ganhava a disputa —
+ * e a pessoa esperava mais pelo que veio ler.
+ */
+describe("a ordem da pergunta das candidatas", () => {
+  it("sem pedido da tela, sai na hora — as outras oito telas não mudaram", async () => {
+    respostas = [{ para: "v-ago", pendentes: 0, candidatos: [comNumeros("v-jun", 1, 1)] }];
+
+    montar("v-ago", "ca" /* esperarPor: undefined */);
+
+    await waitFor(() => expect(pedidos.length).toBe(1));
+  });
+
+  it("com pedido da tela, espera o conteúdo principal assentar", async () => {
+    respostas = [{ para: "v-ago", pendentes: 0, candidatos: [comNumeros("v-jun", 1, 1)] }];
+
+    const { trocar } = montar("v-ago", "ca", false);
+
+    /* Enquanto o conteúdo principal não assentou, nenhuma pergunta sai. Não é
+       "sai mais tarde": é não sair. */
+    await new Promise((r) => setTimeout(r, 300));
+    expect(pedidos).toEqual([]);
+
+    trocar("v-ago", "ca", true);
+    await waitFor(() => expect(pedidos).toEqual(["/finame/candidatos?para=v-ago"]));
+  });
+
+  it("se o conteúdo principal nunca chega, o teto solta a pergunta assim mesmo", async () => {
+    respostas = [{ para: "v-ago", pendentes: 0, candidatos: [comNumeros("v-jun", 1, 1)] }];
+
+    /* `esperarPor` fica `false` para sempre: é a rota pendurada, o par que não
+       resolve, o defeito que não é do menu. Sem o teto, "depois do conteúdo"
+       viraria "nunca" e a coluna ficaria vazia pelo resto da sessão. */
+    montar("v-ago", "ca", false);
+
+    await waitFor(() => expect(pedidos.length).toBe(1), { timeout: TETO_DA_ESPERA_MS + 2_000 });
+  }, 10_000);
 });

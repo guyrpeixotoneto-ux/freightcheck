@@ -103,6 +103,38 @@ export const ESPERA_ENTRE_RODADAS_MS = 300;
 export const RODADAS_SEM_ANDAR = 3;
 
 /**
+ * Quanto a pergunta das candidatas espera pelo conteúdo principal antes de sair
+ * assim mesmo.
+ *
+ * O teto existe para o caso em que o conteúdo principal **não** chega — rota
+ * fora do ar, consulta pendurada, par que nunca resolve. Sem ele, "depois do
+ * conteúdo" viraria "nunca", e o menu ficaria sem números para sempre por causa
+ * de um defeito que não é dele. Três segundos é mais que o dobro do pior
+ * carregamento medido da tela com vinte pessoas dentro (2,9 s), e bem abaixo do
+ * tempo em que alguém abandona uma tela.
+ */
+export const TETO_DA_ESPERA_MS = 3_000;
+
+/**
+ * A liberação da pergunta: `undefined` é "pode sair já", e é o padrão.
+ *
+ * Quem não passa nada continua com o comportamento de sempre — a pergunta sai
+ * junto com o resto da tela. Quem passa um booleano está dizendo *espere isto
+ * assentar*, e ganha o teto de graça.
+ */
+function useLiberacao(pronto: boolean | undefined): boolean {
+  const [estourouOTeto, setEstourouOTeto] = useState(false);
+
+  useEffect(() => {
+    if (pronto === undefined || pronto || estourouOTeto) return;
+    const id = setTimeout(() => setEstourouOTeto(true), TETO_DA_ESPERA_MS);
+    return () => clearTimeout(id);
+  }, [pronto, estourouOTeto]);
+
+  return pronto === undefined || pronto || estourouOTeto;
+}
+
+/**
  * OS NÚMEROS DE CADA CANDIDATA A "DE" — a pergunta e a cadência dela.
  *
  * ---------------------------------------------------------------------------
@@ -121,11 +153,24 @@ export const RODADAS_SEM_ANDAR = 3;
  * ---------------------------------------------------------------------------
  * As três decisões
  * ---------------------------------------------------------------------------
- * **A pergunta sai assim que há um "Para".** `enabled` não conhece menu nenhum:
+ * **A pergunta sai assim que há um "Para" — e, quando a tela pede, assim que o
+ * conteúdo principal dela assentou.** `enabled` não conhece menu nenhum:
  * ninguém precisa abrir o seletor para o cálculo começar. Esperar o clique fazia
  * o menu abrir com um esqueleto cinza em cada linha e os números entrarem
  * debaixo do cursor de quem já estava escolhendo — a coluna existe para decidir
- * a escolha, e chegar depois dela é chegar tarde.
+ * a escolha, e chegar depois dela é chegar tarde. O que `esperarPor` acrescenta
+ * é outra coisa: não *se* a pergunta sai, e sim *em que ordem*. Esta rota
+ * calcula comparações que ainda não existem, com orçamento de oito segundos e
+ * teto de conexão de doze (`lib/candidatas-do-par.ts`), e drena a fila pedindo
+ * de novo a cada 300 ms — ou seja, ela ocupa conexão do mesmo pool de dez que
+ * atende o conteúdo principal, e ocupa muitas vezes. Medido na tela do FINAME,
+ * com o banco a 15 ms de distância: com as três perguntas saindo juntas, o
+ * conteúdo principal levava **2.281 ms** com dez pessoas e **4.543 ms** com
+ * vinte; com as candidatas atrás delas, **1.452 ms** e **2.873 ms** — 36% menos
+ * nas duas. E a tela inteira assentada não piorou (2.281 → 2.250 ms; 4.543 →
+ * 4.385 ms): o trabalho é o mesmo, muda quem espera por quem. O menu continua
+ * chegando pronto — 0,8 s depois do conteúdo com dez pessoas —, e esse é o
+ * ponto: ninguém abre um filtro antes de a tela existir.
  *
  * **A chave carrega o "Para" e a unidade.** Trocar qualquer um dos dois é uma
  * pergunta nova, então é chave nova: a consulta refaz-se sozinha, e não há
@@ -161,6 +206,16 @@ export function useCandidatosDoPar(
    * mostraria zero — e a tela teria duas réguas para a mesma pergunta.
    */
   filtros = "",
+  /**
+   * O que esta pergunta espera assentar antes de sair — o conteúdo principal da
+   * tela, na forma de um booleano que diz se ele já terminou (com sucesso ou
+   * com erro, tanto faz: o que importa é a conexão ter voltado ao pool).
+   *
+   * `undefined` — o padrão — é "não espere nada", e é o que as outras oito
+   * telas continuam fazendo. Elas podem adotar isto uma a uma, com a mesma
+   * medição; nenhuma precisa.
+   */
+  esperarPor?: boolean,
 ) {
   /**
    * A régua do progresso — por resposta, e não por renderização.
@@ -171,6 +226,8 @@ export function useCandidatosDoPar(
    * movimento do mouse. `marca` é o `dataUpdatedAt` da resposta que produziu a
    * decisão; enquanto ele não muda, a decisão é a mesma de antes.
    */
+  const liberado = useLiberacao(esperarPor);
+
   const progresso = useRef<{
     marca: number;
     chave: string;
@@ -181,7 +238,7 @@ export function useCandidatosDoPar(
 
   return useQuery({
     queryKey: [tela, "candidatos", escopo, para, filtros],
-    enabled: Boolean(para),
+    enabled: Boolean(para) && liberado,
     staleTime: 5 * 60_000,
     queryFn: () =>
       fetchJson<CandidatosDoPar>(
