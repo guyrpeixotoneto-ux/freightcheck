@@ -185,7 +185,15 @@ export function agruparMovimentos(
   );
 
   const legibilizar = (entityLabel: string): { unidade: string; cargo: string } => {
-    if (entityLabel.includes(" · ")) return separarRotulo(entityLabel);
+    if (entityLabel.includes(" · ")) {
+      /*
+        Aqui o cargo é **nome numa lista**, e não coluna: a classificação anda
+        junto dele, porque sem ela dois cargos que só se distinguem por ela
+        viram duas entradas idênticas na mesma unidade.
+      */
+      const { unidade, cargo, classificacao } = separarRotulo(entityLabel);
+      return { unidade, cargo: classificacao ? `${cargo} · ${classificacao}` : cargo };
+    }
     const chave = entityLabel.match(/^(\d{14})([A-Z0-9]*)$/);
     if (!chave) return { unidade: "", cargo: entityLabel };
     const conhecido = conhecidos.get(entityLabel);
