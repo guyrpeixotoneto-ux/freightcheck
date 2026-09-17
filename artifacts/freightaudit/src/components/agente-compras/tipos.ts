@@ -477,7 +477,16 @@ export interface PesquisaDeMercado {
     margemTotal: number | null;
   } | null;
   frescor: Frescor | null;
-  medicao: { latenciaMs: number; paginasBaixadas: number };
+  medicao: {
+    latenciaMs: number;
+    paginasBaixadas: number;
+    modelo: string | null;
+    tokensEntrada: number;
+    tokensSaida: number;
+    buscasServidor: number;
+    fetchesServidor: number;
+  };
+  errosDeFerramenta: { ferramenta: string; codigo: string }[];
 }
 
 /** Distingue os dois desfechos do alvo sem `in`, como no servidor. */

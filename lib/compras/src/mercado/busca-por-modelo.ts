@@ -60,7 +60,11 @@ import type { EspecificacaoDeCompra } from "./especificacao";
 import type { OfertaBruta, UnidadeDoPreco } from "./oferta";
 import type { PaginaBaixada } from "./verificacao";
 import { tentouInstruir } from "./saneamento";
-import type { BuscaDeMercado, ResultadoDaBusca } from "./busca";
+import {
+  MEDICAO_VAZIA,
+  type BuscaDeMercado,
+  type ResultadoDaBusca,
+} from "./busca";
 
 const MODELO =
   process.env.COMPRAS_MODELO_BUSCA?.trim() ||
@@ -69,6 +73,72 @@ const MODELO =
 
 /** Quantas páginas se baixa por pesquisa. Cinco a sete ofertas é o alvo útil. */
 const PAGINAS_PADRAO = 6;
+
+/**
+ * Os modelos que aceitam as ferramentas de busca com filtragem dinâmica.
+ *
+ * `web_search_20260209` e `web_fetch_20260209` são as variantes correntes e
+ * pedem Opus 4.6 ou mais novo, ou Sonnet 4.6 ou mais novo. Os modelos
+ * anteriores continuam com as básicas — `web_search_20250305` e
+ * `web_fetch_20250910` —, que é o par que este arquivo usava para **todos**,
+ * inclusive para o padrão da casa, que é o Opus 5.
+ *
+ * O prefixo basta como teste: a família inteira de um nome ou é nova ou é
+ * velha, e um modelo que este mapa não conheça cai na variante básica, que é a
+ * escolha segura — ela existe em mais lugares e nunca é recusada por ser
+ * antiga demais.
+ */
+const PREFIXOS_COM_FILTRAGEM_DINAMICA = [
+  "claude-opus-5",
+  "claude-opus-4-8",
+  "claude-opus-4-7",
+  "claude-opus-4-6",
+  "claude-sonnet-5",
+  "claude-sonnet-4-6",
+  "claude-fable-5",
+  "claude-mythos-5",
+];
+
+export function temFiltragemDinamica(modelo: string): boolean {
+  return PREFIXOS_COM_FILTRAGEM_DINAMICA.some((p) => modelo.startsWith(p));
+}
+
+/**
+ * As duas ferramentas de servidor, na variante que o modelo aceita.
+ *
+ * **Nenhum cabeçalho beta.** As duas são GA; o `web-fetch-2025-09-10` que este
+ * arquivo enviava era resquício de uma versão anterior da API e, com as
+ * variantes correntes, é um cabeçalho a mais numa chamada que não o pede.
+ *
+ * `code_execution` **não** é declarado junto de propósito: a filtragem dinâmica
+ * das variantes `_20260209` já roda execução de código por baixo, e um segundo
+ * ambiente de execução na mesma chamada confunde o modelo.
+ */
+function ferramentasDaBusca(
+  modelo: string,
+  maximoDePaginas: number,
+): Anthropic.Beta.BetaToolUnion[] {
+  if (temFiltragemDinamica(modelo)) {
+    return [
+      { type: "web_search_20260209", name: "web_search", max_uses: 4 },
+      {
+        type: "web_fetch_20260209",
+        name: "web_fetch",
+        max_uses: maximoDePaginas,
+        max_content_tokens: TOKENS_POR_PAGINA,
+      },
+    ];
+  }
+  return [
+    { type: "web_search_20250305", name: "web_search", max_uses: 4 },
+    {
+      type: "web_fetch_20250910",
+      name: "web_fetch",
+      max_uses: maximoDePaginas,
+      max_content_tokens: TOKENS_POR_PAGINA,
+    },
+  ];
+}
 
 /** Teto de conteúdo por página. Catálogo de e-commerce é longo e repetitivo. */
 const TOKENS_POR_PAGINA = 6000;
@@ -171,16 +241,7 @@ export function buscaPorModelo(): BuscaDeMercado {
           model: MODELO,
           max_tokens: 12_000,
           system: [{ type: "text", text: INSTRUCAO_DA_BUSCA }],
-          tools: [
-            { type: "web_search_20250305", name: "web_search", max_uses: 4 },
-            {
-              type: "web_fetch_20250910",
-              name: "web_fetch",
-              max_uses: maximo,
-              max_content_tokens: TOKENS_POR_PAGINA,
-            },
-          ],
-          betas: ["web-fetch-2025-09-10"],
+          tools: ferramentasDaBusca(MODELO, maximo),
           messages: [
             {
               role: "user",
@@ -192,43 +253,151 @@ export function buscaPorModelo(): BuscaDeMercado {
         const paginas = paginasDaResposta(resposta);
         const ofertas = ofertasDaResposta(resposta);
 
+        const errosDeFerramenta = errosDasFerramentas(resposta);
+
         return {
           paginas,
           ofertas,
           consultas: [especificacao.consulta],
           indisponivel:
-            paginas.length === 0
-              ? "A busca não conseguiu abrir nenhuma página de fornecedor para este item."
-              : null,
+            paginas.length > 0
+              ? null
+              : errosDeFerramenta.length > 0
+                ? `As ferramentas de busca devolveram erro: ${errosDeFerramenta
+                    .map((e) => `${e.ferramenta} → ${e.codigo}`)
+                    .join("; ")}.`
+                : "A busca não conseguiu abrir nenhuma página de fornecedor para este item.",
           medicao: {
             latenciaMs: Date.now() - inicio,
             paginasBaixadas: paginas.length,
+            modelo: resposta.model ?? MODELO,
+            tokensEntrada: resposta.usage?.input_tokens ?? 0,
+            tokensSaida: resposta.usage?.output_tokens ?? 0,
+            buscasServidor: contarUso(resposta, "web_search"),
+            fetchesServidor: contarUso(resposta, "web_fetch"),
           },
+          errosDeFerramenta,
         };
       } catch (erro) {
+        /*
+          O corpo cru fica aqui, no log do processo, e não na resposta: é onde
+          ele é útil para quem opera e onde ele não vira superfície de leitura
+          para quem compra.
+        */
+        console.error("[agente-compras] pesquisa de mercado falhou:", erro);
         /*
           Falhar a pesquisa não pode falhar a pergunta. O agente tem o que
           responder sem mercado — remuneração, teto econômico, cotações
           registradas —, e uma exceção aqui apagaria tudo isso da tela por causa
           da parte opcional.
         */
-        return vazio(
-          `A pesquisa de mercado falhou: ${erro instanceof Error ? erro.message : String(erro)}. ` +
-            "O que está abaixo veio do acervo, sem consulta ao mercado.",
-        );
+        /*
+          A latência real entra mesmo na falha. Zerá-la esconderia o caso que
+          mais importa diagnosticar: a chamada que estourou o teto depois de
+          três minutos pendurada fica indistinguível da que foi recusada em
+          setenta milissegundos por credencial inválida.
+        */
+        return vazio(explicarFalha(erro), Date.now() - inicio);
       }
     },
   };
 }
 
-function vazio(porque: string): ResultadoDaBusca {
+/**
+ * O erro da API traduzido para quem está na tela — sem o corpo cru.
+ *
+ * O corpo de um erro da API é diagnóstico de operação, não texto de produto:
+ * ele chegava à tela como `401 {"type":"error","error":{...}}`, que não diz a
+ * ninguém o que fazer e despeja interno de requisição numa página que quem
+ * compra abre na frente de fornecedor. O que vai para a tela é a classe do
+ * problema e a ação; o corpo continua inteiro no log do servidor, que é onde
+ * ele serve.
+ *
+ * Cada frase termina dizendo que o resto da resposta veio do acervo — sem isso,
+ * quem lê pode concluir que a análise abaixo também falhou, e ela não falhou.
+ */
+export function explicarFalha(erro: unknown): string {
+  const fim = "O que está abaixo veio do acervo, sem consulta ao mercado.";
+  const status =
+    typeof erro === "object" && erro !== null && "status" in erro
+      ? Number((erro as { status: unknown }).status)
+      : null;
+  const texto = erro instanceof Error ? erro.message : String(erro);
+
+  if (
+    status === 401 ||
+    status === 403 ||
+    /authentication_error|permission/i.test(texto)
+  ) {
+    return `A credencial do modelo foi recusada (${status ?? "401"}). Confira ANTHROPIC_API_KEY nas variáveis de ambiente do servidor. ${fim}`;
+  }
+  if (status === 429 || /rate_limit/i.test(texto)) {
+    return `O limite de uso do modelo foi atingido (429). A pesquisa pode ser repetida em alguns minutos. ${fim}`;
+  }
+  if (status !== null && status >= 500) {
+    return `A API do modelo respondeu com erro de servidor (${status}). É transitório; repita a pesquisa. ${fim}`;
+  }
+  if (/timeout|aborted|ETIMEDOUT/i.test(texto)) {
+    return `A pesquisa passou do tempo limite antes de terminar. ${fim}`;
+  }
+  if (/ENOTFOUND|ECONNREFUSED|EAI_AGAIN|fetch failed|network/i.test(texto)) {
+    return `Não foi possível alcançar a API do modelo a partir deste servidor — verifique a saída de rede para api.anthropic.com. ${fim}`;
+  }
+  return `A pesquisa de mercado falhou por um erro inesperado da chamada ao modelo. O detalhe está no log do servidor. ${fim}`;
+}
+
+function vazio(porque: string, latenciaMs = 0): ResultadoDaBusca {
   return {
     paginas: [],
     ofertas: [],
     consultas: [],
     indisponivel: porque,
-    medicao: { latenciaMs: 0, paginasBaixadas: 0 },
+    medicao: { ...MEDICAO_VAZIA, latenciaMs },
+    errosDeFerramenta: [],
   };
+}
+
+/**
+ * Os erros que as ferramentas de servidor devolveram.
+ *
+ * Elas **não levantam exceção**: o erro volta com HTTP 200, num bloco de
+ * resultado cujo `content` é um objeto de erro em vez da lista (busca) ou do
+ * documento (fetch). É a diferença entre "não achei fornecedor" e "o domínio
+ * estava bloqueado" — e, sem lê-la, as duas viram a mesma tela em branco.
+ */
+function errosDasFerramentas(
+  resposta: Anthropic.Beta.BetaMessage,
+): { ferramenta: string; codigo: string }[] {
+  const erros: { ferramenta: string; codigo: string }[] = [];
+
+  for (const bloco of resposta.content) {
+    if (bloco.type === "web_search_tool_result") {
+      const c = bloco.content;
+      /* Sucesso é lista; erro é objeto. Indexar antes de ramificar quebra aqui. */
+      if (
+        !Array.isArray(c) &&
+        c &&
+        typeof c === "object" &&
+        "error_code" in c
+      ) {
+        erros.push({ ferramenta: "web_search", codigo: String(c.error_code) });
+      }
+    }
+    if (bloco.type === "web_fetch_tool_result") {
+      const c = bloco.content;
+      if (c && typeof c === "object" && "error_code" in c) {
+        erros.push({ ferramenta: "web_fetch", codigo: String(c.error_code) });
+      }
+    }
+  }
+  return erros;
+}
+
+/** Quantas vezes o servidor executou uma ferramenta nesta resposta. */
+function contarUso(resposta: Anthropic.Beta.BetaMessage, nome: string): number {
+  return resposta.content.filter(
+    (b) => b.type === "server_tool_use" && b.name === nome,
+  ).length;
 }
 
 function consultaEmTexto(e: EspecificacaoDeCompra): string {

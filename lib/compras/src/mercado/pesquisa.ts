@@ -109,7 +109,18 @@ export interface PesquisaDeMercado {
   economia: Economia | null;
   margem: MargemDeMercado | null;
   frescor: Frescor | null;
-  medicao: { latenciaMs: number; paginasBaixadas: number };
+  /** O que a busca custou — e a prova de que ela chamou um modelo de verdade. */
+  medicao: {
+    latenciaMs: number;
+    paginasBaixadas: number;
+    modelo: string | null;
+    tokensEntrada: number;
+    tokensSaida: number;
+    buscasServidor: number;
+    fetchesServidor: number;
+  };
+  /** Erros que `web_search`/`web_fetch` devolveram sem levantar exceção. */
+  errosDeFerramenta: { ferramenta: string; codigo: string }[];
 }
 
 export interface PedidoDePesquisa {
@@ -249,6 +260,7 @@ export async function pesquisarMercado(
     margem: calcularMargem(melhor, pedido),
     frescor,
     medicao: resultado.medicao,
+    errosDeFerramenta: resultado.errosDeFerramenta,
   };
 }
 

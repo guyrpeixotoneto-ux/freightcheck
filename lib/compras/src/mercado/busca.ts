@@ -31,8 +31,33 @@ export interface ResultadoDaBusca {
   consultas: string[];
   /** Por que a busca não aconteceu, quando não aconteceu. Nulo quando aconteceu. */
   indisponivel: string | null;
-  /** Quanto custou, para o painel técnico. */
-  medicao: { latenciaMs: number; paginasBaixadas: number };
+  /**
+   * Quanto custou, para o painel técnico e para a prova de execução real.
+   *
+   * `modelo` e `tokens` são o que distingue uma pesquisa de verdade de uma de
+   * fixture: a fixture não chama modelo nenhum e devolve os dois zerados. É por
+   * eles que se confere, depois, que a busca saiu mesmo para a internet.
+   */
+  medicao: {
+    latenciaMs: number;
+    paginasBaixadas: number;
+    modelo: string | null;
+    tokensEntrada: number;
+    tokensSaida: number;
+    /** As buscas e os fetches que o servidor de fato executou. */
+    buscasServidor: number;
+    fetchesServidor: number;
+  };
+  /**
+   * Os erros que as ferramentas de servidor devolveram, quando devolveram.
+   *
+   * Erro de `web_search`/`web_fetch` **não** levanta exceção: ele volta com
+   * HTTP 200, num bloco de resultado cujo conteúdo é um objeto de erro em vez
+   * da lista/documento esperado. Sem esta lista, uma pesquisa que não abriu
+   * página nenhuma por bloqueio de domínio ficaria indistinguível de uma que
+   * não achou fornecedor.
+   */
+  errosDeFerramenta: { ferramenta: string; codigo: string }[];
 }
 
 export interface BuscaDeMercado {
@@ -62,11 +87,23 @@ export function buscaIndisponivel(porque: string): BuscaDeMercado {
         ofertas: [],
         consultas: [],
         indisponivel: porque,
-        medicao: { latenciaMs: 0, paginasBaixadas: 0 },
+        medicao: MEDICAO_VAZIA,
+        errosDeFerramenta: [],
       };
     },
   };
 }
+
+/** A medição de quem não chamou modelo nenhum. */
+export const MEDICAO_VAZIA = {
+  latenciaMs: 0,
+  paginasBaixadas: 0,
+  modelo: null,
+  tokensEntrada: 0,
+  tokensSaida: 0,
+  buscasServidor: 0,
+  fetchesServidor: 0,
+} as const;
 
 /**
  * A busca de fixture — páginas escritas à mão, para a suíte.
@@ -87,7 +124,8 @@ export function buscaDeFixture(
         ofertas,
         consultas: [especificacao.consulta],
         indisponivel: null,
-        medicao: { latenciaMs: 0, paginasBaixadas: paginas.length },
+        medicao: { ...MEDICAO_VAZIA, paginasBaixadas: paginas.length },
+        errosDeFerramenta: [],
       };
     },
   };

@@ -173,7 +173,16 @@ function pesquisa(over: Partial<PesquisaDeMercado> = {}): PesquisaDeMercado {
       margemTotal: 12800,
     },
     frescor: "AGORA",
-    medicao: { latenciaMs: 0, paginasBaixadas: 3 },
+    medicao: {
+      latenciaMs: 0,
+      paginasBaixadas: 3,
+      modelo: null,
+      tokensEntrada: 0,
+      tokensSaida: 0,
+      buscasServidor: 0,
+      fetchesServidor: 0,
+    },
+    errosDeFerramenta: [],
     ...over,
   };
 }

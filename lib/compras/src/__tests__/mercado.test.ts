@@ -18,6 +18,7 @@ import {
   temFaixa,
   tentouInstruir,
   envelopar,
+  explicarFalha,
   avaliarConfianca,
   type OfertaBruta,
   type PaginaBaixada,
@@ -829,6 +830,52 @@ describe("a cadeia inteira, de ponta a ponta", () => {
 });
 
 // ---------------------------------------------------------------------------
+
+describe("a falha da chamada vira frase acionável, não corpo de erro", () => {
+  /*
+    O corpo cru chegava à tela como `401 {"type":"error","error":{...}}` — não
+    diz o que fazer e despeja interno de requisição numa página que quem compra
+    abre na frente de fornecedor. Ele continua inteiro no log do servidor.
+  */
+  it("classifica credencial recusada e diz onde corrigir", () => {
+    const f = explicarFalha(
+      Object.assign(new Error("401 authentication_error"), { status: 401 }),
+    );
+    expect(f).toContain("credencial");
+    expect(f).toContain("ANTHROPIC_API_KEY");
+    expect(f).not.toContain('{"type"');
+  });
+
+  it("distingue limite, erro de servidor, tempo esgotado e rede", () => {
+    expect(
+      explicarFalha(Object.assign(new Error("rate"), { status: 429 })),
+    ).toContain("limite");
+    expect(
+      explicarFalha(Object.assign(new Error("boom"), { status: 503 })),
+    ).toContain("servidor");
+    expect(explicarFalha(new Error("Request timeout"))).toContain(
+      "tempo limite",
+    );
+    expect(explicarFalha(new Error("fetch failed ENOTFOUND"))).toContain(
+      "alcançar a API",
+    );
+  });
+
+  it("sempre diz que o resto da resposta veio do acervo", () => {
+    for (const e of [
+      new Error("x"),
+      Object.assign(new Error("y"), { status: 401 }),
+    ]) {
+      expect(explicarFalha(e)).toContain("veio do acervo");
+    }
+  });
+
+  it("o erro desconhecido não vaza a mensagem para a tela", () => {
+    const f = explicarFalha(new Error("segredo-interno-do-stack-trace"));
+    expect(f).not.toContain("segredo-interno");
+    expect(f).toContain("log do servidor");
+  });
+});
 
 describe("a leitura do JSON do extrator é desconfiada", () => {
   it("lê o objeto com cerca de código e texto em volta", () => {
