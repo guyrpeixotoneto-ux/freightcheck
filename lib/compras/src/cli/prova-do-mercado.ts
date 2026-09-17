@@ -36,6 +36,12 @@ import {
   type PesquisaDeMercado,
 } from "../mercado";
 
+/** O mesmo teto de `busca-por-modelo.ts`, só para o batimento saber o que dizer. */
+const TETO_MS = (() => {
+  const bruto = Number(process.env["COMPRAS_BUSCA_TIMEOUT_MS"]);
+  return Number.isFinite(bruto) && bruto > 0 ? bruto : 180_000;
+})();
+
 const MODELO =
   process.env.COMPRAS_MODELO_BUSCA?.trim() ||
   process.env.COMPRAS_MODELO?.trim() ||
@@ -282,6 +288,31 @@ async function principal(): Promise<void> {
         "Nenhuma credencial no ambiente: a pesquisa de mercado não foi executada.",
       );
 
+  /*
+    O comando fica mudo justamente na parte lenta, e isso é defeito dele.
+
+    As seções 1 e 2 saem na hora; a 3 só sai depois que a busca volta — e uma
+    busca de verdade abre meia dúzia de páginas e leva de meio minuto a três.
+    Quem roda vê o cursor parado e conclui que travou. O batimento abaixo
+    escreve em stderr, para não sujar a saída que alguém vai colar num relato,
+    e é apagado quando a busca termina.
+  */
+  const inicio = Date.now();
+  const batimento = buscaDisponivel()
+    ? setInterval(() => {
+        const s = Math.round((Date.now() - inicio) / 1000);
+        process.stderr.write(
+          `\r   … pesquisando o mercado há ${s}s (teto de ${Math.round(TETO_MS / 1000)}s)   `,
+        );
+      }, 5000)
+    : null;
+  if (buscaDisponivel()) {
+    console.log(
+      "\n   Chamando o modelo com web_search + web_fetch. A primeira resposta costuma\n" +
+        "   levar de 30 segundos a 3 minutos — é busca e download de páginas reais.",
+    );
+  }
+
   const pesquisa = await pesquisarMercado(busca, {
     item: argumento("item", "pneu")!,
     descricao: argumento("descricao", "Pneu 295/80 R22.5 rodoviário"),
@@ -291,6 +322,11 @@ async function principal(): Promise<void> {
     remuneracaoUnitaria: Number(argumento("remuneracao", "0")) || null,
     tetoEconomico: Number(argumento("teto", "0")) || null,
   });
+
+  if (batimento !== null) {
+    clearInterval(batimento);
+    process.stderr.write("\r" + " ".repeat(70) + "\r");
+  }
 
   relatarPesquisa(pesquisa);
 
