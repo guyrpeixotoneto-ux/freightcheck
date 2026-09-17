@@ -28,6 +28,7 @@ import {
 import { CartoesDeFiname } from "@/components/finame/cartoes";
 import { SeletorDeFonte } from "@/components/finame/seletor-de-fonte";
 import { ConfrontoDeFiname } from "@/components/finame/confronto";
+import { PendenciasDoReal } from "@/components/finame/pendencias-do-real";
 import { EvolucaoDoConfronto } from "@/components/finame/evolucao-do-confronto";
 import {
   AlteracoesPorVariavel,
@@ -837,6 +838,16 @@ export default function AuditoriaDeFiname() {
           texto: os cartões contam cobertura e resultado, e não estados de
           mudança. Ver `ConfrontoDeFiname`.
         */}
+        {/*
+          O que o número do realizado ainda não inclui, logo acima do confronto.
+
+          Ele vem **antes** da tabela de propósito: um realizado com lançamentos
+          retidos e placas sem tipo não é o mesmo número que um sem pendência
+          nenhuma, e a diferença não pode depender de alguém rolar até o fim ou
+          abrir a tela de Importações. Some sozinho quando não há pendência.
+        */}
+        {modo === "comparacao" && fonte === "REAL" && <PendenciasDoReal />}
+
         {modo === "comparacao" && fonte === "REAL" && (
           <ConfrontoDeFiname
             consulta={consultaDoContexto}

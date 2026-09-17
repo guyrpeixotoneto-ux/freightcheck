@@ -59,6 +59,47 @@ const LABEL_PATTERN = /^([A-Za-z][A-Za-z0-9_]*)_(\d{1,2})_(\d{1,2})_(\d{4})$/;
 /** The day each quinzena begins. Mirrors `quinzenaDe`: 1..15 → 1, 16.. → 2. */
 const DIA_INICIAL_DA_QUINZENA: Record<number, number> = { 1: 1, 2: 16 };
 
+/**
+ * `<CANAL>_MENSAL_<MÊS>_<ANO>` — a competência mensal do acervo Real.
+ *
+ * ---------------------------------------------------------------------------
+ * Por que uma segunda gramática, e não a primeira com a quinzena vazia
+ * ---------------------------------------------------------------------------
+ * Porque a quinzena vazia não existe neste produto: `DIA_INICIAL_DA_QUINZENA`
+ * mapeia 1 → dia 1, e um rótulo mensal que caísse no padrão de cima sairia com
+ * `quinzena: 1` — indistinguível da primeira quinzena do mês. A data derivada é
+ * a mesma (dia 1) nas duas leituras, e é justamente por ser a mesma que a
+ * diferença precisa estar escrita em algum lugar que não seja a data.
+ *
+ * O acervo Real tem competência **mensal**: o extrato do financiamento fecha
+ * por mês, e não por quinzena. Dizer "1ª quinzena de março" sobre ele seria
+ * inventar uma alocação que o banco não fez — e a 2ª quinzena de março, que
+ * ficaria vazia, faria a comparação enxergar um mês em que o financiamento
+ * custou metade.
+ *
+ * A palavra é `MENSAL` e não um número por isso mesmo: nenhum rótulo aceito
+ * antes desta linha muda de significado, porque `MENSAL` nunca casou com
+ * `\d{1,2}`. A extensão é estritamente aditiva.
+ */
+const LABEL_PATTERN_MENSAL = /^([A-Za-z][A-Za-z0-9_]*)_MENSAL_(\d{1,2})_(\d{4})$/i;
+
+/**
+ * A granularidade do período que o rótulo nomeia.
+ *
+ * `QUINZENAL` é o acervo remunerado, que a fonte entrega quinzena a quinzena;
+ * `MENSAL` é o realizado, que fecha por competência. Ela viaja junto do
+ * resultado — e, adiante, junto do snapshot — porque a data sozinha não a
+ * distingue: `2026-03-01` é o primeiro dia da 1ª quinzena de março **e** o
+ * primeiro dia da competência março. Sem o campo, uma tela que somasse os dois
+ * lados não teria como saber que está somando períodos diferentes.
+ */
+export type Granularidade = "QUINZENAL" | "MENSAL";
+
+/** O rótulo de uma competência mensal, na grafia que `parseVigenciaLabel` lê. */
+export function rotuloMensal(canal: string, mes: number, ano: number): string {
+  return `${canal.trim().toUpperCase()}_MENSAL_${mes}_${ano}`;
+}
+
 export interface VigenciaParseResult {
   /** The label exactly as it appeared. */
   label: string;
@@ -77,8 +118,17 @@ export interface VigenciaParseResult {
    */
   quinzena: 1 | 2 | null;
   /**
-   * `YYYY-MM-DD` — the first day of the quinzena the label names. Null when the
-   * label does not match a known shape.
+   * Que período o rótulo nomeia — quinzena ou competência mensal.
+   *
+   * `null` acompanha `effectiveDate: null`: um rótulo que não foi lido não tem
+   * granularidade conhecida, e assumir a quinzenal por ser a mais comum seria
+   * decidir por quem não foi entendido.
+   */
+  granularidade: Granularidade | null;
+  /**
+   * `YYYY-MM-DD` — the first day of the period the label names: o dia inicial
+   * da quinzena, ou o dia 1 da competência mensal. Null when the label does not
+   * match a known shape.
    */
   effectiveDate: string | null;
   /** Machine-readable reason when parsing failed. */
@@ -94,12 +144,50 @@ export interface VigenciaParseResult {
  */
 export function parseVigenciaLabel(rawLabel: string): VigenciaParseResult {
   const label = rawLabel.trim();
+
+  /*
+    O mensal é conferido primeiro porque é o mais específico dos dois: a palavra
+    `MENSAL` não casa com o `\d{1,2}` do padrão quinzenal, de modo que a ordem
+    não muda resultado nenhum — ela apenas deixa a leitura na ordem em que a
+    gramática é escrita.
+  */
+  const mensal = LABEL_PATTERN_MENSAL.exec(label);
+  if (mensal) {
+    const canal = mensal[1];
+    const mes = Number(mensal[2]);
+    const ano = Number(mensal[3]);
+    if (mes < 1 || mes > 12) {
+      return {
+        label,
+        channel: canal,
+        quinzena: null,
+        granularidade: "MENSAL",
+        effectiveDate: null,
+        failureCode: "IMPOSSIBLE_DATE",
+      };
+    }
+    /*
+      A competência começa no dia 1, que todo mês tem — não há 31/02 a temer
+      aqui. A quinzena sai `null` e é assim que tem de sair: a competência não
+      nomeia uma das duas metades, e devolver 1 diria que ela nomeia a primeira.
+    */
+    const data = new Date(Date.UTC(ano, mes - 1, 1));
+    return {
+      label,
+      channel: canal,
+      quinzena: null,
+      granularidade: "MENSAL",
+      effectiveDate: data.toISOString().slice(0, 10),
+    };
+  }
+
   const match = LABEL_PATTERN.exec(label);
   if (!match) {
     return {
       label,
       channel: null,
       quinzena: null,
+      granularidade: null,
       effectiveDate: null,
       failureCode: "UNRECOGNISED_FORMAT",
     };
@@ -119,6 +207,7 @@ export function parseVigenciaLabel(rawLabel: string): VigenciaParseResult {
       label,
       channel,
       quinzena: null,
+      granularidade: "QUINZENAL",
       effectiveDate: null,
       failureCode: "IMPOSSIBLE_QUINZENA",
     };
@@ -132,6 +221,7 @@ export function parseVigenciaLabel(rawLabel: string): VigenciaParseResult {
       label,
       channel,
       quinzena: quinzena as 1 | 2,
+      granularidade: "QUINZENAL",
       effectiveDate: null,
       failureCode: "IMPOSSIBLE_DATE",
     };
@@ -150,6 +240,7 @@ export function parseVigenciaLabel(rawLabel: string): VigenciaParseResult {
       label,
       channel,
       quinzena: quinzena as 1 | 2,
+      granularidade: "QUINZENAL",
       effectiveDate: null,
       failureCode: "IMPOSSIBLE_DATE",
     };
@@ -159,6 +250,7 @@ export function parseVigenciaLabel(rawLabel: string): VigenciaParseResult {
     label,
     channel,
     quinzena: quinzena as 1 | 2,
+    granularidade: "QUINZENAL",
     effectiveDate: date.toISOString().slice(0, 10),
   };
 }

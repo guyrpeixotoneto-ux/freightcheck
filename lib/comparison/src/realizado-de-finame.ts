@@ -198,9 +198,34 @@ export const INDISPONIVEL_POR_FALTA_DE_FONTE: IndisponibilidadeDoRealizado = {
 /**
  * A fonte em uso.
  *
- * Um ponto só de troca, e é o que faz a promessa do cabeçalho ser verdade:
- * quando o adaptador existir, esta linha é o que muda.
+ * Um ponto só de troca, e a promessa do cabeçalho cumprida: o adaptador chegou
+ * (`fonte-real-do-acervo.ts`, lendo o acervo `FINANCIAMENTO_REAL` que a
+ * importação do extrato do ERP produz), e o que mudou foi isto — uma função que
+ * devolve o que estiver registrado, em vez da constante.
+ *
+ * **Registrada, e não importada**, por duas razões. A primeira é de ciclo: o
+ * adaptador importa os tipos daqui, e importá-lo de volta fecharia o laço. A
+ * segunda é de fronteira: o adaptador precisa de uma conexão, e esta biblioteca
+ * é lida pelo navegador também — um `import { db }` aqui arrastaria o `pg` para
+ * dentro do bundle da tela.
+ *
+ * Quem registra é o servidor, na partida. Enquanto ninguém registra — no
+ * navegador, num teste de unidade, numa instalação sem o acervo real — quem
+ * responde continua sendo {@link SEM_FONTE_DO_REALIZADO}, que diz a verdade
+ * sobre não existir.
  */
+let fonteRegistrada: FonteDoRealizado = SEM_FONTE_DO_REALIZADO;
+
+/**
+ * Declara qual fonte responde pelo realizado neste processo.
+ *
+ * Idempotente por natureza: registrar duas vezes deixa a última valendo, que é
+ * o que um servidor reiniciando dentro do mesmo processo (um teste) precisa.
+ */
+export function registrarFonteDoRealizado(fonte: FonteDoRealizado): void {
+  fonteRegistrada = fonte;
+}
+
 export function fonteDoRealizadoEmUso(): FonteDoRealizado {
-  return SEM_FONTE_DO_REALIZADO;
+  return fonteRegistrada;
 }

@@ -420,6 +420,45 @@ export const ALLOWLIST: {
     tipo: "date",
     aindaPodeNaoExistir: true,
   },
+  /*
+    As quatro da `0104`, todas aditivas e nulas como as de cima.
+
+    `snapshot.granularidade` é a que carrega o peso: a competência mensal do
+    acervo Real e a 1ª quinzena do mesmo mês começam no mesmo dia, e é ela que
+    diz qual das duas um snapshot é. Nula nas vigências anteriores, que são
+    todas quinzenais — e lê-se assim, por regra, sem backfill.
+
+    As três de `import_run` são a declaração do envio correspondente: a
+    granularidade pela qual a planilha entrou, a competência que quem enviou
+    afirmou, e a unidade que ele escolheu do cadastro — esta última porque o
+    extrato do ERP não traz CNPJ, e sem UNIDADE a vigência não tem identidade.
+    Nulas em todo envio anterior, pela mesma razão de `declared_family` e
+    `declared_period`.
+  */
+  {
+    tabela: "snapshot",
+    coluna: "granularidade",
+    tipo: "text",
+    aindaPodeNaoExistir: true,
+  },
+  {
+    tabela: "import_run",
+    coluna: "declared_granularity",
+    tipo: "text",
+    aindaPodeNaoExistir: true,
+  },
+  {
+    tabela: "import_run",
+    coluna: "declared_competence",
+    tipo: "date",
+    aindaPodeNaoExistir: true,
+  },
+  {
+    tabela: "import_run",
+    coluna: "declared_unidade",
+    tipo: "text",
+    aindaPodeNaoExistir: true,
+  },
 ];
 
 /**
@@ -479,6 +518,23 @@ const TABELAS_REMOVIDAS = [
     consultada. Aqui ela é a primeira coisa que o `down` confere.
   */
   "ticket_movement_review",
+  /*
+    `financiamento_real_decisao`, da `0104` — quem confirmou uma duplicata do
+    extrato do financiamento, ou classificou um ativo que o cadastro não
+    resolveu.
+
+    Entra aqui, e não entre as descartáveis, pelo critério desta lista: é
+    decisão de gente. "Fulano confirmou em 12/09 que as duas linhas da
+    RZG-5A37 são o mesmo pagamento" não é reconstruível por consulta nenhuma —
+    a tabela de lançamentos diz que elas são idênticas, e só esta diz o que se
+    concluiu disso. Um Development com decisão registrada trava o `down`, e
+    travar é o desfecho certo.
+
+    Vem antes de `finame_real_lancamento` (entre as descartáveis) por prudência
+    de ordem, embora não haja FK entre as duas: a pré-condição de tabela vazia
+    só é útil se for consultada antes de qualquer queda.
+  */
+  "financiamento_real_decisao",
   "ticket_change",
   "snapshot_merge",
   "import_decision",
@@ -955,6 +1011,18 @@ const TABELAS_DESCARTAVEIS = [
   "ticket_movement_field",
   "ticket_movement_day",
   "ticket_import_comparacao",
+  /*
+    `finame_real_lancamento`, da `0104` — o extrato do financiamento, linha a
+    linha.
+
+    Entra aqui pelo critério desta lista, e não por ser nova: nada nela é
+    decisão de gente. Cada linha é a leitura de uma linha de planilha que
+    continua inteira em `raw_cell`, e reimportar o arquivo a reconstrói
+    idêntica — a agregação é função pura das linhas aceitas. O que **é** decisão
+    de gente mora em `financiamento_real_decisao`, na outra lista, e é por isso
+    que as duas nasceram separadas.
+  */
+  "finame_real_lancamento",
 ];
 
 /**
@@ -3792,6 +3860,59 @@ function planoUp(): PassoUp[] {
     uma coluna, e nenhuma consulta a reconstrói. É por isso que o `down` exige a
     tabela vazia antes de descer — ele só desce quando não há rollback a perder.
   */
+  /*
+    A `0104` — o financiamento real em competência mensal.
+
+    Nasceu `0103` e virou `0104` no encontro de fila: a `main` chegou antes com
+    a `0103_justificativa_em_lote`, e renumerar é o que a fila deste repositório
+    faz nesse caso — a `0048` e a `0102` têm o mesmo histórico escrito no
+    cabeçalho delas. O número aparece num lugar só do código, que é aqui.
+
+    DDL pura, sem backfill: as quatro colunas são aditivas e nulas (ficam, pela
+    `ALLOWLIST`), e o que o `down` derruba são as duas tabelas. O `up` as repõe
+    levantando o DDL da própria migration, na ordem inversa da queda.
+
+    `finame_real_lancamento` volta **vazia**, e isso é o desfecho certo: cada
+    linha dela é a leitura de uma linha de planilha que continua em `raw_cell`,
+    e a próxima importação daquele mês a reconstrói idêntica. A de decisões
+    volta vazia porque o `down` só desce quando ela já estava — é a pré-condição
+    de `TABELAS_REMOVIDAS`, e é ela que garante que não há decisão humana a
+    perder.
+  */
+  const M104 = "0104_financiamento_real_em_competencia_mensal";
+  for (const t of ["finame_real_lancamento", "financiamento_real_decisao"]) {
+    add(M104, t, levantar(M104, new RegExp(`CREATE TABLE IF NOT EXISTS "${t}" \\(`)));
+  }
+  for (const fk of [
+    "finame_real_lancamento_import_run_id_import_run_id_fk",
+    "finame_real_lancamento_raw_row_id_raw_row_id_fk",
+    "finame_real_lancamento_snapshot_id_snapshot_id_fk",
+    "finame_real_lancamento_fact_id_fact_id_fk",
+  ]) {
+    add(
+      M104,
+      `fk ${fk}`,
+      levantar(
+        M104,
+        new RegExp(
+          `DO \\$\\$\\s*\\n\\s*BEGIN\\s*\\n\\s*IF NOT EXISTS \\(SELECT 1 FROM pg_constraint WHERE conname = '${fk}'\\)`,
+        ),
+      ),
+    );
+  }
+  for (const i of [
+    "finame_real_lancamento_row_uq",
+    "finame_real_lancamento_run_idx",
+    "finame_real_lancamento_snapshot_idx",
+    "finame_real_lancamento_fact_idx",
+    "finame_real_lancamento_placa_idx",
+    "finame_real_lancamento_status_idx",
+    "finame_real_lancamento_raw_row_idx",
+    "financiamento_real_decisao_chave_idx",
+  ]) {
+    add(M104, `índice ${i}`, levantar(M104, new RegExp(`INDEX IF NOT EXISTS "${i}"`)));
+  }
+
   const M89 = "0089_normalizacao_do_nome_gerencial";
   add(
     M89,

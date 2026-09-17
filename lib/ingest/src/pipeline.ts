@@ -52,6 +52,7 @@ import {
   sheetRange,
   slugifyColumn,
   type SheetPlan,
+  reconhecerLayoutDoExtrato,
 } from "./workbook";
 import {
   classifyEntityType,
@@ -757,6 +758,13 @@ export interface ReceiveResult {
   contentSha256: string;
 }
 
+/** Uma declaração vazia é ausência de declaração, e não string vazia. */
+function normalizarDeclaracao(valor: string | null | undefined): string | null {
+  if (valor === null || valor === undefined) return null;
+  const limpo = valor.trim();
+  return limpo === "" ? null : limpo;
+}
+
 export interface ReceiveOptions {
   filePath: string;
   filename?: string;
@@ -793,6 +801,34 @@ export interface ReceiveOptions {
    * {@link exigirQuinzenaDeclarada}.
    */
   declaredPeriod?: string | null;
+  /**
+   * A granularidade do acervo por onde o arquivo entrou — `QUINZENAL` ou
+   * `MENSAL`.
+   *
+   * Opcional como as demais declarações. Ela não muda a leitura: a
+   * granularidade de cada vigência continua saindo do rótulo (`MENSAL` no
+   * rótulo mensal, `QUINZENAL` no quinzenal). O que ela permite é a
+   * conferência — um extrato mensal enviado pela linha da quinzena é recusado
+   * antes de qualquer fato entrar, em vez de virar uma vigência quinzenal com a
+   * segunda metade do mês vazia.
+   */
+  declaredGranularity?: string | null;
+  /**
+   * A competência que o envio afirma cobrir, como o primeiro dia do mês.
+   *
+   * É o `declaredPeriod` do acervo Real: o extrato do ERP não traz rótulo de
+   * vigência nenhum, então quem diz de que mês ele é é quem envia — e a
+   * importação confere contra `MES`/`ANO` das linhas.
+   */
+  declaredCompetence?: string | null;
+  /**
+   * A unidade que o envio declara, como CNPJ.
+   *
+   * Obrigatória no acervo Real, e ausente no remunerado: lá a coluna
+   * `Unidade - CNPJ` vem em cada linha do arquivo, e o escopo sai dela. O
+   * extrato não traz CNPJ, e sem UNIDADE a vigência não tem identidade.
+   */
+  declaredUnidade?: string | null;
 }
 
 /**
@@ -982,6 +1018,16 @@ export async function receiveFile(
       declaredType: declarado?.code ?? null,
       declaredFamily: familiaDeclarada,
       declaredPeriod: quinzenaDeclarada,
+      declaredGranularity: normalizarDeclaracao(options.declaredGranularity),
+      declaredCompetence: normalizarDeclaracao(options.declaredCompetence),
+      /*
+        Só os dígitos: o CNPJ chega ora mascarado, ora como número — e como
+        número ele perde o zero da frente. É a mesma normalização que
+        `normalizeScopeCode` aplica ao escopo, e guardá-la já normalizada aqui é
+        o que faz a conferência ser uma igualdade, sem tradução no meio.
+      */
+      declaredUnidade:
+        normalizarDeclaracao(options.declaredUnidade)?.replace(/\D/g, "") ?? null,
     })
     .returning();
 
@@ -1184,6 +1230,9 @@ export async function reprocessImportRun(
       declaredType: importRunTable.declaredType,
       declaredFamily: importRunTable.declaredFamily,
       declaredPeriod: importRunTable.declaredPeriod,
+      declaredGranularity: importRunTable.declaredGranularity,
+      declaredCompetence: importRunTable.declaredCompetence,
+      declaredUnidade: importRunTable.declaredUnidade,
       startedAt: importRunTable.startedAt,
     })
     .from(importRunTable)
@@ -1206,6 +1255,45 @@ export async function reprocessImportRun(
         "pela aba do tipo certo.",
     );
   }
+
+  /*
+    A declaração do arquivo é do **arquivo**, e não da última tentativa.
+
+    `anterior` é a leitura mais recente que abriu o arquivo — e ela pode ser uma
+    releitura que falhou antes de declarar o que quer que fosse. Herdar dela e
+    parar aí faz a declaração se apagar ao longo da corrente: no acervo Real, um
+    reprocessamento que falhou apagou a unidade, e o seguinte falhou pelo mesmo
+    motivo, sobre um arquivo cuja unidade estava declarada desde o primeiro
+    envio. Cada releitura perdia um pouco mais da história.
+
+    Aqui a corrente inteira é consultada, e de cada declaração se pega a mais
+    recente que **existe**. Reler um arquivo nunca desdeclara nada: no limite,
+    repete o que já se sabia dele.
+  */
+  const { rows: declaradas } = await db.execute<{
+    declared_type: string | null;
+    declared_family: string | null;
+    declared_period: string | null;
+    declared_granularity: string | null;
+    declared_competence: string | null;
+    declared_unidade: string | null;
+  }>(sql`
+    SELECT (array_agg(declared_type ORDER BY started_at DESC)
+              FILTER (WHERE declared_type IS NOT NULL))[1] AS declared_type,
+           (array_agg(declared_family ORDER BY started_at DESC)
+              FILTER (WHERE declared_family IS NOT NULL))[1] AS declared_family,
+           (array_agg(declared_period::text ORDER BY started_at DESC)
+              FILTER (WHERE declared_period IS NOT NULL))[1] AS declared_period,
+           (array_agg(declared_granularity ORDER BY started_at DESC)
+              FILTER (WHERE declared_granularity IS NOT NULL))[1] AS declared_granularity,
+           (array_agg(declared_competence::text ORDER BY started_at DESC)
+              FILTER (WHERE declared_competence IS NOT NULL))[1] AS declared_competence,
+           (array_agg(declared_unidade ORDER BY started_at DESC)
+              FILTER (WHERE declared_unidade IS NOT NULL))[1] AS declared_unidade
+      FROM import_run
+     WHERE source_file_id = ${anterior.sourceFileId}::uuid
+  `);
+  const doArquivo = declaradas[0];
 
   const [arquivo] = await db
     .select()
@@ -1235,7 +1323,9 @@ export async function reprocessImportRun(
     antes de abrir run — em vez de virar um arquivo que entra e não produz fato.
   */
   const declaracaoPedida =
-    options.declaredType === undefined ? anterior.declaredType : options.declaredType;
+    options.declaredType === undefined
+      ? (anterior.declaredType ?? doArquivo?.declared_type ?? null)
+      : options.declaredType;
   const declarado =
     declaracaoPedida === null || declaracaoPedida.trim() === ""
       ? null
@@ -1265,7 +1355,7 @@ export async function reprocessImportRun(
         triggeredBy: options.requestedBy ?? null,
         declaredType: declarado?.code ?? null,
         // Herdada, como o tipo: reler um arquivo não muda o acervo dele.
-        declaredFamily: anterior.declaredFamily ?? null,
+        declaredFamily: anterior.declaredFamily ?? doArquivo?.declared_family ?? null,
         /*
           Herdada pela mesma razão, e com uma a mais: reler não muda a quinzena
           de que o arquivo é. Perdê-la na releitura faria o run relido deixar de
@@ -1273,7 +1363,24 @@ export async function reprocessImportRun(
           conferência sumiria em silêncio, que é o oposto do que ela existe para
           fazer.
         */
-        declaredPeriod: anterior.declaredPeriod ?? null,
+        declaredPeriod: anterior.declaredPeriod ?? doArquivo?.declared_period ?? null,
+        /*
+          As três do acervo Real, herdadas pela mesma razão — e a unidade com uma
+          a mais, que a releitura do primeiro extrato ensinou: sem ela o run
+          relido **falha**, porque o extrato do ERP não traz CNPJ para o
+          pipeline deduzir e a vigência fica sem identidade.
+
+          O defeito apareceu no app, e não em teste: reprocessar o extrato para
+          que o leitor novo gravasse a impressão digital terminou em FAILED com
+          "não tem unidade declarada" — sobre um arquivo cuja unidade estava
+          declarada desde o primeiro envio. Reler um arquivo não muda de que
+          unidade ele é, exatamente como não muda o acervo nem a quinzena.
+        */
+        declaredGranularity:
+          anterior.declaredGranularity ?? doArquivo?.declared_granularity ?? null,
+        declaredCompetence:
+          anterior.declaredCompetence ?? doArquivo?.declared_competence ?? null,
+        declaredUnidade: anterior.declaredUnidade ?? doArquivo?.declared_unidade ?? null,
         reprocessOfRunId: anterior.id,
         reprocessReason: motivo,
       })
@@ -1847,6 +1954,28 @@ export async function stage(
     const headerRow = rows.find((r) => r.isHeader);
     if (!headerRow) continue;
     const headerCells = cellsByRow.get(headerRow.id) ?? new Map();
+
+    /*
+      O razão contábil do ERP não passa por aqui, e não é omissão.
+
+      Esta staging trabalha no grão do modelo — uma linha por entidade por
+      vigência, uma coluna por atributo — e o extrato do financiamento é outro
+      grão: a linha é um lançamento, e o valor comparável é a **soma** dos
+      lançamentos da placa no mês. Passá-lo por este laço produziria um fato por
+      célula de um arquivo de 43 colunas, com a placa repetida dentro da mesma
+      vigência: chave repetida, que o promote recusa (`ENTIDADE_DUPLICADA_
+      CONFLITANTE`) ou resolve guardando uma linha e perdendo a outra.
+
+      Quem estagia o extrato é `estagiarExtratoReal`
+      (`financiamento-real/estagio.ts`), que escreve nesta mesma
+      `staged_fact` — o consolidado, um por (competência, placa) — e devolve o
+      arquivo ao caminho de sempre a partir daí. A aba fica com role SOURCE
+      porque é fonte de fato mesmo; o que muda é quem a lê.
+    */
+    const cabecalhosDaAba = [...headerCells.values()].map(
+      (cell) => (cell.rawValue ?? "").trim() || null,
+    );
+    if (reconhecerLayoutDoExtrato(cabecalhosDaAba).reconhecido) continue;
 
     /*
       Que equipamento é esta aba — decidido pelas colunas dela.
@@ -3925,6 +4054,16 @@ export async function promote(
             entityTypeSet: tiposDaVigencia.join("+"),
             datasetFamily,
             canal,
+            /*
+              A granularidade sai do rótulo, que é onde ela é declarada.
+
+              `EMPURRADA_MENSAL_3_2026` produz `MENSAL`; `EMPURRADA_1_3_2026`,
+              `QUINZENAL`. Gravá-la é o que distingue duas vigências que caem no
+              **mesmo dia**: a competência de março e a 1ª quinzena de março
+              começam as duas em `2026-03-01`, e sem esta coluna nada no banco
+              diria que uma cobre trinta dias e a outra quinze.
+            */
+            granularidade: vigencia.granularidade,
             canonicalScope,
             revision,
             supersedesSnapshotId: supersedes,

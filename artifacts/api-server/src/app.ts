@@ -13,6 +13,25 @@ import { visualizacaoSomenteLeitura } from "./middlewares/visualizacao-como";
 import { portaoDeProntidao } from "./middlewares/portao-de-prontidao";
 import { erroEmJson, rotaDesconhecida } from "./middlewares/contrato-json";
 import { logger } from "./lib/logger";
+import { db } from "@workspace/db";
+import { fonteRealDoAcervo, registrarFonteDoRealizado } from "@workspace/comparison";
+
+/*
+  A fonte do realizado de FINAME, declarada na partida do servidor.
+
+  `realizado-de-finame.ts` publica o contrato e diz que, quando o adaptador
+  existir, "esta linha é o que muda". É esta linha. O adaptador
+  (`fonte-real-do-acervo.ts`) lê o acervo `FINANCIAMENTO_REAL` que a importação
+  do extrato do ERP produz, e a auditoria de FINAME passa a ter o outro lado do
+  confronto.
+
+  O registro acontece **aqui**, e não dentro de `@workspace/comparison`, porque
+  aquela biblioteca é lida pelo navegador também: um `import { db }` lá dentro
+  arrastaria o `pg` para o bundle da tela. Onde ninguém registra — no
+  navegador, num teste de unidade —, quem responde continua sendo
+  `SEM_FONTE_DO_REALIZADO`, que diz a verdade sobre não existir.
+*/
+registrarFonteDoRealizado(fonteRealDoAcervo(db));
 
 const app: Express = express();
 

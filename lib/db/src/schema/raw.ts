@@ -178,6 +178,57 @@ export const importRunTable = pgTable(
      */
     declaredPeriod: date("declared_period", { mode: "string" }),
     /**
+     * A granularidade que o envio declarou — `QUINZENAL` ou `MENSAL`.
+     *
+     * Existe porque a data não a distingue. A competência mensal de março e a
+     * 1ª quinzena de março começam no mesmo dia — `2026-03-01` nas duas —, e
+     * sem esta coluna um extrato mensal enviado pela linha da quinzena entraria
+     * como quinzena, com a segunda metade do mês vazia e o financiamento
+     * parecendo custar metade.
+     *
+     * Nula quer dizer "ninguém declarou", que é como todo envio anterior a esta
+     * coluna entrou. E nulo **não** é o mesmo que `QUINZENAL`: naquele tempo a
+     * quinzenal era a única que existia, então ela é a leitura correta de um
+     * nulo — mas quem a leu assim foi a regra, e não uma pessoa. A diferença
+     * entre o afirmado e o deduzido é a única coisa que esta coluna guarda.
+     */
+    declaredGranularity: text("declared_granularity"),
+    /**
+     * A competência que o envio declarou, como o primeiro dia do mês.
+     *
+     * É o `declared_period` do acervo Real: o extrato do ERP não traz rótulo de
+     * vigência nenhum — quem diz de que mês ele é, é quem envia —, e a
+     * importação confere essa declaração contra `MES`/`ANO` das linhas. Um
+     * arquivo com nove competências declarado como "março" é recusado por
+     * `COMPETENCIA_DIVERGE_DA_DECLARACAO`, com as nove na mensagem.
+     *
+     * Separada de `declared_period` porque as duas conferências são diferentes:
+     * aquela é uma igualdade contra o rótulo de dentro do arquivo, esta é uma
+     * conferência contra o conjunto de competências que as linhas trazem.
+     */
+    declaredCompetence: date("declared_competence", { mode: "string" }),
+    /**
+     * A unidade que o envio declarou, como CNPJ só de dígitos.
+     *
+     * O extrato do ERP **não traz CNPJ**: traz `UNIDADE` por extenso
+     * ("TRANSFERÊNCIA URBANA - EMPURRADA") e `CODUNN`. E o escopo UNIDADE é o
+     * que fecha a identidade de uma vigência — sem ele, duas unidades
+     * diferentes teriam a mesma chave, e a promoção recusa (com razão) por
+     * `ESCOPO_OBRIGATORIO_AUSENTE`.
+     *
+     * Quem sabe o CNPJ é quem envia, escolhendo a unidade do cadastro na hora
+     * do envio — a mesma autoridade da `0094`, ato explícito de uma pessoa, e
+     * não uma heurística sobre o texto do arquivo. O que o arquivo diz continua
+     * inteiro em `raw_cell` e vira a evidência contra a qual a declaração é
+     * conferida: um extrato cujo `CODUNN` não bate com a unidade escolhida é
+     * recusado antes de qualquer fato entrar.
+     *
+     * Nula em todo envio que não precisa dela — o export de remuneração traz a
+     * coluna `Unidade - CNPJ` em cada linha, e ali o escopo sai do próprio
+     * arquivo, como sempre saiu.
+     */
+    declaredUnidade: text("declared_unidade"),
+    /**
      * O run que este aqui releu — nulo em toda importação que é a primeira
      * leitura do seu arquivo.
      *
