@@ -127,13 +127,35 @@ describe("em que rubrica ela entra", () => {
     }
   });
 
-  it("não dá a uma rubrica o atributo que várias telas mostram", () => {
+  it("não dá a uma rubrica o atributo que várias telas mostram e nenhuma reivindica", () => {
+    /*
+      `trecho.km_rodado` está no catálogo do KM rodado e no da Velocidade média,
+      e nenhuma das duas se declara dona dele. Atribuí-lo ao primeiro do menu
+      faria a linha da outra tela contar menos do que a própria tela mostra. Ele
+      é nomeado pelo parâmetro da família, como todo atributo sem rubrica
+      própria.
+    */
+    expect(telasQueReivindicam("trecho.km_rodado").length).toBeGreaterThan(1);
+    const rubrica = rubricaDaAlteracao({
+      ...NADA,
+      attributeCode: "trecho.km_rodado",
+      costClass: "VARIAVEL",
+    });
+    expect(rubrica.chave.startsWith("parametro:")).toBe(true);
+    expect(rubrica.chave).not.toBe("km-rodado");
+  });
+
+  it("dá o atributo à rubrica que se declara dona dele, ainda que várias o mostrem", () => {
     /*
       O valor da nota está no catálogo do Finame, no do IPVA e no dos Impostos —
-      as três telas o mostram como contexto. Atribuí-lo ao Finame, por ser o
-      primeiro do menu, faria a linha do IPVA contar menos do que a tela do IPVA
-      mostra. Ele é nomeado pelo parâmetro da família, como todo atributo sem
-      rubrica própria.
+      as três o mostram como base do próprio número, e cada uma diz no próprio
+      `foraDaSoma` que ele não é rubrica dela. Enquanto ninguém era a rubrica
+      dele, ele caía no parâmetro da família: dar ao Finame, por ser o primeiro
+      do menu, seria inventar uma escolha que ninguém tomou.
+
+      A Auditoria de Aquisição tomou essa escolha, e a declara em `proprios`.
+      Este teste prende a mudança de posse como decisão — e é o que obriga quem
+      a desfizer a dizê-lo por escrito.
     */
     expect(telasQueReivindicam("cavalo.valor_nf_compra").length).toBeGreaterThan(1);
     const rubrica = rubricaDaAlteracao({
@@ -141,8 +163,23 @@ describe("em que rubrica ela entra", () => {
       attributeCode: "cavalo.valor_nf_compra",
       costClass: "FIXO",
     });
-    expect(rubrica.chave.startsWith("parametro:")).toBe(true);
-    expect(rubrica.chave).not.toBe("finame");
+    expect(rubrica.chave).toBe("aquisicao");
+    expect(rubrica.modulo).toBe("CUSTO_FIXO");
+    expect(rubrica.rota).toBe("/custo-fixo-aquisicao");
+  });
+
+  it("deixa a aquisição mandar na classe das colunas de compra", () => {
+    /*
+      A data e o mês de entrada são `NAO_APLICAVEL` na curadoria — não são custo.
+      Ainda assim a rubrica é da Aquisição, que é Custo Fixo na lateral e no
+      menu: a linha do Monitor e a tela que ela abre precisam dizer o mesmo
+      módulo. É a mesma regra que o Finame já tinha.
+    */
+    for (const codigo of ["cavalo.data", "cavalo.mes_de_entrada", "carreta.ano"]) {
+      const rubrica = rubricaDaAlteracao({ ...NADA, attributeCode: codigo });
+      expect(rubrica.chave).toBe("aquisicao");
+      expect(rubrica.modulo).toBe("CUSTO_FIXO");
+    }
   });
 
   it("mantém a rubrica de quem é reivindicado por uma tela só", () => {

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  CODIGOS_DO_DETALHE_DE_AQUISICAO,
+  impactoDeAquisicao,
+  linhasDeAquisicao,
+  variavelDeAquisicaoDoCodigo,
+} from "../aquisicao";
+import {
   CODIGOS_DO_DETALHE,
   impactoPorPeriodicidade,
   linhasDeFiname,
@@ -57,7 +63,7 @@ import type { AlteracaoDoMotor } from "../recorte-de-rubrica";
  * impedir.
  */
 
-type Modulo = "FINAME" | "IPVA" | "IMPOSTOS" | "LUCRO_FIXO";
+type Modulo = "FINAME" | "IPVA" | "IMPOSTOS" | "LUCRO_FIXO" | "AQUISICAO";
 
 /** Uma alteração precificada nesse código, no tipo de equipamento que o declara. */
 function alteracaoDe(codigo: string): AlteracaoDoMotor {
@@ -87,6 +93,14 @@ const SOMA: Record<Modulo, (a: AlteracaoDoMotor) => boolean> = {
     Object.keys(impactoDeImpostos(linhasDeImpostos([a])).porPeriodicidade).length > 0,
   LUCRO_FIXO: (a) =>
     Object.keys(impactoDeLucroFixo(linhasDeLucroFixo([a])).porPeriodicidade).length > 0,
+  /*
+    A Aquisição entra na sonda para provar que **continua sem somar**. Ela é a
+    rubrica da base de compra desde que ganhou tela, e é justamente por isso que
+    ela precisa estar aqui: ter tela é onde a coluna se confere, não onde ela
+    vira total. `impactoDeAquisicao` conta e nunca soma.
+  */
+  AQUISICAO: (a) =>
+    Object.keys(impactoDeAquisicao(linhasDeAquisicao([a])).porPeriodicidade).length > 0,
 };
 
 const CATALOGOS: Record<Modulo, readonly string[]> = {
@@ -94,6 +108,7 @@ const CATALOGOS: Record<Modulo, readonly string[]> = {
   IPVA: CODIGOS_DO_DETALHE_DE_IPVA,
   IMPOSTOS: CODIGOS_DO_DETALHE_DE_IMPOSTOS,
   LUCRO_FIXO: CODIGOS_DO_DETALHE_DE_LUCRO_FIXO,
+  AQUISICAO: CODIGOS_DO_DETALHE_DE_AQUISICAO,
 };
 
 const MODULOS = Object.keys(CATALOGOS) as Modulo[];
@@ -112,7 +127,8 @@ function ehCandidataADinheiro(codigo: string): boolean {
     variavelDoCodigo(codigo)?.medida === "DINHEIRO" ||
     variavelDeIpvaDoCodigo(codigo)?.medida === "DINHEIRO" ||
     variavelDeImpostosDoCodigo(codigo)?.medida === "DINHEIRO" ||
-    variavelDeLucroFixoDoCodigo(codigo)?.medida === "DINHEIRO"
+    variavelDeLucroFixoDoCodigo(codigo)?.medida === "DINHEIRO" ||
+    variavelDeAquisicaoDoCodigo(codigo)?.medida === "DINHEIRO"
   );
 }
 
@@ -163,6 +179,8 @@ describe("a posse da soma no custo fixo", () => {
   });
 
   it("deixa a base de compra sem dono nenhum — preço do ativo não é custo fixo", () => {
+    // Nem depois de a Auditoria de Aquisição passar a ser a rubrica dela: a
+    // tela é onde a nota se confere, e não onde ela entra num total.
     for (const codigo of ["cavalo.valor_nf_compra", "carreta.valor_nf_compra"]) {
       expect(donosDe(codigo)).toEqual([]);
     }
