@@ -3,6 +3,7 @@ import type { LinhaDeIpva, VeiculoDeIpva } from "@workspace/comparison/ipva";
 import {
   TabelaPorVeiculo,
   type EscritaDaRubrica,
+  type SelecaoEmLote,
 } from "@/components/comparacao/tabela-por-veiculo";
 import type { AbrirJustificativa } from "@/components/justificativas/coluna";
 import type { Justificativa } from "@/lib/justificativas";
@@ -56,12 +57,15 @@ const ESCRITA_DO_IPVA: EscritaDaRubrica<LinhaDeIpva, VeiculoDeIpva> = {
 export function TabelaDeIpva({
   veiculos,
   justificadaPor,
+  selecao,
   onAbrir,
   onJustificar,
 }: {
   veiculos: VeiculoDeIpva[];
   /** A justificativa mais recente de cada alteração, por `change.id`. */
   justificadaPor?: ReadonlyMap<number, Justificativa>;
+  /** Ausente, a tabela é a de sempre — o modo em lote desligado. */
+  selecao?: SelecaoEmLote;
   onAbrir: (veiculo: { entityLabel: string | null; entityType: string }) => void;
   /** Ausente, a coluna fica só de leitura. */
   onJustificar?: AbrirJustificativa;
@@ -71,6 +75,7 @@ export function TabelaDeIpva({
       veiculos={veiculos}
       escrita={ESCRITA_DO_IPVA}
       justificadaPor={justificadaPor}
+      selecao={selecao}
       onAbrir={onAbrir}
       onJustificar={onJustificar}
     />

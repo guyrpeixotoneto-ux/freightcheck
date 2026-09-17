@@ -5,6 +5,9 @@ import {
   type EstadoDaLinhaDeFiname,
   type LinhaDeFiname,
   type MedidaDaVariavel,
+  FILTROS_DE_FINAME_VAZIOS,
+  filtrarLinhasDeFiname,
+  type FiltrosDeFiname,
 } from "@workspace/comparison/finame";
 import type { EvolucaoDoTipo } from "@workspace/comparison/finame";
 import type { RecorteDeTipo } from "@/components/comparacao/recorte-de-equipamento";
@@ -255,43 +258,23 @@ export const ABAS_DE_ESTADO: { chave: "TODAS" | EstadoDaLinhaDeFiname; rotulo: s
   { chave: "SEM_ALTERACAO", rotulo: "Sem alteração" },
 ];
 
-export interface FiltrosDeFiname {
-  busca: string;
-  tipo: string;
-  variavel: string;
-  estado: "TODAS" | EstadoDaLinhaDeFiname;
-}
-
-export const FILTROS_VAZIOS: FiltrosDeFiname = {
-  busca: "",
-  tipo: "TODOS",
-  variavel: "TODAS",
-  estado: "TODAS",
-};
-
 /**
- * O recorte da tabela — o mesmo que alimenta a contagem das abas e o CSV.
+ * Os filtros e o recorte — **do núcleo**.
  *
- * Uma função só, e não uma por consumidor: a aba que diz "12" e a tabela que
- * mostra 9 linhas é o defeito que aparece quando o filtro é reescrito no lugar
- * de ser reutilizado.
+ * Os dois nasceram aqui, e era o lugar certo enquanto o recorte só produzia uma
+ * tabela. Deixou de ser quando a justificativa em lote passou a poder dizer
+ * "todos os resultados deste filtro": ali o cliente manda o filtro, e quem
+ * reabre o universo para gravar é o servidor — que não importa a tela.
+ *
+ * Então eles moram em `@workspace/comparison/finame`, com as contas, e esta
+ * linha é o que resta do que este arquivo tinha. Os nomes de fora continuam os
+ * mesmos de propósito: a tela chama `filtrar`, e nenhuma delas precisou mudar.
  */
-export function filtrar(
-  linhas: readonly LinhaDeFiname[],
-  filtros: FiltrosDeFiname,
-): LinhaDeFiname[] {
-  const busca = filtros.busca.trim().toLowerCase();
-  return linhas.filter((l) => {
-    if (filtros.estado !== "TODAS" && l.estado !== filtros.estado) return false;
-    if (filtros.tipo !== "TODOS" && l.entityType !== filtros.tipo) return false;
-    if (filtros.variavel !== "TODAS" && l.variavel !== filtros.variavel) return false;
-    if (busca) {
-      const alvo = `${l.entityLabel ?? ""} ${l.rotuloDaVariavel}`.toLowerCase();
-      if (!alvo.includes(busca)) return false;
-    }
-    return true;
-  });
-}
+export {
+  FILTROS_DE_FINAME_VAZIOS as FILTROS_VAZIOS,
+  filtrarLinhasDeFiname as filtrar,
+  type FiltrosDeFiname as FiltrosDeFiname,
+};
 
 /** Quantas linhas cada aba tem, contadas sobre o mesmo recorte da tabela. */
 export function contagemPorAba(
@@ -301,9 +284,9 @@ export function contagemPorAba(
   const contagem: Record<string, number> = { TODAS: 0 };
   for (const aba of ABAS_DE_ESTADO) {
     if (aba.chave === "TODAS") continue;
-    contagem[aba.chave] = filtrar(linhas, { ...filtros, estado: aba.chave }).length;
+    contagem[aba.chave] = filtrarLinhasDeFiname(linhas, { ...filtros, estado: aba.chave }).length;
   }
-  contagem.TODAS = filtrar(linhas, { ...filtros, estado: "TODAS" }).length;
+  contagem.TODAS = filtrarLinhasDeFiname(linhas, { ...filtros, estado: "TODAS" }).length;
   return contagem;
 }
 

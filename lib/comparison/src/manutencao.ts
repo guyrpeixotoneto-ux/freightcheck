@@ -1046,3 +1046,101 @@ export function celulasDoCsvDeManutencao(
     justificativa ?? null,
   ];
 }
+
+// ---------------------------------------------------------------------------
+// O recorte da tela — e por que ele mora aqui
+// ---------------------------------------------------------------------------
+
+/**
+ * Os filtros da Auditoria de Manutenção — o que as caixas acima da tabela recortam.
+ *
+ * Eles nasceram em `lib/manutencao.ts`, do lado da interface, e era o lugar certo
+ * enquanto o recorte só precisava produzir uma tabela. Deixou de ser quando a
+ * justificativa em lote passou a poder dizer "todos os resultados deste
+ * filtro": ali o cliente manda **o filtro**, e não milhares de ids, e é o
+ * servidor que reabre o universo para saber o que está gravando.
+ *
+ * Reabri-lo com uma segunda escrita da mesma regra seria a pior versão disto:
+ * as duas concordariam no dia em que fossem escritas e discordariam no
+ * seguinte — e a discordância apareceria como uma justificativa gravada em
+ * linhas que quem clicou nunca viu em tela. Uma função só, importada pelos
+ * dois lados, é o que impede isso por construção.
+ */
+export type FiltrosDeManutencao = {
+  busca: string;
+  /** `TODOS`, ou um `entity_type` — o recorte de equipamento. */
+  tipo: string;
+  /** `TODAS`, ou a chave da variável. */
+  variavel: string;
+  estado: "TODAS" | EstadoDaLinhaDeManutencao;
+  /**
+   * Só o que é R$/km — o que de fato custa dinheiro nesta rubrica.
+   *
+   * A vida em meses se move em quase toda comparação, e uma lista dominada por
+   * ela esconde as poucas linhas em que o custo por quilômetro mudou.
+   */
+  soReaisKm: boolean;
+}
+
+export const FILTROS_DE_MANUTENCAO_VAZIOS: FiltrosDeManutencao = {
+  busca: "",
+  tipo: "TODOS",
+  variavel: "TODAS",
+  estado: "TODAS",
+  soReaisKm: false,
+};
+
+/**
+ * O recorte da tabela — o mesmo que alimenta a contagem das abas, o CSV e o
+ * universo do lote.
+ *
+ * Uma função só, e não uma por consumidor: a aba que diz "12" sobre uma tabela
+ * de 9 linhas é o defeito que aparece quando o filtro é reescrito em vez de
+ * reutilizado, e no lote ele seria pior — gravaria a frase em linhas fora do
+ * recorte.
+ */
+export function filtrarLinhasDeManutencao(
+  linhas: readonly LinhaDeManutencao[],
+  filtros: FiltrosDeManutencao,
+): LinhaDeManutencao[] {
+  const busca = filtros.busca.trim().toLowerCase();
+  return linhas.filter((l) => {
+    if (filtros.estado !== "TODAS" && l.estado !== filtros.estado) return false;
+    if (filtros.tipo !== "TODOS" && l.entityType !== filtros.tipo) return false;
+    if (filtros.variavel !== "TODAS" && l.variavel !== filtros.variavel) return false;
+    if (filtros.soReaisKm && l.medida !== "REAIS_POR_KM") return false;
+    if (busca) {
+      const alvo = `${l.entityLabel ?? ""} ${l.rotuloDaVariavel}`.toLowerCase();
+      if (!alvo.includes(busca)) return false;
+    }
+    return true;
+  });
+}
+
+/**
+ * Os filtros como o corpo de uma requisição os traz — nunca confiados como
+ * chegam.
+ *
+ * O universo de um lote é decidido por estes campos, e é ele que decide o que
+ * recebe justificativa: um `estado` que o cliente inventasse não pode virar um
+ * recorte que ninguém viu. O que não é reconhecido cai no valor vazio, que é o
+ * recorte mais largo — e o mais largo é, por construção, o que a tela mostra
+ * quando ninguém filtrou nada.
+ */
+export function lerFiltrosDeManutencao(bruto: unknown): FiltrosDeManutencao {
+  const objeto = (bruto ?? {}) as Record<string, unknown>;
+  const texto = (chave: string, padrao: string): string =>
+    typeof objeto[chave] === "string" ? (objeto[chave] as string) : padrao;
+  const estado = texto("estado", "TODAS");
+  return {
+    ...FILTROS_DE_MANUTENCAO_VAZIOS,
+    busca: texto("busca", ""),
+    tipo: texto("tipo", "TODOS"),
+    variavel: texto("variavel", "TODAS"),
+    estado:
+      estado === "TODAS" || GRAVIDADE.includes(estado as EstadoDaLinhaDeManutencao)
+        ? (estado as FiltrosDeManutencao["estado"])
+        : "TODAS",
+    soReaisKm: objeto.soReaisKm === true,
+  };
+}

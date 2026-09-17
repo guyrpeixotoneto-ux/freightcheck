@@ -18,6 +18,7 @@ export * from "./cadastro";
 export * from "./fechamento";
 export * from "./remuneracao";
 export * from "./justificativa";
+export * from "./justificativa-lote";
 export * from "./fluxo";
 export * from "./permissao";
 export * from "./papel";

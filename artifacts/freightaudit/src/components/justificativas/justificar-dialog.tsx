@@ -4,8 +4,6 @@ import {
   Check,
   ChevronRight,
   Lock,
-  Maximize2,
-  Minimize2,
   Sigma,
   Sparkles,
   Truck,
@@ -13,15 +11,12 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
-import { Textarea } from "@/components/ui/textarea";
-import { Input } from "@/components/ui/input";
 import { ApiErrorNotice } from "@/components/api-error";
+import { CamposDaJustificativa } from "@/components/justificativas/campos";
 import {
   conformidadeDaJustificativa,
   faltamNaJustificativa,
   montarJustificativa,
-  ROTULO_DA_CONFORMIDADE,
-  type Conformidade,
   type JustificativaEstruturada,
   type RascunhoDaJustificativa,
 } from "@workspace/comparison/justificativa-estruturada";
@@ -73,9 +68,6 @@ const VAZIO: RascunhoDaJustificativa = {
   motivoExcecao: "",
   responsavelAprovacao: "",
 };
-
-/** As três respostas, na ordem em que a tela as oferece. */
-const CONFORMIDADES: Conformidade[] = ["CONFORME", "EXCECAO", "DESCUMPRIMENTO"];
 
 /** O que já está gravado, aberto nos campos para ser corrigido. */
 function comoRascunho(j: Justificativa | null | undefined): RascunhoDaJustificativa {
@@ -208,7 +200,6 @@ export function JustificarDialog({
    */
   const [porFazer, setPorFazer] = useState<Set<number>>(new Set());
   const [rascunhadas, setRascunhadas] = useState<Set<number>>(new Set());
-  const [formulaExpandida, setFormulaExpandida] = useState(false);
   const [avisoDeRascunho, setAvisoDeRascunho] = useState(false);
 
   /*
@@ -234,7 +225,6 @@ export function JustificarDialog({
     setRespostas(iniciais);
     setRascunhadas(comRascunho);
     setSalvas(new Set());
-    setFormulaExpandida(false);
     setAvisoDeRascunho(false);
     /* Abre na primeira que ainda não tem justificativa: quem abriu "4
        pendentes" não quer começar relendo a que já explicou. */
@@ -272,7 +262,6 @@ export function JustificarDialog({
   }, [fila]);
 
   const faltam = faltamNaJustificativa(resposta);
-  const foraDaRegra = !!resposta.conformidade && resposta.conformidade !== "CONFORME";
   const excecao = resposta.conformidade === "EXCECAO";
   const varias = total > 1;
 
@@ -320,7 +309,6 @@ export function JustificarDialog({
       return;
     }
     setIndice(proxima);
-    setFormulaExpandida(false);
     setAvisoDeRascunho(false);
   };
 
@@ -403,8 +391,7 @@ export function JustificarDialog({
                 rascunhadas={rascunhadas}
                 onIr={(i) => {
                   setIndice(i);
-                  setFormulaExpandida(false);
-                  setAvisoDeRascunho(false);
+                                setAvisoDeRascunho(false);
                 }}
               />
             )}
@@ -448,121 +435,22 @@ export function JustificarDialog({
                 </p>
               )}
 
-              <div className="mt-4 space-y-4">
-                <Campo
-                  rotulo="Fórmula de cálculo"
-                  obrigatorio
-                  nota={varias ? atual.attributeName : null}
-                  /*
-                      A fórmula é o campo que às vezes tem uma linha e às vezes
-                      tem dez — cadeias de cálculo do FINAME não cabem em duas.
-                      Expandir é da fórmula só, e não do diálogo: crescer a
-                      caixa inteira empurraria os botões para fora da tela
-                      justamente quando se está escrevendo o campo mais longo.
-                  */
-                  acao={
-                    <button
-                      type="button"
-                      className="flex items-center gap-1.5 text-xs font-medium text-primary hover:underline"
-                      onClick={() => setFormulaExpandida((v) => !v)}
-                    >
-                      {formulaExpandida ? (
-                        <Minimize2 className="h-3.5 w-3.5" />
-                      ) : (
-                        <Maximize2 className="h-3.5 w-3.5" />
-                      )}
-                      {formulaExpandida ? "Recolher" : "Expandir"}
-                    </button>
+              {/*
+                  Os campos são os mesmos da justificativa em lote, e não uma
+                  cópia deles: ver `campos.tsx`. Duas redações das quatro
+                  perguntas fariam o produto cobrar coisas diferentes conforme
+                  de onde a caixa foi aberta.
+              */}
+              <div className="mt-4">
+                <CamposDaJustificativa
+                  resposta={resposta}
+                  onAlterar={alterar}
+                  nota={
+                    varias && atual.attributeName
+                      ? `Esta resposta será associada somente à variável ${atual.attributeName}.`
+                      : null
                   }
-                >
-                  <Textarea
-                    value={resposta.formula ?? ""}
-                    onChange={(e) => alterar({ formula: e.target.value })}
-                    placeholder="Descreva como o valor deve ser calculado."
-                    rows={formulaExpandida ? 10 : 3}
-                    autoFocus
-                  />
-                </Campo>
-
-                <Campo
-                  rotulo="Regra para alteração do valor"
-                  obrigatorio
-                  nota={varias ? atual.attributeName : null}
-                >
-                  <Textarea
-                    value={resposta.regra ?? ""}
-                    onChange={(e) => alterar({ regra: e.target.value })}
-                    placeholder="Explique quando esta variável pode ser alterada."
-                    rows={3}
-                  />
-                </Campo>
-
-                {/*
-                    Este campo é um grupo de opções, e não uma caixa de texto: por
-                    isso não é um `<label>`. Envolver dois botões de opção num
-                    rótulo faz o nome acessível de cada um virar o texto inteiro do
-                    grupo — os dois passam a se chamar a mesma coisa, e nem um
-                    leitor de tela nem um teste conseguem distinguir "sim" de
-                    "não".
-                */}
-                <Campo
-                  rotulo="Esta alteração seguiu a regra?"
-                  obrigatorio
-                  grupo
-                  nota={varias ? atual.attributeName : null}
-                >
-                  {/*
-                      Empilhadas, e não lado a lado: com três respostas, a
-                      terceira ("Não, regra de remuneração descumprida") é a
-                      mais longa das três, e numa fileira de três colunas ela
-                      quebra em duas linhas enquanto as outras ficam com meia
-                      caixa vazia. Empilhado, as três se leem na mesma varredura
-                      e nenhuma depende da largura da caixa.
-                  */}
-                  <div className="grid gap-2" role="radiogroup">
-                    {CONFORMIDADES.map((opcao) => (
-                      <OpcaoDeConformidade
-                        key={opcao}
-                        marcada={resposta.conformidade === opcao}
-                        onSelecionar={() => alterar({ conformidade: opcao })}
-                      >
-                        {ROTULO_DA_CONFORMIDADE[opcao]}
-                      </OpcaoDeConformidade>
-                    ))}
-                  </div>
-                </Campo>
-
-                {/*
-                    O motivo aparece nos dois desvios — é ele que diz o que
-                    houve —, e o aprovador só na exceção. Pedi-los de quem
-                    marcou "conforme" seria pedir a explicação de um desvio que
-                    não houve; pedir um aprovador de um descumprimento seria
-                    registrar um aval que ninguém deu.
-                */}
-                {foraDaRegra && (
-                  <Campo rotulo={excecao ? "Motivo da exceção" : "O que foi descumprido"} obrigatorio>
-                    <Textarea
-                      value={resposta.motivoExcecao ?? ""}
-                      onChange={(e) => alterar({ motivoExcecao: e.target.value })}
-                      placeholder={
-                        excecao
-                          ? "Explique por que o valor foi alterado mesmo não atendendo à regra definida."
-                          : "Descreva a regra de remuneração que não foi cumprida nesta alteração."
-                      }
-                      rows={2}
-                    />
-                  </Campo>
-                )}
-
-                {excecao && (
-                  <Campo rotulo="Responsável pela aprovação" obrigatorio>
-                    <Input
-                      value={resposta.responsavelAprovacao ?? ""}
-                      onChange={(e) => alterar({ responsavelAprovacao: e.target.value })}
-                      placeholder="Nome de quem autorizou a exceção"
-                    />
-                  </Campo>
-                )}
+                />
               </div>
 
               {erro != null && (
@@ -765,83 +653,6 @@ function NotaDosTotais({
         ))}
       </ul>
     </section>
-  );
-}
-
-/** Rótulo com o asterisco do obrigatório — o desenho de todos os campos daqui. */
-function Campo({
-  rotulo,
-  obrigatorio,
-  grupo,
-  nota,
-  acao,
-  children,
-}: {
-  rotulo: string;
-  obrigatorio?: boolean;
-  /** Um grupo de opções em vez de um controle só — ver a chamada. */
-  grupo?: boolean;
-  /**
-   * O nome da variável a que esta resposta pertence, quando há mais de uma em
-   * jogo. É a frase que impede o engano central do assistente: a caixa parece
-   * a mesma em todas as etapas, e sem ela é fácil escrever a fórmula dos Juros
-   * achando que vale para as quatro.
-   */
-  nota?: string | null;
-  /** Um comando do campo — hoje só o "Expandir" da fórmula. */
-  acao?: ReactNode;
-  children: ReactNode;
-}) {
-  const Envolucro = grupo ? "div" : "label";
-  return (
-    <Envolucro className="flex flex-col gap-1.5">
-      <span className="text-sm font-semibold">
-        {rotulo}
-        {obrigatorio && <span className="ml-1 text-destructive">*</span>}
-      </span>
-      {children}
-      {(nota || acao) && (
-        <span className="flex items-start justify-between gap-3">
-          <span className="text-xs text-muted-foreground">
-            {nota && `Esta resposta será associada somente à variável ${nota}.`}
-          </span>
-          {acao}
-        </span>
-      )}
-    </Envolucro>
-  );
-}
-
-function OpcaoDeConformidade({
-  marcada,
-  onSelecionar,
-  children,
-}: {
-  marcada: boolean;
-  onSelecionar: () => void;
-  children: ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      role="radio"
-      aria-checked={marcada}
-      onClick={onSelecionar}
-      className={cn(
-        "flex items-center gap-3 rounded-lg border px-3 py-2.5 text-left text-sm transition-colors",
-        marcada ? "border-primary bg-primary/5 font-medium" : "hover:bg-muted/50",
-      )}
-    >
-      <span
-        className={cn(
-          "flex h-4 w-4 shrink-0 items-center justify-center rounded-full border",
-          marcada ? "border-primary" : "border-muted-foreground/40",
-        )}
-      >
-        {marcada && <span className="h-2 w-2 rounded-full bg-primary" />}
-      </span>
-      {children}
-    </button>
   );
 }
 
