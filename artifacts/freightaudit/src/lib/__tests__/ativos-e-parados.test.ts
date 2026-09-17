@@ -5,6 +5,8 @@ import {
   numeroOuTraco,
   percentual,
   pontosDoGrafico,
+  recusaDoEscopo,
+  rotuloDaChave,
   rotuloCurto,
   rotuloLongo,
   sentido,
@@ -149,5 +151,106 @@ describe("a série na tela", () => {
 
     expect(ultimaMedida(serie)!.competencia).toBe("2026-07-Q1");
     expect(ultimaMedida([])).toBeNull();
+  });
+});
+
+/**
+ * O ESCOPO QUE NÃO RESOLVE — o que a tela diz quando não sabe de quem ela é.
+ *
+ * Esta tela passou a honrar a unidade da lateral, e a travessia até a frota tem
+ * um lugar por onde falhar que nenhuma outra tela de escopo tem: o Fechamento
+ * endereça a competência pela unidade **cadastrada**, e quem liga o
+ * `scope_hash` da lateral a ela é o cadastro de Remuneração. Sem essa
+ * associação, a resposta honesta não é o acervo inteiro — é dizer qual
+ * associação falta.
+ *
+ * O que estes testes prendem é o que separa os dois estados, porque eles mandam
+ * a pessoa a lugares diferentes: faltar associação se conserta em Remuneração;
+ * haver duas se conserta apagando uma.
+ */
+describe("a recusa do escopo", () => {
+  it("cala quando ninguém mandou escopo — é a leitura de todas as unidades", () => {
+    expect(recusaDoEscopo(null, null)).toBeNull();
+  });
+
+  it("cala quando o escopo resolveu", () => {
+    const resolvido = recusaDoEscopo(
+      { scopeHash: "scope-camacari", tipo: "RESOLVIDO", unidadeId: "u-1", nome: "CAMAÇARI" },
+      "CAMAÇARI",
+    );
+
+    expect(resolvido).toBeNull();
+  });
+
+  it("sem cadastro, nomeia a unidade e manda associar — não manda importar", () => {
+    const recusa = recusaDoEscopo(
+      { scopeHash: "scope-camacari", tipo: "SEM_CADASTRO" },
+      "CAMAÇARI",
+    );
+
+    expect(recusa!.problema).toContain("CAMAÇARI");
+    expect(recusa!.conserto).toContain("Remuneração");
+    /*
+      A frase não pode mandar importar planilha: o acervo pode estar cheio do
+      outro lado, e o que falta é o cadastro dizer de quem ele é. É o estado que
+      `cadastro-porta.ts` chama de `UNIDADE_SEM_CADASTRO`, e confundi-lo com "não
+      há competência" manda a pessoa ao lugar errado.
+    */
+    expect(recusa!.conserto).not.toContain("Importações");
+  });
+
+  it("sem nome de unidade, a frase continua de pé", () => {
+    const recusa = recusaDoEscopo(
+      { scopeHash: "scope-x", tipo: "SEM_CADASTRO" },
+      null,
+    );
+
+    expect(recusa!.problema).toContain("esta unidade");
+  });
+
+  it("ambíguo lista as candidatas, porque é uma pessoa que escolhe", () => {
+    const recusa = recusaDoEscopo(
+      { scopeHash: "scope-x", tipo: "AMBIGUO", nomes: ["CAMAÇARI", "CDD CARUARU"] },
+      "CAMAÇARI",
+    );
+
+    expect(recusa!.problema).toContain("CDD CARUARU");
+    expect(recusa!.conserto).toContain("uma só");
+  });
+});
+
+/**
+ * O RÓTULO DA CHAVE — o nome da competência com que a variação comparou.
+ *
+ * A manchete imprimia `variação contra 2026-07-Q1`: a chave crua, que é a
+ * identidade da competência no produto e não o nome dela — debaixo de uma tabela
+ * que escreve `jul/2026, 1ª quinzena` na linha seguinte, duas grafias da mesma
+ * quinzena na mesma tela.
+ *
+ * O que estes testes prendem, além da tradução, é a recusa: uma chave que não se
+ * lê volta como está. Inventar um mês a partir de um `NaN` escreveria
+ * `undefined/2026`, que é pior do que a chave crua — esta, ao menos, é verdade.
+ */
+describe("o rótulo de uma chave de competência", () => {
+  it("escreve a quinzena por extenso, com o mês 1-indexado do banco", () => {
+    expect(rotuloDaChave("2026-07-Q1")).toBe("jul/2026, 1ª quinzena");
+    expect(rotuloDaChave("2026-12-Q2")).toBe("dez/2026, 2ª quinzena");
+    /* Janeiro é o teste do `- 1`: sem ele sairia fevereiro. */
+    expect(rotuloDaChave("2026-01-Q1")).toBe("jan/2026, 1ª quinzena");
+  });
+
+  it("devolve a chave como está quando ela não se lê", () => {
+    expect(rotuloDaChave("2026-13-Q1")).toBe("2026-13-Q1");
+    expect(rotuloDaChave("2026-00-Q1")).toBe("2026-00-Q1");
+    expect(rotuloDaChave("2026-07-Q3")).toBe("2026-07-Q3");
+    expect(rotuloDaChave("julho de 2026")).toBe("julho de 2026");
+    expect(rotuloDaChave("")).toBe("");
+  });
+
+  /* A mesma quinzena, escrita igual nos dois lugares da tela. */
+  it("concorda com o rótulo que a tabela escreve", () => {
+    expect(rotuloDaChave("2026-07-Q2")).toBe(
+      rotuloLongo({ mes: 7, ano: 2026, quinzena: 2 }),
+    );
   });
 });

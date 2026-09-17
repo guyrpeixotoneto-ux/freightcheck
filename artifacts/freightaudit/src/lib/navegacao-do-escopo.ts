@@ -19,6 +19,7 @@
  */
 
 import {
+  ATIVOS_E_PARADOS,
   DASHBOARD,
   ENTRADA_DA_AUDITORIA,
   EVOLUCAO_POR_PLACA,
@@ -355,6 +356,22 @@ export const TELAS_QUE_HONRAM_ESCOPO = new Set<string>([
     comparar vigências de escopos distintos.
   */
   "/custo-variavel-tma",
+  /*
+    Ativos e Parados. Ela tinha um seletor de unidade próprio, que abria sempre
+    em "todas as unidades" enquanto a lateral nomeava uma — a contradição da
+    Cobertura de dados outra vez, e num lugar onde ela é mais cara: a tela
+    desenha uma frota, e uma frota somada entre unidades embaixo do nome de uma
+    delas é um número que ninguém reconhece.
+
+    O caminho dela até a unidade é o que nenhuma outra tela desta lista
+    percorre, e é por isso que ela entra aqui só agora: o Fechamento não conhece
+    `scope_hash` — as competências dele apontam para `unidade.id`, a unidade
+    cadastrada. Quem casa os dois é `remuneracao_unidade`, o cadastro em que
+    alguém disse por escrito que aquele escopo é aquela unidade, e a travessia
+    está em `unidade-do-escopo.ts` (api-server). Onde ela não se completa, a
+    tela diz qual associação falta em vez de somar todas embaixo do nome de uma.
+  */
+  ATIVOS_E_PARADOS,
 ]);
 
 /**
@@ -424,6 +441,16 @@ export const TELAS_QUE_HONRAM_VISAO_GERAL = new Set<string>([
     padrão.
   */
   MONITORAMENTO_DE_CHAMADOS,
+  /*
+    Ativos e Parados entra pelas duas portas: com uma unidade aberta a série é a
+    dela, e `visaoGeral=1` é a série do acervo inteiro somada por período — que
+    é o que a rota já devolve quando ninguém manda escopo, e o que a tela fazia
+    sempre, agora como escolha e não como padrão.
+
+    A soma continua honesta porque `cobertura` a acompanha: a quinzena em que uma
+    unidade não mandou arquivo diz isso em vez de aparecer como frota menor.
+  */
+  ATIVOS_E_PARADOS,
 ]);
 
 /**
