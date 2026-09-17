@@ -1,11 +1,14 @@
 import { ExternalLink } from "lucide-react";
 import { Link } from "wouter";
 import type { ResumoDoModulo } from "@workspace/comparison/monitor-custo-fixo";
-import { ROTULO_DA_NATUREZA } from "@workspace/comparison/monitor-custo-fixo";
 import { Superficie } from "@/components/ui/superficie";
 import { Button } from "@/components/ui/button";
 import { formatBrl, formatNumber } from "@/lib/format";
-import { SUFIXO_DA_PERIODICIDADE, rotuloDaPeriodicidade } from "@/lib/monitor-custo-fixo";
+import {
+  corDoValor,
+  SUFIXO_DA_PERIODICIDADE,
+  rotuloDaPeriodicidade,
+} from "@/lib/monitor-custo-fixo";
 import { cn } from "@/lib/utils";
 
 /**
@@ -61,9 +64,6 @@ export function AlteracoesPorModulo({
                   className="rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
                   <span className="text-sm font-semibold">{r.rotulo}</span>
-                  <span className="ml-2 text-[0.7rem] text-muted-foreground">
-                    {ROTULO_DA_NATUREZA[r.natureza]}
-                  </span>
                   <span className="block text-xs text-muted-foreground">
                     {aberto ? "Filtrando por este módulo" : "Filtrar o Monitor por este módulo"}
                   </span>
@@ -81,8 +81,8 @@ export function AlteracoesPorModulo({
               <dl className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs">
                 <Par rotulo="Alterações" valor={formatNumber(r.alteracoes, 0)} />
                 <Par rotulo="Entidades" valor={formatNumber(r.entidades.length, 0)} />
-                <Par rotulo="Aumentos" valor={formatNumber(r.aumentos, 0)} />
-                <Par rotulo="Reduções" valor={formatNumber(r.reducoes, 0)} />
+                <Par rotulo="Ganhos" valor={formatNumber(r.ganhos, 0)} />
+                <Par rotulo="Perdas" valor={formatNumber(r.perdas, 0)} />
                 <Par
                   rotulo="Sem valoração"
                   valor={formatNumber(r.porSituacao.SEM_VALORACAO, 0)}
@@ -132,10 +132,9 @@ function ImpactoDoModulo({ resumo }: { resumo: ResumoDoModulo }) {
           <span
             className={cn(
               "font-mono font-semibold tabular-nums",
-              /* Receita sobe = bom; custo sobe = ruim. O sinal não muda. */
-              (resumo.natureza === "RECEITA" ? valor > 0 : valor < 0) &&
-                "text-emerald-700 dark:text-emerald-400",
-              (resumo.natureza === "RECEITA" ? valor < 0 : valor > 0) && "text-destructive",
+              /* A régua é o sinal, e é a mesma nos cinco módulos: positivo é
+                 ganho e sai em verde, negativo é perda e sai em vermelho. */
+              corDoValor(valor),
             )}
           >
             {formatBrl(valor)}

@@ -221,23 +221,39 @@ export const FRASE_DA_SITUACAO: Record<SituacaoDoImpacto, string> = {
 };
 
 /**
+ * A cor de um valor — **a régua é o sinal, e é uma só**.
+ *
+ * Positivo é ganho e sai em verde; negativo é perda e sai em vermelho; zero não
+ * é nem um nem outro e sai sem cor de direção. É a mesma régua do menu do
+ * seletor de par (`numerosDaLinha`, em `lib/candidatos.ts`) e a que
+ * `docs/PROVA-DA-EVOLUCAO-DE-FINAME.md` fixou: "negativo é vermelho e positivo
+ * é verde, aqui como em toda tela do produto".
+ *
+ * Houve uma leitura de custo que invertia isto — custo que cai é bom, logo
+ * verde no negativo. Ela foi removida do FINAME e agora sai do Monitor: um
+ * número negativo pintado de positivo é a cor mentindo sobre o sinal que está
+ * ao lado dela.
+ */
+export function corDoValor(valor: number | null): string {
+  if (valor !== null && valor > 0) return "text-emerald-700 dark:text-emerald-400";
+  if (valor !== null && valor < 0) return "text-destructive";
+  return "text-muted-foreground";
+}
+
+/**
  * A cor de uma direção — e **por que ela nunca vem sozinha**.
  *
- * `docs/LINGUAGEM-VISUAL.md` reserva o verde para redução e o vermelho para
- * aumento crítico, e esta função respeita isso. O que ela não faz é carregar a
- * informação: a tabela escreve "Aumento" e "Redução" por extenso ao lado da
- * seta, porque quem não distingue as duas cores continua precisando saber para
- * que lado o número foi.
- *
- * E o sinal é o da **rubrica**, não o do resultado: num módulo de receita, um
- * aumento é mais dinheiro entrando. Quem diz de que lado da DRE aquilo está é a
- * natureza, escrita ao lado.
+ * A direção é o sinal do valor apurado, e nada mais (`direcaoDe`, no domínio),
+ * então esta função é {@link corDoValor} dita pelo outro nome. O que ela não
+ * faz é carregar a informação: a tabela escreve "Ganho de" e "Perda de" por
+ * extenso ao lado da seta, porque quem não distingue as duas cores continua
+ * precisando saber para que lado o número foi.
  */
 export function corDaDirecao(
   direcao: LinhaDoMonitor["impacto"]["direcao"],
 ): string {
-  if (direcao === "AUMENTO") return "text-destructive";
-  if (direcao === "REDUCAO") return "text-emerald-700 dark:text-emerald-400";
+  if (direcao === "GANHO") return "text-emerald-700 dark:text-emerald-400";
+  if (direcao === "PERDA") return "text-destructive";
   return "text-muted-foreground";
 }
 
@@ -316,15 +332,18 @@ export function paginar<T>(itens: readonly T[], pagina: number, porPagina: numbe
 /**
  * Os baldes que valem a pena mostrar, na ordem em que se leem.
  *
- * Um balde em que nada se moveu — nem custo, nem receita — não vira cartão: ele
- * ocuparia a mesma altura de um que custou R$ 145 mil, e a fileira inteira
- * perderia hierarquia. Ele não é escondido: a contagem de alterações continua
- * inteira, e a tabela continua listando cada linha.
+ * Um balde em que nada se moveu não vira cartão: ele ocuparia a mesma altura de
+ * um que moveu R$ 145 mil, e a fileira inteira perderia hierarquia. Ele não é
+ * escondido: a contagem de alterações continua inteira, e a tabela continua
+ * listando cada linha.
+ *
+ * O teste é sobre as **duas metades**, e não sobre o líquido: um balde que
+ * ganhou R$ 40 mil e perdeu R$ 40 mil tem líquido zero e não é um balde onde
+ * nada aconteceu. Filtrar pelo líquido esconderia justamente o quadro que mais
+ * precisa ser lido.
  */
 export function baldesVisiveis(resumo: ResumoDoMonitor): BaldeDoMonitor[] {
-  return resumo.baldes.filter(
-    (b) => b.custo.liquido !== 0 || b.receita.liquido !== 0,
-  );
+  return resumo.baldes.filter((b) => b.ganho !== 0 || b.perda !== 0);
 }
 
 /** Há mais de uma periodicidade em jogo? É o que decide mostrar blocos. */

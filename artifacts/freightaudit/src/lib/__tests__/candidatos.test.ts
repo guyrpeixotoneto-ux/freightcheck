@@ -15,7 +15,7 @@ import { numerosDaLinha } from "../candidatos";
  * "ainda não calculei" — em vez de duas.
  */
 describe("os números de cada linha do menu", () => {
-  /** Uma rubrica: natureza nula em todo balde, e a linha sai sem prefixo. */
+  /** Uma rubrica: um balde por periodicidade, lido pelo sinal do líquido. */
   const comImpacto = (
     alteracoes: number,
     porPeriodicidade: Record<string, number>,
@@ -24,7 +24,6 @@ describe("os números de cada linha do menu", () => {
     impacto: {
       baldes: Object.entries(porPeriodicidade).map(([periodicidade, valor]) => ({
         periodicidade,
-        natureza: null,
         valor,
       })),
     },
@@ -153,42 +152,43 @@ describe("os números de cada linha do menu", () => {
   });
 
   /*
-    O Monitor Custo Fixo lê os quatro módulos, e com eles vêm as duas naturezas
-    — três de custo e um de receita. É o único recorte em que uma periodicidade
-    produz duas linhas, e elas **precisam** dizer de qual lado falam: sem o
-    prefixo, `+R$ 1.200,00/mês` em cima de `+R$ 900,00/mês` é um convite a somar
-    custo com receita, que é o escalar que os cartões daquela tela recusam
-    publicar.
+    O Monitor Custo Fixo lê os cinco módulos de uma vez. Houve aqui duas linhas
+    por periodicidade, uma de custo e uma de receita, porque o que positivo
+    queria dizer dependia do lado da DRE. Não depende mais: os cinco falam o
+    idioma de quem recebe, positivo é ganho e negativo é perda, e a
+    periodicidade volta a ter uma linha com o líquido dela.
+
+    O que continua valendo é a régua de sempre — o sinal do líquido —, e a
+    recusa que sobrou: duas periodicidades nunca viram uma.
   */
-  describe("quando o recorte mistura custo e receita", () => {
+  describe("quando o recorte consolida vários módulos", () => {
     const doMonitor = (
       alteracoes: number,
-      baldes: { periodicidade: string; natureza: "CUSTO" | "RECEITA"; valor: number }[],
+      baldes: { periodicidade: string; valor: number }[],
     ) => ({ alteracoes, impacto: { baldes } });
 
-    it("escreve a natureza antes do dinheiro, e não soma os dois lados", () => {
+    it("uma linha por periodicidade, lida pelo sinal do líquido", () => {
       const linha = numerosDaLinha(
         doMonitor(31, [
-          { periodicidade: "MENSAL", natureza: "CUSTO", valor: 1200 },
-          { periodicidade: "MENSAL", natureza: "RECEITA", valor: -900 },
+          { periodicidade: "MENSAL", valor: 1200 },
+          { periodicidade: "ANUAL", valor: -900 },
         ]),
       );
 
       expect(linha?.valores).toHaveLength(2);
-      /* As duas se leem pela mesma régua — o sinal do líquido —, e o custo e a
-         receita continuam em linhas separadas, cada uma com a sua. */
-      expect(linha?.valores[0].texto).toBe("+R$ 1.200,00/mês");
-      expect(linha?.valores[1].texto).toBe("−R$ 900,00/mês");
-      /* 1200 e −900 continuam dois números. Nenhum 300 em lugar nenhum. */
-      expect(linha?.valores.map((v) => v.bruto)).toEqual([1200, -900]);
+      expect(linha?.valores[0].texto).toBe("−R$ 900,00/ano");
+      expect(linha?.valores[1].texto).toBe("+R$ 1.200,00/mês");
+      /* 1200 e −900 continuam dois números: R$/mês não soma com R$/ano. */
+      expect(linha?.valores.map((v) => v.bruto)).toEqual([-900, 1200]);
+      expect(linha?.valores.map((v) => v.leitura)).toEqual(["PERDA", "GANHO"]);
     });
 
-    /* Um lado zerado é o lado que não se moveu, e ele não ocupa linha. */
-    it("o lado que não se moveu não vira linha", () => {
+    /* A periodicidade que não se moveu não ocupa linha. */
+    it("a periodicidade que não se moveu não vira linha", () => {
       const linha = numerosDaLinha(
         doMonitor(4, [
-          { periodicidade: "MENSAL", natureza: "CUSTO", valor: 1200 },
-          { periodicidade: "MENSAL", natureza: "RECEITA", valor: 0 },
+          { periodicidade: "MENSAL", valor: 1200 },
+          { periodicidade: "ANUAL", valor: 0 },
         ]),
       );
 
@@ -196,15 +196,15 @@ describe("os números de cada linha do menu", () => {
     });
 
     /*
-      Nenhum dos dois lados se moveu: volta o zero seco, sem natureza e sem
-      periodicidade. Escrever "Custo R$ 0,00" escolheria um dos dois lados para
-      responder por um recorte em que nenhum dos dois tem o que dizer.
+      Nada se moveu em periodicidade nenhuma: volta o zero seco, sem
+      periodicidade. Escrever "R$ 0,00/mês" escolheria uma das periodicidades
+      para responder por um recorte em que nenhuma tem o que dizer.
     */
-    it("os dois lados zerados voltam ao zero seco", () => {
+    it("todas as periodicidades zeradas voltam ao zero seco", () => {
       const linha = numerosDaLinha(
         doMonitor(3, [
-          { periodicidade: "MENSAL", natureza: "CUSTO", valor: 0 },
-          { periodicidade: "MENSAL", natureza: "RECEITA", valor: 0 },
+          { periodicidade: "MENSAL", valor: 0 },
+          { periodicidade: "ANUAL", valor: 0 },
         ]),
       );
 

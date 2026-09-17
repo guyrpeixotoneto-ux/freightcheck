@@ -250,16 +250,14 @@ describe("as invariantes, sobre dado real", () => {
     }
   }, 600_000);
 
-  it("aumentos e reduções abrem o líquido sem inventar dinheiro", async () => {
+  it("ganho e perda abrem o líquido sem inventar dinheiro", async () => {
     for (const par of pares) {
       const { consolidado } = await monitorDe(par);
       for (const balde of consolidado.baldes) {
-        for (const lado of [balde.custo, balde.receita]) {
-          expect(
-            lado.aumentos + lado.reducoes,
-            `${par.rotulo} ${balde.periodicidade}`,
-          ).toBeCloseTo(lado.liquido, 2);
-        }
+        expect(
+          balde.ganho + balde.perda,
+          `${par.rotulo} ${balde.periodicidade}`,
+        ).toBeCloseTo(balde.liquido, 2);
       }
     }
   }, 600_000);

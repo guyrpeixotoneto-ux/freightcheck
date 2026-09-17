@@ -234,7 +234,7 @@ export default function Simulacao() {
                               />
                               <Bar dataKey="valor" radius={[6, 6, 0, 0]} maxBarSize={100}>
                                 <Cell fill="hsl(var(--primary))" />
-                                <Cell fill={activeSim.totalAmountB > activeSim.totalAmountA ? "hsl(var(--destructive))" : "hsl(var(--success))"} />
+                                <Cell fill={activeSim.totalAmountB > activeSim.totalAmountA ? "hsl(var(--success))" : "hsl(var(--destructive))"} />
                               </Bar>
                             </BarChart>
                           </ResponsiveContainer>
@@ -242,7 +242,7 @@ export default function Simulacao() {
                         {activeSim.annualizedDelta && (
                           <div className="mt-6 p-4 rounded-lg bg-muted text-center flex flex-col items-center">
                             <p className="text-sm font-medium text-muted-foreground mb-1">Impacto Anualizado Estimado</p>
-                            <p className={cn("text-xl font-bold font-mono", activeSim.annualizedDelta > 0 ? "text-destructive" : "text-emerald-600")}>
+                            <p className={cn("text-xl font-bold font-mono", activeSim.annualizedDelta > 0 ? "text-emerald-600" : "text-destructive")}>
                               {activeSim.annualizedDelta > 0 ? '+' : ''}{formatBRL(activeSim.annualizedDelta)} / ano
                             </p>
                           </div>

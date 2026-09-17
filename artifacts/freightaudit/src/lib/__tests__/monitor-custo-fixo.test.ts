@@ -50,10 +50,9 @@ function linha(over: Partial<LinhaDoMonitor> = {}): LinhaDoMonitor {
     variacao: 3.67,
     impacto: {
       situacao: "VALORADO",
-      direcao: "AUMENTO",
+      direcao: "GANHO",
       valor: 310,
       periodicidade: "MENSAL",
-      natureza: "CUSTO",
       motivo: null,
     },
     prioridade: { nivel: "MEDIO", score: 35, motivos: [] },
@@ -158,7 +157,7 @@ describe("a escrita dos números", () => {
 describe("a ordenação da tabela", () => {
   const linhas = [
     linha({ id: "a", impacto: { ...linha().impacto, valor: 310 } }),
-    linha({ id: "b", impacto: { ...linha().impacto, valor: -6179.29, direcao: "REDUCAO" } }),
+    linha({ id: "b", impacto: { ...linha().impacto, valor: -6179.29, direcao: "PERDA" } }),
     linha({
       id: "c",
       impacto: {
@@ -166,8 +165,7 @@ describe("a ordenação da tabela", () => {
         direcao: null,
         valor: null,
         periodicidade: null,
-        natureza: "CUSTO",
-        motivo: "Sem semântica confirmada.",
+          motivo: "Sem semântica confirmada.",
       },
     }),
   ];
@@ -208,27 +206,29 @@ describe("os blocos de periodicidade", () => {
   const resumo = (baldes: ResumoDoMonitor["baldes"]): ResumoDoMonitor => ({
     alteracoes: 0,
     porSituacao: { VALORADO: 0, SEM_VALORACAO: 0, NAO_MONETARIA: 0, FORA_DO_TOTAL: 0 },
-    aumentos: 0,
-    reducoes: 0,
+    ganhos: 0,
+    perdas: 0,
     entidadesAfetadas: 0,
     baldes,
     porModulo: [],
   });
 
   it("esconde o balde em que nada se moveu, sem esconder as alterações", () => {
-    const vazio = {
-      periodicidade: "ANUAL",
-      custo: { liquido: 0, aumentos: 0, reducoes: 0 },
-      receita: { liquido: 0, aumentos: 0, reducoes: 0 },
-      resultado: 0,
-    };
-    const cheio = {
-      periodicidade: "MENSAL",
-      custo: { liquido: 190, aumentos: 310, reducoes: -120 },
-      receita: { liquido: 0, aumentos: 0, reducoes: 0 },
-      resultado: -190,
-    };
+    const vazio = { periodicidade: "ANUAL", liquido: 0, ganho: 0, perda: 0 };
+    const cheio = { periodicidade: "MENSAL", liquido: 190, ganho: 310, perda: -120 };
     expect(baldesVisiveis(resumo([vazio, cheio])).map((b) => b.periodicidade)).toEqual([
+      "MENSAL",
+    ]);
+  });
+
+  /*
+    Ganhou R$ 40 mil e perdeu R$ 40 mil: o líquido é zero e o balde **aparece**.
+    Filtrar pelo líquido esconderia justamente o quadro que mais precisa ser
+    lido — o recorte em que muito dinheiro se moveu nos dois sentidos.
+  */
+  it("mostra o balde cujo líquido é zero porque as duas metades se anularam", () => {
+    const anulado = { periodicidade: "MENSAL", liquido: 0, ganho: 40_000, perda: -40_000 };
+    expect(baldesVisiveis(resumo([anulado])).map((b) => b.periodicidade)).toEqual([
       "MENSAL",
     ]);
   });

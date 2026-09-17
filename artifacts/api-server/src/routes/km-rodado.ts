@@ -24,7 +24,7 @@ import {
   type RequestedContext,
 } from "@workspace/comparison";
 import {
-  baldesDeUmaNatureza,
+  baldesDoImpacto,
   candidatasDoPar,
   TETO_DE_CANDIDATAS_MS,
 } from "../lib/candidatas-do-par";
@@ -374,11 +374,9 @@ router.get("/km-rodado/candidatos", async (req, res, next): Promise<void> => {
               novos: 0,
               ausentes: 0,
             });
-            /* Uma natureza só — a linha do menu sai sem prefixo de natureza,
-               como nas quatro rubricas. Ver `BaldeDoImpacto`. */
             return {
               alteracoes: variaveisAlteradas,
-              impacto: { baldes: baldesDeUmaNatureza(impacto.porPeriodicidade) },
+              impacto: { baldes: baldesDoImpacto(impacto.porPeriodicidade) },
             };
           },
         },

@@ -23,7 +23,7 @@ import {
   type RequestedContext,
 } from "@workspace/comparison";
 import {
-  baldesDeUmaNatureza,
+  baldesDoImpacto,
   candidatasDoPar,
   TETO_DE_CANDIDATAS_MS,
 } from "../lib/candidatas-do-par";
@@ -353,7 +353,7 @@ router.get("/velocidade-media/candidatos", async (req, res, next): Promise<void>
             });
             return {
               alteracoes: variaveisAlteradas,
-              impacto: { baldes: baldesDeUmaNatureza(impacto.porPeriodicidade) },
+              impacto: { baldes: baldesDoImpacto(impacto.porPeriodicidade) },
             };
           },
         },

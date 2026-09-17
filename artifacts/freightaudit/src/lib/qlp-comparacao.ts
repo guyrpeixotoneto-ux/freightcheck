@@ -124,10 +124,15 @@ export function escreverVariacao(variacao: number | null): string {
 /**
  * A cor de um número que subiu ou desceu — e por que só o dinheiro a ganha.
  *
- * O quadro de pessoal é **custo**: uma despesa que sobe é notícia ruim, e sai
- * em vermelho, como nas auditorias de FINAME e de Impostos. Dar cor a uma
- * despesa não é somá-la — a direção de uma coluna não depende da curadoria, e é
- * o total que depende; ele continua não existindo nesta tela.
+ * Em dinheiro vale a régua do produto inteiro: positivo é ganho e sai em verde,
+ * negativo é perda e sai em vermelho, como no FINAME, no IPVA e no Monitor
+ * Custo Fixo. Dar cor a uma linha não é somá-la — a direção de uma coluna não
+ * depende da curadoria, e é o total que depende; ele continua não existindo
+ * nesta tela.
+ *
+ * Houve aqui a régua inversa, pela leitura de que o quadro de pessoal é custo e
+ * despesa que sobe é notícia ruim. Ela saiu junto com a mesma leitura no
+ * Monitor e nas auditorias de Aluguel e de Impostos, que a citavam de volta.
  *
  * **Quantidade não ganha cor**, e é a diferença desta tela para as outras seis.
  * Um efetivo que sobe não é bom nem ruim: pode ser a unidade que contratou o
@@ -139,7 +144,7 @@ export function corDaDiferenca(
   medida: MedidaDaVariavel,
 ): string {
   if (diferenca === null || diferenca === 0 || medida !== "DINHEIRO") return "";
-  return diferenca > 0 ? "text-destructive" : "text-success";
+  return diferenca > 0 ? "text-success" : "text-destructive";
 }
 
 /** O selo de cada estado. Cor **e** texto — nunca só a cor. */

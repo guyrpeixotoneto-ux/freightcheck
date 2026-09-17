@@ -60,7 +60,7 @@ const ROTULOS = new Map([
   ["ago", "agosto/2026 · 1ª quinzena"],
 ]);
 
-type Balde = { periodicidade: string; natureza: "CUSTO" | "RECEITA" | null; valor: number };
+type Balde = { periodicidade: string; valor: number };
 
 /** Os baldes de julho, montados como a rota os publica. */
 function montar(baldes: Balde[], alteracoes = 73) {
@@ -102,14 +102,14 @@ afterEach(cleanup);
 
 describe("a leitura de cada linha de dinheiro do menu", () => {
   it("positivo leva `+`, e sai em verde", () => {
-    montar([{ periodicidade: "MENSAL", natureza: "CUSTO", valor: 7238.85 }], 7);
+    montar([{ periodicidade: "MENSAL", valor: 7238.85 }], 7);
 
     expect(linhaDeJulho().textContent).toContain("+R$ 7.238,85/mês");
     expect(corDe("+R$ 7.238,85/mês")).toContain("text-emerald-700");
   });
 
   it("negativo leva `−`, e sai em vermelho", () => {
-    montar([{ periodicidade: "MENSAL", natureza: "CUSTO", valor: -21064.41 }], 11);
+    montar([{ periodicidade: "MENSAL", valor: -21064.41 }], 11);
 
     expect(linhaDeJulho().textContent).toContain("−R$ 21.064,41/mês");
     expect(corDe("−R$ 21.064,41/mês")).toContain("text-destructive");
@@ -118,7 +118,7 @@ describe("a leitura de cada linha de dinheiro do menu", () => {
   /* O prefixo é quem carrega a direção, e o valor vem em módulo: a linha não
      pode escrever `−` duas vezes, nem repetir na palavra o que o sinal diz. */
   it("a palavra não sobra ao lado do sinal, e o sinal não sai dobrado", () => {
-    montar([{ periodicidade: "MENSAL", natureza: "CUSTO", valor: -21064.41 }]);
+    montar([{ periodicidade: "MENSAL", valor: -21064.41 }]);
 
     const linha = linhaDeJulho().textContent ?? "";
     expect(linha).toContain("−R$ 21.064,41/mês");
@@ -132,7 +132,7 @@ describe("a leitura de cada linha de dinheiro do menu", () => {
     número, porque a linha muda é "ainda não calculei", e esta calculou.
   */
   it("zero não ganha sinal nem cor", () => {
-    montar([{ periodicidade: "MENSAL", natureza: "CUSTO", valor: 0 }], 3);
+    montar([{ periodicidade: "MENSAL", valor: 0 }], 3);
 
     const linha = linhaDeJulho().textContent ?? "";
     expect(linha).toContain("R$ 0,00");
@@ -142,29 +142,23 @@ describe("a leitura de cada linha de dinheiro do menu", () => {
   });
 
   /*
-    O Monitor traz as duas naturezas na mesma periodicidade, e as duas se leem
-    pela mesma régua. As linhas continuam separadas — somá-las seria publicar o
-    "impacto líquido" que os cartões daquela tela recusam em letra grande.
+    Duas periodicidades continuam duas linhas, e cada uma se lê pela mesma
+    régua. Somá-las seria juntar R$/mês com R$/ano, que é a soma que o produto
+    recusa em toda tela — no Monitor, que consolida cinco módulos, como nas
+    rubricas.
   */
-  it("no Monitor, as duas linhas da mesma periodicidade se leem igual", () => {
+  it("duas periodicidades são duas linhas, lidas pela mesma régua", () => {
     montar([
-      { periodicidade: "MENSAL", natureza: "CUSTO", valor: 7238.85 },
-      { periodicidade: "MENSAL", natureza: "RECEITA", valor: -900 },
+      { periodicidade: "MENSAL", valor: 7238.85 },
+      { periodicidade: "ANUAL", valor: -900 },
     ]);
 
     const linha = linhaDeJulho().textContent ?? "";
     expect(linha).toContain("+R$ 7.238,85/mês");
-    expect(linha).toContain("−R$ 900,00/mês");
+    expect(linha).toContain("−R$ 900,00/ano");
     /* 7.238,85 − 900 = 6.338,85, e ele não aparece: as duas continuam duas. */
     expect(linha).not.toContain("6.338,85");
-  });
-
-  /* A rubrica manda `natureza: null` e lê pela mesma régua — o sinal não
-     depende de qual lado da DRE é. */
-  it("a rubrica de uma natureza só usa a mesma régua", () => {
-    montar([{ periodicidade: "MENSAL", natureza: null, valor: 7238.85 }], 7);
-
-    expect(linhaDeJulho().textContent).toContain("+R$ 7.238,85/mês");
     expect(corDe("+R$ 7.238,85/mês")).toContain("text-emerald-700");
+    expect(corDe("−R$ 900,00/ano")).toContain("text-destructive");
   });
 });

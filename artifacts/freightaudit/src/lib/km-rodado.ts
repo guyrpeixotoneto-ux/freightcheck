@@ -159,10 +159,14 @@ export function escreverKm(valor: number | null): string {
 /**
  * A cor de um número que subiu ou desceu — e por que nem toda linha a recebe.
  *
- * Um R$/km que sobe é preço que sobe: vermelho. Um R$/km de **lucro variável**
- * que sobe também é preço que sobe, e continua vermelho — esta tela é do lado de
- * quem paga o frete, e a margem do transportador entra no preço como qualquer
- * outra parcela.
+ * Em dinheiro a régua é a do produto inteiro: positivo é ganho e sai em verde,
+ * negativo é perda e sai em vermelho. Um R$/km que sobe é mais dinheiro por
+ * quilômetro rodado, e o R$/km de lucro variável não é exceção.
+ *
+ * Houve aqui a régua inversa, escrita sobre a hipótese de que "esta tela é do
+ * lado de quem paga o frete". O produto lê pelo outro lado — o de quem recebe,
+ * como `docs/PROVA-DA-EVOLUCAO-DE-FINAME.md` fixou —, e com as duas hipóteses
+ * conviviam duas cores para o mesmo sinal em telas vizinhas.
  *
  * Já uma **distância** não tem lado bom: um trecho que passou de 412 para 430 km
  * não ficou pior nem melhor, mudou de percurso. Pintá-la afirmaria um juízo que
@@ -175,7 +179,7 @@ export function corDaDiferenca(
 ): string {
   if (diferenca === null || diferenca === 0) return "";
   if (papel !== "RAZAO" && papel !== "POR_VIAGEM") return "";
-  return diferenca > 0 ? "text-destructive" : "text-success";
+  return diferenca > 0 ? "text-success" : "text-destructive";
 }
 
 /** O selo de cada estado. Cor **e** texto — nunca só a cor. */

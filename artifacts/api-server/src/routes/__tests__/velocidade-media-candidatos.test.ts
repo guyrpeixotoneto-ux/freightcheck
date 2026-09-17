@@ -198,7 +198,7 @@ describe("GET /velocidade-media/candidatos", () => {
       );
       expect(numeros.impacto.baldes, `par ${comum} → ${para}`).toEqual(
         Object.entries(comparacao.resumo.impacto.porPeriodicidade).map(
-          ([periodicidade, valor]) => ({ periodicidade, natureza: null, valor }),
+          ([periodicidade, valor]) => ({ periodicidade, valor }),
         ),
       );
     }
@@ -226,11 +226,11 @@ describe("GET /velocidade-media/candidatos", () => {
     );
 
     expect(comNumero.numeros.alteracoes).toBe(comparacao.resumo.variaveisAlteradas);
-    /* Os mesmos baldes, e com natureza nula: é um módulo de uma natureza só,
+    /* Os mesmos baldes, um por periodicidade — periodicidade nunca se mistura,
        e a linha do menu sai sem prefixo. */
     expect(comNumero.numeros.impacto.baldes).toEqual(
       Object.entries(comparacao.resumo.impacto.porPeriodicidade).map(
-        ([periodicidade, valor]) => ({ periodicidade, natureza: null, valor }),
+        ([periodicidade, valor]) => ({ periodicidade, valor }),
       ),
     );
   }, 300_000);

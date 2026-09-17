@@ -31,7 +31,7 @@ import { exigirOperacaoDoRecurso, operacaoDaConsulta } from "../lib/operacao";
 import { contextoDoPar } from "../lib/recorte-do-par";
 import { comTetoDeRota } from "../lib/timeout-de-rota";
 import {
-  baldesDeUmaNatureza,
+  baldesDoImpacto,
   candidatasDoPar,
   TETO_DE_CANDIDATAS_MS,
 } from "../lib/candidatas-do-par";
@@ -384,7 +384,7 @@ router.get("/aluguel/candidatos", async (req, res, next): Promise<void> => {
             });
             return {
               alteracoes: variaveisAlteradas,
-              impacto: { baldes: baldesDeUmaNatureza(impacto.porPeriodicidade) },
+              impacto: { baldes: baldesDoImpacto(impacto.porPeriodicidade) },
             };
           },
         },
