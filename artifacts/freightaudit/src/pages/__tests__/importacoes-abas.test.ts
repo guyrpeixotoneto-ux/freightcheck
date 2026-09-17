@@ -5,6 +5,7 @@ import {
   tiposHerdados,
   tiposVindosDoArquivo,
   type TiposDaImportacao,
+  vigenciasDoCartao,
   type UnidadeDaImportacao,
 } from "../importacoes";
 import {
@@ -191,5 +192,23 @@ describe("o recorte por unidade", () => {
 
   it("o espaço em volta do código não separa uma unidade de si mesma", () => {
     expect(importacaoDaUnidade(comUnidades(` ${CAMACARI} `), CAMACARI)).toBe(true);
+  });
+});
+
+describe("as vigências no cartão", () => {
+  it("o consolidado agrupa o rótulo repetido, e diz quantas vezes", () => {
+    // Uma vigência por unidade, as duas chamadas pela mesma quinzena.
+    expect(vigenciasDoCartao(["EMPURRADA_1_8_2044", "EMPURRADA_1_8_2044"])).toEqual([
+      { label: "EMPURRADA_1_8_2044", vezes: 2 },
+    ]);
+  });
+
+  it("rótulos distintos ficam como estão, na ordem em que chegaram", () => {
+    expect(
+      vigenciasDoCartao(["EMPURRADA_2_12_2025", "EMPURRADA_1_1_2026"]),
+    ).toEqual([
+      { label: "EMPURRADA_2_12_2025", vezes: 1 },
+      { label: "EMPURRADA_1_1_2026", vezes: 1 },
+    ]);
   });
 });

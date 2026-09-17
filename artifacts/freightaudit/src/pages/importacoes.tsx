@@ -252,6 +252,24 @@ export const importacaoDaUnidade = (
   run.unidades.length === 0 ||
   run.unidades.some((unidade) => unidade.code.trim() === code.trim());
 
+/**
+ * Os rótulos de vigência de uma importação, agrupados — cada um com quantas vezes.
+ *
+ * `labels` é uma entrada por vigência promovida, e isso está certo: o arquivo
+ * consolidado produz uma por unidade, e todas se chamam igual porque o rótulo
+ * nomeia a quinzena, não a unidade. Quem desenha é que não podia tratar duas
+ * coisas diferentes com o mesmo nome como se fossem uma.
+ *
+ * A ordem é a de chegada (a mais antiga primeiro), preservada.
+ */
+export const vigenciasDoCartao = (
+  labels: string[],
+): { label: string; vezes: number }[] => {
+  const contagem = new Map<string, number>();
+  for (const label of labels) contagem.set(label, (contagem.get(label) ?? 0) + 1);
+  return [...contagem].map(([label, vezes]) => ({ label, vezes }));
+};
+
 /** Uma unidade como a importação a entregou: o CNPJ da planilha, e o nome. */
 export interface UnidadeDaImportacao {
   code: string;
@@ -1355,7 +1373,7 @@ export default function Importacoes() {
       <ReprocessDialog
         /* Uma caixa por importação, como na exclusão: o motivo digitado para
            uma não pode aparecer preenchido na próxima. */
-        key={reprocessOf?.importRunId ?? "nenhuma"}
+        key={reprocessOf?.importRunId ?? "sem-reprocessamento"}
         run={reprocessOf}
         todos={runs}
         tipos={tipos}
@@ -1373,7 +1391,7 @@ export default function Importacoes() {
       <DeleteDialog
         /* Uma caixa por importação: o motivo digitado para uma não pode
            aparecer preenchido na próxima. */
-        key={deleteOf?.importRunId ?? "nenhuma"}
+        key={deleteOf?.importRunId ?? "sem-exclusao"}
         run={deleteOf}
         onClose={() => setDeleteOf(null)}
         onConfirm={(reason) =>
@@ -1810,13 +1828,25 @@ function RunCard({
           <p className="text-[0.6875rem] font-semibold uppercase tracking-wider text-muted-foreground">
             Vigências ({run.labels.length})
           </p>
+          {/*
+            O mesmo rótulo repetido vira "×N" em vez de virar dois ladrilhos
+            iguais. Não é enfeite: um arquivo consolidado produz **uma vigência
+            por unidade**, e as duas têm o mesmo nome — a quinzena é a mesma, a
+            unidade é que muda. Dois `EMPURRADA_1_8_2044` lado a lado pareciam
+            defeito de renderização (e eram, também: mesma `key` para dois
+            irmãos), enquanto o fato é que há duas vigências. Quais unidades são
+            está logo acima, no cartão.
+          */}
           <div className="flex flex-wrap gap-2">
-            {run.labels.map((label) => (
+            {vigenciasDoCartao(run.labels).map(({ label, vezes }) => (
               <span
                 key={label}
                 className="font-mono text-[0.6875rem] px-2.5 py-1 rounded-lg border bg-muted/50 text-muted-foreground"
               >
                 {label}
+                {vezes > 1 && (
+                  <span className="ml-1 text-muted-foreground/80">×{vezes}</span>
+                )}
               </span>
             ))}
           </div>
