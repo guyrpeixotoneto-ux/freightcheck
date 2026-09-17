@@ -36,7 +36,7 @@ import { ApiErrorNotice } from "@/components/api-error";
 import { SeletorDoPar, type VigenciaEscolhivel } from "@/components/comparacao/seletor-do-par";
 import { useCandidatosDoPar } from "@/hooks/use-candidatos-do-par";
 import { avisoDoParImpossivel } from "@/lib/par-de-vigencias";
-import { TabelaDaComparacaoDeQlp } from "@/components/qlp-comparacao/tabela";
+import { CartoesDaComparacaoDeQlp } from "@/components/qlp-comparacao/tabela";
 import { DetalheDoCargo } from "@/components/qlp-comparacao/detalhe";
 import {
   AlteracoesPorVariavel,
@@ -51,6 +51,7 @@ import { cn } from "@/lib/utils";
 import {
   ABAS_DE_ESTADO,
   FILTROS_VAZIOS,
+  agruparPorVariavel,
   contagemPorEstado,
   escreverRubrica,
   filtrar,
@@ -231,6 +232,19 @@ export function ComparacaoDoQuadro({
   const naPagina = useMemo(
     () => filtradas.slice((pagina - 1) * porPagina, pagina * porPagina),
     [filtradas, pagina, porPagina],
+  );
+  /*
+    Os cartões da página, um por variável.
+
+    O agrupamento é da **página**, e não do recorte inteiro, para a paginação
+    continuar contando o que ela sempre contou: linhas. Uma variável com mais
+    linhas do que cabem numa página aparece em duas, e o cabeçalho de cada
+    cartão diz quantos cargos estão ali — que é o que se vê. Paginar por
+    variável faria uma página valer 3 linhas e a seguinte 80.
+  */
+  const grupos = useMemo(
+    () => agruparPorVariavel(naPagina, dados?.alteracoesPorVariavel ?? []),
+    [naPagina, dados],
   );
 
   useEffect(() => setPagina(1), [filtros, parametros]);
@@ -433,8 +447,8 @@ export function ComparacaoDoQuadro({
             />
           ) : (
             <>
-              <TabelaDaComparacaoDeQlp
-                linhas={naPagina}
+              <CartoesDaComparacaoDeQlp
+                grupos={grupos}
                 rotulos={rotulos}
                 justificadaPor={justificar.justificadaPor}
                 onAbrir={setCargoAberto}
