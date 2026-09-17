@@ -24,6 +24,7 @@ import { CatalogoDeAlteracoes } from "@/components/alteracoes-por-modulo/catalog
 import { SeletorMestre } from "@/components/alteracoes-por-modulo/seletor-mestre";
 import { fraseSemPar } from "@/lib/par-de-vigencias";
 import { fetchJson } from "@/lib/api";
+import { useCandidatosDoPar } from "@/hooks/use-candidatos-do-par";
 import { lerRecorte } from "@/lib/recorte";
 import { contextoAberto, unidadeDe, useContextosDaCasca } from "@/lib/contextos";
 import {
@@ -253,6 +254,30 @@ export default function AlteracoesPorModulo() {
     },
   });
 
+  /*
+    Os números do seletor mestre — pedidos no carregamento da tela, e não na
+    abertura do menu.
+
+    O `para` é uma **data**, e é a única rota de candidatas do produto que
+    trabalha assim: as quatro coberturas têm ids diferentes para a mesma
+    quinzena, e a data é o que elas compartilham. O `scopeHash` vai junto, e
+    aqui ele não é só chave de cache como nas outras telas: sem unidade no
+    endereço, o servidor não teria como recortar a frota — uma data não carrega
+    unidade nenhuma, ao contrário de um id de vigência.
+
+    A pergunta espera a unidade ser resolvida. Sem isso, a primeira rodada sairia
+    com `scopeHash` vazio, o servidor responderia pela operação inteira, e a
+    coluna abriria com números de um acervo maior do que o que a tela oferece —
+    substituídos um instante depois, que é a pior forma de um número aparecer
+    numa auditoria.
+  */
+  const candidatos = useCandidatosDoPar(
+    "alteracoes-por-modulo",
+    unidadeResolvida ? mestre.para : "",
+    escopoAberto,
+    escopoAberto ? `scopeHash=${encodeURIComponent(escopoAberto)}` : "",
+  );
+
   const contexto = { scopeHash: recorte.scopeHash, canal: recorte.canal };
   const carregandoVigencias = daFrota.isLoading || doQuadro.isLoading;
 
@@ -286,6 +311,11 @@ export default function AlteracoesPorModulo() {
             onPara={(para) => trocarMestre({ ...mestre, para }, "para")}
             onInverter={() => aplicar(aplicarMestre(inverterMestre(mestre), listas, pares))}
             carregando={carregandoVigencias}
+            candidatos={candidatos.data}
+            carregandoCandidatos={candidatos.isFetching}
+            erroDosCandidatos={
+              candidatos.error instanceof Error ? candidatos.error.message : null
+            }
           >
             {/*
               A gaveta mostra as quatro coberturas, inclusive as que não formam

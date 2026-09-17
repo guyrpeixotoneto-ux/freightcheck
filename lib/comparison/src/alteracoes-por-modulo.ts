@@ -104,6 +104,22 @@ export type CoberturaDoCatalogo =
   | "QLP_OPERACIONAL"
   | "QLP_ADMINISTRATIVO";
 
+/**
+ * As quatro coberturas, na ordem em que a tela as oferece.
+ *
+ * Morava em `lib/alteracoes-por-modulo.ts`, no navegador, e desceu para cá
+ * quando o servidor passou a precisar dela: a rota de candidatas do catálogo
+ * percorre as mesmas quatro, na mesma ordem, e uma segunda lista escrita à mão
+ * do outro lado divergiria da primeira no dia em que uma quinta cobertura
+ * entrasse — com a tela mostrando um número apurado sobre três.
+ */
+export const COBERTURAS: readonly CoberturaDoCatalogo[] = [
+  "EQUIPAMENTO",
+  "TRECHO",
+  "QLP_OPERACIONAL",
+  "QLP_ADMINISTRATIVO",
+];
+
 export const ROTULO_DA_COBERTURA: Record<CoberturaDoCatalogo, string> = {
   EQUIPAMENTO: "Equipamento",
   TRECHO: "Trecho",

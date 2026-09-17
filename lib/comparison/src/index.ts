@@ -61,3 +61,4 @@ export * from "./modulos-de-justificativa";
 export * from "./painel-de-justificativas";
 export * from "./justificativas-derivadas";
 export * from "./conciliacao-de-chamados";
+export * from "./par-mestre";
