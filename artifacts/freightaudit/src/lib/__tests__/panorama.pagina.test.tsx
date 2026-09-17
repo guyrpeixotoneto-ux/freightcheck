@@ -40,24 +40,9 @@ const DA_UNIDADE: Contexto = {
   latestPeriod: "2026-08-01",
   periods: 6,
   periodosDisponiveis: ["2026-07-01", "2026-08-01"],
-  datasetFamily: "REMUNERACAO_EQUIPAMENTO",
 };
 
-/** O contexto do quadro de pessoal — a prova de que há quadro a atravessar. */
-const DO_QUADRO: Contexto = {
-  ...DA_UNIDADE,
-  scopeHash: "hash-qlp",
-  label: "PERNAMBUCO · QLP",
-  datasetFamily: "QUADRO_DE_PESSOAL",
-};
-
-/*
-  A lista da casca é **mutável** de propósito: é ela que decide se a tela
-  pergunta pelo quadro de pessoal (`acervoTemQuadro`), e os dois estados — acervo
-  só de equipamento e acervo com quadro — são os dois casos da faixa de
-  travessia. `afterEach` a devolve ao padrão.
-*/
-let CONTEXTOS: Contexto[] = [DA_UNIDADE];
+const CONTEXTOS: Contexto[] = [DA_UNIDADE];
 
 vi.mock("@/lib/contextos", async (original) => ({
   ...(await original<typeof import("@/lib/contextos")>()),
@@ -67,7 +52,6 @@ vi.mock("@/lib/contextos", async (original) => ({
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
-  CONTEXTOS = [DA_UNIDADE];
 });
 
 /** Uma resposta do servidor, com o carimbo que `fetchJson` confere. */
@@ -272,7 +256,8 @@ const QUADRO = (quadro: "ADMINISTRATIVO" | "OPERACIONAL") => ({
     faixa escreve a do quadro em vez de herdar a da tela.
   */
   effectiveDate: "2026-08-16",
-  periodLabel: "Ago/2026 · 2ª quinzena",
+  /* Mensal, como o servidor o escreve — é a tela que escreve a quinzena. */
+  periodLabel: "agosto/2026",
   serieEntregue: true,
   colunasDesconhecidas: [],
   resumo: { quadro, cargos: 34, conferem: 30, divergem: 4, semBase: 0, efetivo: 412, foraDaSoma: 9 },
@@ -501,26 +486,20 @@ describe("a página do Panorama", () => {
     prendem é o par de estados que ela tem de acertar — a faixa que não nasce
     sem quadro, e a vigência do quadro escrita quando ele existe.
   */
-  it("sem quadro no acervo, a tela não pergunta pelo quadro — nem desenha faixa", async () => {
-    const fetchDeMentira = servidor();
-    vi.stubGlobal("fetch", fetchDeMentira);
+  it("sem quadro importado, a faixa não aparece — e o 404 não vira tela de erro", async () => {
+    vi.stubGlobal("fetch", servidor());
     montar();
 
     await waitFor(() => expect(screen.getByText("De onde vêm estes números")).toBeTruthy());
 
     expect(screen.queryByText(/também tem quadro de pessoal/)).toBeNull();
     expect(screen.queryByText("QLP Administrativo")).toBeNull();
-    /*
-      E nenhum pedido saiu: a lista de contextos da casca já diz que este acervo
-      só tem equipamento. Dois 404 por abertura, para desenhar nada, é o que
-      `acervoTemQuadro` dispensa.
-    */
-    const pedidos = fetchDeMentira.mock.calls.map(([entrada]) => String(entrada));
-    expect(pedidos.filter((url) => url.includes("/qlp/"))).toEqual([]);
+    /* E a tela inteira continua de pé: o 404 do quadro é uma afirmação sobre o
+       acervo, não uma falha da leitura que traz alguém aqui. */
+    expect(screen.getByText("+R$ 21.931")).toBeTruthy();
   });
 
   it("com QLP importado, a faixa nomeia a vigência do quadro — não a da tela", async () => {
-    CONTEXTOS = [DA_UNIDADE, DO_QUADRO];
     vi.stubGlobal("fetch", servidorComQuadro());
     montar();
 
@@ -531,7 +510,7 @@ describe("a página do Panorama", () => {
       A tela está lendo agosto/2026 do equipamento; o quadro respondeu pela 2ª
       quinzena. É a vigência **do quadro** que sai colada no número.
     */
-    expect(screen.getByText("Ago/2026 · 2ª quinzena")).toBeTruthy();
+    expect(screen.getByText("agosto/2026 · 2ª quinzena")).toBeTruthy();
     expect(screen.getByText("34 cargos · efetivo de 412")).toBeTruthy();
 
     /* O operacional, que não tem arquivo, não vira linha. */

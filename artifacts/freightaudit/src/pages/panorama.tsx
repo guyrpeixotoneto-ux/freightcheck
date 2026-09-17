@@ -21,11 +21,7 @@ import { contextoAberto, useContextosDaCasca } from "@/lib/contextos";
 import { useFamiliesOverviewQuery } from "@/lib/families-overview";
 import { useSerieDeImpacto, useSerieDeImpactoGeral } from "@/lib/serie-de-impacto";
 import { lerRecorte, nomeDaUnidade, type Recorte } from "@/lib/recorte";
-import {
-  acervoTemQuadro,
-  travessiaDoQuadro,
-  type LinhaDaTravessia,
-} from "@/lib/travessia-do-quadro";
+import { travessiaDoQuadro, type LinhaDaTravessia } from "@/lib/travessia-do-quadro";
 import type { AuditoriaDoQuadro } from "@/lib/qlp-auditoria";
 import {
   detalheDaFamilia,
@@ -317,22 +313,21 @@ export default function Panorama() {
     `fetchJsonOrNull` o traduz em `null` — o quadro não vira linha, e sem linha
     nenhuma não há faixa.
 
-    **E não se pergunta num acervo que não tem quadro.** A casca já lista os
-    contextos de todas as famílias, e `acervoTemQuadro` lê dali — dois pedidos
-    que respondem 404 a cada abertura da tela mais aberta do produto, para
-    desenhar nada, é custo que a lista em memória dispensa.
+    **E não há como saber antes se há quadro.** A casca lista contextos só da
+    família de equipamento, de propósito (`lib/comparison/src/series.ts`), então
+    as duas perguntas saem sem portão — o custo delas e as alternativas estão
+    pesados no cabeçalho de `lib/travessia-do-quadro.ts`.
   */
-  const temQuadro = acervoTemQuadro(contextos.contextos);
   const administrativo = useQuery({
     queryKey: ["qlp", "auditoria", "quadro=ADMINISTRATIVO"],
-    enabled: principalPronto && temQuadro,
+    enabled: principalPronto,
     retry: false,
     ...LEITURA_DE_APURACAO,
     queryFn: () => fetchJsonOrNull<AuditoriaDoQuadro>("/qlp/auditoria?quadro=ADMINISTRATIVO"),
   });
   const operacional = useQuery({
     queryKey: ["qlp", "auditoria", "quadro=OPERACIONAL"],
-    enabled: principalPronto && temQuadro,
+    enabled: principalPronto,
     retry: false,
     ...LEITURA_DE_APURACAO,
     queryFn: () => fetchJsonOrNull<AuditoriaDoQuadro>("/qlp/auditoria?quadro=OPERACIONAL"),

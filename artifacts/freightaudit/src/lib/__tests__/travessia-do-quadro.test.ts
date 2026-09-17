@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { acervoTemQuadro, travessiaDoQuadro } from "../travessia-do-quadro";
+import { travessiaDoQuadro } from "../travessia-do-quadro";
 import type { AuditoriaDoQuadro } from "../qlp-auditoria";
 
 /**
@@ -39,46 +39,6 @@ const auditoria = (over: Partial<AuditoriaDoQuadro> = {}): AuditoriaDoQuadro =>
     ...over,
   }) as AuditoriaDoQuadro;
 
-describe("o portão da travessia", () => {
-  const contexto = (datasetFamily: string | null | undefined) =>
-    ({
-      scopeHash: "hash",
-      channel: "EMPURRADA",
-      label: "CAMAÇARI · EMPURRADA",
-      scopes: [],
-      latestPeriod: "2026-08-01",
-      periods: 9,
-      periodosDisponiveis: [],
-      ...(datasetFamily === undefined ? {} : { datasetFamily }),
-    }) as Parameters<typeof acervoTemQuadro>[0][number];
-
-  it("um acervo só de equipamento não faz a tela perguntar pelo quadro", () => {
-    /* Duas leituras que respondem 404 a cada abertura da tela mais aberta do
-       produto, para desenhar nada. A lista da casca já dispensa o pedido. */
-    expect(acervoTemQuadro([contexto("REMUNERACAO_EQUIPAMENTO")])).toBe(false);
-  });
-
-  it("um contexto da família do quadro é a prova de que há o que atravessar", () => {
-    expect(
-      acervoTemQuadro([contexto("REMUNERACAO_EQUIPAMENTO"), contexto("QUADRO_DE_PESSOAL")]),
-    ).toBe(true);
-  });
-
-  it("sem o campo, pergunta — a ausência é 'não sei', e não 'não tem'", () => {
-    /*
-      Uma resposta de `/contexts` anterior ao campo, ainda em cache. Tratá-la
-      como "não tem" esconderia a faixa de quem tem o quadro importado; ouvir um
-      404 é o custo aceitável da dúvida.
-    */
-    expect(acervoTemQuadro([contexto(undefined)])).toBe(true);
-    expect(acervoTemQuadro([contexto(null)])).toBe(true);
-  });
-
-  it("sem contexto nenhum não há o que perguntar", () => {
-    expect(acervoTemQuadro([])).toBe(false);
-  });
-});
-
 describe("a travessia para o quadro de pessoal", () => {
   it("publica a vigência **do quadro**, e não a da tela que pergunta", () => {
     /*
@@ -90,7 +50,13 @@ describe("a travessia para o quadro de pessoal", () => {
 
     expect(linhas).toHaveLength(1);
     expect(linhas[0].rotulo).toBe("QLP Administrativo");
-    expect(linhas[0].vigencia).toBe("Ago/2026");
+    /*
+      A quinzena, e não só o mês: o `periodLabel` do servidor é mensal
+      ("Ago/2026"), e uma pastilha mensal ao lado de uma tela que também lê
+      agosto pareceria a mesma competência. `rotuloDaVigencia` escreve a
+      quinzena a partir do dia 16.
+    */
+    expect(linhas[0].vigencia).toBe("agosto/2026 · 2ª quinzena");
     expect(linhas[0].href).toBe("/qlp-administrativo");
   });
 
@@ -145,19 +111,24 @@ describe("a travessia para o quadro de pessoal", () => {
     });
 
     expect(linhas[0].rotulo).toBe("QLP Operacional");
+    expect(linhas[0].vigencia).toBe("agosto/2026 · 2ª quinzena");
     expect(linhas[0].contagem).toBeNull();
     expect(linhas[0].ressalva).toContain("não trouxe o arquivo");
     expect(linhas[0].href).toBe("/qlp-operacional");
   });
 
-  it("resposta sem a vigência não atravessa", () => {
+  it("sem a data, cai no rótulo mensal do servidor — e sem os dois não atravessa", () => {
     /*
       O caso é uma versão anterior da rota ainda em cache, de antes de ela
-      devolver o rótulo. A contagem estaria certa e a única ressalva que a torna
-      honesta nesta tela — de que quinzena ela é — estaria em branco.
+      devolver a vigência. O mensal é menos do que se quer aqui, mas é mais que
+      nada; sem nenhum dos dois a contagem estaria certa e a única ressalva que
+      a torna honesta nesta tela — de que quinzena ela é — estaria em branco.
     */
-    const semRotulo = { ...auditoria(), periodLabel: "" } as AuditoriaDoQuadro;
-    expect(travessiaDoQuadro({ ADMINISTRATIVO: semRotulo })).toEqual([]);
+    const semData = { ...auditoria(), effectiveDate: "" } as AuditoriaDoQuadro;
+    expect(travessiaDoQuadro({ ADMINISTRATIVO: semData })[0].vigencia).toBe("Ago/2026");
+
+    const semNada = { ...semData, periodLabel: "" } as AuditoriaDoQuadro;
+    expect(travessiaDoQuadro({ ADMINISTRATIVO: semNada })).toEqual([]);
   });
 
   it("os dois quadros saem na mesma ordem, com a vigência de cada um", () => {
@@ -167,14 +138,15 @@ describe("a travessia para o quadro de pessoal", () => {
       ADMINISTRATIVO: auditoria({ periodLabel: "Ago/2026" }),
       OPERACIONAL: auditoria({
         quadro: "OPERACIONAL",
+        effectiveDate: "2026-07-01",
         periodLabel: "Jul/2026",
         resumo: { ...auditoria().resumo, quadro: "OPERACIONAL", cargos: 12, efetivo: 88 },
       }),
     });
 
     expect(linhas.map((l) => [l.rotulo, l.vigencia, l.contagem])).toEqual([
-      ["QLP Administrativo", "Ago/2026", "34 cargos · efetivo de 412"],
-      ["QLP Operacional", "Jul/2026", "12 cargos · efetivo de 88"],
+      ["QLP Administrativo", "agosto/2026 · 2ª quinzena", "34 cargos · efetivo de 412"],
+      ["QLP Operacional", "julho/2026 · 1ª quinzena", "12 cargos · efetivo de 88"],
     ]);
   });
 });

@@ -1,6 +1,5 @@
-import { DATASET_FAMILY_QUADRO_DE_PESSOAL } from "@workspace/ingest/tipos";
+import { rotuloDaVigencia } from "@workspace/comparison/labels";
 import { ROTULO_DO_QUADRO, type AuditoriaDoQuadro, type QuadroDeQlp } from "./qlp-auditoria";
-import type { Contexto } from "./contextos";
 
 /**
  * A TRAVESSIA PARA O QUADRO DE PESSOAL — por que ela é uma faixa, e não um
@@ -35,31 +34,28 @@ import type { Contexto } from "./contextos";
  * atravessando. Uma linha por quadro que responde, cada uma com a **sua**
  * vigência escrita na frente do número, e o caminho para o módulo. Nenhuma
  * contagem entra em soma nenhuma da tela.
+ *
+ * ---------------------------------------------------------------------------
+ * Por que a tela pergunta pelos dois quadros sem saber se existe algum
+ * ---------------------------------------------------------------------------
+ * Ela custa duas leituras, e num acervo sem QLP as duas respondem 404. A
+ * primeira versão disto tentou um portão: a casca já lista contextos, e um
+ * contexto da família do quadro provaria que há o que atravessar.
+ *
+ * **Não existe esse portão.** `listContexts` tem a família de equipamento como
+ * padrão, de propósito e com a razão escrita em `lib/comparison/src/series.ts`:
+ * quando o padrão era "todas", a mesma unidade aparecia duas vezes no seletor
+ * da lateral — as duas escritas "CAMAÇARI", indistinguíveis — e `contexts[0]`,
+ * o contexto de quem não escolhe nada, podia cair no do quadro; o Resumo
+ * executivo abria nele, sem uma carreta sequer. `/contexts` não lista, e não
+ * deve listar, os contextos do quadro.
+ *
+ * Chegar ao mesmo portão por outro caminho custaria uma leitura — a que se quis
+ * evitar — ou um parâmetro novo na rota da casca, que é a rota que alimenta o
+ * menu de toda tela do produto. Perguntar duas vezes e ouvir 404 é mais barato
+ * que as duas alternativas: as leituras saem **depois** do conteúdo principal,
+ * ficam um minuto em cache (`LEITURA_DE_APURACAO`) e não seguram nada em tela.
  */
-
-/**
- * O acervo tem quadro de pessoal? — **a pergunta que evita duas perguntas.**
- *
- * A faixa custa duas leituras (uma por quadro), e num acervo que só tem
- * equipamento as duas respondem 404. Isso não quebra nada — `fetchJsonOrNull` as
- * lê como "não há" —, mas são dois pedidos e dois 404 no console a cada abertura
- * da tela mais aberta do produto, para desenhar nada.
- *
- * A casca já sabe a resposta: `/contexts` lista os contextos de **todas** as
- * famílias, e a lista já está em memória (é a mesma consulta da lateral). Um
- * contexto da família do quadro é a prova de que existe quadro a atravessar; sem
- * nenhum, a tela não pergunta.
- *
- * **Sem `datasetFamily` a resposta é sim.** Uma resposta anterior ainda em cache
- * não traz o campo, e ali a ausência quer dizer "não sei": tratá-la como "não
- * tem" esconderia a faixa de quem tem o quadro importado. Perguntar e ouvir 404
- * é o custo aceitável da dúvida; esconder dado por causa de um cache velho, não.
- */
-export function acervoTemQuadro(contextos: Contexto[]): boolean {
-  return contextos.some(
-    (c) => c.datasetFamily == null || c.datasetFamily === DATASET_FAMILY_QUADRO_DE_PESSOAL,
-  );
-}
 
 /** Os dois quadros, na ordem em que a faixa os publica. */
 export const QUADROS_DA_TRAVESSIA: QuadroDeQlp[] = ["ADMINISTRATIVO", "OPERACIONAL"];
@@ -74,7 +70,19 @@ export interface LinhaDaTravessia {
   quadro: QuadroDeQlp;
   /** "QLP Administrativo" — o rótulo canônico, o mesmo do módulo. */
   rotulo: string;
-  /** A vigência **deste** quadro, escrita. Nunca a da tela que pergunta. */
+  /**
+   * A vigência **deste** quadro, escrita — nunca a da tela que pergunta, e
+   * **nunca só o mês**.
+   *
+   * O `periodLabel` do servidor é mensal (`ContextoDoQuadro.periodLabel`: *"o
+   * mês; as quinzenas do mesmo mês se distinguem pelo rótulo"*), e aqui isso
+   * era pior que não dizer nada: a pastilha saía "agosto/2026" ao lado de uma
+   * tela que também lê agosto/2026 — parecia a mesma competência, quando o
+   * quadro estava na 2ª quinzena e a tela na 1ª. Quem escreve a quinzena é
+   * `rotuloDaVigencia` (`@workspace/comparison/labels`), a mesma função que
+   * nomeia vigência no resto do produto, a partir do dia em que ela passou a
+   * valer.
+   */
   vigencia: string;
   /** Cargos e efetivo, já escritos — `null` quando o quadro não os sustenta. */
   contagem: string | null;
@@ -109,8 +117,7 @@ export function travessiaDoQuadro(
     const dados = respostas[quadro];
     if (!dados) continue;
     /*
-      Sem a vigência escrita não há linha — e esta guarda não é paranoia de
-      tipo.
+      Sem vigência não há linha — e esta guarda não é paranoia de tipo.
 
       A faixa publica uma contagem de **outra competência** dentro de uma tela
       que tem a sua; o rótulo da vigência é o que impede essa contagem de ser
@@ -119,12 +126,13 @@ export function travessiaDoQuadro(
       — a contagem certa, sem a única ressalva que a torna honesta aqui. Melhor
       não atravessar do que atravessar sem dizer para quando.
     */
-    if (typeof dados.periodLabel !== "string" || dados.periodLabel === "") continue;
+    const vigencia = vigenciaDoQuadro(dados);
+    if (vigencia === null) continue;
 
     linhas.push({
       quadro,
       rotulo: ROTULO_DO_QUADRO[quadro],
-      vigencia: dados.periodLabel,
+      vigencia,
       contagem: dados.serieEntregue ? contagem(dados) : null,
       ressalva: dados.serieEntregue
         ? null
@@ -134,6 +142,28 @@ export function travessiaDoQuadro(
   }
 
   return linhas;
+}
+
+/**
+ * A vigência do quadro, com a quinzena — `null` quando a resposta não a diz.
+ *
+ * `rotuloDaVigencia` com a lista vazia é o caso documentado de quem tem **uma
+ * data na mão**: a quinzena sai do dia da própria vigência, que é tudo de que
+ * ela precisa. A lista do quadro não vem nesta resposta, e pedi-la para
+ * escrever um rótulo custaria outra leitura para dizer o mesmo.
+ *
+ * O `periodLabel` do servidor fica de reserva, para uma resposta que não traga
+ * a data: mensal é menos do que se quer aqui, mas é mais do que nada — e a
+ * linha sem nenhum dos dois não atravessa.
+ */
+function vigenciaDoQuadro(dados: AuditoriaDoQuadro): string | null {
+  if (typeof dados.effectiveDate === "string" && dados.effectiveDate !== "") {
+    return rotuloDaVigencia(dados.effectiveDate, []);
+  }
+  if (typeof dados.periodLabel === "string" && dados.periodLabel !== "") {
+    return dados.periodLabel;
+  }
+  return null;
 }
 
 /**
