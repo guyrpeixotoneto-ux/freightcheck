@@ -43,6 +43,27 @@ const planilha = (vigencia: string, placa: string): string =>
     abas: [{ nome: "cavalos", linhas: [{ placa }] }],
   } satisfies PlanilhaSpec);
 
+/**
+ * O acumulado: um arquivo só, com mais de uma quinzena dentro.
+ *
+ * Uma aba, linhas de vigências diferentes — que é como o consolidado chega:
+ * `Vigencia` é coluna de linha no export, não do arquivo.
+ */
+const acumulado = (vigencias: string[], placa: string): string =>
+  escreverPlanilha({
+    vigencia: vigencias[0],
+    unidadeNome: "CAMACARI",
+    abas: [
+      {
+        nome: "cavalos",
+        linhas: vigencias.map((vigencia, i) => ({
+          placa: `${placa}${i}A11`,
+          vigencia,
+        })),
+      },
+    ],
+  } satisfies PlanilhaSpec);
+
 /** Recebe, lê e confere — o caminho até a decisão, sem promover. */
 async function lerAteConferir(arquivo: string, declaredPeriod?: string) {
   const recebido = await receiveFile(ctx.db, {
@@ -102,8 +123,8 @@ describe("a quinzena declarada é conferida contra o rótulo do arquivo", () => 
     expect(apontamento?.sample).toContain("1ª quinzena de 09/2041");
     expect(apontamento?.sample).toContain("EMPURRADA_1_9_2041");
 
-    // E o motivo gravado manda pela linha certa, não pela aba certa.
-    expect(run.failureReason).toContain("linha da quinzena");
+    // E o motivo gravado leva a saída dentro: a casa da quinzena certa.
+    expect(run.failureReason).toContain("casa da quinzena a que ele pertence");
 
     // A promoção não é uma segunda chance: o estado recusa antes dela.
     await expect(promote(ctx.db, importRunId, {})).rejects.toThrow();
@@ -152,6 +173,43 @@ describe("a quinzena declarada é conferida contra o rótulo do arquivo", () => 
     );
     const estadoRecusado = await getImportRunStatus(ctx.db, recusado.importRunId);
     expect(estadoRecusado?.blockingErrors).toBe(1);
+  });
+});
+
+describe("o acumulado, e a saída que a recusa oferece", () => {
+  it("o arquivo de várias quinzenas entra pelo envio que não declara nenhuma", async () => {
+    const { relatorio, run } = await lerAteConferir(
+      acumulado(["EMPURRADA_1_11_2041", "EMPURRADA_2_11_2041"], "ACU"),
+    );
+
+    // Sem declaração não há o que conferir: as duas quinzenas entram, e cada
+    // uma acende sozinha na grade da tela.
+    expect(run.status).toBe("PREVIEWED");
+    expect(relatorio.blockingErrors).toBe(0);
+    expect(relatorio.snapshots.map((s) => s.label).sort()).toEqual([
+      "EMPURRADA_1_11_2041",
+      "EMPURRADA_2_11_2041",
+    ]);
+  });
+
+  it("o mesmo acumulado pela casa de uma quinzena é recusado — e a saída é o envio do topo", async () => {
+    const { relatorio, run } = await lerAteConferir(
+      acumulado(["EMPURRADA_1_12_2041", "EMPURRADA_2_12_2041"], "CAS"),
+      "2041-12-01",
+    );
+
+    expect(run.status).toBe("VALIDATION_ERROR");
+
+    const apontamento = relatorio.issuesByCode.find(
+      (i) => i.code === "QUINZENA_DIVERGE_DA_DECLARACAO",
+    );
+    // A frase diz que o arquivo traz mais de uma, e não que ele é de outra:
+    // mandá-lo para outra casa não resolveria nada.
+    expect(apontamento?.sample).toContain("traz 2 quinzenas dentro");
+    // E a saída oferecida é o envio do topo, não outra casa: mandá-lo para
+    // outra casa não resolveria nada, porque ele não é de nenhuma delas.
+    expect(run.failureReason).toContain("envio do topo da aba");
+    expect(run.failureReason).not.toContain("casa da quinzena a que ele pertence");
   });
 });
 
