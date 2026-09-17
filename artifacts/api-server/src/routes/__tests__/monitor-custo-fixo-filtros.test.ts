@@ -144,8 +144,16 @@ describe("a leitura dos parâmetros", () => {
   });
 
   it("cai em todos os módulos quando nenhum é pedido", () => {
+    /*
+      A lista escrita por extenso, e não `MODULOS_DO_MONITOR`: é ela que prende a
+      ordem em que o menu os oferece, e um módulo que entrasse no Monitor sem
+      alguém decidir onde ele aparece passaria despercebido. O Aluguel entrou
+      depois do FINAME de propósito — nos implementos alugados a parcela de lá é
+      o aluguel daqui, e as duas linhas falam do mesmo contrato.
+    */
     expect(parseFiltros({}).filtros.modulos).toEqual([
       "FINAME",
+      "ALUGUEL",
       "IPVA",
       "LUCRO_FIXO",
       "IMPOSTOS",
@@ -163,7 +171,13 @@ describe("a leitura dos parâmetros", () => {
       inexplicável. O padrão é mais honesto, e o aviso é o que impede que ele
       pareça um filtro aplicado.
     */
-    expect(filtros.modulos).toEqual(["FINAME", "IPVA", "LUCRO_FIXO", "IMPOSTOS"]);
+    expect(filtros.modulos).toEqual([
+      "FINAME",
+      "ALUGUEL",
+      "IPVA",
+      "LUCRO_FIXO",
+      "IMPOSTOS",
+    ]);
     expect(filtros.situacoes).toEqual([]);
     expect(filtros.equipamento).toBeNull();
     expect(ignorados).toEqual([
