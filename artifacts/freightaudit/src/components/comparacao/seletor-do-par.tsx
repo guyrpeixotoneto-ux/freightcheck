@@ -174,13 +174,36 @@ export function SeletorDoPar({
     inteira —, e mesmo assim ele não pode ser o único lugar da tela escrevendo
     a vigência de outro jeito.
   */
-  const datasDaLista = useMemo(() => vigencias.map((v) => v.effectiveDate), [vigencias]);
+  /**
+   * A LISTA, DA MAIS RECENTE PARA A MAIS ANTIGA.
+   *
+   * Era a ordem que `/snapshots` devolvia — `ORDER BY effective_date`, crescente
+   * —, porque este componente nunca ordenou nada: ele herdava a ordem do SQL.
+   * Todo o resto do produto que **escolhe** uma ordem escolhe a inversa: o par
+   * do Panorama, o seletor de vigência do cabeçalho, o da Visão Geral, o seletor
+   * mestre de Alterações por Módulo e o próprio `listPeriods` do servidor
+   * (`ORDER BY s.effective_date DESC`). Dezessete telas abriam o menu com
+   * dezembro/2025 no topo e a vigência recente lá embaixo, fora da vista, ao
+   * lado de telas que faziam o contrário.
+   *
+   * A régua é a de quem audita: a vigência que se quer comparar é quase sempre
+   * uma das últimas, e ela tem de estar onde o menu abre. A ordenação é feita
+   * aqui, numa cópia, e **não** em `listComparableSnapshots` — aquela consulta
+   * serve outras leituras, e mudar a ordem dela para arrumar um menu seria
+   * mexer no que elas veem para resolver o que este componente desenha.
+   */
+  const ordenadas = useMemo(
+    () => [...vigencias].sort((a, b) => b.effectiveDate.localeCompare(a.effectiveDate)),
+    [vigencias],
+  );
+
+  const datasDaLista = useMemo(() => ordenadas.map((v) => v.effectiveDate), [ordenadas]);
   const rotulo = (v: VigenciaEscolhivel) =>
     rotulos.get(v.id) ?? rotuloDaVigencia(v.effectiveDate, datasDaLista);
 
   const porId = useMemo(
-    () => new Map(vigencias.map((v) => [v.id, v] as const)),
-    [vigencias],
+    () => new Map(ordenadas.map((v) => [v.id, v] as const)),
+    [ordenadas],
   );
   const escolhida = porId.get(base);
   const destino = porId.get(comparada);
@@ -212,11 +235,11 @@ export function SeletorDoPar({
    */
   const opcoes = (papel: "base" | "comparada") => {
     const outra = papel === "base" ? destino : escolhida;
-    if (!outra) return { compativeis: vigencias, resto: [] as VigenciaEscolhivel[] };
-    const compativeis = vigenciasCompativeisCom(vigencias, outra);
+    if (!outra) return { compativeis: ordenadas, resto: [] as VigenciaEscolhivel[] };
+    const compativeis = vigenciasCompativeisCom(ordenadas, outra);
     const resto =
       ancora === papel
-        ? vigencias.filter((v) => v.id !== outra.id && !formamParDeVigencias(v, outra))
+        ? ordenadas.filter((v) => v.id !== outra.id && !formamParDeVigencias(v, outra))
         : [];
     return { compativeis, resto };
   };
@@ -239,6 +262,10 @@ export function SeletorDoPar({
     (papel === "base" ? onBase : onComparada)(id);
     if (!nova) return;
     if (!outra || !formamParDeVigencias(outra, nova)) {
+      /* `vigencias`, e não `ordenadas`: a ordem da lista só decide como o menu
+         se desenha. Quem escolhe a compatível mais próxima é a distância no
+         tempo, e passar a cópia invertida mudaria o desempate entre duas
+         vigências da mesma data — uma decisão que não é desta mudança. */
       definirOutra(compativelMaisProxima(vigencias, nova)?.id ?? "");
     }
   };
