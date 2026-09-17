@@ -736,6 +736,13 @@
       "when": 1789679705484,
       "tag": "0104_financiamento_real_em_competencia_mensal",
       "breakpoints": true
+    },
+    {
+      "idx": 105,
+      "version": "7",
+      "when": 1789685456021,
+      "tag": "0105_decisao_do_real_aplicada",
+      "breakpoints": true
     }
   ]
 }

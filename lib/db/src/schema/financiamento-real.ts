@@ -3,6 +3,8 @@ import {
   bigserial,
   date,
   index,
+  integer,
+  jsonb,
   numeric,
   pgTable,
   text,
@@ -269,6 +271,48 @@ export const financiamentoRealDecisaoTable = pgTable(
     decididoEm: timestamp("decidido_em", { withTimezone: true })
       .notNull()
       .defaultNow(),
+
+    /* --- O alcance da decisão, medido quando ela foi tomada ------------- */
+    /**
+     * As competências que esta decisão alcança — `{2026-05-01,2026-06-01}`.
+     *
+     * Medida no momento da decisão, e guardada: "classifiquei a RPO0J60" não
+     * diz, seis meses depois, que meses ela mudou — e a mesma consulta rodada
+     * hoje responderia sobre o extrato de hoje, que já não é o daquele dia.
+     *
+     * Nula na decisão tomada antes desta coluna existir, e nula é o que ela
+     * diz: ninguém mediu o alcance naquela hora.
+     */
+    competencias: text("competencias").array(),
+    /** Quantos lançamentos a decisão alcançou — o tamanho do que ela move. */
+    lancamentosAfetados: integer("lancamentos_afetados"),
+
+    /* --- A aplicação, quando houve ------------------------------------- */
+    /**
+     * Quando a decisão virou número na tela — e nulo enquanto ela é só decisão.
+     *
+     * As duas coisas são separadas de propósito. Decidir é dizer de que tipo é
+     * o ativo; aplicar é abrir a revisão da vigência que passa a contá-lo. A
+     * tela faz as duas num clique, mas o histórico continua sabendo dizer qual
+     * delas aconteceu — e uma decisão registrada e **não** aplicada (porque a
+     * revisão falhou, porque outra leitura estava aberta) é um estado real, que
+     * `NULL` aqui descreve sem inventar.
+     */
+    aplicadaEm: timestamp("aplicada_em", { withTimezone: true }),
+    aplicadaPor: text("aplicada_por"),
+    /**
+     * A leitura que aplicou — o `import_run` que releu o RAW já guardado.
+     *
+     * Sem FK de propósito: o run é da camada de importação e pode ser excluído
+     * com ela; a decisão não vai junto, e perder a decisão para preservar um
+     * ponteiro seria inverter a ordem de importância das duas.
+     */
+    aplicacaoRunId: uuid("aplicacao_run_id"),
+    /**
+     * O que a aplicação produziu: as revisões abertas, as vigências que não
+     * mudaram, o valor que entrou. Relatório de leitura — nada decide por ele.
+     */
+    aplicacaoResultado: jsonb("aplicacao_resultado"),
   },
   (t) => [
     /* A leitura é sempre "a decisão mais recente desta chave". */
