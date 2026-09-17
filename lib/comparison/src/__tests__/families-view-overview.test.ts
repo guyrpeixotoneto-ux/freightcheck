@@ -581,6 +581,28 @@ describe("getRangeOverview — o histórico consolidado da Linha do Tempo", () =
       expect(ponto.porUnidade.map((u) => u.unidade)).not.toContain("overview-unit-h");
     }
   });
+
+  it("a competência que alguma unidade comparou não é lacuna, mesmo faltando nas outras", async () => {
+    /*
+      `gaps` responde uma pergunta só: **nenhuma** unidade incluída comparou
+      esta competência? Uma competência que a unidade A comparou e a B não
+      publica na série a soma de quem comparou — número apurado, não lacuna —,
+      e listá-la nos dois lugares faria a tela dizer "sem comparação" ao lado
+      de um valor.
+    */
+    const overview = (await getRangeOverview(ctx.db, JULHO, AGOSTO))!;
+    const naSerie = new Set(overview.serie.map((p) => p.period));
+
+    for (const lacuna of overview.gaps) expect(naSerie.has(lacuna.period)).toBe(false);
+  });
+
+  it("a lacuna vem com rótulo e motivo — a tela escreve o porquê, e não uma linha vazia", async () => {
+    const overview = (await getRangeOverview(ctx.db, JULHO, AGOSTO))!;
+    for (const lacuna of overview.gaps) {
+      expect(lacuna.label).toBeTruthy();
+      expect(lacuna.reason).toContain("sem comparação");
+    }
+  });
 });
 
 describe("getFamiliesOverview — troca de competência", () => {

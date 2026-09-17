@@ -194,6 +194,16 @@ export interface RangeOverview {
   unitsExcluded: RangeOverviewUnitExcluded[];
   /** A série do intervalo somada entre as unidades incluídas — o gráfico do Dashboard em Visão Geral. */
   serie: RangeOverviewPoint[];
+  /**
+   * As competências que **nenhuma** unidade incluída comparou — ver
+   * `RangeOverview.gaps` no motor. Ficam fora da `serie` de propósito: sem
+   * comparação não é zero alteração.
+   *
+   * Opcional no tipo porque respostas antigas em cache (e servidores de teste
+   * que só montam o pedaço que interessa) não a trazem; quem lê trata a
+   * ausência como "não sei", e não como "não há lacuna".
+   */
+  gaps?: { period: string; label: string; reason: string }[];
 }
 
 export interface EndToEndEntry {
