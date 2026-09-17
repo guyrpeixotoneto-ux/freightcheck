@@ -32,17 +32,24 @@ import {
   type RequestedContext,
   TIPOS_DE_EQUIPAMENTO,
   /* A fonte analisada, e as três peças do confronto Remunerado × Realizado. */
+  alertasDoConfronto,
   competenciaDe,
   competenciasDasDatas,
   confrontar,
   consolidarCompetencia,
   ehCompetencia,
   fonteDoRealizadoEmUso,
+  lerPendenciasDoReal,
   rotuloDaCompetencia,
+  situacaoDoFinanciamentoDe,
   validarFonte,
+  CODIGO_DA_SITUACAO_DO_FINANCIAMENTO,
+  COMPOSITIONS,
   type Competencia,
+  type EvidenciaDoRemunerado,
   type ParcelaNaVigencia,
 } from "@workspace/comparison";
+import { somarCentavos } from "@workspace/ingest/dinheiro";
 import { classificarFalha } from "../lib/classificar-falha";
 import { exigirOperacaoDoRecurso, operacaoDaConsulta } from "../lib/operacao";
 import { contextoDoPar } from "../lib/recorte-do-par";
@@ -74,6 +81,49 @@ const router: IRouter = Router();
 
 /** A parcela — a variável que soma. Lida do catálogo, nunca redigitada. */
 const PARCELA = VARIAVEIS_DE_FINAME.find((v) => v.chave === "parcela");
+
+/**
+ * As partes da parcela, por equipamento — **lidas da identidade já medida**.
+ *
+ * `COMPOSITIONS` declara `cavalo.finame_cavalo = amortização + juros + lucro
+ * fixo do novo ciclo` e `carreta.finame_implemento = amortização + juros +
+ * aluguel`, cada uma com a medição que a sustenta. Derivar daqui, em vez de
+ * redigitar os seis códigos nesta rota, é o que garante que o alerta de
+ * composição inconsistente use **a mesma** identidade que o módulo de composição
+ * verifica — duas listas discordariam no dia em que uma terceira parcela
+ * aparecesse, e o alerta passaria a acusar inconsistência onde há só uma coluna
+ * nova.
+ *
+ * A ordem das partes importa: amortização e juros primeiro, a terceira por
+ * último. É a ordem em que `COMPOSITIONS` as declara, e é a que
+ * `EvidenciaDoRemunerado` espera.
+ */
+const PARTES_DA_PARCELA: Readonly<Record<string, readonly string[]>> = Object.fromEntries(
+  (["CAVALO", "CARRETA"] as const).map((tipo) => {
+    const total = PARCELA?.codigo[tipo];
+    const composicao = COMPOSITIONS.find((c) => c.total === total);
+    return [tipo, composicao?.parts ?? []];
+  }),
+);
+
+/**
+ * Os códigos que o confronto lê de cada equipamento.
+ *
+ * A parcela é o que soma; as partes e a situação do financiamento são o que
+ * **explica** — e é o que separa um déficit de remuneração de dois lados
+ * medindo coisas diferentes. Sem elas o confronto continua exato e continua
+ * mudo, que foi o estado em que ele apresentou o saldo de 17 veículos como o
+ * saldo do mês.
+ */
+function codigosDoConfronto(entityType: string): string[] {
+  const codigos = new Set<string>();
+  const parcela = PARCELA?.codigo[entityType as "CAVALO" | "CARRETA"];
+  if (parcela) codigos.add(parcela);
+  for (const parte of PARTES_DA_PARCELA[entityType] ?? []) codigos.add(parte);
+  const status = CODIGO_DA_SITUACAO_DO_FINANCIAMENTO[entityType as "CAVALO" | "CARRETA"];
+  if (status) codigos.add(status);
+  return [...codigos];
+}
 
 /**
  * As linhas "sem alteração" — a leitura completa que o alternador liga.
@@ -763,6 +813,15 @@ router.get("/finame/confronto", async (req, res): Promise<void> => {
     seis veículos não estão lá.
   */
   let semPlaca = 0;
+  /*
+    A evidência por placa — a última leitura do mês vale.
+
+    Uma placa aparece uma vez por vigência do mês, e a situação do financiamento
+    dela pode mudar entre as quinzenas. Ficar com a leitura da vigência mais
+    recente é o que faz o destaque executivo falar do estado em que o mês
+    terminou, e não daquele em que começou. `doMes` já chega ordenado por data.
+  */
+  const evidenciaPorVeiculo = new Map<string, EvidenciaDoRemunerado>();
   try {
     for (const snapshot of doMes) {
       for (const entityType of tipos) {
@@ -770,28 +829,53 @@ router.get("/finame/confronto", async (req, res): Promise<void> => {
            Duas listas do que é "a parcela" dariam dois totais para o mês. */
         const code = PARCELA?.codigo[entityType as "CAVALO" | "CARRETA"];
         if (!code) continue;
+        const codigos = codigosDoConfronto(entityType);
+        const [amortizacaoCode, jurosCode, terceiraCode] = PARTES_DA_PARCELA[entityType] ?? [];
+        const statusCode = CODIGO_DA_SITUACAO_DO_FINANCIAMENTO[entityType as "CAVALO" | "CARRETA"];
         const tabela = await getEntityTable(
           db,
           entityType,
-          [code],
+          codigos,
           contextoDoPar(snapshot, req),
           snapshot.effectiveDate,
         );
         if (!tabela) continue;
+        /* Uma leitura numérica só, usada pela parcela e pelas partes: ausência
+           atravessa como ausência, e `Number("")` — que é 0 — nunca vira valor. */
+        const numeroDe = (linha: (typeof tabela.rows)[number], codigo: string | undefined) => {
+          if (!codigo) return null;
+          const bruto = linha.values[codigo]?.value ?? null;
+          const numero = bruto === null ? null : Number(bruto);
+          return numero !== null && Number.isFinite(numero) ? numero : null;
+        };
         for (const linha of tabela.rows) {
           if (linha.label === null || linha.label === "") {
             semPlaca += 1;
             continue;
           }
-          const bruto = linha.values[code]?.value ?? null;
-          const numero = bruto === null ? null : Number(bruto);
           parcelas.push({
             effectiveDate: snapshot.effectiveDate,
             entityLabel: linha.label,
             entityType,
             /* Ausência atravessa como ausência. `Number("")` é 0, e um zero aqui
                afirmaria que a Ambev remunerou zero naquele veículo. */
-            valor: numero !== null && Number.isFinite(numero) ? numero : null,
+            valor: numeroDe(linha, code),
+          });
+          const statusBruto = statusCode
+            ? (linha.values[statusCode]?.value ?? null)
+            : null;
+          const statusDeclarado =
+            statusBruto === null || String(statusBruto).trim() === ""
+              ? null
+              : String(statusBruto);
+          evidenciaPorVeiculo.set(`${linha.label}\u0000${entityType}`, {
+            entityLabel: linha.label,
+            entityType,
+            situacaoDoFinanciamento: situacaoDoFinanciamentoDe(statusDeclarado),
+            statusDeclarado,
+            amortizacao: numeroDe(linha, amortizacaoCode),
+            juros: numeroDe(linha, jurosCode),
+            terceiraParcela: numeroDe(linha, terceiraCode),
           });
         }
       }
@@ -833,11 +917,10 @@ router.get("/finame/confronto", async (req, res): Promise<void> => {
       confronto — sem fonte do realizado, ele é a única evidência de que o lado
       que existe foi lido inteiro.
     */
-    totalConsolidado: Number(
+    totalConsolidado: somarCentavos(
       remunerado
-        .filter((r) => r.situacao === "CONSOLIDADO" && r.valor !== null)
-        .reduce((a, r) => a + (r.valor ?? 0), 0)
-        .toFixed(2),
+        .filter((r) => r.situacao === "CONSOLIDADO")
+        .map((r) => r.valor),
     ),
     divergencias: remunerado.filter((r) => r.situacao === "DIVERGENCIA_INTRAMENSAL").length,
     coberturaParcial: remunerado.filter((r) => r.situacao === "COBERTURA_PARCIAL").length,
@@ -862,10 +945,39 @@ router.get("/finame/confronto", async (req, res): Promise<void> => {
     return;
   }
 
+  const evidenciaDoRemunerado = [...evidenciaPorVeiculo.values()];
+
   const confronto = confrontar({
     competencia,
     remunerado,
     realizado: doRealizado.valores,
+    evidenciaDoRemunerado,
+  });
+
+  /*
+    O terceiro universo, e os alertas, vêm das filas da importação.
+
+    A leitura é a mesma de `GET /financiamento-real/pendencias` — a função, não
+    uma segunda consulta parecida —, porque os dois números têm de ser o mesmo
+    número em duas telas. Ela custa três agregações sobre uma tabela indexada
+    por run; o confronto já fez leituras bem mais caras antes de chegar aqui.
+  */
+  const pendencias = await lerPendenciasDoReal(db, {
+    canal: typeof query.operacao === "string" ? query.operacao : null,
+  });
+  const pendenteDaCompetencia = pendencias.pendentePorCompetencia.find(
+    (c) => competenciaDe(c.competencia) === competencia,
+  );
+  const duplicatasRetidas = pendencias.duplicatas.map((d) => ({
+    competencia: competenciaDe(d.competencia) ?? d.competencia,
+    placa: d.placa,
+    valor: d.valor,
+  }));
+
+  const alertas = alertasDoConfronto({
+    confronto,
+    evidenciaDoRemunerado,
+    duplicatasRetidas,
   });
 
   res.json({
@@ -874,6 +986,38 @@ router.get("/finame/confronto", async (req, res): Promise<void> => {
     remunerado: ladoRemunerado,
     realizado: { disponivel: true, fonte: fonte.nome },
     confronto,
+    /*
+      Os três universos, nomeados na própria resposta.
+
+      Eles são derivados — cada número já existe dentro de `confronto.resumo` ou
+      de `pendencias` —, e existem assim mesmo porque a tela os apresenta como
+      três blocos e uma tela que **monta** os universos é uma tela que pode
+      montá-los diferente da próxima. Ver
+      `docs/DEFINICOES-DO-CONFRONTO-DE-FINAME.md`.
+    */
+    universos: {
+      conciliados: {
+        veiculos: confronto.resumo.veiculosConciliados,
+        de: confronto.resumo.veiculosRemunerados,
+        remunerado: confronto.resumo.totalRemunerado,
+        realizado: confronto.resumo.totalRealizado,
+        saldo: confronto.resumo.saldoDosConciliados,
+      },
+      semRealizado: confronto.resumo.semRealizado,
+      pendenteDeClassificacao: {
+        /* Dois recortes, e os dois ditos: o do mês analisado é o que ficou de
+           fora deste confronto; o do extrato é o tamanho da fila. */
+        naCompetencia: {
+          placas: pendenteDaCompetencia?.placas ?? 0,
+          valor: pendenteDaCompetencia?.valor ?? 0,
+        },
+        noExtrato: {
+          placas: pendencias.semClassificacao.length,
+          valor: somarCentavos(pendencias.semClassificacao.map((c) => c.valor)),
+        },
+      },
+    },
+    alertas,
   });
 });
 
@@ -977,7 +1121,7 @@ router.get("/finame/confronto/evolucao", async (req, res): Promise<void> => {
       rotulo: rotuloDaCompetencia(competencia),
       remunerado: resumo.totalRemunerado,
       realizado: resumo.totalRealizado,
-      diferenca: resumo.resultadoLiquido,
+      diferenca: resumo.saldoDosConciliados,
       /* Quantos veículos sustentam o ponto. Sem isto, dois pontos de alturas
          muito diferentes pareceriam um movimento, e podem ser só cobertura. */
       conciliados: resumo.veiculosConciliados,

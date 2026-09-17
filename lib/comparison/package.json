@@ -21,6 +21,7 @@
     "./fonte-de-finame": "./src/fonte-de-finame.ts",
     "./competencia-de-finame": "./src/competencia-de-finame.ts",
     "./confronto-de-finame": "./src/confronto-de-finame.ts",
+    "./alertas-do-confronto": "./src/alertas-do-confronto.ts",
     "./realizado-de-finame": "./src/realizado-de-finame.ts",
     "./impostos": "./src/impostos.ts",
     "./km-rodado": "./src/km-rodado.ts",
