@@ -105,6 +105,59 @@ export function baldesDoImpacto(
   }));
 }
 
+/**
+ * O impacto de um recorte virando o que a linha do menu pode afirmar.
+ *
+ * São **três** estados, e a diferença entre o segundo e o terceiro é a razão
+ * desta função existir:
+ *
+ * 1. algum balde — a rubrica precificou, e o menu escreve o dinheiro;
+ * 2. nenhum balde e nada por precificar — a conta aconteceu e deu zero, que é
+ *    notícia: a linha escreve `R$ 0,00`;
+ * 3. nenhum balde **e** alterações monetárias que ninguém pôde precificar — a
+ *    conta não aconteceu, e escrever `R$ 0,00` afirmaria que o dinheiro não se
+ *    moveu numa comparação que não olhou para ele. A linha cala a coluna e
+ *    mostra só a contagem, e `semImpacto` carrega o porquê.
+ *
+ * O terceiro era o estado que não existia aqui, e o defeito que ele produziu na
+ * Auditoria de Seguro é o exemplo inteiro: o cartão da tela dizia "Sem impacto
+ * precificável" enquanto o menu, a dois centímetros, escrevia `R$ 0,00` para o
+ * mesmo par — e a tabela, logo abaixo, listava a carreta cujo seguro tinha ido
+ * de R$ 180,79 a R$ 631,41. Dos três, só o cartão estava certo.
+ *
+ * **Não há regra por atributo aqui, e não pode haver.** O que decide é
+ * `naoPublicadas`, que cada rubrica tira do seu próprio impacto — no seguro, o
+ * `naoCalculavel` de `impactoDeSeguro`, que conta as alterações de medida
+ * DINHEIRO que o motor recusou precificar. Quem recusa é o portão de
+ * `viraDinheiro`, lá na curadoria: no dia em que ela confirmar a semântica de
+ * uma dessas colunas, o motor passa a devolver `CALCULATED`, o balde aparece e
+ * esta função cai sozinha no primeiro estado. Nada aqui precisa saber o nome de
+ * nenhuma coluna para isso acontecer — e é justamente por isso que uma lista de
+ * exceções por código seria o defeito, e não a correção.
+ */
+export function impactoPublicavel(
+  porPeriodicidade: Record<string, number>,
+  {
+    naoPublicadas,
+    semImpacto,
+  }: {
+    /** Alterações monetárias que ficaram sem valor — não zero, sem valor. */
+    naoPublicadas: number;
+    /** A frase do porquê, da rubrica. Só desce quando é ela que responde. */
+    semImpacto: string;
+  },
+): Pick<NumerosDoPar, "impacto" | "semImpacto"> {
+  const baldes = baldesDoImpacto(porPeriodicidade);
+  /*
+    Algum balde manda: um recorte que precificou parte do que mudou publica o
+    que precificou. Calar a coluna ali esconderia dinheiro medido por causa do
+    que ficou por medir — e o cartão da tela, que mostra os baldes pela mesma
+    régua, passaria a discordar do menu no sentido inverso.
+  */
+  if (baldes.length > 0 || naoPublicadas === 0) return { impacto: { baldes } };
+  return { impacto: { baldes }, semImpacto };
+}
+
 export interface CandidatasDoPar {
   para: string;
   candidatos: { id: string; numeros: NumerosDoPar | null }[];
