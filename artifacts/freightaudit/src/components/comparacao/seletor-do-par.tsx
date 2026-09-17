@@ -369,6 +369,26 @@ export function SeletorDoPar({
                 {texto}
               </span>
             ))}
+            {/*
+              A frota, logo abaixo da alíquota e acima da contagem — e é a ordem
+              que faz a coluna se ler.
+
+              As três de cima falam do ativo presente nas duas pontas: quanto
+              mudou de dinheiro, quanto andou de alíquota, quantas variáveis se
+              moveram. Esta fala do **conjunto**, e é a única que explica dois
+              totais diferentes embaixo de um `0 alterações` — foi o par
+              março/2026 → agosto/2026, com R$ 99 mil a menos de PIS/COFINS de
+              carreta e nenhuma variável movida, que mostrou que a linha não
+              sabia dizer isso.
+
+              Sem cor, como a alíquota: ativo que sai da frota não é perda
+              enquanto a tela não souber por que ele saiu (ver `frotaDaLinha`).
+            */}
+            {n.frota.map((texto) => (
+              <span key={texto} className="tabular-nums text-muted-foreground">
+                {texto}
+              </span>
+            ))}
             <span className="text-muted-foreground">{n.alteracoes}</span>
           </span>
         ) : comNumeros && faltamNumeros ? (

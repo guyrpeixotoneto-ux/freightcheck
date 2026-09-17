@@ -51,6 +51,19 @@ export interface MovimentoDePercentual {
   ambasDirecoes: boolean;
 }
 
+/**
+ * A frota entrando e saindo entre as duas vigências — o espelho de
+ * `MovimentoDaFrota` (`api-server/src/lib/candidatas-do-par.ts`).
+ *
+ * Ativos, e não variáveis: é o que a contagem de alterações não conta, porque
+ * um ativo que entrou ou saiu não move variável em ativo nenhum — ele troca o
+ * conjunto sobre o qual a conta inteira é feita.
+ */
+export interface MovimentoDaFrota {
+  entraram: number;
+  sairam: number;
+}
+
 /** O que uma rota de candidatas devolve. */
 export interface CandidatosDoPar {
   para: string;
@@ -89,6 +102,13 @@ export interface CandidatosDoPar {
        * imposto é notícia, e por isso sai escrito.
        */
       percentuais?: MovimentoDePercentual[];
+      /**
+       * O movimento da frota — o espelho de `MovimentoDaFrota`.
+       *
+       * Opcional pela mesma régua dos percentuais: **ausente** é o recorte que
+       * não a audita, **presente e zerada** é o que olhou e viu a frota parada.
+       */
+      frota?: MovimentoDaFrota;
     } | null;
   }[];
   /** Quantas candidatas não couberam no orçamento desta chamada. */
@@ -138,6 +158,14 @@ export interface NumerosDaLinha {
    * em vez de deixar a casa em branco.
    */
   percentuais: string[];
+  /**
+   * O movimento da frota, já escrito — uma linha, ou nenhuma.
+   *
+   * Vazia nos recortes que não a auditam. Nos que auditam ela nunca fica vazia:
+   * frota parada vira "frota estável", pela régua do `R$ 0,00` e do "sem
+   * movimento de alíquota" — a conta que deu zero se escreve.
+   */
+  frota: string[];
 }
 
 /**
@@ -245,6 +273,7 @@ export function numerosDaLinha(
     valores,
     alteracoes,
     percentuais: percentuaisDaLinha(numeros.percentuais),
+    frota: frotaDaLinha(numeros.frota),
   };
 }
 
@@ -301,4 +330,43 @@ function percentuaisDaLinha(
       ? `${p.rotulo} ${movimento}`
       : `${p.rotulo} até ${movimento}${sentido} · ${quantas}`;
   });
+}
+
+/**
+ * O movimento da frota virando a linha de texto do menu.
+ *
+ * Quatro frases, e a régua é a mesma das alíquotas — dizer o que se apurou,
+ * inclusive quando o que se apurou foi nada:
+ *
+ * - **"frota estável"** — os dois lados têm os mesmos ativos. É o que autoriza
+ *   ler o par como "nada mudou": sem esta frase, "0 alterações" ao lado de dois
+ *   totais diferentes fica sem explicação nenhuma na tela.
+ * - **"4 ativos entraram"** / **"11 ativos saíram"** — só um dos lados mexeu.
+ * - **"4 entraram · 11 ativos saíram"** — os dois. A palavra "ativos" fica numa
+ *   metade só: repeti-la nas duas gasta a largura do canto onde a linha cabe, e
+ *   a segunda já diz de que se está contando.
+ *
+ * Sem cor e sem sinal, pelo mesmo motivo das alíquotas: carreta que sai da
+ * frota não é ganho nem perda enquanto ninguém disser por que ela saiu, e
+ * pintar de vermelho seria a tela respondendo o que ela não sabe.
+ *
+ * Nunca soma com `alteracoes`: são ativos de um lado e variáveis do outro, e um
+ * total só com as duas coisas seria um número que nenhuma tela reconhece.
+ */
+function frotaDaLinha(frota: MovimentoDaFrota | undefined): string[] {
+  if (!frota) return [];
+  const { entraram, sairam } = frota;
+  if (entraram === 0 && sairam === 0) return ["frota estável"];
+
+  const entrada = `${formatNumber(entraram, 0)} ${
+    entraram === 1 ? "ativo entrou" : "ativos entraram"
+  }`;
+  const saida = `${formatNumber(sairam, 0)} ${
+    sairam === 1 ? "ativo saiu" : "ativos saíram"
+  }`;
+  if (entraram === 0) return [saida];
+  if (sairam === 0) return [entrada];
+  return [
+    `${formatNumber(entraram, 0)} ${entraram === 1 ? "entrou" : "entraram"} · ${saida}`,
+  ];
 }

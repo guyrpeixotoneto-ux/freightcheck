@@ -320,6 +320,75 @@ describe("os números de cada linha do menu", () => {
   });
 
   /**
+   * O MOVIMENTO DA FROTA — a coluna que explica dois totais diferentes.
+   *
+   * Nasceu de uma dúvida sobre o menu dos Impostos, e a dúvida estava certa. As
+   * oito candidatas escreviam a mesma coisa — `R$ 0,00 · sem movimento de
+   * alíquota · 0 alterações` —, e isso é verdade: no acervo inteiro não há **uma**
+   * alteração nos dez códigos de imposto, nenhum ativo presente nas duas pontas
+   * teve alíquota ou montante mexido.
+   *
+   * O que a linha não dizia é que, no mesmo par março/2026 → agosto/2026, o total
+   * de PIS/COFINS da carreta que a própria tela publica cai de R$ 1.683.696,18
+   * para R$ 1.584.322,25. A diferença não é alteração nenhuma: é frota — cinco
+   * carretas a menos. Três frases dizendo "nada mudou" ao lado de R$ 99 mil de
+   * diferença é como uma tela correta se torna ilegível.
+   *
+   * Por isso a frota é ativo, e nunca entra na contagem de variáveis: são
+   * grandezas diferentes, e somá-las produziria um número que nenhuma outra tela
+   * do produto reconhece.
+   */
+  describe("o movimento da frota", () => {
+    const comFrota = (entraram: number, sairam: number) => ({
+      alteracoes: 0,
+      impacto: { baldes: [] },
+      percentuais: [],
+      frota: { entraram, sairam },
+    });
+
+    it("a rubrica que não a audita segue sem linha nenhuma", () => {
+      expect(numerosDaLinha(comImpacto(7, { MENSAL: 1200 }))?.frota).toEqual([]);
+    });
+
+    /* A mesma régua do `R$ 0,00`: a conta que deu zero se escreve. E é ela que
+       autoriza ler o par como "nada mudou" — sem a frase, "0 alterações" ao lado
+       de dois totais diferentes fica sem explicação na tela. */
+    it("frota parada se escreve — é o que autoriza ler o par como igual", () => {
+      expect(numerosDaLinha(comFrota(0, 0))?.frota).toEqual(["frota estável"]);
+    });
+
+    it("só entrada, só saída — cada uma na sua frase", () => {
+      expect(numerosDaLinha(comFrota(4, 0))?.frota).toEqual(["4 ativos entraram"]);
+      expect(numerosDaLinha(comFrota(0, 11))?.frota).toEqual(["11 ativos saíram"]);
+    });
+
+    it("os dois lados cabem numa linha só", () => {
+      expect(numerosDaLinha(comFrota(4, 11))?.frota).toEqual([
+        "4 entraram · 11 ativos saíram",
+      ]);
+    });
+
+    it("um ativo é um ativo — singular, e não “1 ativos”", () => {
+      expect(numerosDaLinha(comFrota(1, 0))?.frota).toEqual(["1 ativo entrou"]);
+      expect(numerosDaLinha(comFrota(0, 1))?.frota).toEqual(["1 ativo saiu"]);
+      expect(numerosDaLinha(comFrota(1, 1))?.frota).toEqual(["1 entrou · 1 ativo saiu"]);
+    });
+
+    /* O par do print: nenhuma variável se moveu, e a frota mexeu. As quatro
+       colunas convivem, e é a quarta que distingue esta candidata da vizinha. */
+    it("convive com as outras três, e não as substitui", () => {
+      const linha = numerosDaLinha(comFrota(4, 11));
+
+      expect(linha?.valores).toEqual([
+        { texto: "R$ 0,00", bruto: 0, leitura: "NEUTRO" },
+      ]);
+      expect(linha?.percentuais).toEqual(["sem movimento de alíquota"]);
+      expect(linha?.alteracoes).toBe("0 alterações");
+      expect(linha?.frota).toEqual(["4 entraram · 11 ativos saíram"]);
+    });
+  });
+
+  /**
    * A rubrica **mede** dinheiro, e mesmo assim não tem o que publicar.
    *
    * É o caso da Auditoria de Seguro, e é diferente do QLP logo acima: lá

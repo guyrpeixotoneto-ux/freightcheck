@@ -420,7 +420,11 @@ router.get("/impostos/candidatos", async (req, res, next): Promise<void> => {
              existir no acervo e até vir dentro da mesma vigência — ele não é
              assunto desta tela, e não entra nem na lista nem na conta. */
           entityTypes: TIPOS_DE_EQUIPAMENTO,
-          numeros: (rows) => {
+          /* A frota entra na linha porque, nesta rubrica, é ela que distingue
+             uma candidata da outra: as alíquotas do acervo não se movem, e o
+             que separa março de agosto é ativo entrando e saindo. */
+          frotaDoPar: true,
+          numeros: (rows, par) => {
             const linhas = linhasDeImpostos(rows);
             /* A frota entra zerada: esta rota não publica "veículos
                comparados", só o que se moveu. Derivar a frota de um zero seria
@@ -454,6 +458,33 @@ router.get("/impostos/candidatos", async (req, res, next): Promise<void> => {
                 maior: m.maior,
                 ambasDirecoes: m.ambasDirecoes,
               })),
+              /*
+                E a frota, que é a outra metade da resposta.
+
+                Alíquota parada com frota mexida é o par mais comum deste
+                acervo, e era o que a linha não sabia dizer: as duas primeiras
+                colunas escreviam `R$ 0,00` e "sem movimento de alíquota" no par
+                em que o total de PIS/COFINS da carreta caiu R$ 99 mil — porque
+                cinco carretas saíram, e nenhuma variável se moveu em ativo
+                nenhum. As duas afirmações são verdadeiras e falam de ativos
+                comparados; esta fala do conjunto, e é ela que impede a leitura
+                de que o imposto ficou igual.
+
+                Sai **sempre**, inclusive zerada: frota parada é o que sustenta
+                comparar dois totais, e calar isso deixaria a linha sem dizer
+                qual dos dois casos é o dela.
+              */
+              ...(par.frota
+                ? {
+                    frota: {
+                      entraram: par.frota.novos,
+                      sairam: par.frota.ausentes,
+                    },
+                  }
+                : /* Sem frota calculada não se escreve frota zerada: zero aqui
+                     afirmaria que ninguém entrou nem saiu, que é a mesma
+                     mentira por omissão que `numeros: null` evita lá em cima. */
+                  {}),
             };
           },
         },
