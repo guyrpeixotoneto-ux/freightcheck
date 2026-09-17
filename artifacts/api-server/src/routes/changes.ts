@@ -458,9 +458,12 @@ router.get("/changes/families", async (req, res): Promise<void> => {
  * resposta seguinte é dele. Negar o sinal no cliente daria a variação errada —
  * 100→110 é +10,0%, e 110→100 é −9,09%.
  *
- * **Só vigências vizinhas.** A recusa mora no módulo, com a razão inteira, e
- * chega aqui como 422 com a frase dela — nunca como uma leitura montada sobre
- * outra pergunta.
+ * **Qualquer par da unidade**, e não só o passo seguinte: a volta e o par
+ * salteado (junho contra setembro) passam pelo motor, que os calcula uma vez
+ * por série. O que continua recusado — mesma vigência nas duas pontas, ponta
+ * que não é desta unidade, nenhuma série com as duas — mora no módulo, com a
+ * razão inteira, e chega aqui como 422 com a frase dela, nunca como uma leitura
+ * montada sobre outra pergunta.
  *
  * As recusas do motor (escopo diferente, cobertura diferente, canal diferente)
  * também viram 422 com a frase dele, pelo mesmo caminho de

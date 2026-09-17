@@ -565,6 +565,22 @@ export interface ImpactoDeImpostos {
  * imposto é o que incide sobre ele; os dois no mesmo balde dariam um impacto que
  * não é de rubrica nenhuma.
  */
+/**
+ * Por que esta rubrica pode não publicar dinheiro — a frase, escrita uma vez.
+ *
+ * A irmã de `SEM_IMPACTO_PRECIFICAVEL_DE_SEGURO`, e pela mesma razão: a rubrica
+ * mede dinheiro, e o portão da curadoria (`viraDinheiro`) ainda não confirmou a
+ * semântica destas colunas. O `naoCalculavel` de `impactoDeImpostos` conta essas
+ * alterações, e é ele que manda esta frase ao lugar onde o dinheiro estaria.
+ *
+ * Ela não existia, e a falta aparecia no menu do par: a rota de candidatas
+ * montava o impacto em cru (`baldesDoImpacto`) e escrevia `R$ 0,00` para um par
+ * em que o montante declarado tinha andado — o mesmo defeito que o Seguro já
+ * tinha corrigido, na mesma tela, com o cartão dizendo o contrário ao lado.
+ */
+export const SEM_IMPACTO_PRECIFICAVEL_DE_IMPOSTOS =
+  "nenhuma rubrica monetária confirmada se moveu";
+
 export function impactoDeImpostos(
   linhas: readonly LinhaDeImpostos[],
 ): ImpactoDeImpostos {

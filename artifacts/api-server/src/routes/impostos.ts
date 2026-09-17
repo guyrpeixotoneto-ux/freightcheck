@@ -25,12 +25,13 @@ import {
   type LinhaDeImpostos,
   type ValorDeImposto,
   type RequestedContext,
+  SEM_IMPACTO_PRECIFICAVEL_DE_IMPOSTOS,
   TIPOS_DE_EQUIPAMENTO,
 } from "@workspace/comparison";
 import { classificarFalha } from "../lib/classificar-falha";
 import {
-  baldesDoImpacto,
   candidatasDoPar,
+  impactoPublicavel,
   TETO_DE_CANDIDATAS_MS,
 } from "../lib/candidatas-do-par";
 import { exigirOperacaoDoRecurso, operacaoDaConsulta } from "../lib/operacao";
@@ -432,7 +433,19 @@ router.get("/impostos/candidatos", async (req, res, next): Promise<void> => {
             });
             return {
               alteracoes: variaveisAlteradas,
-              impacto: { baldes: baldesDoImpacto(impacto.porPeriodicidade) },
+              /*
+                O dinheiro desce pela política do domínio, e não em cru.
+
+                Era `baldesDoImpacto(impacto.porPeriodicidade)` direto, e por
+                isso o menu escrevia `R$ 0,00` também quando havia alteração
+                monetária que o motor recusou precificar — o estado 3 de
+                `politica-do-impacto`, que o Seguro já respeitava e esta rota
+                não. Duas rubricas irmãs, a mesma comparação, duas respostas.
+              */
+              ...impactoPublicavel(impacto.porPeriodicidade, {
+                naoPublicadas: impacto.naoCalculavel,
+                semImpacto: SEM_IMPACTO_PRECIFICAVEL_DE_IMPOSTOS,
+              }),
               /*
                 O movimento da alíquota, que nesta rubrica é a coluna que
                 responde.

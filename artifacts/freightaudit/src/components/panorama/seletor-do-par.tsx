@@ -65,21 +65,30 @@ export interface VigenciaDoPar {
  * mesma decisão — e o que menos pode existir em duas versões.
  *
  * ---------------------------------------------------------------------------
- * Vigências vizinhas, e o que isso tem de deliberado
+ * Uma ponta por gesto — e o Para não sai do lugar
  * ---------------------------------------------------------------------------
- * As duas caixas oferecem o histórico inteiro e a outra ponta segue atrás (ver
- * `aoEscolherDe`/`aoEscolherPara`): escolher é sempre possível, e o que sai é
- * sempre um passo. Um par salteado — agosto contra outubro — é um **intervalo**,
- * e intervalo tem duas leituras legítimas que não são as que os seis andares
- * desta tela desenham. Quem quer o intervalo tem a Linha do Tempo, que o lê
- * inteiro e diz que é isso que está lendo.
+ * **Para** é a vigência de referência que se está analisando; **De** é a origem
+ * contra a qual se quer compará-la. Mexer numa não recalcula a outra, e é esse
+ * o contrato inteiro (ver `aoEscolherDe`/`aoEscolherPara`) — o mesmo das
+ * dezesseis auditorias de rubrica.
+ *
+ * Até 17/09/2026 não era assim: as duas caixas ofereciam o histórico inteiro e
+ * a outra ponta **seguia atrás**, porque o servidor recusava par que não fosse
+ * de vigências vizinhas e o arrasto era o que impedia um clique de montar um
+ * par recusado. Com setembro em Para, escolher agosto/1ª quinzena em De punha
+ * agosto/2ª quinzena em Para — a referência fixada saía debaixo de quem a tinha
+ * fixado, sem uma palavra. A trava saiu do servidor e o arrasto saiu daqui: o
+ * par salteado (junho contra setembro) é uma comparação que o motor calcula,
+ * como já calculava para a Auditoria de FINAME.
+ *
+ * Quem quer o caminho inteiro somado, movimento a movimento, continua tendo a
+ * Linha do Tempo — que é outra leitura, e diz que é essa que está fazendo.
  */
 export function SeletorDoParDoPanorama({
   opcoes,
   par,
   periodicidade,
   carregando = false,
-  indisponivel = null,
   onEscolherDe,
   onEscolherPara,
   onInverter,
@@ -92,14 +101,6 @@ export function SeletorDoParDoPanorama({
   periodicidade?: string | null;
   /** Há leitura em voo: as caixas continuam em tela e o botão não aceita clique. */
   carregando?: boolean;
-  /**
-   * Por que não há par a escolher — quando não há.
-   *
-   * Uma unidade com uma vigência só não tem comparação nenhuma, e isso é
-   * resposta, não falha: as caixas ficam desabilitadas com a frase ao lado, em
-   * vez de oferecerem uma escolha que não leva a lugar nenhum.
-   */
-  indisponivel?: string | null;
   onEscolherDe: (data: string) => void;
   onEscolherPara: (data: string) => void;
   onInverter: () => void;
@@ -197,7 +198,14 @@ export function SeletorDoParDoPanorama({
           <Select
             value={valor ?? ""}
             onValueChange={aoEscolher}
-            disabled={indisponivel !== null || opcoes.length === 0}
+            /*
+              Uma vigência só no histórico: não há par, e a caixa diz isso
+              ficando quieta — com a frase do `problema` logo abaixo. Em todo o
+              resto ela aceita clique, inclusive quando o par em tela está
+              recusado: desabilitar as caixas no estado de erro tiraria da
+              pessoa justamente o controle que desfaz o erro.
+            */
+            disabled={opcoes.length <= 1}
           >
             <SelectTrigger
               id={id}
@@ -253,7 +261,12 @@ export function SeletorDoParDoPanorama({
           type="button"
           variant="outline"
           onClick={onInverter}
-          disabled={carregando || indisponivel !== null || par.de === null || par.para === null}
+          disabled={
+            carregando ||
+            par.de === null ||
+            par.para === null ||
+            par.problema !== null
+          }
           aria-label="Inverter: trocar a vigência de origem com a de destino"
           className="w-full gap-2 sm:w-auto"
         >
@@ -265,17 +278,54 @@ export function SeletorDoParDoPanorama({
       </div>
 
       {/*
-        A frase que a caixa vazia não diz sozinha — e ela fica **fora** do menu
-        de propósito: quem abre a tela sem par possível precisa ler o motivo sem
-        abrir nada. `role="status"` porque o texto troca sem a página navegar.
+        O par que não dá para ler — e as duas escolhas continuam onde estão.
+
+        A frase fica **fora** do menu de propósito: quem abre a tela num par
+        recusado precisa ler o motivo sem abrir nada. `role="status"` porque o
+        texto troca sem a página navegar.
+
+        Ela substituiu um `indisponivel` que só sabia dizer uma coisa ("esta
+        unidade tem uma vigência só") — os outros dois estados que chegavam aqui,
+        a mesma vigência dos dois lados e a ponta de outra unidade, não eram
+        ditos: o par era trocado por um vizinho e a tela seguia como se nada
+        tivesse acontecido.
       */}
-      {indisponivel && (
+      {par.problema && (
         <p
           role="status"
           className="mt-3 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs text-amber-900 dark:border-amber-900/50 dark:bg-amber-950/40 dark:text-amber-200"
         >
           <Info className="mt-0.5 h-3.5 w-3.5 flex-none" aria-hidden="true" />
-          <span>{indisponivel}</span>
+          <span>{par.problema.mensagem}</span>
+        </p>
+      )}
+
+      {/*
+        O sentido da leitura, escrito.
+
+        Ele deixou de ser dedutível no dia em que o par salteado passou a ser
+        possível: com as duas caixas livres, "Para − De" é a única frase que diz
+        de qual ponta para qual ponta o número da tela anda. A linha da volta
+        aparece junto quando a partida é a mais recente — que é um par legítimo,
+        e não um engano a corrigir.
+      */}
+      {par.de !== null && par.para !== null && par.problema === null && (
+        <p className="mt-3 flex items-start gap-2 border-l-2 border-border pl-2.5 text-xs text-muted-foreground">
+          <Info className="mt-0.5 h-3.5 w-3.5 flex-none" aria-hidden="true" />
+          <span>
+            A leitura é{" "}
+            <strong className="font-semibold">
+              {rotuloDe(par.para)} − {rotuloDe(par.de)}
+            </strong>
+            : o que a vigência de destino tem a mais, ou a menos, que a de origem.
+            {par.invertido && (
+              <>
+                {" "}
+                Esta é a <strong className="font-semibold">volta</strong> — a partida é
+                posterior à chegada.
+              </>
+            )}
+          </span>
         </p>
       )}
 

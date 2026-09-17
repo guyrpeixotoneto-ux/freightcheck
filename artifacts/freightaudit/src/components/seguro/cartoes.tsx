@@ -7,7 +7,8 @@ import {
   Truck,
 } from "lucide-react";
 import { CartaoDeIndicador } from "@/components/ui/cartao-de-indicador";
-import { formatNumber } from "@/lib/format";
+import { leituraDoImpacto } from "@workspace/comparison/politica-do-impacto";
+import { formatBrl, formatNumber } from "@/lib/format";
 import { escreverImpacto, type ComparacaoDeSeguro } from "@/lib/seguro";
 
 /**
@@ -17,12 +18,19 @@ import { escreverImpacto, type ComparacaoDeSeguro } from "@/lib/seguro";
  * o mesmo que alimenta os gráficos e a tabela. O que este componente decide é
  * ordem, ícone e cor.
  *
- * **O cartão de impacto costuma dizer "sem impacto precificável", e isso é o
- * dado.** Três das cinco colunas desta rubrica são taxa fixa — revestimento,
- * faixa refletiva e tacógrafo têm um valor só para a frota inteira —, e uma
- * comparação em que elas não se moveram não tem impacto nenhum. Dizer isso por
- * extenso é diferente de mostrar R$ 0,00, que afirmaria que houve movimento e
- * ele foi nulo.
+ * **O cartão de impacto lê a política do domínio** (`politica-do-impacto`), a
+ * mesma do menu do par, da tabela e do painel de evolução. Ele decidia sozinho,
+ * e a diferença aparecia na tela: com `porPeriodicidade` vazio ele escrevia
+ * "Sem impacto precificável" tanto quando a conta acontecera e dera zero quanto
+ * quando o motor não pudera precificar o que se moveu — a frase do terceiro
+ * estado sobre o segundo. O menu, a dois centímetros, escrevia `R$ 0,00` no
+ * segundo caso, e os dois não podiam estar certos.
+ *
+ * Agora são três estados e três frases. `R$ 0,00` quer dizer que a conta
+ * aconteceu e deu zero — o caso comum desta rubrica, em que três das cinco
+ * colunas são taxa fixa e não se moveram. "Sem impacto precificável" fica para
+ * o que de fato é: movimento declarado que a curadoria ainda não confirmou, com
+ * a contagem dele ao lado.
  *
  * **Quando há alteração de taxa, o cartão avisa.** Uma tabela que muda move
  * todas as placas de uma vez: 657 alterações não são 657 negociações, e sem o
@@ -31,6 +39,10 @@ import { escreverImpacto, type ComparacaoDeSeguro } from "@/lib/seguro";
 export function CartoesDeSeguro({ resumo }: { resumo: ComparacaoDeSeguro["resumo"] }) {
   const impacto = escreverImpacto(resumo.impacto.porPeriodicidade);
   const principal = impacto[0];
+  const leitura = leituraDoImpacto(
+    resumo.impacto.porPeriodicidade,
+    resumo.impacto.naoCalculavel,
+  );
   const fracaoSemAlteracao =
     resumo.veiculosComparados === 0
       ? null
@@ -113,7 +125,13 @@ export function CartoesDeSeguro({ resumo }: { resumo: ComparacaoDeSeguro["resumo
       <CartaoDeIndicador
         destaque
         rotulo="Impacto financeiro"
-        valor={principal ? principal.valor : "Sem impacto precificável"}
+        valor={
+          principal
+            ? principal.valor
+            : leitura.estado === "ZERO"
+              ? formatBrl(0)
+              : "Sem impacto precificável"
+        }
         corDoValor={
           principal ? (principal.bruto > 0 ? "text-success" : "text-destructive") : undefined
         }
@@ -131,8 +149,18 @@ export function CartoesDeSeguro({ resumo }: { resumo: ComparacaoDeSeguro["resumo
                 </>
               )}
             </span>
+          ) : leitura.estado === "ZERO" ? (
+            /* A conta aconteceu e deu zero — e zero é resultado, não ausência
+               de conta. É a mesma frase do menu do par, para o mesmo par. */
+            "nenhuma rubrica monetária se moveu"
           ) : (
-            "nenhuma rubrica monetária confirmada se moveu"
+            /* O terceiro estado, com a contagem: o dinheiro andou e a curadoria
+               ainda não confirmou o que estas colunas são. O número diz quanto
+               movimento está fora da soma, que era o que faltava para o cartão
+               e a tabela contarem a mesma história. */
+            `${formatNumber(leitura.naoPrecificadas, 0)} ${
+              leitura.naoPrecificadas === 1 ? "alteração monetária" : "alterações monetárias"
+            } sem valor confirmado`
           )
         }
         ajuda={

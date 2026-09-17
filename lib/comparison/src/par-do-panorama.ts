@@ -6,7 +6,7 @@ import { contextFilter, type SeriesContext } from "./series";
 import { coberturaComum, coberturasSeFalam } from "./recorte-de-rubrica";
 
 /**
- * O PAR DO PANORAMA — duas vigências vizinhas, na direção que se pedir.
+ * O PAR DO PANORAMA — duas vigências da unidade, na direção que se pedir.
  *
  * ---------------------------------------------------------------------------
  * A pergunta
@@ -27,17 +27,33 @@ import { coberturaComum, coberturasSeFalam } from "./recorte-de-rubrica";
  * calcular. Quem lê depois é `getFamiliesView`, com a ponta **De** em mãos.
  *
  * ---------------------------------------------------------------------------
- * Por que só vigências consecutivas
+ * Qualquer par, e não só o passo seguinte
  * ---------------------------------------------------------------------------
- * Porque o Panorama publica *o que esta vigência custou*, e essa frase só é
- * verdadeira sobre um passo. Duas vigências salteadas — agosto contra outubro
- * — são um **intervalo**, e um intervalo tem duas leituras legítimas e
- * diferentes (a soma dos movimentos e o estado contra o estado), nenhuma das
- * quais é o que os seis andares desta tela desenham. Quem quer o intervalo tem
- * a Linha do Tempo, que o lê inteiro e diz que é isso que está lendo.
+ * Esta função recusou, até 17/09/2026, todo par que não fosse de vigências
+ * **vizinhas**: o Panorama publicava *o que esta vigência custou*, e a frase só
+ * é verdadeira sobre um passo. A recusa tinha um preço que apareceu no uso: o
+ * seletor da tela, para nunca montar um par recusado, arrastava a outra ponta a
+ * cada escolha — escolher agosto no **De** movia o **Para** de setembro para
+ * agosto, e a referência que a pessoa tinha fixado saía debaixo dela.
  *
- * A recusa é escrita, e não silenciosa: um endereço colado com um par salteado
- * recebe a frase abaixo em vez de um número montado sobre outra pergunta.
+ * As dezesseis auditorias de rubrica nunca tiveram essa trava: a de FINAME
+ * compara junho com setembro sem reclamar, e é o motor quem calcula. A trava
+ * daqui fazia o mesmo produto responder duas coisas diferentes à mesma
+ * pergunta, e o que a tela desenha — o líquido do par, de onde ele vem, onde
+ * aconteceu — não deixa de ser verdade com duas vigências no meio. **O que é do
+ * par continua sendo do par**: a variação contra a vigência anterior, que só
+ * existe entre dois passos que se sucedem, é o andar que se cala (ver
+ * `pages/panorama.tsx`), e não um número montado sobre outra pergunta.
+ *
+ * Quem quer o caminho inteiro somado continua tendo a Linha do Tempo: ela lê o
+ * intervalo movimento a movimento, que é outra leitura, e diz que é essa que
+ * está fazendo.
+ *
+ * As comparações salteadas **não vazam** para a leitura da vigência: quem lê
+ * sem ponta pedida exige a comparação canônica de cada série
+ * (`grouped.ts`, cláusula `ladoA`), e é a mesma régua que já protege o acervo
+ * das candidatas que as dezesseis auditorias gravam ao abrir o menu
+ * (`candidatas-do-par.ts`).
  *
  * ---------------------------------------------------------------------------
  * O que esta função **não** faz
@@ -94,9 +110,14 @@ export class ParRecusado extends Error {}
 /**
  * Deixa o par pronto para leitura — e diz o que ele é.
  *
- * Na direção de sempre (De anterior a Para) não há nada a calcular: a
- * comparação é a que a importação gravou, e mandar recalculá-la seria fazer o
- * número depender de quem abriu a tela primeiro. Só a volta passa pelo motor.
+ * No par canônico (Para contra a anterior imediata dela) não há nada a
+ * calcular: a comparação é a que a importação gravou, e mandar recalculá-la
+ * seria fazer o número depender de quem abriu a tela primeiro. A volta e o par
+ * salteado passam pelo motor.
+ *
+ * O que ela **não** faz é consertar a escolha de ninguém: par com a mesma
+ * vigência nas duas pontas, ou com uma ponta que não é desta unidade, é recusa
+ * escrita — nunca um par vizinho montado no lugar do pedido.
  */
 export async function prepararParDoPanorama(
   db: Database,
@@ -106,7 +127,8 @@ export async function prepararParDoPanorama(
    * As vigências do contexto, mais recente primeiro — como `listPeriods` as
    * devolve. Vem de fora porque quem chama já a tem em mãos para resolver o
    * contexto, e porque é ela, e não uma segunda consulta com outra régua, que
-   * define o que "consecutivas" quer dizer nesta tela.
+   * define quais vigências são desta unidade — e qual delas é a anterior
+   * imediata do Para, que é o único par que não precisa passar pelo motor.
    */
   periodos: readonly string[],
 ): Promise<ParPreparado> {
@@ -126,16 +148,22 @@ export async function prepararParDoPanorama(
       `A vigência ${ausente} não pertence a esta unidade. Escolha as duas pontas na lista desta tela.`,
     );
   }
-  if (Math.abs(indiceDe - indicePara) !== 1) {
-    throw new ParRecusado(
-      "O Panorama lê um passo de cada vez: as duas pontas precisam ser vigências vizinhas. " +
-        "Para ler um intervalo com vigências no meio, abra a Linha do Tempo — ela soma o caminho inteiro e diz que é isso que está somando.",
-    );
-  }
-
   const invertido = de > para;
-  // A ida é o que a importação já gravou. Nada a calcular, e nada a decidir.
-  if (!invertido) return { de, para, invertido, calculadas: 0 };
+
+  /*
+    O par **canônico** — Para contra a anterior imediata dela — é o que a
+    importação já gravou. Nada a calcular, e nada a decidir: mandar recalculá-lo
+    faria o número depender de quem abriu a tela primeiro.
+
+    Todo o resto passa pelo motor: a volta (De posterior a Para) e o par
+    salteado (junho contra setembro, com julho e agosto no meio). Os dois são
+    comparações que a importação não gravou, e nenhuma régua de data sozinha
+    alcança — é o motor quem as calcula, uma vez por série, e quem responde
+    depois.
+  */
+  if (!invertido && indiceDe === indicePara - 1) {
+    return { de, para, invertido, calculadas: 0 };
+  }
 
   const { rows } = await db.execute<PontaDoPar>(sql`
     SELECT s.id,
@@ -205,7 +233,8 @@ export async function prepararParDoPanorama(
   if (pares.length === 0) {
     throw new ParRecusado(
       `Nenhuma série tem as duas vigências (${de} e ${para}) com equipamento em comum nesta unidade. ` +
-        "A volta só existe onde a ida existe: sem nenhum tipo de equipamento dos dois lados, não há par a inverter.",
+        "Sem nenhum tipo de equipamento dos dois lados não há o que comparar — escolha outra ponta, " +
+        "ou importe a cobertura que falta na vigência desejada.",
     );
   }
 

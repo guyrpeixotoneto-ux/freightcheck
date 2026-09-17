@@ -16,6 +16,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import Panorama from "@/pages/panorama";
 import ImpactoApurado from "@/pages/impacto-apurado";
 import type { Contexto } from "@/lib/contextos";
+import { enderecoDoPanorama } from "@/lib/par-do-panorama";
 
 class ObservadorDeTamanho {
   observe() {}
@@ -903,6 +904,109 @@ describe("o par do Panorama", () => {
     expect(screen.getByLabelText("Para (vigência de destino)").textContent).toContain(
       "julho de 2026",
     );
+  });
+
+  /*
+    O PAR SALTEADO — junho contra agosto, com julho no meio.
+
+    Ele era **descartado**: `?base=` que não fosse vizinho do `?period=` caía no
+    par natural, e a tela respondia por julho→agosto debaixo de caixas que
+    diziam junho→agosto. E, mesmo honrado no seletor, a leitura saía pela rota
+    de sempre — que lê a comparação canônica da vigência, e não o par.
+
+    Os dois casos abaixo prendem as duas metades: o endereço é honrado, e a
+    pergunta sai pela rota do par com as pontas que o endereço nomeia.
+  */
+  it("restaura o par salteado do endereço, e o pede pela rota do par", async () => {
+    /* Lista própria: uma consulta atrasada do caso anterior cairia na
+       compartilhada e poluiria a asserção negativa daqui. */
+    const deste: string[] = [];
+    /* O histórico com junho dentro: é ele que o seletor oferece, e é dele que
+       sai o rótulo da ponta escolhida. */
+    const COM_JUNHO = {
+      ...VIGENCIA,
+      periods: [
+        { date: "2026-06-01", label: "junho de 2026", series: [], tipos: [] },
+        ...VIGENCIA.periods,
+      ],
+    };
+    abrirEm("period=2026-08-01&base=2026-06-01");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (entrada: RequestInfo | URL) => {
+        const url = String(entrada);
+        deste.push(url);
+        if (url.includes("/changes/families/par")) return resposta(COM_JUNHO);
+        if (url.includes("/changes/families")) return resposta(COM_JUNHO);
+        if (url.includes("/changes/grouped")) return resposta(COM_JUNHO);
+        if (url.includes("/qlp/auditoria")) return SEM_QLP();
+        if (url.includes("/balance/recorte")) return resposta(PROCEDENCIA);
+        return resposta(INTERVALO);
+      }),
+    );
+    montar();
+
+    await waitFor(() =>
+      expect(
+        deste.some(
+          (url) =>
+            url.includes("/changes/families/par") &&
+            url.includes("base=2026-06-01") &&
+            url.includes("comparada=2026-08-01"),
+        ),
+      ).toBe(true),
+    );
+    /* E não pela rota de sempre, que responderia pelo par canônico de agosto —
+       o número de julho→agosto debaixo de caixas que dizem junho→agosto. */
+    expect(deste.some((url) => url.includes("/changes/families?"))).toBe(false);
+
+    /* E as caixas dizem o que o link dizia. */
+    await waitFor(() =>
+      expect(screen.getByLabelText("De (vigência de origem)").textContent).toContain(
+        "junho de 2026",
+      ),
+    );
+    expect(screen.getByLabelText("Para (vigência de destino)").textContent).toContain(
+      "agosto de 2026",
+    );
+  });
+
+  /*
+    `?base=` só faz sentido ao lado do `?period=` com que foi escrito: levá-lo
+    numa troca de unidade apontaria para uma data que a outra unidade pode não
+    ter. Quem escolhe o par escreve as duas chaves na mesma troca — e é só nesse
+    caso que `base` sobrevive.
+  */
+  /*
+    `?base=` só faz sentido ao lado do `?period=` com que foi escrito. Estes três
+    casos são a regra inteira, e ela vive em `enderecoDoPanorama` justamente
+    para caber num caso: dentro da página, era um `const` que nenhum teste
+    alcançava.
+  */
+  it("trocar de unidade apaga o par do endereço", () => {
+    expect(
+      enderecoDoPanorama("period=2026-07-01&base=2026-08-01", {
+        scopeHash: "hash-ca",
+        canal: "EMPURRADA",
+        period: null,
+        visaoGeral: null,
+      }),
+    ).toBe("scopeHash=hash-ca&canal=EMPURRADA");
+  });
+
+  it("clicar numa vigência no gráfico apaga o par", () => {
+    expect(
+      enderecoDoPanorama("period=2026-07-01&base=2026-08-01", { period: "2026-06-01" }),
+    ).toBe("period=2026-06-01");
+  });
+
+  it("escolher no par preserva o par, porque as duas chaves vêm juntas", () => {
+    expect(
+      enderecoDoPanorama("period=2026-08-01", {
+        period: "2026-08-01",
+        base: "2026-06-01",
+      }),
+    ).toBe("period=2026-08-01&base=2026-06-01");
   });
 
   /*
