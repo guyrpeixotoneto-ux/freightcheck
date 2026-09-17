@@ -6,6 +6,7 @@ import {
   percentual,
   pontosDoGrafico,
   recusaDoEscopo,
+  rotuloDaChave,
   rotuloCurto,
   rotuloLongo,
   sentido,
@@ -215,5 +216,41 @@ describe("a recusa do escopo", () => {
 
     expect(recusa!.problema).toContain("CDD CARUARU");
     expect(recusa!.conserto).toContain("uma só");
+  });
+});
+
+/**
+ * O RÓTULO DA CHAVE — o nome da competência com que a variação comparou.
+ *
+ * A manchete imprimia `variação contra 2026-07-Q1`: a chave crua, que é a
+ * identidade da competência no produto e não o nome dela — debaixo de uma tabela
+ * que escreve `jul/2026, 1ª quinzena` na linha seguinte, duas grafias da mesma
+ * quinzena na mesma tela.
+ *
+ * O que estes testes prendem, além da tradução, é a recusa: uma chave que não se
+ * lê volta como está. Inventar um mês a partir de um `NaN` escreveria
+ * `undefined/2026`, que é pior do que a chave crua — esta, ao menos, é verdade.
+ */
+describe("o rótulo de uma chave de competência", () => {
+  it("escreve a quinzena por extenso, com o mês 1-indexado do banco", () => {
+    expect(rotuloDaChave("2026-07-Q1")).toBe("jul/2026, 1ª quinzena");
+    expect(rotuloDaChave("2026-12-Q2")).toBe("dez/2026, 2ª quinzena");
+    /* Janeiro é o teste do `- 1`: sem ele sairia fevereiro. */
+    expect(rotuloDaChave("2026-01-Q1")).toBe("jan/2026, 1ª quinzena");
+  });
+
+  it("devolve a chave como está quando ela não se lê", () => {
+    expect(rotuloDaChave("2026-13-Q1")).toBe("2026-13-Q1");
+    expect(rotuloDaChave("2026-00-Q1")).toBe("2026-00-Q1");
+    expect(rotuloDaChave("2026-07-Q3")).toBe("2026-07-Q3");
+    expect(rotuloDaChave("julho de 2026")).toBe("julho de 2026");
+    expect(rotuloDaChave("")).toBe("");
+  });
+
+  /* A mesma quinzena, escrita igual nos dois lugares da tela. */
+  it("concorda com o rótulo que a tabela escreve", () => {
+    expect(rotuloDaChave("2026-07-Q2")).toBe(
+      rotuloLongo({ mes: 7, ano: 2026, quinzena: 2 }),
+    );
   });
 });

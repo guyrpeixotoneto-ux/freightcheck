@@ -39,6 +39,7 @@ import {
   percentual,
   pontosDoGrafico,
   recusaDoEscopo,
+  rotuloDaChave,
   rotuloLongo,
   sentido,
   ultimaMedida,
@@ -440,7 +441,7 @@ function Manchete({ quinzena }: { quinzena: QuinzenaDaFrota | null }) {
       <p className="text-sm text-muted-foreground">
         Última quinzena com relatório: <strong>{rotuloLongo(quinzena)}</strong>
         {quinzena.variacao && (
-          <> — variação contra {quinzena.variacao.contra}</>
+          <> — variação contra {rotuloDaChave(quinzena.variacao.contra)}</>
         )}
       </p>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">

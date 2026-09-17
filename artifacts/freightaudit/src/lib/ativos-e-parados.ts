@@ -155,6 +155,30 @@ export function rotuloLongo(q: {
   return `${MES_CURTO[q.mes - 1]}/${q.ano}, ${q.quinzena}ª quinzena`;
 }
 
+/**
+ * O rótulo por extenso de uma **chave** de competência — `2026-07-Q1`.
+ *
+ * `rotuloLongo`, acima, parte de ano/mês/quinzena já separados, e é o que a
+ * série traz em toda quinzena. A variação não: ela nomeia com que competência
+ * comparou (`variacao.contra`) e o que ela carrega é a chave crua, que é a
+ * identidade da competência no produto inteiro — e era ela que a manchete
+ * imprimia, "variação contra 2026-07-Q1" debaixo de uma tabela que escreve
+ * `jul/2026, 1ª quinzena` na linha de baixo.
+ *
+ * **Uma chave que não se lê volta como está**, e é a única saída honesta: o mês
+ * fora de 1..12, o texto em outro formato, a chave vazia. Inventar um mês a
+ * partir de um `NaN` escreveria `undefined/2026` na tela — pior do que a chave
+ * crua, que ao menos é verdadeira e endereça a competência.
+ */
+export function rotuloDaChave(chave: string): string {
+  const partes = /^(\d{4})-(\d{2})-Q([12])$/.exec(chave);
+  if (!partes) return chave;
+  const [, ano, mes, quinzena] = partes;
+  const nome = MES_CURTO[Number(mes) - 1];
+  if (!nome) return chave;
+  return `${nome}/${ano}, ${quinzena}ª quinzena`;
+}
+
 /** O número, ou o travessão da ausência. Nunca um zero no lugar de "não sei". */
 export function numeroOuTraco(valor: number | null): string {
   return valor === null ? "—" : valor.toLocaleString("pt-BR");
