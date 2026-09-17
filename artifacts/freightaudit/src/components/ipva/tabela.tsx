@@ -1,3 +1,4 @@
+import { AGRUPAMENTO_DE_IPVA } from "@workspace/comparison/ipva";
 import type { LinhaDeIpva, VeiculoDeIpva } from "@workspace/comparison/ipva";
 import {
   TabelaPorVeiculo,
@@ -34,6 +35,7 @@ import {
 const ESCRITA_DO_IPVA: EscritaDaRubrica<LinhaDeIpva, VeiculoDeIpva> = {
   rubrica: "IPVA",
   destaque: "IPVA",
+  agrupamento: AGRUPAMENTO_DE_IPVA,
   escreverValor,
   escreverDiferenca,
   escreverVariacao,

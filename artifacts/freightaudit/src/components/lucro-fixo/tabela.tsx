@@ -1,3 +1,4 @@
+import { AGRUPAMENTO_DE_LUCRO_FIXO } from "@workspace/comparison/lucro-fixo";
 import type { LinhaDeLucroFixo, VeiculoDeLucroFixo } from "@workspace/comparison/lucro-fixo";
 import {
   TabelaPorVeiculo,
@@ -40,6 +41,7 @@ import {
 const ESCRITA_DO_LUCRO_FIXO: EscritaDaRubrica<LinhaDeLucroFixo, VeiculoDeLucroFixo> = {
   rubrica: "lucro fixo",
   destaque: "Lucro fixo",
+  agrupamento: AGRUPAMENTO_DE_LUCRO_FIXO,
   escreverValor,
   escreverDiferenca,
   escreverVariacao,

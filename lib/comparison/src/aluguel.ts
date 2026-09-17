@@ -51,6 +51,7 @@ import {
 } from "./recorte-de-rubrica";
 import {
   agruparVeiculos,
+  medidasDoCatalogo,
   type OpcoesDoAgrupamento,
   type VeiculoDaRubrica,
 } from "./agrupamento-por-veiculo";
@@ -821,6 +822,10 @@ export type VeiculoDeAluguel = VeiculoDaRubrica<LinhaDeAluguel>;
 export const AGRUPAMENTO_DE_ALUGUEL = {
   ordemDasVariaveis: ["veiculo", ...TODAS.map((v) => v.chave)],
   destaque: "aluguel",
+  /* A unidade do destaque e a resposta a "esta rubrica tem dinheiro?" saem
+     daqui — do mesmo catálogo que define a ordem da expansão, e nunca de
+     uma segunda lista escrita à mão. */
+  medidas: medidasDoCatalogo(TODAS),
   foraDaContagem: ["veiculo"],
 } as const satisfies OpcoesDoAgrupamento;
 

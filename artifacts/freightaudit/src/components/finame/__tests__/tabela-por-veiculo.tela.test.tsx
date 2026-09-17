@@ -338,3 +338,94 @@ describe("o que conta como justificável", () => {
     expect(screen.queryByText("Sem justificativa")).toBeNull();
   });
 });
+
+/**
+ * A MESMA RÉGUA, NUMA RUBRICA QUE TEM DINHEIRO.
+ *
+ * O que a Manutenção pediu — calar "(0 em R$)" e deixar uma variável alterada
+ * assumir a linha-mãe — não é dela: é da medida do destaque de cada rubrica.
+ * Aqui o destaque é a parcela, em reais, e por isso as duas coisas se comportam
+ * ao contrário: o complemento aparece (porque há mistura de medidas para
+ * separar) e a substituta é uma monetária.
+ */
+describe("a rubrica em reais continua contando o dinheiro à parte", () => {
+  const renderizar = (linhas: LinhaDeFiname[]) =>
+    render(
+      <TooltipProvider>
+        <TabelaDeFiname
+          veiculos={agruparPorVeiculo(linhas)}
+          onAbrir={vi.fn()}
+          onJustificar={vi.fn()}
+        />
+      </TooltipProvider>,
+    );
+
+  const placa = (nome = "QYW6D15") =>
+    within(screen.getByRole("button", { name: new RegExp(`^Abrir as alterações de ${nome}`) }));
+
+  it("mistura de reais e meses: a contagem separa, e escreve quantas são em R$", () => {
+    renderizar([
+      linha(),
+      linha({
+        id: 2,
+        variavel: "prazo",
+        rotuloDaVariavel: "Prazo FINAME",
+        medida: "MESES",
+        attributeCode: "cavalo.periodo_finame",
+        base: "60",
+        comparada: "48",
+        diferenca: -12,
+        variacao: -20,
+      }),
+    ]);
+
+    expect(placa().getByText("2")).toBeTruthy();
+    expect(placa().getByText("(1 em R$)")).toBeTruthy();
+  });
+
+  it("sem a parcela no recorte, a única monetária alterada assume — e se nomeia", () => {
+    renderizar([
+      linha({
+        variavel: "amortizacao",
+        rotuloDaVariavel: "Amortização",
+        attributeCode: "cavalo.amortizacao_cavalo",
+        base: "10207.94",
+        comparada: "9000",
+        diferenca: -1207.94,
+        variacao: -11.83,
+      }),
+    ]);
+
+    /* O nome vem com a unidade porque o rótulo não a traz: sob um cabeçalho que
+       promete "Parcela de", "Amortização" sozinha ainda poderia ser lida como a
+       parcela. */
+    expect(placa().getByText("Amortização (R$)")).toBeTruthy();
+    expect(placa().getByText("R$ 10.207,94")).toBeTruthy();
+    expect(placa().queryByText("—")).toBeNull();
+  });
+
+  it("duas monetárias alteradas e nenhuma é a parcela: conta, e não elege", () => {
+    renderizar([
+      linha({
+        variavel: "amortizacao",
+        rotuloDaVariavel: "Amortização",
+        attributeCode: "cavalo.amortizacao_cavalo",
+        base: "10207.94",
+        comparada: "9000",
+        diferenca: -1207.94,
+      }),
+      linha({
+        id: 2,
+        variavel: "juros",
+        rotuloDaVariavel: "Juros FINAME",
+        attributeCode: "cavalo.juros_finame_cavalo",
+        base: "1862.61",
+        comparada: "1500",
+        diferenca: -362.61,
+      }),
+    ]);
+
+    expect(placa().getByText(/2 valores em R\$ alterados/)).toBeTruthy();
+    expect(placa().queryByText("R$ 10.207,94")).toBeNull();
+  });
+});

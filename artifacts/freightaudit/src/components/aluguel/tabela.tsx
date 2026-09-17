@@ -1,3 +1,4 @@
+import { AGRUPAMENTO_DE_ALUGUEL } from "@workspace/comparison/aluguel";
 import type { LinhaDeAluguel, VeiculoDeAluguel } from "@workspace/comparison/aluguel";
 import {
   TabelaPorVeiculo,
@@ -29,6 +30,7 @@ import {
 export const ESCRITA_DO_ALUGUEL: EscritaDaRubrica<LinhaDeAluguel, VeiculoDeAluguel> = {
   rubrica: "aluguel de frota",
   destaque: "Aluguel",
+  agrupamento: AGRUPAMENTO_DE_ALUGUEL,
   escreverValor,
   escreverDiferenca,
   escreverVariacao,

@@ -105,6 +105,33 @@ export type MedidaDaVariavel =
   | "QUANTIDADE"
   | "RENDIMENTO";
 
+/**
+ * O nome curto da unidade de cada medida — o que se diz *sobre* um número.
+ *
+ * Não é como se escreve um valor (isso é de cada rubrica: "R$ 0,4400/km" tem
+ * quatro casas por razões de manutenção, e "59,8 meses" tem uma). É o nome da
+ * unidade para quando a tela precisa falar de vários valores de uma vez, sem
+ * escrever nenhum deles — "2 valores em R$/km alterados". Mora aqui, e não na
+ * tela, para que as oito auditorias digam "R$/km" com as mesmas cinco letras.
+ */
+export const UNIDADE_DA_MEDIDA: Record<MedidaDaVariavel, string> = {
+  DINHEIRO: "R$",
+  PERCENTUAL: "%",
+  MESES: "meses",
+  ANO: "ano",
+  DATA: "data",
+  CICLO: "ciclo",
+  DISTANCIA: "km",
+  REAIS_POR_KM: "R$/km",
+  VIAGENS: "viagens",
+  TEXTO: "texto",
+  MINUTOS: "minutos",
+  VELOCIDADE: "km/h",
+  FATOR: "motoristas por conjunto",
+  QUANTIDADE: "quantidade",
+  RENDIMENTO: "km/l",
+};
+
 // ---------------------------------------------------------------------------
 // Os seis estados
 // ---------------------------------------------------------------------------
