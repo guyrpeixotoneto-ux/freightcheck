@@ -32,6 +32,7 @@
     "./consumo": "./src/consumo.ts",
     "./monitor-custo-fixo": "./src/monitor-custo-fixo.ts",
     "./monitor-equipe": "./src/monitor-equipe.ts",
+    "./alteracoes-por-modulo": "./src/alteracoes-por-modulo.ts",
     "./recorte-de-rubrica": "./src/recorte-de-rubrica.ts",
     "./agrupamento-por-veiculo": "./src/agrupamento-por-veiculo.ts",
     "./tipos": "./src/tipos.ts",
