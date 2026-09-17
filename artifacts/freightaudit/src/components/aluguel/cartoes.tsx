@@ -81,7 +81,7 @@ export function CartoesDeAluguel({ resumo }: { resumo: ComparacaoDeAluguel["resu
         rotulo="Impacto no aluguel"
         valor={principal ? principal.valor : "Nenhum aluguel se moveu"}
         corDoValor={
-          principal ? (principal.bruto > 0 ? "text-destructive" : "text-success") : undefined
+          principal ? (principal.bruto > 0 ? "text-success" : "text-destructive") : undefined
         }
         nota={
           principal ? (

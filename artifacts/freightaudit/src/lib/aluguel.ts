@@ -139,22 +139,28 @@ export function escreverVariacao(variacao: number | null): string {
 }
 
 /**
- * A cor de um número que subiu ou desceu — e para que lado ela aponta.
+ * A cor de um número que subiu ou desceu — **a régua é o sinal, e é uma só**.
  *
- * Aqui a régua é a **inversa** das quatro rubricas de remuneração do Custo Fixo.
- * FINAME, IPVA, lucro fixo e seguro são o que a operação **recebe**, e nelas
- * subir é verde. O aluguel é o que a operação **paga** pelo implemento que não
- * financiou: um aluguel que sobe é despesa que sobe, e é vermelho.
+ * Positivo é ganho e sai em verde; negativo é perda e sai em vermelho. É a
+ * mesma régua do FINAME, do IPVA, do lucro fixo, do seguro e do Monitor Custo
+ * Fixo — e a que `docs/PROVA-DA-EVOLUCAO-DE-FINAME.md` fixou para o produto
+ * inteiro.
  *
- * A distinção não é estética. Pintar de verde um aluguel que subiu diria, na
- * cor, o contrário do que aconteceu com o caixa de quem opera.
+ * Houve aqui a régua inversa, pela leitura de que o aluguel é o que a operação
+ * **paga** e um aluguel que sobe é despesa que sobe. Ela foi removida pela
+ * mesma razão que saiu do FINAME e do Monitor: o aluguel é linha da tabela de
+ * frete, e o que a coluna mede é quanto entra por aquele implemento. Com a
+ * régua invertida, a mesma alteração aparecia verde no Monitor — que consolida
+ * esta rubrica — e vermelha aqui: a cor contradizendo a cor, sobre o mesmo
+ * número. `lib/__tests__/uma-regua-so-para-o-dinheiro.test.ts` prende as doze
+ * telas de uma vez.
  */
 export function corDaDiferenca(
   diferenca: number | null,
   medida: MedidaDaVariavel,
 ): string {
   if (diferenca === null || diferenca === 0 || medida !== "DINHEIRO") return "";
-  return diferenca > 0 ? "text-destructive" : "text-success";
+  return diferenca > 0 ? "text-success" : "text-destructive";
 }
 
 /** O selo de cada estado. Cor **e** texto — nunca só a cor. */

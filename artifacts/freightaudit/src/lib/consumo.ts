@@ -156,26 +156,37 @@ export function escreverPrecoDoLitro(valor: number | null): string {
 }
 
 /**
- * A cor de um número que subiu ou desceu — e a inversão que só esta tela tem.
+ * A cor de um número que subiu ou desceu — **e as duas réguas, que são duas**.
  *
- * **Rendimento que sobe é verde.** Um conjunto que passou de 2,4 para 2,6 km por
- * litro gasta menos diesel no mesmo percurso: é economia, e pintá-la de vermelho
- * porque "o número subiu" seria a tela contradizendo a própria pergunta.
+ * Em **dinheiro** vale a régua do produto inteiro: positivo é ganho e sai em
+ * verde, negativo é perda e sai em vermelho. Houve aqui a régua inversa ("R$/km
+ * que sobe é vermelho, como em toda tela de custo"), e ela saiu com a mesma
+ * leitura no Monitor, no Aluguel e nos Impostos — ver
+ * `docs/PROVA-DA-EVOLUCAO-DE-FINAME.md`.
  *
- * **Perda que sobe é vermelha**, pelo motivo simétrico: mais perda é menos
- * rendimento.
+ * Em **grandeza física** a régua é outra, e continua sendo, porque ali não há
+ * sinal de dinheiro para ler:
  *
- * **R$/km que sobe é vermelho**, como em toda tela de custo.
+ * - **rendimento que sobe é verde** — um conjunto que passou de 2,4 para 2,6 km
+ *   por litro gasta menos diesel no mesmo percurso, e pintá-lo de vermelho
+ *   porque "o número subiu" seria a tela contradizendo a própria pergunta;
+ * - **perda que sobe é vermelha**, pelo motivo simétrico: mais perda é menos
+ *   rendimento.
+ *
+ * Misturar as duas é o erro que esta função existe para não cometer: km/l não é
+ * um valor em reais, e a régua do sinal não fala sobre ele.
  */
 export function corDaDiferenca(
   diferenca: number | null,
   papel: PapelDaColunaDeConsumo,
 ): string {
   if (diferenca === null || diferenca === 0) return "";
+  /* As duas grandezas físicas, com a régua própria de cada uma. */
   if (papel === "RENDIMENTO") return diferenca > 0 ? "text-success" : "text-destructive";
   if (papel === "PERDA") return diferenca > 0 ? "text-destructive" : "text-success";
   if (papel !== "RAZAO" && papel !== "POR_VIAGEM") return "";
-  return diferenca > 0 ? "text-destructive" : "text-success";
+  /* Dinheiro: positivo é ganho. */
+  return diferenca > 0 ? "text-success" : "text-destructive";
 }
 
 /** O selo de cada estado. Cor **e** texto — nunca só a cor. */

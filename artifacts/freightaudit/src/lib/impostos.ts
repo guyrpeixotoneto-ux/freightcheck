@@ -180,20 +180,25 @@ export function escreverAliquota(percentual: number | null): string {
 }
 
 /**
- * A cor de um número que subiu ou desceu — e por que ela não é semântica aqui.
+ * A cor de um número que subiu ou desceu — **só em dinheiro, e pelo sinal**.
  *
- * Um imposto que sobe é custo; um que desce é economia. Mas alíquota, ano e data
- * não têm lado bom — uma alíquota que cai pode ser um crédito legítimo ou uma
- * declaração que ficou para trás —, e pintá-las de verde e vermelho afirmaria um
- * juízo que esta tela não tem como sustentar. Então a cor só aparece em dinheiro;
- * o resto fica na tinta normal, e o sinal diz tudo o que há para dizer.
+ * Em dinheiro a régua é a do produto inteiro: positivo é ganho e sai em verde,
+ * negativo é perda e sai em vermelho. Houve aqui a régua inversa — "imposto que
+ * sobe é custo" —, e ela saiu junto com a mesma leitura no Monitor Custo Fixo,
+ * que consolida esta rubrica: com as duas réguas, a mesma alteração aparecia
+ * verde lá e vermelha aqui.
+ *
+ * Alíquota, ano e data continuam **sem cor**, e isso não mudou: elas não têm
+ * lado bom — uma alíquota que cai pode ser um crédito legítimo ou uma declaração
+ * que ficou para trás —, e pintá-las afirmaria um juízo que esta tela não tem
+ * como sustentar. O sinal diz tudo o que há para dizer.
  */
 export function corDaDiferenca(
   diferenca: number | null,
   medida: MedidaDaVariavel,
 ): string {
   if (diferenca === null || diferenca === 0 || medida !== "DINHEIRO") return "";
-  return diferenca > 0 ? "text-destructive" : "text-success";
+  return diferenca > 0 ? "text-success" : "text-destructive";
 }
 
 /** O selo de cada estado. Cor **e** texto — nunca só a cor. */

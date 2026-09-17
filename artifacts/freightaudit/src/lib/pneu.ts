@@ -156,26 +156,30 @@ export function escreverKmDeVida(valor: number | null): string {
 /**
  * A cor de um número que subiu ou desceu — e por que nem toda linha a recebe.
  *
- * Um R$/km de pneu que sobe é custo que sobe: vermelho. Um valor unitário que
- * sobe também é — pneu mais caro é pneu mais caro, e a quantidade não muda o
- * sinal disso.
+ * Em **dinheiro** — R$/km, R$/viagem, valor unitário — vale a régua do produto
+ * inteiro: positivo é ganho e sai em verde, negativo é perda e sai em vermelho.
+ * Houve aqui a régua inversa ("R$/km de pneu que sobe é custo que sobe"), e ela
+ * saiu com a mesma leitura no Monitor, no Aluguel e nos Impostos — ver
+ * `docs/PROVA-DA-EVOLUCAO-DE-FINAME.md`.
  *
- * Já a **vida útil** tem o sentido invertido: uma carcaça que passou a durar
- * mais barateia o quilômetro. Pintá-la com a régua do custo diria o contrário do
- * que aconteceu, então ela recebe a régua própria — verde quando sobe.
+ * A **vida útil** é quilometragem, e não reais: a régua do sinal não fala sobre
+ * ela. Fica com a régua própria, que não mudou — uma carcaça que passou a durar
+ * mais barateia o quilômetro, e ela sai verde quando sobe.
  *
  * A **quantidade de pneus** não é pintada de jeito nenhum: um conjunto que
  * passou de seis para dez pneus não ficou pior nem melhor, mudou de composição,
- * e o custo por quilômetro disso já está na linha de R$/km logo acima.
+ * e o dinheiro disso já está na linha de R$/km logo acima.
  */
 export function corDaDiferenca(
   diferenca: number | null,
   papel: PapelDaColunaDePneu,
 ): string {
   if (diferenca === null || diferenca === 0) return "";
+  /* Quilometragem, não reais — régua própria. */
   if (papel === "VIDA") return diferenca > 0 ? "text-success" : "text-destructive";
   if (papel !== "RAZAO" && papel !== "POR_VIAGEM" && papel !== "UNITARIO") return "";
-  return diferenca > 0 ? "text-destructive" : "text-success";
+  /* Dinheiro: positivo é ganho. */
+  return diferenca > 0 ? "text-success" : "text-destructive";
 }
 
 /** O selo de cada estado. Cor **e** texto — nunca só a cor. */

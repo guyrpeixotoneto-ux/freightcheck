@@ -99,7 +99,7 @@ export function CartoesDeImpostos({
         rotulo="Impacto financeiro"
         valor={principal ? principal.valor : "Sem impacto precificável"}
         corDoValor={
-          principal ? (principal.bruto > 0 ? "text-destructive" : "text-success") : undefined
+          principal ? (principal.bruto > 0 ? "text-success" : "text-destructive") : undefined
         }
         nota={
           principal ? (
