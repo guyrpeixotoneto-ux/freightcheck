@@ -67,3 +67,32 @@ export function avisoDoParImpossivel(
   }
   return null;
 }
+
+/**
+ * O mesmo assunto em uma linha — a cobertura que não tem par, dita ao lado das
+ * que têm.
+ *
+ * {@link avisoDoParImpossivel} escreve o parágrafo da tela vazia, onde há
+ * espaço para dizer o que importar e por que o motor recusa. Aqui é outro
+ * lugar: a lista de coberturas do catálogo, onde as irmãs cabem numa linha cada
+ * e esta precisa caber também — senão a cobertura sem par vira o item mais alto
+ * da lista, que é o oposto da importância dela.
+ *
+ * Os quatro motivos continuam distintos, e é por isso que esta função existe em
+ * vez de um "sem par" fixo: `LISTA_VAZIA` pede uma importação, `UMA_SO` pede a
+ * **seguinte**, e as outras duas são recusas do motor sobre vigências que estão
+ * ali, visíveis. Dizer o mesmo para os quatro mandaria três dos quatro
+ * procurarem a coisa errada.
+ */
+export function fraseSemPar(motivo: MotivoSemPar): string {
+  switch (motivo.motivo) {
+    case "LISTA_VAZIA":
+      return "nenhuma vigência importada";
+    case "UMA_SO":
+      return "uma vigência só — falta a seguinte";
+    case "UNIDADES_DIFERENTES":
+      return "vigências de unidades diferentes — escolha uma na lateral";
+    case "COBERTURAS_DIFERENTES":
+      return `coberturas diferentes (${motivo.coberturas.join(" e ")}) — o motor não as compara`;
+  }
+}
