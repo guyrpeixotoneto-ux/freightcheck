@@ -318,4 +318,42 @@ describe("os números de cada linha do menu", () => {
       expect(linha?.alteracoes).toBe("0 alterações");
     });
   });
+
+  /**
+   * A rubrica **mede** dinheiro, e mesmo assim não tem o que publicar.
+   *
+   * É o caso da Auditoria de Seguro, e é diferente do QLP logo acima: lá
+   * nenhuma coluna é monetária; aqui o seguro é dinheiro, mudou — de R$ 180,79
+   * para R$ 631,41 numa carreta, de R$ 159,80 para R$ 476,87 noutra — e a
+   * curadoria ainda não confirmou a semântica, então o motor recusa
+   * monetizá-lo. `R$ 0,00` ali afirmaria que o dinheiro não se moveu, ao lado
+   * de uma contagem dizendo que dois seguros mudaram: a linha se contradizendo
+   * sozinha, e discordando do cartão da mesma tela.
+   */
+  describe("quando a rubrica mede dinheiro mas a curadoria não confirmou", () => {
+    /* O payload como `/seguro/candidatos` passou a respondê-lo. */
+    const doSeguro = (alteracoes: number) => ({
+      alteracoes,
+      impacto: { baldes: [] },
+      semImpacto:
+        "O aparato se moveu, e nenhuma das colunas monetárias desta rubrica " +
+        "tem semântica confirmada pela curadoria.",
+    });
+
+    it("não escreve R$ 0,00, e mantém a contagem do que mudou", () => {
+      const linha = numerosDaLinha(doSeguro(15));
+
+      expect(linha?.valores).toEqual([]);
+      expect(linha?.alteracoes).toBe("15 alterações");
+    });
+
+    /* O dia da confirmação: o mesmo recorte, agora com balde, volta a escrever
+       o dinheiro — sem que nada nesta função saiba de qual rubrica se trata. */
+    it("confirmada a semântica, a mesma linha publica o valor", () => {
+      const linha = numerosDaLinha(comImpacto(15, { MENSAL: 767.69 }));
+
+      expect(linha?.valores[0].texto).toBe("+R$ 767,69/mês");
+      expect(linha?.alteracoes).toBe("15 alterações");
+    });
+  });
 });

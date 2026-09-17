@@ -17,6 +17,7 @@ import {
   listComparableSnapshots,
   operacaoDoSnapshot,
   resumirSeguro,
+  SEM_IMPACTO_PRECIFICAVEL_DE_SEGURO,
   totaisDeSeguroPorVigencia,
   variavelDeSeguroDoCodigo,
   VARIAVEIS_DE_SEGURO,
@@ -30,8 +31,8 @@ import { exigirOperacaoDoRecurso, operacaoDaConsulta } from "../lib/operacao";
 import { contextoDoPar } from "../lib/recorte-do-par";
 import { comTetoDeRota } from "../lib/timeout-de-rota";
 import {
-  baldesDoImpacto,
   candidatasDoPar,
+  impactoPublicavel,
   TETO_DE_CANDIDATAS_MS,
 } from "../lib/candidatas-do-par";
 
@@ -356,6 +357,13 @@ function comoNumero(bruto: string | null): number | null {
  * o orçamento, o reaproveitamento do que já foi comparado e o recorte por
  * unidade e cobertura moram em `lib/candidatas-do-par.ts`. O que entra aqui é o
  * recorte do aparato — quais atributos ler, e como contar o que mudou neles.
+ *
+ * **O dinheiro desce por `impactoPublicavel`, e não em cru.** Nesta rubrica o
+ * caso comum é o terceiro estado daquela função: o aparato se move e nada disso
+ * vira real, porque a curadoria ainda não confirmou a semântica das colunas. A
+ * rota que publicava `baldes: []` sem mais nada punha `R$ 0,00` no menu ao lado
+ * do cartão que dizia, do mesmo par, "Sem impacto precificável" — o menu
+ * afirmando uma conta que o portão de `viraDinheiro` tinha acabado de recusar.
  */
 router.get("/seguro/candidatos", async (req, res, next): Promise<void> => {
   const para = typeof req.query.para === "string" ? req.query.para : "";
@@ -392,9 +400,21 @@ router.get("/seguro/candidatos", async (req, res, next): Promise<void> => {
               novos: 0,
               ausentes: 0,
             });
+            /*
+              O `naoCalculavel` decide se a linha pode escrever `R$ 0,00`.
+
+              Sem ele, a resposta desta rota descia com `baldes: []` e o menu
+              escrevia zero — enquanto o cartão da mesma tela, lendo o mesmo
+              `porPeriodicidade`, dizia "Sem impacto precificável". Duas telas,
+              o mesmo par, e só uma delas contando a verdade: as alterações de
+              seguro existem, e é a semântica que falta, não o movimento.
+            */
             return {
               alteracoes: variaveisAlteradas,
-              impacto: { baldes: baldesDoImpacto(impacto.porPeriodicidade) },
+              ...impactoPublicavel(impacto.porPeriodicidade, {
+                naoPublicadas: impacto.naoCalculavel,
+                semImpacto: SEM_IMPACTO_PRECIFICAVEL_DE_SEGURO,
+              }),
             };
           },
         },

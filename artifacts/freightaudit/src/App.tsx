@@ -8,6 +8,7 @@ import NotFound from '@/pages/not-found';
 import { Redirect, Route, Switch, useLocation, useSearch, Router as WouterRouter } from 'wouter';
 import { AuthProvider, useAuth } from '@/lib/auth';
 import {
+  ALTERACOES_POR_MODULO,
   BASES_DE_AUDITORIA,
   BASES_DE_FECHAMENTO,
   DASHBOARD,
@@ -32,6 +33,7 @@ import Login from '@/pages/login';
 import Inicio from '@/pages/inicio';
 import Dashboard from '@/pages/dashboard';
 import Panorama from '@/pages/panorama';
+import AlteracoesPorModulo from '@/pages/alteracoes-por-modulo';
 import ImpactoApurado from '@/pages/impacto-apurado';
 import GestaoAVista from '@/pages/gestao-a-vista';
 import LinhaDoTempo from '@/pages/linha-do-tempo';
@@ -405,6 +407,12 @@ function RotasDaAuditoria() {
         está aberto, e uma aba dentro de outra tela acenderia o item errado.
       */}
       <Route path={PANORAMA} component={Panorama} />
+      {/*
+        O catálogo de módulos — rota própria pela mesma razão do Panorama e do
+        Impacto Apurado: a lateral acende o item cujo endereço está aberto, e uma
+        aba dentro de outra tela acenderia o item errado.
+      */}
+      <Route path={ALTERACOES_POR_MODULO} component={AlteracoesPorModulo} />
       <Route path={DASHBOARD} component={Dashboard} />
       {/*
         O Impacto Apurado — o segundo módulo da seção Dashboard, e uma rota

@@ -450,6 +450,28 @@ export interface ImpactoDeSeguro {
 }
 
 /**
+ * Por que esta rubrica pode não publicar dinheiro — a frase, escrita uma vez.
+ *
+ * Ela não descreve um defeito nem uma conta que deu zero: descreve o portão da
+ * curadoria (`viraDinheiro`) recusando somar o que não foi confirmado. Hoje
+ * `carreta.seguro` está PRESUMED, e por isso uma carreta pode ir de R$ 180,79 a
+ * R$ 631,41 sem que um real apareça em `porPeriodicidade` — o `naoCalculavel`
+ * conta essas alterações, e é ele que manda esta frase ao lugar onde o dinheiro
+ * estaria.
+ *
+ * É a irmã de `SEM_IMPACTO_FINANCEIRO` (QLP) e de `SEM_IMPACTO_DE_TMA`, e é
+ * própria porque a razão é outra: lá a rubrica inteira não mede dinheiro; aqui
+ * ela mede, e a curadoria ainda não confirmou o que estas colunas são. No dia
+ * em que confirmar, a frase deixa de ser usada sozinha — ninguém precisa mexer
+ * nela, nem em quem a escolhe.
+ */
+export const SEM_IMPACTO_PRECIFICAVEL_DE_SEGURO =
+  "O aparato se moveu, e nenhuma das colunas monetárias desta rubrica tem " +
+  "semântica confirmada pela curadoria — somar o que ela não confirmou seria " +
+  "adivinhação. Esta comparação conta o que mudou, coluna a coluna, e não " +
+  "publica dinheiro enquanto a confirmação não vier.";
+
+/**
  * O impacto do recorte, por periodicidade e sem somar o que não se explica.
  *
  * **Não soma periodicidades diferentes.** Cada balde é uma periodicidade.
