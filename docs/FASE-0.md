@@ -88,12 +88,22 @@ um relatório consolidado e auditável.
 ./scripts/diagnostico/fase-0-publicado.sh https://SEU-APP.replit.app
 ```
 
-Ele pede o cookie em entrada silenciosa. Para não digitar na hora:
+Ele pede o cookie em **entrada silenciosa**: cole o valor no prompt e aperte
+Enter. Nada aparece na tela — é assim mesmo.
 
-```bash
-read -rs FREIGHTCHECK_COOKIE && export FREIGHTCHECK_COOKIE
-./scripts/diagnostico/fase-0-publicado.sh https://SEU-APP.replit.app
-```
+> **Não ponha o `read` e o comando na mesma colagem.** O `read` consome a
+> **próxima linha** do que foi colado, e o que era o comando vira o valor da
+> variável:
+>
+> ```
+> $ read -rs VAR      ← e, colado logo abaixo:
+> $ echo "o comando"
+> VAR=[echo "o comando"]      ← o comando virou a senha, e nunca rodou
+> ```
+>
+> Por isso o caminho recomendado é só rodar o script e deixá-lo perguntar.
+> Se preferir definir a variável antes, faça em **dois passos separados**:
+> rode o `read`, cole o cookie, aperte Enter, e só então rode o script.
 
 O que ele produz, em `./fase-0-<carimbo>/`:
 
@@ -142,9 +152,10 @@ instala em `/tmp/pw`.
 Depois é o comando normal, apontando para `/tmp/fase0`:
 
 ```bash
-read -rs FREIGHTCHECK_COOKIE && export FREIGHTCHECK_COOKIE
 /tmp/fase0/scripts/diagnostico/fase-0-publicado.sh https://SEU-APP.replit.app
 ```
+
+Ele pergunta o cookie na hora, em entrada silenciosa.
 
 Se preferir trocar de branch mesmo (só faça com o workspace limpo, porque isto
 mexe nos arquivos e pode derrubar o app que está rodando):
@@ -211,7 +222,8 @@ Saída validada localmente:
 ### 2.2 Pedágio e latência até o banco — item 2 do pedido
 
 ```bash
-read -rs FREIGHTCHECK_COOKIE && export FREIGHTCHECK_COOKIE
+read -rs FREIGHTCHECK_COOKIE   # cole, Enter — e só então a linha seguinte
+export FREIGHTCHECK_COOKIE
 node scripts/diagnostico/pedagio-e-latencia.mjs https://SEU-APP.replit.app
 ```
 

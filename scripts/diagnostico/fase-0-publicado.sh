@@ -110,6 +110,18 @@ if [ -z "${FREIGHTCHECK_COOKIE:-}" ]; then
 fi
 COOKIE="${FREIGHTCHECK_COOKIE:-}"
 
+# Dois enganos comuns, e os dois viram "sessão recusada" sem explicar por quê.
+case "$COOKIE" in
+  *"freightcheck_session="*)
+    COOKIE="${COOKIE##*freightcheck_session=}"; COOKIE="${COOKIE%%;*}"
+    export FREIGHTCHECK_COOKIE="$COOKIE"
+    aviso "veio como 'nome=valor'; usei só o valor" ;;
+  */*|*" "*)
+    erro "O que foi colado não parece um cookie (tem espaço ou barra). Se você colou o
+          comando por engano — o \`read\` consome a linha seguinte da colagem —, rode
+          de novo sem o \`read\` e deixe o script perguntar." ;;
+esac
+
 AUTENTICADO=0
 if [ -n "$COOKIE" ]; then
   CS="$(curl -sS -o /dev/null -m 25 -w '%{http_code}' -H "Cookie: freightcheck_session=$COOKIE" "$URL/api/contexts" || echo 000)"
