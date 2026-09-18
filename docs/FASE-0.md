@@ -119,10 +119,20 @@ quando o app está rodando dali:
 
 ```bash
 cd ~/workspace
-git fetch origin claude/confident-fermi-dvk0jl
+git fetch --depth 1 origin claude/confident-fermi-dvk0jl
 mkdir -p /tmp/fase0
 git archive FETCH_HEAD scripts/diagnostico | tar -x -C /tmp/fase0
 ```
+
+**O `--depth 1` não é enfeite.** O workspace do Replit costuma ser um clone
+raso, e num clone raso o `git fetch` simples recusa o branch:
+
+```
+warning: rejected refs/heads/claude/… because shallow roots are not allowed to be updated
+fatal: not a valid object name: FETCH_HEAD
+```
+
+Com `--depth 1` funciona nos dois casos — raso e completo. Conferido nos dois.
 
 Isso escreve só em `/tmp`. O seu `main` fica intacto, nada é sobrescrito, e
 nenhum processo do app é interrompido. Os cinco scripts são autocontidos — a
@@ -140,7 +150,7 @@ Se preferir trocar de branch mesmo (só faça com o workspace limpo, porque isto
 mexe nos arquivos e pode derrubar o app que está rodando):
 
 ```bash
-git fetch origin claude/confident-fermi-dvk0jl
+git fetch --depth 1 origin claude/confident-fermi-dvk0jl
 git checkout claude/confident-fermi-dvk0jl
 ```
 
