@@ -836,7 +836,21 @@ function Corpo({
        unidade a unidade e não traz parâmetro. */
     view !== null && desenhados.length > 0,
   );
-  const janela = janelaDoImpacto(intervalo.movimentos, periodicidade, LINHAS_DO_RANKING);
+  /*
+    A grandeza do cartão é a **do gráfico ao lado**, e não a da manchete sozinha.
+
+    Nas duas a manchete manda quando existe — `pontosDeImpacto` também a prefere
+    —, e a diferença aparece onde ela não existe: numa vigência sem valor
+    apurado os dois caíam em desempates diferentes, o gráfico no alfabeto e este
+    cartão na magnitude, e a dobra publicava lado a lado seis barras em R$/ano
+    coladas no zero e um ranking de R$ 108.410/mês. Lendo a periodicidade que o
+    gráfico resolveu, o desempate acontece uma vez só.
+  */
+  const janela = janelaDoImpacto(
+    intervalo.movimentos,
+    periodicityDaSerie ?? periodicidade,
+    LINHAS_DO_RANKING,
+  );
   /*
     A coluna da direita existe onde a leitura **tem** janela — na unidade, sempre
     (mesmo carregando, e aí o cartão desenha o esqueleto); na Visão Geral, nunca.
