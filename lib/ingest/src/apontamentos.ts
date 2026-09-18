@@ -76,6 +76,14 @@ export const CODIGOS_QUE_BLOQUEIAM_PROMOCAO: ReadonlySet<string> = new Set([
   // aparece semanas depois, quando uma quinzena tiver sido lida duas vezes e a
   // outra nunca tiver chegado.
   "QUINZENA_DIVERGE_DA_DECLARACAO",
+  // A unidade aberta na lateral discordando do CNPJ que vem dentro do arquivo —
+  // ou o arquivo trazendo várias unidades num envio feito de dentro de uma.
+  // Bloqueia pela razão das duas acima, e com um agravante: desde a `0106` o
+  // envio não só declara a unidade, ele **grava** identidade a partir dela. Uma
+  // declaração que ninguém conferisse viraria o escopo de Recife respondendo
+  // pelo nome de CAMAÇARI no banco — e esse engano não aparece na tela de
+  // importações, aparece meses depois numa frota que não fecha com nada.
+  "UNIDADE_DIVERGE_DA_DECLARACAO",
 ]);
 
 /**

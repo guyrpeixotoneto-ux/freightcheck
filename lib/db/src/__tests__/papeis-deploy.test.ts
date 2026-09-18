@@ -701,6 +701,30 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
         "import_run.declared_competence",
         "import_run.declared_unidade",
         /*
+          As duas da `0106` — a unidade que a importação passou a gravar sozinha,
+          para que ninguém tivesse de associá-la depois.
+
+          `scope.unidade_id` liga o escopo que o arquivo traz à unidade
+          cadastrada; `import_run.unidade_id` guarda a unidade que quem enviou
+          tinha aberta na lateral. As duas saem em tabelas que Production **já
+          tem** — `scope` é da `0000` e `import_run` também —, que é exatamente
+          o caso para o qual esta lista é fechada.
+
+          Atravessam pela forma: nuláveis, sem default e **sem chave
+          estrangeira** para `unidade`. A ausência da FK é decisão da `0106`,
+          pela razão que a `0076` e a `0077` já citaram e que esta linha volta a
+          ser: uma constraint nova sobre tabela existente apareceria neste diff.
+
+          E o backfill delas não vem na proposta, como nenhum vem: a `0106`
+          preenche `scope.unidade_id` do histórico por três faixas — o CNPJ
+          dentro do código, a associação manual já feita e a competência com o
+          mesmo texto já associada —, e a proposta do Publishing carrega só o
+          `ADD COLUMN`. Mais uma razão para a política deste cenário continuar
+          sendo recusar a proposta e deixar a fila aplicar na partida.
+        */
+        "scope.unidade_id",
+        "import_run.unidade_id",
+        /*
           A coluna que a `0046` acrescentou a `fechamento_competencia` **não**
           entra aqui, e a ausência é a informação: o diff a reporta pela tabela,
           não pela coluna, porque Production não tem nenhuma das treze do

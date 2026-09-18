@@ -459,6 +459,29 @@ export const ALLOWLIST: {
     tipo: "text",
     aindaPodeNaoExistir: true,
   },
+  /*
+    As duas da `0106` — a unidade que a importação passou a gravar sozinha, para
+    que ninguém tivesse de associá-la depois.
+
+    `scope.unidade_id` é a ponte entre o escopo que o arquivo traz e a unidade
+    cadastrada; `import_run.unidade_id` é a unidade que quem enviou tinha aberta
+    na lateral. Aditivas e nulas por definição: nula na primeira é o escopo que
+    nem documento nem declaração alcançaram, e nula na segunda é o envio que não
+    declarou unidade nenhuma — que são todos os anteriores a ela.
+
+    Sem chave estrangeira para `unidade`, pela razão da `0076` e da `0077`: uma
+    restrição nova em `scope` ou em `import_run` apareceria na proposta do
+    Publishing. E sem índice, pelo critério dos `INDICES_REMOVIDOS` — um índice
+    novo também entraria na proposta, e `scope` é uma tabela de dezenas de
+    linhas que não o pede.
+  */
+  { tabela: "scope", coluna: "unidade_id", tipo: "uuid", aindaPodeNaoExistir: true },
+  {
+    tabela: "import_run",
+    coluna: "unidade_id",
+    tipo: "uuid",
+    aindaPodeNaoExistir: true,
+  },
 ];
 
 /**

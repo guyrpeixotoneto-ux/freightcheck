@@ -8,6 +8,7 @@ import {
   getTableColumns,
   inArray,
   is,
+  isNull,
   ne,
   SQL,
   sql,
@@ -41,8 +42,16 @@ import {
   snapshotTable,
   sourceFileTable,
   stagedFactTable,
+  unidadeTable,
   validationIssueTable,
 } from "@workspace/db";
+import {
+  cnpjDoEscopo,
+  conferirUnidadeDoEnvio,
+  identidadeDoEscopo,
+  type EscopoDoArquivo,
+  type UnidadeCadastrada,
+} from "./unidade-do-envio";
 import {
   columnLetter,
   deriveEntityType,
@@ -205,6 +214,15 @@ function motivoDoImpedimento(
         está na própria mensagem (`comoCorrigir`, em `conferirQuinzenaDeclarada`).
         Repetir aqui uma saída fixa mandaria metade das recusas para o lugar
         errado, que é o defeito que a frase fixa da duplicidade já causou uma vez.
+      */
+      return `${issue.sample} Nada foi importado.`;
+    }
+    if (issue.code === "UNIDADE_DIVERGE_DA_DECLARACAO") {
+      /*
+        Como a da quinzena, e pelo mesmo motivo: os dois casos — o arquivo de
+        outra unidade e o consolidado mandado de dentro de uma — têm saídas
+        diferentes, e cada uma já vem escrita na própria mensagem
+        (`comoCorrigir`, em `unidade-do-envio.ts`).
       */
       return `${issue.sample} Nada foi importado.`;
     }
@@ -802,6 +820,20 @@ export interface ReceiveOptions {
    */
   declaredPeriod?: string | null;
   /**
+   * A unidade **aberta na lateral** quando alguém enviou, como `unidade.id`.
+   *
+   * Opcional como as outras declarações, e como elas ela não muda a leitura: o
+   * escopo de cada vigência continua saindo da coluna `Unidade - CNPJ` do
+   * arquivo. O que ela acrescenta são as duas coisas que `import_run.unidade_id`
+   * documenta — a conferência, que para o envio feito da casa errada, e a
+   * identidade do escopo cujo código não traz documento nenhum.
+   *
+   * Vem resolvida da borda (`unidadeDeclaradaDoEnvio`, no api-server), e não do
+   * corpo do pedido: o cliente declara **onde estava**, e quem traduz isso em
+   * identidade é o servidor.
+   */
+  unidadeId?: string | null;
+  /**
    * A granularidade do acervo por onde o arquivo entrou — `QUINZENAL` ou
    * `MENSAL`.
    *
@@ -1028,6 +1060,7 @@ export async function receiveFile(
       */
       declaredUnidade:
         normalizarDeclaracao(options.declaredUnidade)?.replace(/\D/g, "") ?? null,
+      unidadeId: options.unidadeId ?? null,
     })
     .returning();
 
@@ -1233,6 +1266,7 @@ export async function reprocessImportRun(
       declaredGranularity: importRunTable.declaredGranularity,
       declaredCompetence: importRunTable.declaredCompetence,
       declaredUnidade: importRunTable.declaredUnidade,
+      unidadeId: importRunTable.unidadeId,
       startedAt: importRunTable.startedAt,
     })
     .from(importRunTable)
@@ -1381,6 +1415,14 @@ export async function reprocessImportRun(
         declaredCompetence:
           anterior.declaredCompetence ?? doArquivo?.declared_competence ?? null,
         declaredUnidade: anterior.declaredUnidade ?? doArquivo?.declared_unidade ?? null,
+        /*
+          E a unidade aberta no envio, herdada pela frase que está três
+          parágrafos acima: reler um arquivo não muda de que unidade ele é.
+          Perdê-la aqui tiraria da releitura as duas coisas que ela sustenta — a
+          conferência, e a identidade do escopo cujo código não traz documento —,
+          e o run relido gravaria menos do que o original gravou.
+        */
+        unidadeId: anterior.unidadeId ?? null,
         reprocessOfRunId: anterior.id,
         reprocessReason: motivo,
       })
@@ -3055,6 +3097,150 @@ export interface PreviewReport {
  * chamada faria a contagem de impedimentos crescer sozinha. Os anteriores deste
  * código saem antes de os novos entrarem.
  */
+/**
+ * O sufixo da coluna de escopo da unidade, e o do nome ao lado.
+ *
+ * `attribute_code` é `<tipo>.<coluna slugificada>` — `cavalo.unidade_cnpj` —, e
+ * a conferência abaixo precisa alcançar a coluna sem saber de que tipo é o
+ * arquivo. Saem de `SCOPE_COLUMNS` e de `slugifyColumn`, e não escritos à mão,
+ * porque o dia em que a origem renomear a coluna é o dia em que os dois lugares
+ * têm de mudar juntos.
+ */
+const SLUG_UNIDADE_CNPJ = slugifyColumn("unidade - cnpj");
+const SLUG_UNIDADE_NOME = slugifyColumn("unidade - nome");
+
+/**
+ * O arquivo é da unidade que quem enviou tinha aberta na lateral?
+ *
+ * ---------------------------------------------------------------------------
+ * Por que esta conferência existe
+ * ---------------------------------------------------------------------------
+ *
+ * Porque desde a `0106` a unidade aberta no envio **vira identidade**: o escopo
+ * cujo código não carrega documento nenhum ganha a unidade que a pessoa
+ * declarou. Uma afirmação que ninguém confere seria a pior coisa que este
+ * produto podia gravar — o escopo de Recife respondendo pelo nome de CAMAÇARI
+ * —, e o engano não apareceria na tela de importações: apareceria meses depois,
+ * numa frota que não fecha com nada.
+ *
+ * É a mesma regra do tipo, da quinzena e da competência do Real, e o texto de
+ * `conferirQuinzenaDeclarada` explica por que ela bloqueia em vez de avisar:
+ * não há parte aproveitável de um arquivo que entraria inteiro sob a unidade
+ * errada. As regras da decisão estão em `unidade-do-envio.ts`, puras; aqui há a
+ * leitura do que o arquivo trouxe e a gravação do apontamento.
+ *
+ * **Idempotente de propósito**, pela razão de sempre nesta seção: `preview` roda
+ * de novo sobre um run já PREVIEWED, e um apontamento acumulado a cada chamada
+ * faria a contagem de impedimentos crescer sozinha.
+ */
+async function conferirUnidadeDeclarada(
+  db: Database,
+  importRunId: string,
+  unidadeId: string,
+): Promise<void> {
+  await db
+    .delete(validationIssueTable)
+    .where(
+      and(
+        eq(validationIssueTable.importRunId, importRunId),
+        eq(validationIssueTable.code, "UNIDADE_DIVERGE_DA_DECLARACAO"),
+      ),
+    );
+
+  const [declarada] = await db
+    .select({
+      id: unidadeTable.id,
+      nome: unidadeTable.nome,
+      cnpj: unidadeTable.cnpj,
+    })
+    .from(unidadeTable)
+    .where(eq(unidadeTable.id, unidadeId))
+    .limit(1);
+  /*
+    A unidade declarada que não existe mais no cadastro não é divergência do
+    arquivo: é um cadastro apagado depois do envio. Conferir contra ela mandaria
+    corrigir um arquivo que está certo, então a conferência se cala — e o
+    assentamento, que lê a mesma linha, também não acha nada para afirmar.
+  */
+  if (!declarada) return;
+
+  /*
+    Os escopos UNIDADE que o arquivo traz, com o nome legível ao lado.
+
+    `DISTINCT` sobre o par porque o código vem repetido em toda linha do
+    arquivo: um consolidado de cinco unidades tem cinco pares e dezenas de
+    milhares de linhas. O nome sai da coluna irmã da **mesma entidade** — é o
+    mesmo casamento que `resolveScopes` faz —, e ele é descrição: quem decide
+    identidade é o código, sempre.
+  */
+  const { rows } = await db.execute<{ code: string; nome: string | null }>(sql`
+    SELECT DISTINCT btrim(c.value_text) AS code, n.value_text AS nome
+      FROM staged_fact c
+      LEFT JOIN staged_fact n
+        ON n.import_run_id = c.import_run_id
+       AND n.entity_type = c.entity_type
+       AND n.entity_key = c.entity_key
+       AND n.attribute_code LIKE ${"%." + SLUG_UNIDADE_NOME}
+     WHERE c.import_run_id = ${importRunId}
+       AND c.attribute_code LIKE ${"%." + SLUG_UNIDADE_CNPJ}
+       AND btrim(coalesce(c.value_text, '')) <> ''
+  `);
+
+  const escopos: EscopoDoArquivo[] = [];
+  for (const linha of rows) {
+    if (escopos.some((e) => e.code === linha.code)) continue;
+    const cnpj = cnpjDoEscopo(linha.code);
+    const [porCnpj] =
+      cnpj === null
+        ? []
+        : await db
+            .select({
+              id: unidadeTable.id,
+              nome: unidadeTable.nome,
+              cnpj: unidadeTable.cnpj,
+            })
+            .from(unidadeTable)
+            .where(eq(unidadeTable.cnpj, cnpj))
+            .limit(1);
+    escopos.push({
+      code: linha.code,
+      nome: linha.nome,
+      unidadePorCnpj: porCnpj ?? null,
+    });
+  }
+
+  const recusa = conferirUnidadeDoEnvio({ declarada, escopos });
+  if (recusa === null) return;
+
+  await db.insert(validationIssueTable).values({
+    importRunId,
+    severity: "ERROR",
+    code: "UNIDADE_DIVERGE_DA_DECLARACAO",
+    /*
+      A saída vai dentro da mensagem, e não só o diagnóstico: `message` é o que
+      vira `failureReason` do run — o texto que o cartão mostra como motivo —, e
+      é justamente a saída que muda entre o arquivo de outra unidade e o
+      consolidado mandado de dentro de uma.
+    */
+    message: `${recusa.resumo} ${recusa.comoCorrigir}`,
+    detail: {
+      motivo: recusa.motivo,
+      declarada: recusa.declarada,
+      encontradas: recusa.encontradas,
+      apresentacao: {
+        titulo: recusa.titulo,
+        resumo: recusa.resumo,
+        comoCorrigir: recusa.comoCorrigir,
+        porQueImporta:
+          "A unidade do envio não é só um filtro de tela: ela é o que dá identidade ao " +
+          "escopo cujo código não traz CNPJ. Aceita sem conferência, ela gravaria a frota " +
+          "de uma unidade sob o nome de outra — e isso não aparece aqui, aparece meses " +
+          "depois, quando os números de duas unidades deixarem de fechar.",
+      },
+    },
+  });
+}
+
 async function conferirQuinzenaDeclarada(
   db: Database,
   importRunId: string,
@@ -3207,6 +3393,15 @@ export async function preview(
   */
   if (run.declaredPeriod !== null) {
     await conferirQuinzenaDeclarada(db, importRunId, run.declaredPeriod);
+  }
+  /*
+    E a da unidade declarada, aqui pela mesma razão que a da quinzena está aqui:
+    ela pode acrescentar um impedimento, e um impedimento que chegasse depois da
+    conta dos apontamentos não seria contado — o run iria para PREVIEWED com o
+    arquivo da unidade errada dentro, pronto para ser aprovado.
+  */
+  if (run.unidadeId !== null) {
+    await conferirUnidadeDeclarada(db, importRunId, run.unidadeId);
   }
 
   const issueRows = await db
@@ -3469,6 +3664,22 @@ export interface PromoteResult {
     divergentes: string[];
     incoerentes: string[];
   };
+  /**
+   * Os escopos UNIDADE que esta promoção ligou a uma unidade cadastrada.
+   *
+   * **Sai na resposta porque o trabalho não acaba aqui.** A ponte gravada em
+   * `scope.unidade_id` resolve a tela que se recorta pelo escopo da lateral; as
+   * competências do Fechamento são endereçadas pelo **texto** que elas guardam,
+   * e as que ainda estão sem identidade precisam ganhar a mesma — pelo mesmo
+   * código, e sem comparar nome. Quem faz essa parte é quem chamou a promoção
+   * (ver a rota de aprovação), porque a conciliação é do Fechamento e a
+   * importação não conhece aquele módulo.
+   *
+   * Vazia quando o arquivo não traz escopo de unidade, e quando nem o CNPJ do
+   * código nem a unidade declarada no envio responderam — o caso em que a
+   * associação manual continua sendo pedida.
+   */
+  unidadesAssentadas: { unidadeId: string; nome: string; code: string }[];
 }
 
 /**
@@ -3893,6 +4104,7 @@ export async function promote(
         .select({
           declaredType: importRunTable.declaredType,
           declaredFamily: importRunTable.declaredFamily,
+          unidadeId: importRunTable.unidadeId,
         })
         .from(importRunTable)
         .where(eq(importRunTable.id, importRunId));
@@ -3900,6 +4112,39 @@ export async function promote(
         runDeclarado?.declaredFamily ??
         tipoDeImportacao(runDeclarado?.declaredType ?? null)?.familia ??
         null;
+
+      /*
+        A unidade que o envio declarou — quem estava aberto na lateral quando
+        alguém mandou o arquivo.
+
+        Lida uma vez, aqui, e não dentro do laço: ela é do **run**, não da
+        vigência, e relê-la por escopo custaria uma consulta por unidade de um
+        consolidado para responder sempre o mesmo.
+
+        Nula é o caso normal e antigo: o envio da Visão Geral, e todo envio
+        anterior à `0106`. Aí o arquivo decide sozinho pelo CNPJ que traz — que
+        é como sempre decidiu. Ela nunca vence o arquivo; a conferência da
+        pré-visualização já parou o envio em que os dois discordam.
+      */
+      const unidadeDeclarada: UnidadeCadastrada | null =
+        runDeclarado?.unidadeId == null
+          ? null
+          : ((
+              await tx
+                .select({
+                  id: unidadeTable.id,
+                  nome: unidadeTable.nome,
+                  cnpj: unidadeTable.cnpj,
+                })
+                .from(unidadeTable)
+                .where(eq(unidadeTable.id, runDeclarado.unidadeId))
+                .limit(1)
+            )[0] ?? null);
+      const assentamento: AssentamentoDeUnidade = {
+        declarada: unidadeDeclarada,
+        assentadas: new Map(),
+        visitadas: new Set(),
+      };
 
       const groups: { label: string; facts: typeof staged }[] = [];
       for (const label of labels) {
@@ -3922,7 +4167,7 @@ export async function promote(
         const canal = normalizeChannel(vigencia.channel ?? label);
 
         // --- escopo -------------------------------------------------------
-        const scopeIds = await resolveScopes(tx, facts, scopeCache);
+        const scopeIds = await resolveScopes(tx, facts, scopeCache, assentamento);
         const scopeHash = hashScopeSet(scopeIds.descriptors);
         const canonicalScope = canonicalScopeOf(scopeIds.entries);
 
@@ -4678,6 +4923,7 @@ export async function promote(
           nosExistentes: taxonomia.existing,
         },
         duplicadasPorDados,
+        unidadesAssentadas: [...assentamento.assentadas.values()],
         semanticasConfirmadas: {
           aplicadas: confirmacoes.applied.length,
           jaConfirmadas: confirmacoes.unchanged.length,
@@ -4961,10 +5207,124 @@ function groupFactsByEntityScope<T extends { entityType: string; entityKey: stri
   return [...groups.values()];
 }
 
+/**
+ * A unidade que esta promoção está assentando nos escopos que toca.
+ *
+ * `declarada` é a unidade que o envio afirmou — a que estava aberta na lateral,
+ * lida de `import_run.unidade_id`. `assentadas` é o que ficou gravado, por
+ * código de escopo, e ela existe para depois: a promoção devolve esses pares
+ * para que as competências daquele mesmo texto ganhem a identidade junto (ver
+ * `PromoteResult.unidadesAssentadas`). Um `Map` e não uma lista porque o mesmo
+ * escopo aparece em toda vigência do arquivo, e a ponte se assenta uma vez.
+ */
+interface AssentamentoDeUnidade {
+  declarada: UnidadeCadastrada | null;
+  assentadas: Map<string, { unidadeId: string; nome: string; code: string }>;
+  /**
+   * Os códigos já visitados — inclusive os que não deram em unidade nenhuma.
+   *
+   * `assentadas` não serve para isso: o escopo que nenhuma faixa alcança não
+   * entra nela, e sem este conjunto ele seria reconsultado uma vez por vigência
+   * do arquivo. Num consolidado de cinco unidades e seis quinzenas isso são
+   * trinta consultas para responder sempre a mesma coisa — dentro da transação
+   * mais quente do produto.
+   */
+  visitadas: Set<string>;
+}
+
+/**
+ * A ponte entre um escopo UNIDADE e a unidade cadastrada, gravada aqui.
+ *
+ * **É o conserto na origem.** Ela nascia só de um cadastro manual em
+ * Remuneração, e quem importava o acervo de CAMAÇARI de dentro de CAMAÇARI não
+ * a criava — a tela de Ativos e Parados então recusava a série mandando
+ * associar à mão o que a importação acabara de ler. Agora ela nasce no mesmo
+ * instante em que o escopo nasce.
+ *
+ * O documento primeiro, a declaração depois, nome nunca — a ordem e a razão
+ * estão em `unidade-do-envio.ts`, e as regras são de lá: aqui só se lê o banco
+ * e se escreve o resultado.
+ *
+ * **Idempotente, e o `IS NULL` no `where` é quem garante.** Um escopo que já
+ * tem unidade não é reescrito: a associação que uma pessoa fez à mão sobrevive
+ * a toda importação seguinte, e duas promoções simultâneas do mesmo escopo não
+ * disputam a coluna.
+ */
+async function assentarUnidadeDoEscopo(
+  tx: Database,
+  scopeId: string,
+  info: { code: string; name: string | null },
+  assentamento: AssentamentoDeUnidade,
+): Promise<void> {
+  const chave = info.code;
+  if (assentamento.visitadas.has(chave)) return;
+  assentamento.visitadas.add(chave);
+
+  const [linha] = await tx
+    .select({ unidadeId: scopeTable.unidadeId })
+    .from(scopeTable)
+    .where(eq(scopeTable.id, scopeId));
+  if (linha?.unidadeId) {
+    const [ja] = await tx
+      .select({ id: unidadeTable.id, nome: unidadeTable.nome })
+      .from(unidadeTable)
+      .where(eq(unidadeTable.id, linha.unidadeId));
+    if (ja) {
+      assentamento.assentadas.set(chave, {
+        unidadeId: ja.id,
+        nome: ja.nome,
+        code: info.code,
+      });
+    }
+    return;
+  }
+
+  const cnpj = cnpjDoEscopo(info.code);
+  const porCnpj =
+    cnpj === null
+      ? null
+      : ((
+          await tx
+            .select({
+              id: unidadeTable.id,
+              nome: unidadeTable.nome,
+              cnpj: unidadeTable.cnpj,
+            })
+            .from(unidadeTable)
+            .where(eq(unidadeTable.cnpj, cnpj))
+            .limit(1)
+        )[0] ?? null);
+
+  const escopo: EscopoDoArquivo = {
+    code: info.code,
+    nome: info.name,
+    unidadePorCnpj: porCnpj,
+  };
+  const identidade = identidadeDoEscopo(escopo, assentamento.declarada);
+  /*
+    Nenhuma das duas faixas respondeu — o código não traz documento e ninguém
+    declarou unidade. A coluna fica nula, que é a resposta honesta, e para este
+    escopo a associação manual continua sendo o caminho. Inventar aqui a partir
+    do nome seria exatamente o casamento por texto que este produto aposentou.
+  */
+  if (identidade === null) return;
+
+  await tx
+    .update(scopeTable)
+    .set({ unidadeId: identidade.unidade.id })
+    .where(and(eq(scopeTable.id, scopeId), isNull(scopeTable.unidadeId)));
+  assentamento.assentadas.set(chave, {
+    unidadeId: identidade.unidade.id,
+    nome: identidade.unidade.nome,
+    code: info.code,
+  });
+}
+
 async function resolveScopes(
   tx: Database,
   facts: (typeof stagedFactTable.$inferSelect)[],
   cache: Map<string, string>,
+  assentamento: AssentamentoDeUnidade,
 ): Promise<{ ids: string[]; descriptors: string[]; entries: ScopeEntry[] }> {
   const wanted = new Map<string, { scopeType: string; code: string; name: string | null }>();
 
@@ -5008,27 +5368,38 @@ async function resolveScopes(
     descriptors.push(key);
     entries.push({ scopeType: info.scopeType, code: info.code });
     const cached = cache.get(key);
-    if (cached) {
-      ids.push(cached);
-      continue;
+    let scopeId = cached ?? null;
+    if (scopeId === null) {
+      const [existing] = await tx
+        .select()
+        .from(scopeTable)
+        .where(
+          and(eq(scopeTable.scopeType, info.scopeType), eq(scopeTable.code, info.code)),
+        );
+      if (existing) {
+        scopeId = existing.id;
+      } else {
+        const [created] = await tx
+          .insert(scopeTable)
+          .values({ scopeType: info.scopeType, code: info.code, name: info.name })
+          .returning();
+        scopeId = created.id;
+      }
+      cache.set(key, scopeId);
     }
-    const [existing] = await tx
-      .select()
-      .from(scopeTable)
-      .where(
-        and(eq(scopeTable.scopeType, info.scopeType), eq(scopeTable.code, info.code)),
-      );
-    if (existing) {
-      cache.set(key, existing.id);
-      ids.push(existing.id);
-      continue;
+    ids.push(scopeId);
+    /*
+      A ponte para a unidade cadastrada, no mesmo instante em que o escopo é
+      resolvido — e só para UNIDADE: OPERADOR e REGIONAL não são unidade, e uma
+      coluna de identidade preenchida neles diria uma coisa que não é.
+
+      `assentamento.visitadas` faz o trabalho acontecer uma vez por código, mesmo
+      com o escopo aparecendo em todas as vigências do arquivo — o `cache` acima
+      não serve para isso, porque ele guarda o `id` e não o que já foi visitado.
+    */
+    if (info.scopeType === "UNIDADE") {
+      await assentarUnidadeDoEscopo(tx, scopeId, info, assentamento);
     }
-    const [created] = await tx
-      .insert(scopeTable)
-      .values({ scopeType: info.scopeType, code: info.code, name: info.name })
-      .returning();
-    cache.set(key, created.id);
-    ids.push(created.id);
   }
 
   return { ids, descriptors, entries };
