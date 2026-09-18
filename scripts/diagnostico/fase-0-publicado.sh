@@ -196,6 +196,18 @@ else
     npm install playwright-core@1.50.1 --no-save --prefix /tmp/pw >/dev/null 2>&1 \
       || aviso "não deu para instalar o playwright-core; a etapa 3 vai ser pulada"
   fi
+  # `playwright-core` é só o cliente: ele não traz o binário do navegador. Onde
+  # não houver um Chromium, baixa-se o do playwright uma vez, em /tmp.
+  if [ -d /tmp/pw/node_modules/playwright-core ] && [ -z "${CHROMIUM:-}" ]; then
+    if ! command -v chromium >/dev/null 2>&1 \
+       && ! command -v chromium-browser >/dev/null 2>&1 \
+       && ! ls /opt/pw-browsers/chromium*/chrome-linux/chrome >/dev/null 2>&1 \
+       && ! ls "${HOME:-/root}"/.cache/ms-playwright/chromium*/chrome-linux/chrome >/dev/null 2>&1; then
+      aviso "nenhum Chromium no sistema; baixando o do playwright (uma vez, ~150 MB, em ~/.cache)…"
+      npx -y playwright@1.50.1 install chromium >/dev/null 2>&1 \
+        || aviso "não deu para baixar o Chromium; a etapa 3 vai explicar o que falta"
+    fi
+  fi
   if [ -d /tmp/pw/node_modules/playwright-core ]; then
     ESPERA_S="${ESPERA_S:-75}" FASE0_JSON="$DIR/json/navegador.json" \
       node "$AQUI/medir-no-ar.mjs" "$URL" \

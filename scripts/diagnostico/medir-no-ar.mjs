@@ -66,7 +66,50 @@ const relatorio = { alvo: null, em: new Date().toISOString(), bundle: null, rota
                     duplicadas: [], h1: null, h3: null, h5: null, errosDeConsole: [] };
 const BASE = BASE_BRUTA.replace(/\/+$/, "");
 const DOMINIO = new URL(BASE).hostname;
-const EXECUTAVEL = process.env.CHROMIUM ?? "/opt/pw-browsers/chromium-1194/chrome-linux/chrome";
+/**
+ * Onde está o Chromium.
+ *
+ * O caminho fixo de antes (`/opt/pw-browsers/chromium-1194/…`) é o do container
+ * onde esta auditoria nasceu, e **não existe no Replit** — lá a etapa 3 morria
+ * com "executable doesn't exist" depois de já ter medido tudo o mais. Agora se
+ * procura: `CHROMIUM` explícito, o que o `playwright-core` baixou, e os nomes
+ * usuais de um Chromium de sistema.
+ */
+function acharChromium() {
+  const candidatos = [process.env.CHROMIUM].filter(Boolean);
+
+  for (const raiz of ["/opt/pw-browsers", `${process.env.HOME ?? ""}/.cache/ms-playwright`]) {
+    try {
+      for (const dir of fsSync.readdirSync(raiz)) {
+        if (!/^chromium/.test(dir)) continue;
+        for (const sufixo of ["chrome-linux/chrome", "chrome-linux/headless_shell"]) {
+          candidatos.push(`${raiz}/${dir}/${sufixo}`);
+        }
+      }
+    } catch { /* raiz não existe: segue */ }
+  }
+
+  candidatos.push(
+    "/usr/bin/chromium", "/usr/bin/chromium-browser", "/usr/bin/google-chrome",
+    "/usr/bin/google-chrome-stable", "/nix/var/nix/profiles/default/bin/chromium",
+  );
+
+  for (const c of candidatos) {
+    try { fsSync.accessSync(c, fsSync.constants.X_OK); return c; } catch { /* segue */ }
+  }
+  return null;
+}
+
+const EXECUTAVEL = acharChromium();
+if (!EXECUTAVEL) {
+  console.error("\nNão achei um Chromium executável.");
+  console.error("A etapa 3 (H1, H3, H4, H5) precisa de um navegador de verdade; as outras duas não.\n");
+  console.error("Saídas, em ordem de esforço:");
+  console.error("  1. instalar o binário do playwright:  npx -y playwright@1.50.1 install chromium");
+  console.error("  2. apontar para um Chromium já instalado:  CHROMIUM=/caminho/do/chrome");
+  console.error("  3. seguir sem ela: as etapas 1 e 2 já respondem a compressão e o pedágio.\n");
+  process.exit(4);
+}
 
 /**
  * Uma amostra pequena e representativa das 65 rotas — as mais lentas do §4.1 e
