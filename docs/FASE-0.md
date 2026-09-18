@@ -78,15 +78,21 @@ Qualquer um destes resolve, em ordem de esforço:
 pré-requisitos, lê a credencial sem ecoar, redige qualquer vazamento e escreve
 um relatório consolidado e auditável.
 
+> **Troque `SEU-APP` pelo endereço de verdade, e não use `<` `>`.** O bash trata
+> `<` como redirecionamento e falha **antes** de o script rodar, com uma
+> mensagem que não tem nada a ver com a causa (`bash: app: No such file or
+> directory`). O script recusa o marcador quando ele chega até lá, mas nesse
+> caso ele nem chega.
+
 ```bash
-./scripts/diagnostico/fase-0-publicado.sh https://<app>.replit.app
+./scripts/diagnostico/fase-0-publicado.sh https://SEU-APP.replit.app
 ```
 
 Ele pede o cookie em entrada silenciosa. Para não digitar na hora:
 
 ```bash
 read -rs FREIGHTCHECK_COOKIE && export FREIGHTCHECK_COOKIE
-./scripts/diagnostico/fase-0-publicado.sh https://<app>.replit.app
+./scripts/diagnostico/fase-0-publicado.sh https://SEU-APP.replit.app
 ```
 
 O que ele produz, em `./fase-0-<carimbo>/`:
@@ -102,7 +108,43 @@ Um exemplo completo da forma da saída está em
 gerado contra a pilha local, com o aviso no topo de que os números **não** valem
 como evidência do ar.
 
-### 2.0 A credencial
+### 2.0 Como pegar os scripts no Shell do Replit
+
+Eles estão no branch `claude/confident-fermi-dvk0jl`, e o workspace do Replit
+está no `main` — por isso o caminho não existe lá ainda (`bash:
+./scripts/diagnostico/fase-0-publicado.sh: No such file or directory`).
+
+**Sem trocar de branch e sem tocar no seu workspace**, que é o que interessa
+quando o app está rodando dali:
+
+```bash
+cd ~/workspace
+git fetch origin claude/confident-fermi-dvk0jl
+mkdir -p /tmp/fase0
+git archive FETCH_HEAD scripts/diagnostico | tar -x -C /tmp/fase0
+```
+
+Isso escreve só em `/tmp`. O seu `main` fica intacto, nada é sobrescrito, e
+nenhum processo do app é interrompido. Os cinco scripts são autocontidos — a
+única dependência externa é o `playwright-core`, que o próprio orquestrador
+instala em `/tmp/pw`.
+
+Depois é o comando normal, apontando para `/tmp/fase0`:
+
+```bash
+read -rs FREIGHTCHECK_COOKIE && export FREIGHTCHECK_COOKIE
+/tmp/fase0/scripts/diagnostico/fase-0-publicado.sh https://SEU-APP.replit.app
+```
+
+Se preferir trocar de branch mesmo (só faça com o workspace limpo, porque isto
+mexe nos arquivos e pode derrubar o app que está rodando):
+
+```bash
+git fetch origin claude/confident-fermi-dvk0jl
+git checkout claude/confident-fermi-dvk0jl
+```
+
+### 2.0.1 A credencial
 
 O cookie **nunca** entra por argumento: em `argv` ele fica no histórico do shell
 e aparece em `ps aux` para qualquer processo da máquina. Os três scripts o leem
@@ -120,7 +162,7 @@ O orquestrador ainda faz duas coisas por cima disso:
 Como obter o valor, sem expor nada: abra o FreightCheck publicado já logado →
 DevTools → Application → Cookies → `freightcheck_session` → copiar.
 
-### 2.0.1 Somente leitura, e o que isso quer dizer aqui
+### 2.0.2 Somente leitura, e o que isso quer dizer aqui
 
 Só há `GET` e `HEAD`. Nada escreve no banco, na configuração, no cache ou no
 deployment. A única escrita é o diretório de saída, na máquina onde o comando
@@ -136,7 +178,7 @@ carga num ambiente de produção sem combinar antes.
 Rodada pelo orquestrador; também roda sozinha:
 
 ```bash
-./scripts/diagnostico/entrega-estatica.sh https://<app>.replit.app
+./scripts/diagnostico/entrega-estatica.sh https://SEU-APP.replit.app
 ```
 
 Responde: `content-encoding` de cada `.js` e `.css`, **tamanho na rede × tamanho
@@ -160,7 +202,7 @@ Saída validada localmente:
 
 ```bash
 read -rs FREIGHTCHECK_COOKIE && export FREIGHTCHECK_COOKIE
-node scripts/diagnostico/pedagio-e-latencia.mjs https://<app>.replit.app
+node scripts/diagnostico/pedagio-e-latencia.mjs https://SEU-APP.replit.app
 ```
 
 **Como ele mede o RTT até o Neon sem credencial de banco e sem shell no
@@ -212,7 +254,7 @@ a mesma revision** é a assinatura do cold start do Autoscale.
 
 ```bash
 npm install playwright-core@1.50.1 --no-save --prefix /tmp/pw   # o orquestrador faz isto sozinho
-node scripts/diagnostico/medir-no-ar.mjs https://<app>.replit.app
+node scripts/diagnostico/medir-no-ar.mjs https://SEU-APP.replit.app
 ```
 
 | Hipótese | Como é conferida |

@@ -65,10 +65,21 @@ aviso()  { printf '\033[1;33m  ▸ %s\033[0m\n' "$1"; }
 
 # --- 0. Pré-requisitos ----------------------------------------------------
 URL="${1:-}"
-[ -n "$URL" ] || erro "Uso: $0 https://<app>.replit.app"
+[ -n "$URL" ] || erro "Uso: $0 https://SEU-APP.replit.app"
+
+# O marcador literal, que o bash trata como redirecionamento antes de o script
+# existir. Quem colou `https://<app>.replit.app` recebeu "bash: app: No such
+# file or directory" — uma mensagem que não tem nada a ver com a causa. Aqui não
+# dá para interceptar (o shell já falhou antes), mas dá para cobrir o caso de
+# quem escapou as chaves.
+case "$URL" in
+  *"<"*|*">"*) erro "A URL ainda tem o marcador de exemplo. Troque por um endereço de verdade, sem < >." ;;
+esac
+
 case "$URL" in
   https://*|http://*) ;;
-  *) erro "A URL precisa começar com https:// (ou http:// em teste local)." ;;
+  https:/*|http:/*)   erro "Faltou uma barra: é https://…, com duas." ;;
+  *)                  erro "A URL precisa começar com https:// (ou http:// em teste local)." ;;
 esac
 [ $# -le 1 ] || erro "Argumento a mais. O cookie NÃO entra por linha de comando — use FREIGHTCHECK_COOKIE."
 URL="${URL%/}"
