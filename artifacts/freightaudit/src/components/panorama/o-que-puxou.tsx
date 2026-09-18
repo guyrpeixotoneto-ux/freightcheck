@@ -29,10 +29,26 @@ import type { JanelaDoImpacto } from "@/lib/panorama";
 export function OQuePuxou({
   janela,
   carregando,
+  chaveAberta,
+  abriveis,
+  onAbrir,
   className,
 }: {
   janela: JanelaDoImpacto | null;
   carregando: boolean;
+  /** A gaveta aberta, para a linha ficar marcada atrás dela. */
+  chaveAberta: string | null;
+  /**
+   * Os parâmetros que **a competência aberta tem** — e só eles abrem.
+   *
+   * A janela cobre várias vigências e a gaveta explica uma: um parâmetro que
+   * pesou em maio e não se mexeu na competência aberta não tem gaveta a abrir,
+   * e um clique que não abre nada é pior do que linha que não clica. Quem não
+   * está aqui continua sendo linha, com o número e a barra que a janela apurou.
+   */
+  abriveis: ReadonlySet<string>;
+  /** Abre a gaveta do parâmetro — `null` onde não há a quem perguntar. */
+  onAbrir: ((chave: string) => void) | null;
   className?: string;
 }) {
   const sufixo = periodicitySuffix(janela?.periodicity ?? null);
@@ -82,20 +98,44 @@ export function OQuePuxou({
         /* A lista preenche o cartão, que acompanha a altura do gráfico ao lado
            — a mesma regra do ranking da dobra 3. */
         <ol className="mt-1 divide-y flex-1 flex flex-col justify-center">
-          {janela.linhas.map((linha, indice) => (
-            <LinhaDeLista
-              key={linha.chave}
-              className="flex-1 max-h-28 flex items-center"
-              posicao={indice + 1}
-              nome={linha.nome}
-              contexto={linha.contexto}
-              proporcao={linha.proporcao}
-              corDaBarra={linha.classificacao === "perda" ? "bg-red-600" : "bg-emerald-600"}
-              valor={formatBrlShort(linha.valor)}
-              corDoValor={linha.classificacao === "perda" ? "text-red-700" : "text-emerald-700"}
-              subvalor={sufixo}
-            />
-          ))}
+          {janela.linhas.map((linha, indice) => {
+            /*
+              A mesma gaveta do ranking ao lado, aberta pela mesma chave de
+              endereço (`?impacto=`): as duas listas falam de parâmetro, e duas
+              maneiras de abrir o mesmo parâmetro seriam duas telas para a mesma
+              pergunta. O que este cartão acrescenta é a origem do clique — aqui
+              se clica no que puxou a **janela**, e a gaveta responde pela
+              competência aberta, que é o que o subtítulo dela já diz.
+            */
+            const abrivel = onAbrir !== null && abriveis.has(linha.chave);
+            return (
+              <LinhaDeLista
+                key={linha.chave}
+                className="flex-1 max-h-28 flex items-center"
+                posicao={indice + 1}
+                nome={linha.nome}
+                contexto={linha.contexto}
+                proporcao={linha.proporcao}
+                corDaBarra={
+                  linha.classificacao === "perda"
+                    ? "bg-red-600"
+                    : "bg-emerald-600"
+                }
+                valor={formatBrlShort(linha.valor)}
+                corDoValor={
+                  linha.classificacao === "perda"
+                    ? "text-red-700"
+                    : "text-emerald-700"
+                }
+                subvalor={sufixo}
+                aberta={chaveAberta === linha.chave}
+                titulo={
+                  abrivel ? `De onde vem o impacto de ${linha.nome}` : undefined
+                }
+                onAbrir={abrivel ? () => onAbrir!(linha.chave) : null}
+              />
+            );
+          })}
         </ol>
       )}
     </section>
