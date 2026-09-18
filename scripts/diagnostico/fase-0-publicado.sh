@@ -41,6 +41,9 @@
 #   FREIGHTCHECK_COOKIE   o valor de `freightcheck_session` (DevTools →
 #                         Application → Cookies). Sem ela, o script ainda mede
 #                         a parte pública e diz o que ficou de fora.
+#   FREIGHTCHECK_COOKIE_FILE  um arquivo com só esse valor dentro. É a saída
+#                         para quem não consegue colar no prompt silencioso:
+#                         nem `argv` nem histórico do shell veem a credencial.
 #   SAIDA                 diretório do relatório (padrão: ./fase-0-<carimbo>)
 #   SEM_NAVEGADOR=1       pula a etapa 3 (útil onde não dá para instalar o
 #                         playwright-core)
@@ -100,6 +103,18 @@ COD="$(curl -sS -o /dev/null -m 25 -w '%{http_code}' "$URL/api/healthz" || echo 
 ok "$URL/api/healthz responde 200"
 
 # --- Credencial, em entrada silenciosa ------------------------------------
+# Um arquivo é a saída para quem não consegue colar no prompt silencioso: o
+# valor não passa por `argv` nem pelo histórico do shell.
+if [ -z "${FREIGHTCHECK_COOKIE:-}" ] && [ -n "${FREIGHTCHECK_COOKIE_FILE:-}" ]; then
+  if [ -r "$FREIGHTCHECK_COOKIE_FILE" ]; then
+    FREIGHTCHECK_COOKIE="$(tr -d '\r\n' < "$FREIGHTCHECK_COOKIE_FILE")"
+    export FREIGHTCHECK_COOKIE
+    ok "cookie lido de $FREIGHTCHECK_COOKIE_FILE"
+  else
+    aviso "FREIGHTCHECK_COOKIE_FILE aponta para algo ilegível: $FREIGHTCHECK_COOKIE_FILE"
+  fi
+fi
+
 if [ -z "${FREIGHTCHECK_COOKIE:-}" ]; then
   if [ -t 0 ]; then
     printf '\n  Cole o cookie freightcheck_session (não aparece na tela, ENTER vazio para pular): '

@@ -41,9 +41,15 @@
  */
 
 import { chromium } from "/tmp/pw/node_modules/playwright-core/index.mjs";
+import fsSync from "node:fs";
 
 const [, , BASE_BRUTA, EXCEDENTE] = process.argv;
-const COOKIE = process.env.FREIGHTCHECK_COOKIE || "";
+const COOKIE = (() => {
+  if (process.env.FREIGHTCHECK_COOKIE) return process.env.FREIGHTCHECK_COOKIE.trim();
+  const arq = process.env.FREIGHTCHECK_COOKIE_FILE;
+  if (arq) { try { return fsSync.readFileSync(arq, "utf8").trim(); } catch { /* segue sem */ } }
+  return "";
+})();
 if (!BASE_BRUTA || !COOKIE) {
   console.error("\nUso: node scripts/diagnostico/medir-no-ar.mjs https://<app>.replit.app");
   console.error("O cookie vem de FREIGHTCHECK_COOKIE:\n");
@@ -283,8 +289,5 @@ if (erros.length) console.log(`\n\x1b[1;36mErros de console\x1b[0m\n  ${[...new 
 
 relatorio.errosDeConsole = [...new Set(erros)].slice(0, 10);
 await navegador.close();
-if (JSON_SAIDA) {
-  const { writeFileSync } = await import("node:fs");
-  writeFileSync(JSON_SAIDA, JSON.stringify(relatorio, null, 2));
-}
+if (JSON_SAIDA) fsSync.writeFileSync(JSON_SAIDA, JSON.stringify(relatorio, null, 2));
 console.log("");

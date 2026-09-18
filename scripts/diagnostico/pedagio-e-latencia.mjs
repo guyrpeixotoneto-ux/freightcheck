@@ -52,6 +52,8 @@
  * linha de base e a entrega estática, mas não o pedágio.
  */
 
+import fs from "node:fs";
+
 const [, , BASE_BRUTA, EXCEDENTE] = process.argv;
 if (!BASE_BRUTA) {
   console.error("\nUso: node scripts/diagnostico/pedagio-e-latencia.mjs https://<app>.replit.app");
@@ -65,7 +67,17 @@ if (EXCEDENTE !== undefined) {
   process.exit(2);
 }
 const BASE = BASE_BRUTA.replace(/\/+$/, "");
-const COOKIE = process.env.FREIGHTCHECK_COOKIE || "";
+const COOKIE = lerCookie();
+function lerCookie() {
+  const direto = process.env.FREIGHTCHECK_COOKIE;
+  if (direto) return direto.trim();
+  const arquivo = process.env.FREIGHTCHECK_COOKIE_FILE;
+  if (arquivo) {
+    try { return fs.readFileSync(arquivo, "utf8").trim(); }
+    catch { console.error(`Não consegui ler ${arquivo}.`); }
+  }
+  return "";
+}
 const N = Number(process.env.N || 40);
 const JSON_SAIDA = process.env.FASE0_JSON || null;
 /** Tudo que for para o relatório passa por aqui. A credencial nunca sai. */
@@ -214,13 +226,23 @@ try {
   const b = await r.json();
   console.log(`  pid ${b.pid}  ·  de pé há ${b.uptimeSeconds}s  ·  startedAt ${b.startedAt}  ·  revision ${b.revision}`);
   relatorio.processo = { pid: b.pid, uptimeSeconds: b.uptimeSeconds, startedAt: b.startedAt, revision: b.revision, builtAt: b.builtAt };
-  console.log("  Rode de novo depois de 15 min de ociosidade: pid diferente com a mesma revision = o Autoscale recolheu e subiu de novo.");
+  /*
+    O discriminador é `startedAt`, e **não** o `pid`.
+    Num contêiner o processo principal recebe um pid baixo e determinístico —
+    medido em 18/09/2026: duas partidas distintas, com sete horas entre elas,
+    as duas com `pid 19`. Quem aponta a troca é `startedAt`: 11:40:18Z na
+    primeira leitura, 19:55:29Z na segunda, com a mesma `revision`. A dica que
+    este script dava antes ("pid diferente") teria feito concluir que o
+    processo era o mesmo — o oposto do que aconteceu.
+  */
+  console.log("  Rode de novo depois de ~15 min de ociosidade e compare o startedAt acima:");
+  console.log("    startedAt diferente + mesma revision  → o Autoscale recolheu e subiu de novo (partida a frio)");
+  console.log("    startedAt diferente + revision nova   → alguém publicou");
+  console.log("    startedAt igual                       → é o mesmo processo");
+  console.log("  O pid NÃO serve: num contêiner ele é determinístico e se repete entre partidas.");
 } catch {
   console.log("  /api/build não respondeu JSON.");
 }
 
-if (JSON_SAIDA) {
-  const { writeFileSync } = await import("node:fs");
-  writeFileSync(JSON_SAIDA, JSON.stringify(relatorio, null, 2));
-}
+if (JSON_SAIDA) fs.writeFileSync(JSON_SAIDA, JSON.stringify(relatorio, null, 2));
 console.log("");

@@ -386,6 +386,54 @@ Duas observações: a revisão publicada **não é** a que medi localmente
 (`f7bbda5`), embora o bundle seja idêntico; e uma amostra só não diz nada sobre
 o cold start do Autoscale — é preciso repetir depois de ociosidade.
 
+### Segunda rodada, 20:06Z — o que ela acrescentou
+
+**A revisita tem validador, e ele funciona.** As três respostas devolvem **304
+com `If-Modified-Since`**. Fecha a linha que estava pendente: o navegador **não**
+rebaixa os 3,8 MB a cada abertura. O que sobra é a revalidação — `cache-control:
+private` sem `max-age` obriga uma ida e volta de ~55 ms antes de poder pintar,
+em arquivos cujo nome já carrega o hash do conteúdo.
+
+**O domínio e o `.replit.app` são a mesma coisa.** `freightcheck.com.br` e
+`freightaudit.replit.app` deram cabeçalhos idênticos, bytes idênticos, mesma
+ausência de compressão e o **mesmo `startedAt`** — é a mesma origem, sem CDN
+nem proxy no meio. Consequência prática: **arrumar a compressão no host resolve
+os dois de uma vez**, e não há um segundo lugar para conferir depois.
+
+**E há partida a frio, confirmada.**
+
+| Leitura | `startedAt` | `revision` | `pid` |
+|---|---|---|---|
+| 18/09 12:49Z | `11:40:18.984Z` | `b21ffa24` | 19 |
+| 18/09 20:06Z | **`19:55:29.811Z`** | `b21ffa24` (o mesmo) | **19 (o mesmo)** |
+
+`startedAt` diferente com a mesma `revision` = **o serviço foi recolhido e subiu
+de novo**, sem ninguém ter publicado. É a assinatura do Autoscale, e ela deixa
+de ser hipótese.
+
+> **Meu script dava a dica errada, e isto é uma correção.** Ele mandava comparar
+> o `pid` — e o `pid` foi **19 nas duas leituras**, com sete horas e uma partida
+> inteira entre elas. Num contêiner o processo principal recebe um pid baixo e
+> determinístico, então ele se repete entre partidas: quem seguisse a instrução
+> concluiria "é o mesmo processo", que é o oposto do que aconteceu. Quem
+> discrimina é `startedAt`. Corrigido.
+
+**Consequência para o plano:** a partida a frio justifica manter as cinco
+tentativas da casca em **B2** — o degrau longo do backoff existe exatamente para
+a origem acordando, e agora há evidência de que ela acorda mesmo. O que muda é
+que as leituras interativas continuam devendo cair para duas tentativas.
+
+### Linha de base, nas duas rodadas
+
+| Alvo | rota | p50 | p95 | p99 |
+|---|---|--:|--:|--:|
+| `.replit.app` (12:49Z) | `/api/healthz` | 53,6 ms | 64,0 ms | 66,8 ms |
+| `.replit.app` (20:06Z) | `/api/healthz` | 56,3 ms | 59,6 ms | 62,1 ms |
+| `freightcheck.com.br` | `/api/healthz` | 56,1 ms | 64,9 ms | **133,5 ms** |
+
+Estável em ~55 ms nas três. O p99 de 133 ms no domínio é um ponto isolado em 40
+amostras — não dá para chamar de diferença sem mais amostra.
+
 ### O que esta execução **não** respondeu
 
 Sem cookie, ficaram de fora: o pedágio de autenticação e o RTT até o Neon (H2),
@@ -448,7 +496,7 @@ Nenhum item de risco alto entra em execução com ela pendente.
 |--:|---|---|---|---|---|---|---|---|---|---|
 | **E1** | O host estático **não comprime nada** | com gzip: 4G **1.896 ms** · sem: **4.603 ms**. 3G: 7.727 → **22.820 ms** | **MEDIDO 18/09: `content-encoding` ausente em JS, CSS e HTML; gzip, br e zstd todos recusados; fator 1,0×** | configuração do host, não código | ligar compressão no host (ou pré-comprimir no build e servir `.gz`) | **−2,84 MB por abertura · −2,5 s em 4G · −14,2 s em 3G** | Muito baixo | **PP** | o próprio script: `content-encoding` presente e fator ≥ 3× | configuração |
 | **E2** | Bundle inicial único de 3,87 MB | 1 arquivo, 1.009 KB na rede; FCP 344 ms local, **1.312 ms em 4G** | `medir-no-ar.mjs` H4 — **PENDENTE** | `App.tsx` importa as ~65 páginas estaticamente; zero `lazy()` no repositório | `lazy()` por rota + `manualChunks` para `recharts`/`framer-motion` | entrada **1.032 → ~400 KB** gzip; 4G **1.896 → ~1.100 ms** | Baixo | M | `vite build` + os 4 perfis de rede do §5.1 da auditoria | por rota |
-| **E1b** | `cache-control: private`, sem `max-age`, sem ETag | — | **MEDIDO 18/09** | os assets têm hash no nome — são imutáveis por construção — e mesmo assim o navegador revalida a cada abertura | `public, max-age=31536000, immutable` nos `/assets/*` | tira uma ida e volta de ~53 ms da abertura, e o rebaixamento inteiro se não houver 304 | Muito baixo | **PP** | `curl -I` mostra `max-age`; revisita não emite requisição | configuração |
+| **E1b** | `cache-control: private`, sem `max-age` | — | **MEDIDO 18/09: 304 via `If-Modified-Since` funciona, mas a revalidação é obrigatória** | os assets têm hash no nome — são imutáveis por construção — e mesmo assim o navegador revalida a cada abertura | `public, max-age=31536000, immutable` nos `/assets/*` | tira **~55 ms × nº de assets** da abertura repetida | Muito baixo | **PP** | `curl -I` mostra `max-age`; a revisita não emite requisição nenhuma | configuração |
 | **E3** | Sem orçamento de bundle — cresceu 52% em 3 semanas | 2.540 KB (26/08) → **3.866 KB** (18/09) | — | nada falha quando cresce | Teto no CI: **600 KB gzip** na entrada, 1.200 KB no total | impede a regressão voltar | Muito baixo | P | o CI reprova o PR que estourar | remover a regra |
 | **E4** | Prefetch ausente | 1ª visita 561 ms em `/dre` | **PENDENTE** | — | prefetch do chunk **no hover do menu**, e só dele | tira o download do caminho crítico | Baixo | P | 1ª visita após hover cai ao nível da revisita | desligar a flag |
 
