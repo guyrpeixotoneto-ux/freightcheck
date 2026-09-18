@@ -212,8 +212,9 @@ export function DetalheDoVeiculo({
           <section>
             <h3 className="text-sm font-bold">As variáveis, lado a lado</h3>
             <p className="mb-2 text-[0.7rem] text-muted-foreground">
-              Só as variáveis que se moveram. Ligue “Mostrar veículos sem alteração” na tabela
-              para ver também as que chegaram iguais nas duas vigências.
+              Só as variáveis que se moveram. Para ver a frota inteira — inclusive as placas
+              que chegaram iguais nas duas vigências —, ligue “Comparar % alíquotas” na
+              tabela.
             </p>
             <div className="overflow-x-auto rounded-lg border">
               <table className="w-full min-w-[30rem] border-collapse text-sm">

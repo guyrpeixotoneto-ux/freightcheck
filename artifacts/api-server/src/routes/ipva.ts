@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
 import {
   aliquotaImplicita,
+  aliquotaPorAtivo,
   alteracoesPorVariavelDeIpva,
   CODIGOS_DA_TABELA_DE_IPVA,
   CODIGOS_DO_DETALHE_DE_IPVA,
@@ -318,6 +319,14 @@ router.get("/ipva/totais", async (req, res): Promise<void> => {
   res.json({
     totais: totaisDeIpvaPorVigencia(valores),
     aliquotas: aliquotaImplicita(valores),
+    /*
+      A mesma leitura, sem agregar — uma linha por placa, com o percentual das
+      duas pontas lado a lado. Vem daqui, e não de uma rota nova, porque é a
+      mesma pergunta em dois níveis: a média da tabela de cima e o percentual de
+      cada ativo têm de sair dos mesmos ativos, ou a tela publica um veredito
+      sobre uma população e a lista sobre outra.
+    */
+    porAtivo: aliquotaPorAtivo(valores),
   });
 });
 
