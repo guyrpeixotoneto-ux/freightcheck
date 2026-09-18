@@ -196,6 +196,7 @@ describe("o catálogo agrupa, e nunca funde régua nenhuma", () => {
         naoCalculavel: 0,
         foraDaSoma: 0,
         cobertasPorParcelas: 3,
+        porOutroModulo: {},
       },
     }),
     cartaoDeRubrica({

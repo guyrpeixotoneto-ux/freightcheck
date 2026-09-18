@@ -11,10 +11,19 @@ import {
  * ele deliberadamente não declara.
  */
 describe("a composição declarada", () => {
-  it("a parcela do FINAME se abre em juros e amortização nos dois tipos", () => {
+  it("a parcela do FINAME se abre em juros, amortização e a terceira do tipo", () => {
+    /*
+      No cavalo a terceira é o lucro fixo: `finame_cavalo = amortização + juros
+      + lucro fixo` fecha em 532 das 533 linhas com total não nulo, e é o que
+      aparece em toda quitação (`docs/ACHADO-QUITACAO-DO-CAVALO.md`).
+    */
     expect(totalDerivado("cavalo.finame_cavalo")).toEqual({
       resultado: "cavalo.finame_cavalo",
-      parcelas: ["cavalo.juros_finame_cavalo", "cavalo.amortizacao_cavalo"],
+      parcelas: [
+        "cavalo.juros_finame_cavalo",
+        "cavalo.amortizacao_cavalo",
+        "cavalo.lucro_fixomodelo_novo_ciclo_cavalo",
+      ],
       forma: "SOMA",
     });
   });
@@ -24,7 +33,7 @@ describe("a composição declarada", () => {
       `finameImplemento = amortização + juros + aluguel` fecha em 1.314 de 1.314
       linhas do acervo, e sem o aluguel falha nas 36 dos implementos alugados
       (`docs/ACHADO-ALUGUEL.md`). No cavalo ele não entra: a identidade de lá é
-      amortização + juros + lucro fixo.
+      amortização + juros + lucro fixo, que é a terceira parcela de lá.
     */
     expect(totalDerivado("carreta.finame_implemento")?.parcelas).toEqual([
       "carreta.juros_finame_implemento",
@@ -43,7 +52,13 @@ describe("a composição declarada", () => {
     */
     const doCavalo = totalDerivado("cavalo.finame_cavalo");
     expect(doCavalo?.parcelas).not.toContain("cavalo.custo_aluguel");
-    expect(doCavalo?.parcelas).toHaveLength(2);
+    /* As três que se aplicam ao cavalo — e nenhuma delas é o aluguel. */
+    expect(doCavalo?.parcelas).toHaveLength(3);
+    const daCarreta = totalDerivado("carreta.finame_implemento");
+    expect(daCarreta?.parcelas).not.toContain(
+      "carreta.lucro_fixomodelo_novo_ciclo_cavalo",
+    );
+    expect(daCarreta?.parcelas).toHaveLength(3);
   });
 
   it("os trios do QLP são produto, e não soma", () => {

@@ -1,4 +1,4 @@
-import { VARIAVEIS_DE_FINAME } from "./finame";
+import { VARIAVEIS_DE_DETALHE, VARIAVEIS_DE_FINAME } from "./finame";
 import { CONTAS_DO_QUADRO, VARIAVEIS_DO_QUADRO } from "./qlp";
 
 /**
@@ -24,9 +24,11 @@ import { CONTAS_DO_QUADRO, VARIAVEIS_DO_QUADRO } from "./qlp";
  * Ele não declara composição nenhuma: lê a que os catálogos **já** declaram, e
  * a devolve por código de atributo, que é o que a alteração carrega.
  *
- * - `VARIAVEIS_DE_FINAME`, pelo campo `parcelas` — hoje só a parcela, que se
- *   abre em juros e amortização nos dois tipos, mais o aluguel na carreta, onde
- *   ele é a terceira parcela (`docs/ACHADO-ALUGUEL.md`);
+ * - `VARIAVEIS_DE_FINAME` e `VARIAVEIS_DE_DETALHE`, pelo campo `parcelas` —
+ *   hoje só a parcela, que se abre em juros e amortização nos dois tipos, mais
+ *   o aluguel na carreta (`docs/ACHADO-ALUGUEL.md`) e o lucro fixo no cavalo
+ *   (`docs/ACHADO-QUITACAO-DO-CAVALO.md`), cada um a terceira parcela do tipo
+ *   em que existe;
  * - `CONTAS_DO_QUADRO` (QLP), pelo par `resultado`/`parcelas` — os seis trios
  *   do administrativo (quantidade × valor = despesa) e os três degraus da
  *   cadeia de subtotais do operacional.
@@ -51,7 +53,16 @@ export interface TotalDerivado {
 }
 
 function daFiname(): TotalDerivado[] {
-  const porChave = new Map(VARIAVEIS_DE_FINAME.map((v) => [v.chave, v]));
+  /*
+    O índice inclui as variáveis **de detalhe**: `lucro_fixo_do_cavalo` é a
+    terceira parcela da parcela do cavalo e mora lá (ver `finame.ts`), e
+    procurá-la só na tabela a fazia parecer chave inexistente — o ramo que
+    derruba a composição inteira por erro de escrita. O efeito era a parcela do
+    cavalo **e** a da carreta saírem da lista de totais derivados de uma vez.
+  */
+  const porChave = new Map(
+    [...VARIAVEIS_DE_FINAME, ...VARIAVEIS_DE_DETALHE].map((v) => [v.chave, v]),
+  );
   const totais: TotalDerivado[] = [];
   for (const variavel of VARIAVEIS_DE_FINAME) {
     if (!variavel.parcelas?.length) continue;

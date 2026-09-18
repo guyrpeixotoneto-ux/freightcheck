@@ -59,6 +59,11 @@ export interface AgregadosDeFiname {
       porPeriodicidade: Record<string, number>;
       naoCalculavel: number;
       cobertasPorParcelas: number;
+      /**
+       * O que a parcela moveu e outro módulo soma — a diferença entre o cartão
+       * de impacto e o painel da evolução, escrita.
+       */
+      porOutroModulo: Record<string, number>;
       /** Linhas fora do total por serem rubrica de outro módulo — base e tributos. */
       foraDaSoma: number;
     };

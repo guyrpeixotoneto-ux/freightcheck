@@ -183,9 +183,18 @@ describe("o acervo tem matéria — este arquivo não pode passar por vacuidade"
       mover, ele deixa de ser 22 e alguém precisa ter mexido numa regra de
       propósito.
     */
+    /*
+      O FINAME foi de 219 para 229 linhas quando `lucro_fixo_do_cavalo` entrou
+      no catálogo dele: são as 10 quitações do acervo
+      (`docs/ACHADO-QUITACAO-DO-CAVALO.md`), que agora aparecem na auditoria do
+      financiamento como a terceira parcela da parcela do cavalo. Elas entram
+      como **conferência**, marcadas `foraDaSoma`: quem as soma continua sendo o
+      Lucro Fixo, e é por isso que o portão da dupla contagem, abaixo, continua
+      fechando com o mesmo dinheiro.
+    */
     expect({ total, porModulo }).toEqual({
-      total: 789,
-      porModulo: { FINAME: 219, ALUGUEL: 22, IPVA: 437, LUCRO_FIXO: 89, IMPOSTOS: 22 },
+      total: 799,
+      porModulo: { FINAME: 229, ALUGUEL: 22, IPVA: 437, LUCRO_FIXO: 89, IMPOSTOS: 22 },
     });
   }, 600_000);
 });

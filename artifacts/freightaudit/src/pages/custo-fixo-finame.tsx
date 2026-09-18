@@ -48,6 +48,7 @@ import {
   contagemPorAba,
   ehModoDeFiname,
   ehRecorteDeTipo,
+  escreverImpacto,
   enderecoComTroca,
   escreverValor,
   filtrar,
@@ -931,7 +932,34 @@ export default function AuditoriaDeFiname() {
             )}
 
             {/*
-              O segundo aviso é de outra natureza, e por isso é outra frase: ali,
+              A ponte entre este cartão e o painel "Evolução entre as duas
+              vigências", logo abaixo — e a razão de ela estar escrita.
+
+              Os dois somam coisas diferentes, e é por isso que podem divergir:
+              o painel soma a parcela FINAME inteira, este cartão soma o que é
+              rubrica **deste** módulo. Numa quitação, parte da parcela vira
+              lucro fixo do cavalo (ou aluguel, no implemento alugado) e passa a
+              ser somada pela auditoria dela — e os dois totais se separam
+              exatamente por esse valor.
+
+              Enquanto isso não estava escrito, a tela mostrava R$ 7.238,85 aqui
+              e R$ 11.916,70 dois centímetros abaixo, sem nada ligando um ao
+              outro. `impacto.porOutroModulo` é a diferença medida, e não uma
+              suposição sobre a composição da parcela — ver `finame.ts`.
+            */}
+            {escreverImpacto((agregados ?? comparacao.data).resumo.impacto.porOutroModulo)
+              .filter((p) => Math.abs(p.bruto) >= 0.01)
+              .map((p) => (
+                <p key={p.rotulo} className="text-xs text-muted-foreground">
+                  {p.valor} por {p.rotulo} do que a parcela moveu é rubrica de outro módulo —
+                  lucro fixo do cavalo quitado, aluguel do implemento — e está somado lá. É
+                  essa a diferença entre este cartão e o painel “Evolução entre as duas
+                  vigências”, que soma a parcela inteira.
+                </p>
+              ))}
+
+            {/*
+              O terceiro aviso é de outra natureza, e por isso é outra frase: ali,
               dinheiro deste módulo já contado noutra linha **deste** módulo;
               aqui, dinheiro que não é deste módulo. A base de compra e os dois
               tributos da aquisição ficam na tabela porque conferem o
