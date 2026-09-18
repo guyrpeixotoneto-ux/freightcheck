@@ -51,11 +51,13 @@ import {
   vincularLancamentosAosFatos,
 } from "@workspace/ingest/financiamento-real";
 import { semearContrato } from "@workspace/coverage";
+import { conciliarIdentidadeDasCompetencias } from "@workspace/fechamento";
 import {
   garantirComparacoesDaPromocao,
   type GarantiaDaPromocao,
 } from "@workspace/comparison";
 import { operacaoDaConsulta } from "../lib/operacao";
+import { unidadeDeclaradaDoEnvio } from "../lib/unidade-do-escopo";
 import { faltaSchema } from "../lib/schema-ausente";
 import { contextoDeSchema } from "../middlewares/contexto-de-schema";
 
@@ -96,6 +98,20 @@ export type DecodedUpload = {
   declaredCompetence: string | null;
   /** A unidade que o envio declara, em dígitos. Obrigatória no acervo Real. */
   declaredUnidade: string | null;
+  /**
+   * De dentro de que unidade o envio saiu — o escopo aberto na lateral.
+   *
+   * **Não é `declaredUnidade`, e a diferença é de papel.** Aquela é o CNPJ que
+   * o acervo Real precisa fornecer porque o extrato do ERP não o traz: ela
+   * *supre* um escopo ausente. Este diz **onde a pessoa estava**, e o servidor é
+   * quem o traduz em identidade — ver `unidadeDeclaradaDoEnvio`. O cliente
+   * nunca manda `unidade_id`: mandar faria o envio afirmar uma identidade que
+   * ele escolheu, em vez de relatar uma escolha que ele fez.
+   *
+   * Nulo nos dois campos quando o envio saiu da Visão Geral, e em todo envio
+   * anterior a esta regra.
+   */
+  escopoDoEnvio: { scopeHash: string | null; codigo: string | null };
 };
 
 export type DecodeResult =
@@ -122,6 +138,7 @@ export function decodeUpload(body: unknown): DecodeResult {
     declaredPeriod,
     declaredCompetence,
     declaredUnidade,
+    escopoDoEnvio,
   } =
     body as Record<string, unknown>;
 
@@ -313,6 +330,19 @@ export function decodeUpload(body: unknown): DecodeResult {
     };
   }
 
+  /*
+    O escopo do envio é lido com a mão leve: um cliente antigo não o manda, e um
+    campo malformado não vale recusar um arquivo por causa dele — o pior que a
+    ausência faz é o envio não declarar unidade, que é como todo envio anterior
+    a esta regra entrou. Só texto não vazio passa; o resto vira nulo.
+  */
+  const escopo =
+    typeof escopoDoEnvio === "object" && escopoDoEnvio !== null
+      ? (escopoDoEnvio as Record<string, unknown>)
+      : {};
+  const soTexto = (valor: unknown): string | null =>
+    typeof valor === "string" && valor.trim() !== "" ? valor.trim() : null;
+
   return {
     ok: true,
     value: {
@@ -323,6 +353,10 @@ export function decodeUpload(body: unknown): DecodeResult {
       declaredPeriod: quinzenaDeclarada,
       declaredCompetence: competenciaDeclarada,
       declaredUnidade: unidadeDeclarada,
+      escopoDoEnvio: {
+        scopeHash: soTexto(escopo.scopeHash),
+        codigo: soTexto(escopo.codigo),
+      },
     },
   };
 }
@@ -759,6 +793,7 @@ router.post("/imports", async (req, res, next): Promise<void> => {
       declaredPeriod,
       declaredCompetence,
       declaredUnidade,
+      escopoDoEnvio,
     } =
       decoded.value;
     // O nome em disco é o próprio sha256: dois envios do mesmo conteúdo
@@ -780,6 +815,20 @@ router.post("/imports", async (req, res, next): Promise<void> => {
       declaredPeriod,
       declaredCompetence,
       declaredUnidade,
+      /*
+        A unidade aberta na lateral, traduzida aqui em identidade.
+
+        É o conserto na origem: a partir daqui a importação sabe de quem é o
+        arquivo, e o que ela sabe fica gravado — no run, no escopo que a
+        promoção resolve, e nas competências que aquele escopo endereça. Ninguém
+        mais precisa refazer à mão, em Remuneração, um vínculo que este envio já
+        declarou.
+
+        `null` não é falha: é o envio da Visão Geral, ou a unidade que ainda não
+        tem cadastro canônico. Aí o arquivo decide sozinho pelo CNPJ que traz,
+        que é como sempre decidiu.
+      */
+      unidadeId: await unidadeDeclaradaDoEnvio(db, escopoDoEnvio),
       /*
         A granularidade não vem do cliente: ela é do acervo, e o acervo já está
         declarado na família. Aceitá-la do corpo abriria a porta para um envio
@@ -1123,6 +1172,47 @@ async function promoverEmSegundoPlano(
       await semearContrato(db);
     } catch (err) {
       log.warn({ err, importRunId }, "Contrato de cobertura não semeado após a promoção");
+    }
+
+    /*
+      As competências do Fechamento herdam a identidade que a promoção assentou.
+
+      -----------------------------------------------------------------------
+      Por que isto existe
+      -----------------------------------------------------------------------
+      A promoção liga o **escopo** à unidade cadastrada (`scope.unidade_id`), e
+      isso resolve toda tela que se recorta pelo escopo da lateral. As
+      competências são endereçadas de outro jeito: elas guardam o **texto** da
+      unidade (`unidade_codigo`), e as abertas pelo caminho legado nascem com
+      `unidade_id` nulo. Sem este passo, importar o acervo de CAMAÇARI deixaria
+      a tela de Ativos e Parados resolvida e o Resumo do fechamento ainda sem
+      achar o contrato — metade do conserto, que é a pior metade: a que faz
+      parecer que o problema é outro.
+
+      `conciliarIdentidadeDasCompetencias` é quem sabe fazer isso sem adivinhar:
+      ela afirma identidade pelo CNPJ dentro do texto e pela decisão que uma
+      pessoa já tomou sobre o mesmo texto, e o que passamos aqui é a terceira
+      afirmação que ela aceita — "estas grafias são desta unidade", dita por uma
+      importação que acabou de resolver o escopo delas. Nome parecido continua
+      recusado ali, como em todo lugar.
+
+      Uma falha aqui não pode derrubar uma promoção que deu certo, pela razão da
+      semeadura acima: o dado está gravado, e a conciliação é refazível — a
+      próxima importação da mesma unidade a refaz, e a tela de associação manual
+      continua de pé para quem não quiser esperar.
+    */
+    for (const unidade of result.unidadesAssentadas) {
+      try {
+        await conciliarIdentidadeDasCompetencias(db, {
+          unidadeId: unidade.unidadeId,
+          codigos: [unidade.code],
+        });
+      } catch (err) {
+        log.warn(
+          { err, importRunId, unidade: unidade.nome },
+          "Competências não conciliadas com a unidade assentada pela promoção",
+        );
+      }
     }
 
     /*

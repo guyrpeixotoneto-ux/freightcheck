@@ -18,6 +18,7 @@ import {
 import { conciliarIdentidadeDasCompetencias } from "@workspace/fechamento";
 
 import { conciliarIdentidadeDoCadastro } from "../lib/identidade-do-cadastro";
+import { conciliarEscoposImportados } from "../lib/unidade-do-escopo";
 
 /**
  * ADMINISTRAÇÃO → UNIDADES — o cadastro mestre, e o que ele **não** é.
@@ -199,7 +200,21 @@ router.post("/unidades/canonicas", async (req, res): Promise<void> => {
       conciliação fica com a faixa do documento, que é aritmética.
     */
     const conciliacaoDoCadastro = await conciliarIdentidadeDoCadastro(db);
-    res.status(201).json({ ...criada, conciliacao, conciliacaoDoCadastro });
+    /*
+      E o terceiro lugar que esperava por esta unidade: os escopos que a
+      importação já trouxe.
+
+      A importação liga escopo e unidade sozinha desde a `0106`, mas só ao que
+      já existe — o acervo importado **antes** deste cadastro ficou com o escopo
+      nulo, e sem esta passada o conserto dele seria importar tudo de novo. É a
+      mesma lacuna das duas conciliações acima, no terceiro lado do mesmo
+      triângulo, e a faixa é a aritmética de sempre: o CNPJ dentro do código do
+      escopo contra o desta unidade.
+    */
+    const escopos = await conciliarEscoposImportados(db);
+    res
+      .status(201)
+      .json({ ...criada, conciliacao, conciliacaoDoCadastro, escopos });
   } catch (erro) {
     if (erro instanceof CnpjJaCadastrado) {
       res.status(409).json({ error: erro.message, codigo: "CNPJ_JA_CADASTRADO" });
@@ -255,7 +270,15 @@ router.put("/unidades/canonicas/:id", async (req, res): Promise<void> => {
     const editada = await editarUnidade(db, id, { nome, cnpj, codigoGerencial });
     const conciliacao = await conciliarIdentidadeDasCompetencias(db);
     const conciliacaoDoCadastro = await conciliarIdentidadeDoCadastro(db);
-    res.status(200).json({ ...editada, conciliacao, conciliacaoDoCadastro });
+    /*
+      Os escopos importados, pela razão do cadastro novo — e aqui com um caso a
+      mais: corrigir o dígito trocado de um CNPJ muda **qual** escopo é desta
+      unidade, e o que estava nulo passa a ter resposta agora.
+    */
+    const escopos = await conciliarEscoposImportados(db);
+    res
+      .status(200)
+      .json({ ...editada, conciliacao, conciliacaoDoCadastro, escopos });
   } catch (erro) {
     if (erro instanceof UnidadeNaoEncontrada) {
       res.status(404).json({ error: erro.message, codigo: "UNIDADE_NAO_ENCONTRADA" });

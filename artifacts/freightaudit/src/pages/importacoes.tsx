@@ -817,6 +817,35 @@ export default function Importacoes() {
   const unidadeDoEnvio = exigeUnidadeDeclarada
     ? (unidadeDoRecorte?.code ?? null)
     : null;
+  /*
+    De dentro de que unidade este envio sai — e ele sai de dentro de uma sempre
+    que a lateral nomeia uma, em todo acervo.
+
+    **Não é `unidadeDoEnvio`, acima.** Aquele é o CNPJ que o acervo Real precisa
+    *fornecer*, porque o extrato do ERP não traz documento nenhum e sem ele a
+    vigência não tem identidade. Este relata **onde a pessoa estava**, e quem o
+    traduz em `unidade.id` é o servidor (`unidadeDeclaradaDoEnvio`) — a tela não
+    manda identidade, manda o escopo que ela tem na mão.
+
+    Havia aqui a decisão de não declarar nada no remunerado, para não criar "uma
+    segunda fonte para a mesma verdade". Ela caiu, e o que a derrubou não foi o
+    argumento: foi a consequência. Sem declarar, a importação de CAMAÇARI feita
+    de dentro de CAMAÇARI não deixava vínculo nenhum entre o escopo e a unidade
+    cadastrada, e a tela de Ativos e Parados recusava a série mandando refazer à
+    mão o que acabara de ser importado. A segunda fonte não virou uma segunda
+    verdade: virou uma **conferência** — o servidor recusa o envio cuja unidade
+    discorda do CNPJ que vem dentro do arquivo, que é a mesma regra do tipo e da
+    quinzena declarados.
+
+    Nulo na Visão Geral, e nulo é uma declaração ausente: o arquivo decide
+    sozinho pelo que traz dentro, como sempre decidiu. É também a saída para o
+    consolidado de várias unidades, que o servidor recusa quando mandado de
+    dentro de uma só.
+  */
+  const escopoDoEnvio = {
+    scopeHash: escopo.visaoGeral ? null : (escopo.contexto?.scopeHash ?? null),
+    codigo: escopo.visaoGeral ? null : (unidadeDoRecorte?.code ?? null),
+  };
   const faltaUnidadeParaEnviar = exigeUnidadeDeclarada && unidadeDoEnvio === null;
 
   const setSecao = (valor: DefinicaoDeAcervo | "chamados") => {
@@ -1058,6 +1087,14 @@ export default function Importacoes() {
        * segunda fonte para a mesma verdade.
        */
       declaredUnidade?: string | null;
+      /**
+       * O escopo aberto na lateral — de onde este envio saiu.
+       *
+       * Vai em todo envio, de todo acervo, e é o que faz a importação gravar
+       * sozinha o vínculo entre o escopo do arquivo e a unidade cadastrada. Ver
+       * `escopoDoEnvio`, onde ele é montado, para o porquê.
+       */
+      escopoDoEnvio: { scopeHash: string | null; codigo: string | null };
     }) => {
       const ids: string[] = [];
       for (const file of files) {
@@ -1079,6 +1116,7 @@ export default function Importacoes() {
             declaredFamily,
             declaredPeriod: declaredPeriod ?? null,
             declaredUnidade: declaredUnidade ?? null,
+            escopoDoEnvio,
           }),
         });
         const body = await readJson(response);
@@ -1458,6 +1496,7 @@ export default function Importacoes() {
                   declaredFamily: familiaDeclarada(acervoAberto, tipoDaAba),
                   declaredPeriod: quinzenaDoEnvio,
                   declaredUnidade: unidadeDoEnvio,
+                  escopoDoEnvio,
                 });
               }
               e.target.value = "";
@@ -1479,6 +1518,7 @@ export default function Importacoes() {
                   declaredType: tipoDaAba.code,
                   declaredFamily: familiaDeclarada(acervoAberto, tipoDaAba),
                   declaredUnidade: unidadeDoEnvio,
+                  escopoDoEnvio,
                 });
               }
               e.target.value = "";
@@ -1518,6 +1558,7 @@ export default function Importacoes() {
                   declaredType: tipoDaAba.code,
                   declaredFamily: familiaDeclarada(acervoAberto, tipoDaAba),
                   declaredUnidade: unidadeDoEnvio,
+                  escopoDoEnvio,
                 })
               }
               onPick={() => fileInput.current?.click()}

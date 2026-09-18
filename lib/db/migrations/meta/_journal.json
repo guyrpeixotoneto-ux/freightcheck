@@ -743,6 +743,13 @@
       "when": 1789685456021,
       "tag": "0105_decisao_do_real_aplicada",
       "breakpoints": true
+    },
+    {
+      "idx": 106,
+      "version": "7",
+      "when": 1789700000000,
+      "tag": "0106_unidade_da_importacao",
+      "breakpoints": true
     }
   ]
 }

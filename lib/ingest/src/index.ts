@@ -7,6 +7,7 @@ export * from "./values";
 export * from "./workbook";
 export * from "./identity";
 export * from "./pipeline";
+export * from "./unidade-do-envio";
 export * from "./history";
 export * from "./deletion";
 export * from "./storage";

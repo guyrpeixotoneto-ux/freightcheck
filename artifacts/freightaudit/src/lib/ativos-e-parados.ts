@@ -73,7 +73,11 @@ export interface UnidadeComFrota {
  */
 export type EscopoDaSerie =
   | { scopeHash: string; tipo: "RESOLVIDO"; unidadeId: string; nome: string }
-  | { scopeHash: string; tipo: "SEM_CADASTRO" }
+  /**
+   * `unidadeCadastrada` separa os dois consertos que sobraram, e eles são telas
+   * diferentes — ver `unidade-do-escopo.ts`, no api-server.
+   */
+  | { scopeHash: string; tipo: "SEM_CADASTRO"; unidadeCadastrada: boolean }
   | { scopeHash: string; tipo: "AMBIGUO"; nomes: string[] };
 
 export interface SerieDeAtivosEParados {
@@ -115,13 +119,52 @@ export function recusaDoEscopo(
     };
   }
 
+  /*
+    A unidade que ninguém cadastrou ainda — e é o caso comum quando o acervo
+    chegou antes do cadastro.
+
+    **Esta frase já mandou refazer um vínculo que a importação devia ter
+    criado**, e essa era a parte errada dela: ela pedia um cadastro de
+    Remuneração para consertar o que a própria importação sabia. Hoje a
+    importação liga o escopo à unidade cadastrada sozinha — pelo CNPJ que o
+    arquivo traz, ou pela unidade aberta quando alguém enviou. O que ela não faz
+    é inventar o cadastro: uma unidade canônica é ato de gente, e derivá-la de um
+    arquivo é o desenho que este produto desfez de propósito (ver o schema de
+    `unidade`).
+
+    Então a frase diz o que de fato falta — o cadastro —, e diz também que
+    ninguém vai precisar reimportar nada: cadastrar a unidade alcança, na mesma
+    passada, os escopos já importados e as competências já abertas.
+  */
+  if (!escopo.unidadeCadastrada) {
+    return {
+      problema:
+        `${nome} ainda não existe como unidade cadastrada, e o Fechamento endereça ` +
+        "a frota pela unidade — não pelo nome que a planilha traz. O acervo está " +
+        "importado; o que falta é o cadastro para ele apontar.",
+      conserto:
+        "Cadastre a unidade em Administração → Unidades, com o CNPJ. O acervo que já " +
+        "foi importado é alcançado na mesma hora — não é preciso reimportar nada —, e " +
+        "as importações seguintes já entram associadas. Enquanto isso, a soma de todas " +
+        "as unidades continua disponível na Visão Geral.",
+    };
+  }
+
+  /*
+    Há cadastro, e este escopo ficou de fora dele: o código que o arquivo traz
+    não carrega CNPJ nenhum — `443`, `CDD Belém` — e o envio não declarou
+    unidade. É o único caso em que a associação manual continua sendo o caminho,
+    e é o que ela sempre deveria ter sido: a exceção, não a regra.
+  */
   return {
     problema:
-      `${nome} não está associada a nenhuma unidade cadastrada, e o Fechamento ` +
-      "endereça a frota pela unidade — não pelo nome que a planilha traz.",
+      `${nome} não está associada a nenhuma unidade cadastrada, e o código que o ` +
+      "arquivo traz para ela não carrega CNPJ — não há documento de onde a " +
+      "importação pudesse tirar a identidade sozinha.",
     conserto:
-      "Associe o cadastro de Remuneração desta unidade à unidade cadastrada, em " +
-      "Remuneração → Unidades. Enquanto isso, a soma de todas as unidades " +
+      "Associe este escopo à unidade cadastrada em Remuneração → Unidades, ou reenvie " +
+      "o arquivo de dentro desta unidade na lateral — o envio declara de quem ele é, e " +
+      "a importação grava o vínculo. Enquanto isso, a soma de todas as unidades " +
       "continua disponível na Visão Geral.",
   };
 }

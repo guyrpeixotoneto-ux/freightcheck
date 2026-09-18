@@ -110,6 +110,28 @@ export const scopeTable = pgTable(
     scopeType: text("scope_type").notNull(),
     code: text("code").notNull(),
     name: text("name"),
+    /**
+     * A unidade **cadastrada** que este escopo é — a ponte que a importação
+     * grava, e que ninguém precisa mais refazer à mão.
+     *
+     * Mora aqui porque é aqui que a importação já escreve: `resolveScopes` cria
+     * a linha do escopo a partir da coluna `Unidade - CNPJ` do arquivo, e é
+     * nesse mesmo instante que se sabe de quem ele é. E mora no escopo, e não
+     * no run, porque a resposta é do **código**: o par (`scope_type`, `code`) é
+     * único, então dois envios do mesmo CDD atravessam a mesma ponte, e o
+     * terceiro já a encontra pronta.
+     *
+     * **Preenchida por documento ou por declaração, nunca por nome.** Ou o
+     * código carrega um CNPJ que é o de uma unidade cadastrada, ou quem enviou
+     * tinha aquela unidade aberta e afirmou. `CAMAÇARI` não casa com `CAMAÇARI`
+     * aqui, pela razão de sempre: dois CDDs podem chamar-se igual.
+     *
+     * `null` no escopo que nenhuma das duas faixas alcança — o código sem
+     * documento que ninguém nunca associou, e o de tipo OPERADOR ou REGIONAL,
+     * que não são unidade. Para esses a associação manual continua existindo, e
+     * é o único caso em que ela ainda é pedida.
+     */
+    unidadeId: uuid("unidade_id"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

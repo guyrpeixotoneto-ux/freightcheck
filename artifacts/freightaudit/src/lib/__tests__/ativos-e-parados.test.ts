@@ -182,26 +182,60 @@ describe("a recusa do escopo", () => {
     expect(resolvido).toBeNull();
   });
 
-  it("sem cadastro, nomeia a unidade e manda associar — não manda importar", () => {
+  /*
+    ---------------------------------------------------------------------------
+    A frase que mandava refazer o que a importação já devia ter feito
+    ---------------------------------------------------------------------------
+
+    Esta frase dizia "associe o cadastro de Remuneração desta unidade" para toda
+    unidade importada, porque a única ponte entre o escopo e a unidade cadastrada
+    era um cadastro manual. Ela mandava a pessoa que acabara de importar CAMAÇARI
+    de dentro de CAMAÇARI refazer à mão um vínculo que a importação tinha em
+    mãos — e agora grava sozinha.
+
+    Sobraram dois estados, e eles são telas diferentes. Confundi-los manda metade
+    das pessoas para o lugar errado, que é o defeito que esta frase já cometeu
+    uma vez.
+  */
+  it("sem unidade cadastrada, manda cadastrar — e diz que ninguém vai reimportar nada", () => {
     const recusa = recusaDoEscopo(
-      { scopeHash: "scope-camacari", tipo: "SEM_CADASTRO" },
+      { scopeHash: "scope-camacari", tipo: "SEM_CADASTRO", unidadeCadastrada: false },
       "CAMAÇARI",
     );
 
     expect(recusa!.problema).toContain("CAMAÇARI");
-    expect(recusa!.conserto).toContain("Remuneração");
+    expect(recusa!.conserto).toContain("Administração");
     /*
-      A frase não pode mandar importar planilha: o acervo pode estar cheio do
-      outro lado, e o que falta é o cadastro dizer de quem ele é. É o estado que
-      `cadastro-porta.ts` chama de `UNIDADE_SEM_CADASTRO`, e confundi-lo com "não
-      há competência" manda a pessoa ao lugar errado.
+      O que a frase não pode fazer, e é o ponto deste teste: mandar para
+      Remuneração associar o que a importação grava sozinha, ou mandar reenviar o
+      arquivo. O acervo está lá — cadastrar a unidade o alcança na mesma passada.
     */
+    expect(recusa!.conserto).not.toContain("Remuneração");
+    expect(recusa!.conserto).toContain("não é preciso reimportar");
+  });
+
+  /*
+    O caso que sobrou para a associação manual, e é o que ela sempre deveria ter
+    sido: o código que o arquivo traz não é documento nenhum — `443`, `CDD
+    Belém` —, há unidades cadastradas, e nenhuma delas pode ser afirmada sem
+    alguém dizer. A exceção, não a regra.
+  */
+  it("com cadastro e sem documento no código, aí sim manda associar", () => {
+    const recusa = recusaDoEscopo(
+      { scopeHash: "scope-belem", tipo: "SEM_CADASTRO", unidadeCadastrada: true },
+      "CDD BELÉM",
+    );
+
+    expect(recusa!.problema).toContain("CNPJ");
+    expect(recusa!.conserto).toContain("Remuneração");
+    /* E oferece a outra saída, que é reenviar de dentro da unidade. */
+    expect(recusa!.conserto).toContain("lateral");
     expect(recusa!.conserto).not.toContain("Importações");
   });
 
   it("sem nome de unidade, a frase continua de pé", () => {
     const recusa = recusaDoEscopo(
-      { scopeHash: "scope-x", tipo: "SEM_CADASTRO" },
+      { scopeHash: "scope-x", tipo: "SEM_CADASTRO", unidadeCadastrada: false },
       null,
     );
 

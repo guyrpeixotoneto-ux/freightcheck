@@ -229,6 +229,32 @@ export const importRunTable = pgTable(
      */
     declaredUnidade: text("declared_unidade"),
     /**
+     * A unidade **aberta na lateral** no momento do envio — a escolha explícita
+     * de quem importou, guardada como `unidade.id`.
+     *
+     * **Não é `declared_unidade`, e a diferença não é de forma.** Aquela é o
+     * CNPJ que o envio do acervo Real precisa fornecer porque o extrato do ERP
+     * não o traz: ela *supre* o escopo que falta no arquivo. Esta é a
+     * declaração no sentido de `declared_type` e `declared_period` — o que a
+     * pessoa afirmou, guardado para ser **conferido** contra o que o arquivo
+     * diz. Um envio pode ter as duas, e elas respondem perguntas diferentes.
+     *
+     * Duas coisas saem daqui, e são as duas metades do mesmo ato:
+     *
+     * - a **conferência**: um arquivo cujo escopo não é o da unidade aberta é
+     *   recusado antes de promover (`UNIDADE_DIVERGE_DA_DECLARACAO`), em vez de
+     *   entrar calado sob o nome errado;
+     * - a **identidade**: o escopo cujo código não carrega documento nenhum —
+     *   `443`, `CDD Belém` — ganha a unidade daqui. O arquivo não identifica;
+     *   quem estava na tela identifica, e a escolha dela é o que prevalece.
+     *
+     * Nula quando o envio saiu da Visão Geral, quando o acervo aberto não tem
+     * unidade na lateral, e em todo envio anterior a esta coluna. Nula quer
+     * dizer "ninguém declarou", e aí o arquivo decide sozinho pelo CNPJ que ele
+     * traz — que é como sempre foi.
+     */
+    unidadeId: uuid("unidade_id"),
+    /**
      * O run que este aqui releu — nulo em toda importação que é a primeira
      * leitura do seu arquivo.
      *
