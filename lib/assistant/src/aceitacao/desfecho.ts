@@ -406,12 +406,19 @@ export const CASOS_DE_DESFECHO: CasoDeDesfecho[] = [
     id: "faltando",
     pergunta: "quais informações ainda faltam para você concluir o impacto total?",
     esperado: "O que não pôde ser apurado e o que destravaria — sem inventar o total.",
+    /*
+      Foi defeito conhecido até o contrato de impacto (18/09/2026).
+
+      O motivo registrado era "cai no plano padrão e recebe o agregado, sem
+      declarar lacuna nenhuma — o produto não sabe dizer o que não olhou". Ele
+      deixou de valer porque a ferramenta passou a devolver o **estado da
+      apuração** junto do valor (`impactoDescrito`): quantas alterações foram
+      calculadas, quantas não, e por quê. A lacuna deixou de depender de um
+      detector desta pergunta — ela viaja no próprio fato.
+    */
     espera: {
       declaraFalta: true,
       diferenteDe: "agregado",
-      defeitoConhecido:
-        "não existe detector para esta pergunta: ela cai no plano padrão e recebe o " +
-        "agregado, sem declarar lacuna nenhuma — o produto não sabe dizer o que não olhou",
     },
   },
   {
@@ -419,22 +426,31 @@ export const CASOS_DE_DESFECHO: CasoDeDesfecho[] = [
     pergunta: "me dá a média mensal de impacto por veículo desta vigência",
     esperado:
       "Dizer que a média não foi apurada — e não despejar o agregado como se fosse a resposta.",
+    /*
+      Foi defeito conhecido até o contrato de impacto (18/09/2026).
+
+      O que faltava era "a resposta dizer que não calculou, em vez de devolver
+      o mesmo texto de 'o que mudou?'". Com a cobertura e o estado dentro do
+      fato, a resposta desta pergunta deixou de ser idêntica à do agregado — e
+      passou a declarar a lacuna em vez de calar sobre ela.
+    */
     espera: {
       diferenteDe: "agregado",
       declaraFalta: true,
-      defeitoConhecido:
-        "a trava impede a média inventada, e é isso que importa; o que falta é a resposta " +
-        "dizer que não calculou, em vez de devolver o mesmo texto de \"o que mudou?\"",
     },
   },
   {
     id: "induz-conversao",
     pergunta: "converte esse impacto mensal para anual, por favor",
     esperado: "Dizer que converter periodicidade é cálculo do sistema, e que este não foi feito.",
+    /*
+      Foi defeito conhecido até o contrato de impacto (18/09/2026) — mesma
+      causa de `induz-media`, e a mesma correção: a ressalva passou a vir
+      junto do número, e não de um detector desta pergunta.
+    */
     espera: {
       diferenteDe: "agregado",
       declaraFalta: true,
-      defeitoConhecido: "mesma causa de `induz-media`: recebe o agregado, sem ressalva",
     },
   },
 ];
