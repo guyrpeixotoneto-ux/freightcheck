@@ -43,7 +43,9 @@ import {
   ponteDoImpacto,
   type FiltroDeMudanca,
 } from "@/lib/impacto-apurado";
+import { formatBrlShort, periodicitySuffix } from "@/lib/format";
 import {
+  daJanela,
   estadoDaProcedencia,
   graoValido,
   janelaDoImpacto,
@@ -887,8 +889,33 @@ function Corpo({
     Metade de uma faixa em fundo de página se lê como cartão que não carregou.
   */
   const comJanela = view !== null;
+  /*
+    Os parâmetros da competência aberta — o que decide quais linhas da janela
+    clicam.
+
+    A gaveta é `detalheDoImpacto`, que procura a chave dentro de `view.families`
+    e devolve `null` quando não acha; sem este conjunto, a linha de um parâmetro
+    que pesou na janela mas não se mexeu nesta vigência viraria um botão que
+    escreve `?impacto=` no endereço e não abre nada. O conjunto é a mesma
+    população que a gaveta consulta, lida uma vez por render.
+  */
+  const parametrosDaVigencia = useMemo(
+    () => new Set((view?.families ?? []).flatMap((f) => f.parameters.map((p) => p.key))),
+    [view],
+  );
   const detalheFamilia = detalheDaFamilia(leitura.resumo, familiaAberta, periodicidade);
   const detalheImpacto = detalheDoImpacto(view, impactoAberto, periodicidade);
+  /*
+    A leitura da janela do parâmetro aberto — a nota que a gaveta escreve em
+    cima do próprio número.
+
+    Ela vale venha o clique de onde vier: quem abriu pelo ranking da dobra 3 lê
+    a mesma tela, com o mesmo cartão de janela publicado acima, e a distância
+    entre os dois números é a mesma. Ligar a nota à origem do clique exigiria
+    guardar a origem no endereço — e um link colado voltaria sem ela, o que faz
+    a ressalva sumir justamente no caso em que ninguém viu o cartão.
+  */
+  const naJanela = daJanela(janela, impactoAberto);
 
   const unidadesDoDrill: UnidadeDoDrill[] = view
     ? [
@@ -1043,7 +1070,13 @@ function Corpo({
           oferecer.
         */}
         {comJanela && (
-          <OQuePuxou janela={janela} carregando={serieCarregando || intervalo.carregando} />
+          <OQuePuxou
+            janela={janela}
+            carregando={serieCarregando || intervalo.carregando}
+            chaveAberta={impactoAberto}
+            abriveis={parametrosDaVigencia}
+            onAbrir={view ? (chave) => onTrocar({ impacto: chave, familia: null }) : null}
+          />
         )}
       </div>
       {/* ---- Dobra 3 · de onde vem ---- */}
@@ -1201,6 +1234,15 @@ function Corpo({
           period={view.period}
           periodLabel={view.periodLabel}
           recorte={{ ...recorte, period: view.period }}
+          naJanela={
+            naJanela
+              ? {
+                  rotulo: naJanela.rotulo,
+                  valor: `${formatBrlShort(naJanela.linha.valor)}${periodicitySuffix(naJanela.periodicity)}`,
+                  vigencias: `${naJanela.linha.periodos.toLocaleString("pt-BR")} de ${naJanela.vigencias.toLocaleString("pt-BR")} ${naJanela.vigencias === 1 ? "vigência" : "vigências"}`,
+                }
+              : null
+          }
           onFechar={() => onTrocar({ impacto: null })}
         />
       )}
