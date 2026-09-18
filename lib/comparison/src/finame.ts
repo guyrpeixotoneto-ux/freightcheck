@@ -535,6 +535,14 @@ export interface LinhaDeFiname {
    * pontas declarou a data.
    */
   fimDoContrato: string | null;
+  /**
+   * O valor da ponta anterior, quando o motor o reconheceu como número.
+   *
+   * Contexto da linha, e não comparação: quem o usa é o "antes" do cartão de
+   * última alteração, somado no mesmo laço do impacto para que os dois não
+   * possam divergir.
+   */
+  baseNumerica: number | null;
   impactoAmount: number | null;
   impactoPeriodicidade: string | null;
   impactoCalculado: boolean;
@@ -581,6 +589,7 @@ export function linhaDaAlteracao(a: AlteracaoDoMotor): LinhaDeFiname | null {
       periodoFiname: null,
       dataDeCadastro: null,
       fimDoContrato: null,
+      baseNumerica: null,
       impactoAmount: null,
       impactoPeriodicidade: null,
       impactoCalculado: false,
@@ -606,6 +615,7 @@ export function linhaDaAlteracao(a: AlteracaoDoMotor): LinhaDeFiname | null {
     periodoFiname: null,
     dataDeCadastro: null,
     fimDoContrato: null,
+    baseNumerica: numero(a.numericBefore ?? null),
     impactoAmount: numero(a.impactAmount),
     impactoPeriodicidade: a.impactPeriodicity ?? null,
     impactoCalculado: a.impactConfidence === "CALCULATED",
@@ -656,7 +666,8 @@ export function linhaSemAlteracao(par: {
     periodoFiname: null,
     dataDeCadastro: null,
     fimDoContrato: null,
-    impactoAmount: null,
+    baseNumerica: null,
+      impactoAmount: null,
     impactoPeriodicidade: null,
     impactoCalculado: false,
     foraDaSoma: variavel.foraDaSoma ?? null,
@@ -848,6 +859,18 @@ export interface ImpactoDeFiname {
    * e anualizar é decisão de quem lê, não deste módulo.
    */
   porPeriodicidade: Record<string, number>;
+  /**
+   * O que as **mesmas linhas** que este total somou valiam na vigência base,
+   * balde a balde.
+   *
+   * Existe para o cartão poder escrever "antes" e "depois" sem uma segunda
+   * aritmética: ele é acumulado no mesmo laço, sobre as mesmas linhas e com as
+   * mesmas exclusões que o impacto, de modo que
+   * `basePorPeriodicidade[b] + porPeriodicidade[b]` é, por construção, o que
+   * essas linhas passaram a valer. Não é o custo total da rubrica — é a fatia
+   * que se moveu, e o rótulo da tela precisa dizer isso.
+   */
+  basePorPeriodicidade: Record<string, number>;
   /** Alterações monetárias que o motor não soube precificar, com motivo próprio. */
   naoCalculavel: number;
   /** Linhas retiradas do total por já estarem representadas nas parcelas. */
@@ -1011,6 +1034,7 @@ export function impactoPorPeriodicidade(
   }
 
   const porPeriodicidade: Record<string, number> = {};
+  const basePorPeriodicidade: Record<string, number> = {};
   let naoCalculavel = 0;
   let cobertasPorParcelas = 0;
   let foraDaSoma = 0;
@@ -1043,15 +1067,17 @@ export function impactoPorPeriodicidade(
 
     const balde = l.impactoPeriodicidade ?? "SEM_PERIODICIDADE";
     porPeriodicidade[balde] = (porPeriodicidade[balde] ?? 0) + l.impactoAmount;
+    basePorPeriodicidade[balde] = (basePorPeriodicidade[balde] ?? 0) + (l.baseNumerica ?? 0);
   }
 
   for (const balde of Object.keys(porPeriodicidade)) {
     porPeriodicidade[balde] = Number(porPeriodicidade[balde].toFixed(6));
+    basePorPeriodicidade[balde] = Number((basePorPeriodicidade[balde] ?? 0).toFixed(6));
   }
   for (const balde of Object.keys(porOutroModulo)) {
     porOutroModulo[balde] = Number(porOutroModulo[balde].toFixed(6));
   }
-  return { porPeriodicidade, porOutroModulo, naoCalculavel, cobertasPorParcelas, foraDaSoma };
+  return { porPeriodicidade, basePorPeriodicidade, porOutroModulo, naoCalculavel, cobertasPorParcelas, foraDaSoma };
 }
 
 // ---------------------------------------------------------------------------

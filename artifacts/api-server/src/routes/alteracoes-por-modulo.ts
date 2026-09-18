@@ -114,10 +114,10 @@ import { consolidadoDosModulos } from "./monitor-custo-fixo";
 const router: IRouter = Router();
 
 /** O teto de linhas por leitura — o mesmo dos dois Monitores. */
-const TETO_DE_LINHAS = 5000;
+export const TETO_DE_LINHAS = 5000;
 
 /** O recorte da cobertura de equipamento: custo fixo inteiro e manutenção. */
-const CODIGOS_DE_EQUIPAMENTO = [
+export const CODIGOS_DE_EQUIPAMENTO = [
   ...new Set([
     ...CODIGOS_DO_DETALHE,
     ...CODIGOS_DO_DETALHE_DE_ALUGUEL,
@@ -130,8 +130,35 @@ const CODIGOS_DE_EQUIPAMENTO = [
   ]),
 ];
 
+/**
+ * Os códigos de cada módulo, por módulo — o recorte que "Ver histórico" leva.
+ *
+ * As listas já existiam, cada uma no arquivo da rubrica dela; o que faltava era
+ * a chave. Ela mora aqui, e não no pacote de domínio, pelo mesmo motivo que
+ * `RUBRICAS_DE_TRECHO`: o que ela junta é a tradução de uma rubrica com o
+ * endereço da tela dela, e a costura é trabalho desta rota.
+ *
+ * Um módulo esquecido aqui não erra número nenhum — ele só abre o histórico sem
+ * recorte, que é a leitura inteira e não uma leitura errada.
+ */
+export const CODIGOS_POR_MODULO: Record<string, readonly string[]> = {
+  FINAME: CODIGOS_DO_DETALHE,
+  ALUGUEL: CODIGOS_DO_DETALHE_DE_ALUGUEL,
+  IPVA: CODIGOS_DO_DETALHE_DE_IPVA,
+  IMPOSTOS: CODIGOS_DO_DETALHE_DE_IMPOSTOS,
+  LUCRO_FIXO: CODIGOS_DO_DETALHE_DE_LUCRO_FIXO,
+  AQUISICAO: CODIGOS_DO_DETALHE_DE_AQUISICAO,
+  SEGURO: CODIGOS_DO_DETALHE_DE_SEGURO,
+  MANUTENCAO: CODIGOS_DO_DETALHE_DE_MANUTENCAO,
+  CONSUMO: CODIGOS_DO_DETALHE_DE_CONSUMO,
+  PNEU: CODIGOS_DO_DETALHE_DE_PNEU,
+  KM_RODADO: CODIGOS_DO_DETALHE_DE_KM,
+  VELOCIDADE_MEDIA: CODIGOS_DO_DETALHE_DE_VELOCIDADE,
+  TMA: CODIGOS_LIDOS_DO_TMA,
+};
+
 /** O recorte da cobertura de trecho: as cinco rubricas que leem a malha. */
-const CODIGOS_DE_TRECHO = [
+export const CODIGOS_DE_TRECHO = [
   ...new Set([
     ...CODIGOS_DO_DETALHE_DE_CONSUMO,
     ...CODIGOS_DO_DETALHE_DE_PNEU,
@@ -478,8 +505,25 @@ async function cartoesDeEquipamento(
     limit: TETO_DE_LINHAS,
   });
 
-  const cartao = parDoCartao(par, vigencias);
+  return cartoesDeEquipamentoDasLinhas(rows, parDoCartao(par, vigencias), changeSet.id);
+}
 
+/**
+ * Os cartões de equipamento a partir das linhas — sem banco, e sem par a
+ * escolher.
+ *
+ * A separação existe porque duas leituras precisam exatamente disto: o catálogo
+ * por par, que chega com um par escolhido, e a varredura de última alteração,
+ * que repete a montagem **por par visitado** sobre as linhas que já leu. Sem
+ * ela, a varredura teria uma segunda cópia de como um cartão de FINAME nasce — e
+ * as duas telas divergiriam no dia em que uma rubrica mudasse de lugar.
+ */
+export function cartoesDeEquipamentoDasLinhas(
+  rows: readonly AlteracaoDoMotor[],
+  cartao: ParDoCartao,
+  changeSetId: string,
+): CartaoDeModulo[] {
+  const cobertura: CoberturaDoCatalogo = "EQUIPAMENTO";
   /*
     Sem filtro nenhum: o catálogo publica o módulo inteiro, e quem quiser
     recortar tem o Monitor a um clique — com o par junto.
@@ -494,7 +538,7 @@ async function cartoesDeEquipamento(
       busca: null,
     },
     { ...cartao },
-    changeSet.id,
+    changeSetId,
   );
 
   return [
@@ -566,7 +610,15 @@ async function cartoesDeTrecho(
     limit: TETO_DE_LINHAS,
   });
 
-  const cartao = parDoCartao(par, vigencias);
+  return cartoesDeTrechoDasLinhas(rows, parDoCartao(par, vigencias));
+}
+
+/** Os cartões de trecho a partir das linhas — ver `cartoesDeEquipamentoDasLinhas`. */
+export function cartoesDeTrechoDasLinhas(
+  rows: readonly AlteracaoDoMotor[],
+  cartao: ParDoCartao,
+): CartaoDeModulo[] {
+  const cobertura: CoberturaDoCatalogo = "TRECHO";
 
   const daMalha = RUBRICAS_DE_TRECHO.map((r) => {
     const linhas = r.linhas(rows);
@@ -677,11 +729,52 @@ async function cartoesDeEquipe(
     limit: TETO_DE_LINHAS,
   });
 
-  const cartao = parDoCartao(par, vigencias);
+  return cartoesDeEquipeDasLinhas(rows, quadro, parDoCartao(par, vigencias), changeSet.id);
+}
+
+/**
+ * Os dezesseis assuntos de um quadro, existam eles nas linhas ou não.
+ *
+ * `resumirModulosDeEquipe` devolve só os assuntos que **se moveram** — é o certo
+ * para o Monitor, que lista o que aconteceu. Aqui é o contrário: o catálogo de
+ * assuntos é do produto, e um assunto que some quando não mexeu faria "o
+ * treinamento não mudou" e "o treinamento não existe neste quadro" virarem a
+ * mesma ausência em tela. A lista vem de `modulosDoQlp()`, que é a mesma que o
+ * ramo sem par de `cartoesDeEquipe` já usava.
+ */
+export function moldesDeEquipe(quadro: QuadroDeQlp): CartaoDeModulo[] {
+  const cobertura: CoberturaDoCatalogo =
+    quadro === "OPERACIONAL" ? "QLP_OPERACIONAL" : "QLP_ADMINISTRATIVO";
+  return modulosDoQlp().map((m) => ({
+    ...cartaoAusente({
+      area: "EQUIPE",
+      modulo: m.chave,
+      rotulo: null,
+      rota: rotaDoModuloDeEquipe(m.chave, quadro),
+      cobertura,
+      ausente: "",
+      rotuloDaEntidade: "Cargos",
+    }),
+    ausente: null,
+    /* A frase do QLP viaja no molde: é dela que `naturezaDoCartao` lê que este
+       assunto não publica montante, sem uma segunda lista de exceções. */
+    semImpacto: SEM_IMPACTO_FINANCEIRO,
+  }));
+}
+
+/** Os cartões de um quadro a partir das linhas — ver `cartoesDeEquipamentoDasLinhas`. */
+export function cartoesDeEquipeDasLinhas(
+  rows: readonly AlteracaoDoMotor[],
+  quadro: QuadroDeQlp,
+  cartao: ParDoCartao,
+  changeSetId: string,
+): CartaoDeModulo[] {
+  const cobertura: CoberturaDoCatalogo =
+    quadro === "OPERACIONAL" ? "QLP_OPERACIONAL" : "QLP_ADMINISTRATIVO";
   const linhas = normalizarLinhasDeEquipe(
     linhasDeQlpComparado(rows, quadro),
     { quadro, ...cartao },
-    changeSet.id,
+    changeSetId,
   );
 
   /* A ordem dos módulos é a do catálogo — ver `resumirModulosDeEquipe`. */

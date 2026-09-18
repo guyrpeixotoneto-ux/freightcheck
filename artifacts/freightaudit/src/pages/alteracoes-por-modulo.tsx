@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from "react";
 import { useLocation, useSearch } from "wouter";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { LayoutGrid } from "lucide-react";
 import type { AreaNoCatalogo } from "@workspace/comparison/alteracoes-por-modulo";
 import { ROTULO_DA_COBERTURA } from "@workspace/comparison/alteracoes-por-modulo";
@@ -21,6 +21,15 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Superficie } from "@/components/ui/superficie";
 import { SeletorDoPar, type VigenciaEscolhivel } from "@/components/comparacao/seletor-do-par";
 import { CatalogoDeAlteracoes } from "@/components/alteracoes-por-modulo/catalogo";
+import { AbasDeUltimasAlteracoes } from "@/components/alteracoes-por-modulo/abas-de-ultimas-alteracoes";
+import type { AcoesDoCartao } from "@/components/alteracoes-por-modulo/cartao-de-ultima-alteracao";
+import { enderecoDoHistorico } from "@/lib/recorte-do-historico";
+import { Button } from "@/components/ui/button";
+import type {
+  AbaDeUltimasAlteracoes,
+  AssuntoDoCartao,
+  CartaoDeUltimaAlteracao,
+} from "@workspace/comparison/ultima-alteracao-financeira";
 import { SeletorMestre } from "@/components/alteracoes-por-modulo/seletor-mestre";
 import { fraseSemPar } from "@/lib/par-de-vigencias";
 import { fetchJson } from "@/lib/api";
@@ -62,7 +71,29 @@ import {
  * clique, **com o par junto** — ver `enderecoDoCartao`.
  *
  * ---------------------------------------------------------------------------
- * Um seletor à frente de quatro
+ * Dois modos, e o automático é o padrão
+ * ---------------------------------------------------------------------------
+ * A tela abre **sem par escolhido**. A pergunta que ela responde primeiro não
+ * tem par para escolher: *quando foi a última vez que cada módulo se moveu?* —
+ * e a resposta é um par **por módulo**, descoberto pelo servidor
+ * (`/alteracoes-por-modulo/ultimas-alteracoes`). O IPVA que se moveu em junho
+ * diz junho enquanto o FINAME diz agosto, na mesma aba, cada um com a pastilha
+ * do par dele no topo do cartão.
+ *
+ * Isso trocou o gesto de abertura, e não apagou o anterior. "Comparar um par
+ * fixo" é a tela de antes, inteira: o seletor mestre, os quatro pares no
+ * endereço, `/consolidado`. Todo link do produto que nomeia vigência continua
+ * abrindo nela — e abre por construção, porque o modo é **derivado** do
+ * endereço: par no endereço é pedido de par fixo, com ou sem `?modo=par`.
+ *
+ * As três abas — custo fixo, custo variável e equipe — são navegação, e nada
+ * mais. Elas não têm par próprio, não escrevem no endereço do motor e não mudam
+ * pergunta nenhuma. Uma aba com seletor próprio faria trocar o par em Custo
+ * Fixo mudar, em silêncio, o cartão da Manutenção na aba vizinha: as duas leem a
+ * **mesma** cobertura de equipamento.
+ *
+ * ---------------------------------------------------------------------------
+ * Um seletor à frente de quatro — no modo de par fixo
  * ---------------------------------------------------------------------------
  * O motor recusa um par entre coberturas diferentes, e esta leitura atravessa
  * quatro delas: equipamento, trecho e os dois quadros do QLP. Um seletor **só**
@@ -106,6 +137,23 @@ export default function AlteracoesPorModulo() {
 
   const pares = useMemo(() => lerPares(search), [search]);
   const recorte = lerRecorte(search);
+
+  /*
+    O modo da tela — e o automático é o padrão.
+
+    A pergunta que esta tela passou a responder não tem par para escolher: ela
+    **descobre** o par de cada módulo. O seletor não sumiu por isso; ele virou o
+    modo "Comparar um par fixo", que é o que todo link antigo do produto pede.
+
+    Por isso o modo é derivado, e não guardado: um endereço que nomeia par está
+    pedindo o par fixo, tenha ele `?modo=` ou não. É o que faz um favorito de
+    antes desta mudança abrir exatamente como abria.
+  */
+  const doEnderecoTemPar = COBERTURAS.some((c) => pares[c].base || pares[c].comparada);
+  const modo: "AUTOMATICO" | "PAR_FIXO" =
+    new URLSearchParams(search).get("modo") === "par" || doEnderecoTemPar
+      ? "PAR_FIXO"
+      : "AUTOMATICO";
 
   /** Mudar de par é mudar de endereço — o estado não tem segunda cópia. */
   const aplicar = (proximos: ParesDoCatalogo) => {
@@ -189,6 +237,7 @@ export default function AlteracoesPorModulo() {
     reescrever o que o link dizia.
   */
   useEffect(() => {
+    if (modo !== "PAR_FIXO") return;
     if (!daFrota.data || !doQuadro.data || !unidadeResolvida) return;
     const doEndereco = COBERTURAS.some((c) => pares[c].base || pares[c].comparada);
     let proximos = { ...pares };
@@ -204,7 +253,7 @@ export default function AlteracoesPorModulo() {
         proximos[c].comparada !== pares[c].comparada,
     );
     if (mudou) aplicar(proximos);
-  }, [daFrota.data, doQuadro.data, unidadeResolvida, listas, search]);
+  }, [modo, daFrota.data, doQuadro.data, unidadeResolvida, listas, search]);
 
   /*
     O mestre, lido dos quatro pares — e não guardado ao lado deles.
@@ -242,7 +291,9 @@ export default function AlteracoesPorModulo() {
       Sem nenhum par escolhido a pergunta não tem o que responder — e a tela não
       fica muda: o esqueleto some e o servidor não é chamado à toa.
     */
-    enabled: COBERTURAS.some((c) => pares[c].base !== "" && pares[c].comparada !== ""),
+    enabled:
+      modo === "PAR_FIXO" &&
+      COBERTURAS.some((c) => pares[c].base !== "" && pares[c].comparada !== ""),
     queryFn: () => {
       const q = new URLSearchParams(escreverPares(pares));
       if (recorte.scopeHash) q.set("scopeHash", recorte.scopeHash);
@@ -281,16 +332,166 @@ export default function AlteracoesPorModulo() {
   const contexto = { scopeHash: recorte.scopeHash, canal: recorte.canal };
   const carregandoVigencias = daFrota.isLoading || doQuadro.isLoading;
 
+  // -------------------------------------------------------------------------
+  // O modo automático: um par por módulo, descoberto pelo servidor
+  // -------------------------------------------------------------------------
+
+  /*
+    A leitura da tela nova. Ela não manda par nenhum — só o recorte da lateral,
+    porque uma varredura que atravessasse unidades compararia acervos que o
+    motor recusa.
+  */
+  const ultimas = useQuery({
+    queryKey: ["ultimas-alteracoes", recorte.scopeHash, recorte.canal],
+    enabled: modo === "AUTOMATICO" && unidadeResolvida,
+    queryFn: () => {
+      const q = new URLSearchParams();
+      if (recorte.scopeHash) q.set("scopeHash", recorte.scopeHash);
+      if (recorte.canal) q.set("canal", recorte.canal);
+      const texto = q.toString();
+      return fetchJson<{ abas: AbaDeUltimasAlteracoes[] }>(
+        `/alteracoes-por-modulo/ultimas-alteracoes${texto ? `?${texto}` : ""}`,
+      );
+    },
+  });
+
+  const cliente = useQueryClient();
+
+  /*
+    Calcular a comparação de uma lacuna.
+
+    Depois do cálculo, **só esta leitura** é invalidada — não a página inteira, e
+    não o catálogo por par, que fala de outro par. A tela não bloqueia enquanto o
+    motor roda: o cartão diz "Calculando…" e o resto continua lido.
+  */
+  const calcularPar = useMutation({
+    mutationFn: (par: { baseId: string; comparadaId: string }) =>
+      fetchJson<{ changeSetId: string; jaExistia: boolean }>(
+        "/alteracoes-por-modulo/calcular",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(par),
+        },
+      ),
+    onSuccess: () => {
+      void cliente.invalidateQueries({ queryKey: ["ultimas-alteracoes"] });
+    },
+  });
+
+  /** A aba aberta — no endereço, para que um link leve a pessoa à mesma. */
+  const abaPedida = new URLSearchParams(search).get("aba");
+  const abrirAba = (area: string) => {
+    const q = new URLSearchParams(search);
+    q.set("aba", area);
+    navegar(`/alteracoes-por-modulo?${q.toString()}`, { replace: true });
+  };
+
+  const trocarModo = (proximo: "AUTOMATICO" | "PAR_FIXO") => {
+    const q = new URLSearchParams(search);
+    if (proximo === "PAR_FIXO") q.set("modo", "par");
+    else {
+      /* Sair do par fixo apaga os pares: deixá-los no endereço faria a tela
+         voltar sozinha para o par fixo na próxima leitura. */
+      q.delete("modo");
+      for (const chave of [...q.keys()]) {
+        if (chave.startsWith("base") || chave.startsWith("comparada")) q.delete(chave);
+      }
+    }
+    const texto = q.toString();
+    navegar(texto ? `/alteracoes-por-modulo?${texto}` : "/alteracoes-por-modulo", {
+      replace: true,
+    });
+  };
+
+  const acoes: AcoesDoCartao = {
+    verAlteracoes: (cartao: CartaoDeUltimaAlteracao) => enderecoDoCartao(cartao, contexto),
+    verHistorico: (cartao: CartaoDeUltimaAlteracao) =>
+      enderecoDoHistorico(
+        {
+          rotulo: cartao.rotulo ?? cartao.modulo,
+          parametrosDoHistorico: cartao.parametrosDoHistorico,
+          tipoDoHistorico: cartao.tipoDoHistorico,
+          par: cartao.par,
+        },
+        contexto,
+      ),
+    /* O assunto abre a auditoria dele, com o par **dele** — e não o do quadro. */
+    verHistoricoDoAssunto: (cartao: CartaoDeUltimaAlteracao, assunto: AssuntoDoCartao) =>
+      enderecoDoCartao({ rota: assunto.rota, par: assunto.par }, contexto),
+    calcular: (baseId: string, comparadaId: string) =>
+      calcularPar.mutate({ baseId, comparadaId }),
+    calculando: calcularPar.isPending,
+  };
+
   return (
     <Layout>
       <CabecalhoDePagina
         titulo="Alterações por Módulo"
         icone={LayoutGrid}
-        descricao="Todos os módulos do produto num cartão cada — custo fixo, custo variável e equipe."
-        atualizando={consulta.isFetching}
+        descricao={
+          modo === "AUTOMATICO"
+            ? "A última alteração de cada módulo — cada cartão com o par dele."
+            : "Todos os módulos do produto num cartão cada — custo fixo, custo variável e equipe."
+        }
+        atualizando={modo === "AUTOMATICO" ? ultimas.isFetching : consulta.isFetching}
+        acoes={
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => trocarModo(modo === "AUTOMATICO" ? "PAR_FIXO" : "AUTOMATICO")}
+          >
+            {modo === "AUTOMATICO" ? "Comparar um par fixo" : "Voltar às últimas alterações"}
+          </Button>
+        }
       />
 
       <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-4 px-4 pb-10 sm:px-8">
+        {modo === "AUTOMATICO" && (
+          <>
+            {ultimas.isLoading && (
+              <div className="flex flex-col gap-3" aria-busy="true" aria-live="polite">
+                <span className="sr-only">Procurando a última alteração de cada módulo…</span>
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <Skeleton key={i} className="h-56 w-full" />
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {ultimas.isError && (
+              <ApiErrorNotice
+                error={ultimas.error}
+                what="as últimas alterações por módulo"
+                onTentarDeNovo={() => void ultimas.refetch()}
+                tentando={ultimas.isFetching}
+              />
+            )}
+
+            {calcularPar.isError && (
+              <ApiErrorNotice
+                error={calcularPar.error}
+                what="o cálculo da comparação"
+                onTentarDeNovo={() => calcularPar.reset()}
+                tentando={false}
+              />
+            )}
+
+            {ultimas.data && (
+              <AbasDeUltimasAlteracoes
+                abas={ultimas.data.abas}
+                aberta={abaPedida ?? ultimas.data.abas[0]?.area ?? "CUSTO_FIXO"}
+                onAbrir={abrirAba}
+                acoes={acoes}
+              />
+            )}
+          </>
+        )}
+
+        {modo === "PAR_FIXO" && (
+          <>
         <Superficie className="flex flex-col gap-4 px-4 py-4">
           <div>
             <h2 className="text-sm font-semibold">Vigências comparadas</h2>
@@ -413,6 +614,8 @@ export default function AlteracoesPorModulo() {
             areas={consulta.data.areas}
             endereco={(cartao) => enderecoDoCartao(cartao, contexto)}
           />
+        )}
+          </>
         )}
       </div>
     </Layout>

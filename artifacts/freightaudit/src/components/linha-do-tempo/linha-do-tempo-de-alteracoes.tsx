@@ -60,6 +60,7 @@ export function LinhaDoTempoDeAlteracoes({
   voltarPara = null,
   onVoltar,
   tipo = null,
+  recorte = null,
 }: {
   consulta: URLSearchParams;
   periods: { date: string; label: string }[];
@@ -76,13 +77,29 @@ export function LinhaDoTempoDeAlteracoes({
   onVoltar?: (periodo: string) => void;
   /** O tipo aberto na aba "Cavalo, Carreta e Trecho". `null` é a aba Geral. */
   tipo?: TipoDaLinhaDoTempo | null;
+  /**
+   * O recorte por parâmetro pedido no endereço — ver `recorte-do-historico.ts`.
+   *
+   * Ele entra na leitura, e não num filtro de tela: `vehiclesTouched` só
+   * significa o que o rótulo promete quando o recorte acontece do lado do
+   * servidor, que é o que `getRangeAnalysis` documenta.
+   */
+  recorte?: { de: string | null; parametros: string[] } | null;
 }) {
   const ordenadas = useMemo(
     () => [...periods].sort((a, b) => a.date.localeCompare(b.date)),
     [periods],
   );
 
-  const [de, setDe] = useState(ordenadas[0]?.date ?? currentPeriod);
+  /* A ponta inicial do endereço manda, quando ela existe no histórico: quem
+     chegou por "Ver histórico" pediu um intervalo, e abrir no histórico inteiro
+     seria ignorar o pedido em silêncio. */
+  const pedida = recorte?.de ?? null;
+  const [de, setDe] = useState(
+    pedida !== null && ordenadas.some((p) => p.date === pedida)
+      ? pedida
+      : (ordenadas[0]?.date ?? currentPeriod),
+  );
   const [ate, setAte] = useState(currentPeriod);
 
   /*
@@ -93,7 +110,7 @@ export function LinhaDoTempoDeAlteracoes({
     vez de repeti-la.
   */
   const movimentos = useQuery({
-    ...opcoesDoIntervalo(consulta, de, ate, tipo),
+    ...opcoesDoIntervalo(consulta, de, ate, tipo, recorte?.parametros),
     enabled: ordenadas.length > 1,
   });
 

@@ -198,6 +198,15 @@ export interface AlteracaoDoMotor {
   isNullAfter?: boolean | null;
   nullReasonBefore?: string | null;
   nullReasonAfter?: string | null;
+  /**
+   * As pontas numéricas da linha — opcionais porque nem toda origem as carrega.
+   *
+   * Quem as usa é o "antes" dos cartões de última alteração: ele é somado no
+   * mesmo laço do impacto, sobre as mesmas linhas e com as mesmas exclusões, e
+   * é isso que faz `antes + impacto === depois` valer por construção.
+   */
+  numericBefore?: string | number | null;
+  numericAfter?: string | number | null;
   /** `numeric` do Postgres chega como string. A conversão mora aqui. */
   deltaAbsolute: string | number | null;
   deltaPercent: string | number | null;

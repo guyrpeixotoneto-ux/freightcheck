@@ -17,6 +17,7 @@ import { LinhaDoTempoDeImpacto } from "@/components/linha-do-tempo/linha-do-temp
 import { LinhaDoTempoDeAlteracoes } from "@/components/linha-do-tempo/linha-do-tempo-de-alteracoes";
 import { LinhaDoTempoConsolidada } from "@/components/linha-do-tempo/linha-do-tempo-consolidada";
 import { nomeDaUnidade } from "@/lib/recorte";
+import { lerRecorteDoHistorico } from "@/lib/recorte-do-historico";
 import { useVoltaDeVigencia } from "@/components/vigencia/voltar-de-vigencia";
 import { VisaoGeralConteudo } from "@/components/inicio/visao-geral-consolidada";
 import {
@@ -97,6 +98,16 @@ export default function LinhaDoTempo() {
     nunca um valor de `period`. Ver a mesma decisão em `inicio.tsx`.
   */
   const visaoGeral = parametros.get("visaoGeral") === "1";
+
+  /*
+    O recorte que "Ver histórico" traz do catálogo de últimas alterações — a
+    ponta inicial e os parâmetros do módulo.
+
+    Ele é lido aqui e desce inteiro até os dois cartões, que são quem faz a
+    pergunta ao servidor. Ler e não usar seria o defeito que este recorte existe
+    para evitar: um link que promete filtro e abre a tela inteira.
+  */
+  const recorteDoHistorico = lerRecorteDoHistorico(search);
 
   /*
     Qual aba — e a aba **é** o tipo.
@@ -308,6 +319,39 @@ export default function LinhaDoTempo() {
       </div>
 
       <div className="px-8 py-6 space-y-5 max-w-[1600px]">
+        {/*
+          O selo do recorte — e ele não é decoração.
+
+          Um filtro que age e não aparece é indistinguível de um acervo pequeno:
+          quem abre a Linha do Tempo pelo "Ver histórico" do FINAME veria um
+          impacto menor do que o da tela inteira e não teria como saber por quê.
+          O selo diz o que está filtrado e oferece a saída, no mesmo lugar.
+        */}
+        {recorteDoHistorico.parametros.length > 0 && (
+          <div className="flex flex-wrap items-center gap-3 rounded-md border border-dashed px-3 py-2.5 text-xs">
+            <span className="font-semibold">Recorte</span>
+            <span className="text-muted-foreground">
+              {recorteDoHistorico.rotulo ??
+                `${recorteDoHistorico.parametros.length} parâmetros`}
+              {recorteDoHistorico.de !== null && ` · desde ${recorteDoHistorico.de}`}
+            </span>
+            <button
+              type="button"
+              className="ml-auto font-semibold text-brand hover:underline"
+              onClick={() => {
+                const p = new URLSearchParams(search);
+                for (const chave of ["parametros", "recorte", "de"]) p.delete(chave);
+                const texto = p.toString();
+                navegar(texto ? `/linha-do-tempo?${texto}` : "/linha-do-tempo", {
+                  replace: true,
+                });
+              }}
+            >
+              Ver o histórico inteiro
+            </button>
+          </div>
+        )}
+
         {porTipo ? (
           <AbaPorTipo
             tipo={tipo}
@@ -319,6 +363,7 @@ export default function LinhaDoTempo() {
               volta.registrar();
               trocarPara({ period: periodo });
             }}
+            recorte={recorteDoHistorico}
             voltarPara={volta.destino}
             onVoltar={(periodo) => {
               volta.limpar();
@@ -392,12 +437,14 @@ export default function LinhaDoTempo() {
                 consulta={consulta}
                 periods={view.periods}
                 currentPeriod={view.period}
+                recorte={recorteDoHistorico}
               />
 
               <LinhaDoTempoDeAlteracoes
                 consulta={consulta}
                 periods={view.periods}
                 currentPeriod={view.period}
+                recorte={recorteDoHistorico}
                 onEscolherVigencia={(periodo) => {
                   volta.registrar();
                   trocarPara({ period: periodo });
@@ -452,6 +499,7 @@ function AbaPorTipo({
   onEscolherVigencia,
   voltarPara,
   onVoltar,
+  recorte,
 }: {
   tipo: TipoDaLinhaDoTempo;
   visaoGeral: boolean;
@@ -462,6 +510,8 @@ function AbaPorTipo({
   onEscolherVigencia: (periodo: string) => void;
   voltarPara: { periodo: string; label: string } | null;
   onVoltar: (periodo: string) => void;
+  /** O recorte do endereço — ver `lib/recorte-do-historico.ts`. */
+  recorte: { de: string | null; parametros: string[] } | null;
 }) {
   return (
     <>
@@ -510,6 +560,7 @@ function AbaPorTipo({
                 periods={view.periods}
                 currentPeriod={view.period}
                 tipo={tipo}
+                recorte={recorte}
               />
 
               <LinhaDoTempoDeAlteracoes
@@ -517,6 +568,7 @@ function AbaPorTipo({
                 periods={view.periods}
                 currentPeriod={view.period}
                 tipo={tipo}
+                recorte={recorte}
                 onEscolherVigencia={onEscolherVigencia}
                 voltarPara={voltarPara}
                 onVoltar={onVoltar}
