@@ -89,6 +89,17 @@ export interface ChangeRow {
   isNullAfter: boolean | null;
   nullReasonBefore: string | null;
   nullReasonAfter: string | null;
+  /**
+   * As duas pontas numéricas da linha, quando o motor as reconheceu.
+   *
+   * Não são leitura de tela: são o que permite a um módulo publicar, **no mesmo
+   * laço em que soma o impacto**, quanto valiam antes as linhas que ele somou.
+   * Sem elas o "antes" de um cartão teria de ser reconstituído por fora, a
+   * partir do texto de `valueBefore` — uma segunda aritmética, que é
+   * exatamente o que este produto não acumula.
+   */
+  numericBefore: number | null;
+  numericAfter: number | null;
   deltaAbsolute: number | null;
   deltaPercent: number | null;
   comparability: string;
@@ -238,6 +249,8 @@ export async function listChanges(
       isNullAfter: changeTable.isNullAfter,
       nullReasonBefore: changeTable.nullReasonBefore,
       nullReasonAfter: changeTable.nullReasonAfter,
+      numericBefore: changeTable.numericBefore,
+      numericAfter: changeTable.numericAfter,
       deltaAbsolute: changeTable.deltaAbsolute,
       deltaPercent: changeTable.deltaPercent,
       comparability: changeTable.comparability,
@@ -291,6 +304,8 @@ export async function listChanges(
         attributeSourceName,
         attributeDisplayName,
       ),
+      numericBefore: r.numericBefore === null ? null : Number(r.numericBefore),
+      numericAfter: r.numericAfter === null ? null : Number(r.numericAfter),
       deltaAbsolute: r.deltaAbsolute === null ? null : Number(r.deltaAbsolute),
       deltaPercent: r.deltaPercent === null ? null : Number(r.deltaPercent),
       impactAmount: r.impactAmount === null ? null : Number(r.impactAmount),
@@ -1138,6 +1153,55 @@ export async function getOverview(db: Database, opts?: { operacao?: Operacao | n
     accumulatedImpactByPeriodicity: impactByPeriodicity,
     impactByPeriodicity,
   };
+}
+
+/**
+ * As comparações **já calculadas** de uma lista de pares, numa consulta só.
+ *
+ * Existe para a varredura de "última alteração": ela percorre até oito pares por
+ * cobertura, e perguntar por um par de cada vez seria trinta e duas idas ao
+ * banco para montar uma tela — o N+1 clássico, com a agravante de que a
+ * varredura só precisa saber **quais** existem antes de ler linha nenhuma.
+ *
+ * Devolve um mapa de `"<a>\u001f<b>"` para o `change_set`, e **não calcula
+ * nada**: um par ausente do mapa é uma lacuna, que é informação e não erro.
+ * Quem quiser calculá-lo chama `computeChangeSet` de propósito, por um gesto de
+ * quem está lendo — nunca pela abertura de uma página.
+ */
+export async function changeSetsDosPares(
+  db: Database,
+  pares: readonly { base: string; comparada: string }[],
+): Promise<Map<string, { id: string; status: string }>> {
+  const mapa = new Map<string, { id: string; status: string }>();
+  if (pares.length === 0) return mapa;
+
+  const bases = [...new Set(pares.map((p) => p.base))];
+  const comparadas = [...new Set(pares.map((p) => p.comparada))];
+
+  const linhas = await db
+    .select({
+      id: changeSetTable.id,
+      status: changeSetTable.status,
+      snapshotAId: changeSetTable.snapshotAId,
+      snapshotBId: changeSetTable.snapshotBId,
+    })
+    .from(changeSetTable)
+    .where(
+      and(
+        inArray(changeSetTable.snapshotAId, bases),
+        inArray(changeSetTable.snapshotBId, comparadas),
+      ),
+    );
+
+  /* O produto cartesiano do `IN` traz pares que ninguém pediu — o filtro final
+     é a lista pedida, e não o que a consulta pôde alcançar. */
+  const pedidos = new Set(pares.map((p) => `${p.base}\u001f${p.comparada}`));
+  for (const l of linhas) {
+    const chave = `${l.snapshotAId}\u001f${l.snapshotBId}`;
+    if (!pedidos.has(chave)) continue;
+    mapa.set(chave, { id: l.id, status: l.status });
+  }
+  return mapa;
 }
 
 export async function getChangeSetForPair(

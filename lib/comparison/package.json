@@ -41,6 +41,8 @@
     "./monitor-custo-fixo": "./src/monitor-custo-fixo.ts",
     "./monitor-equipe": "./src/monitor-equipe.ts",
     "./alteracoes-por-modulo": "./src/alteracoes-por-modulo.ts",
+    "./ultima-alteracao-financeira": "./src/ultima-alteracao-financeira.ts",
+    "./natureza-do-modulo": "./src/natureza-do-modulo.ts",
     "./par-mestre": "./src/par-mestre.ts",
     "./recorte-de-rubrica": "./src/recorte-de-rubrica.ts",
     "./agrupamento-por-veiculo": "./src/agrupamento-por-veiculo.ts",

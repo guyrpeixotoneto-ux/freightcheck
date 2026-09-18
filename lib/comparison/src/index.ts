@@ -36,6 +36,8 @@ export * from "./consumo";
 export * from "./monitor-custo-fixo";
 export * from "./monitor-equipe";
 export * from "./alteracoes-por-modulo";
+export * from "./ultima-alteracao-financeira";
+export * from "./natureza-do-modulo";
 export * from "./deduplicacao";
 export * from "./vinculos";
 export * from "./impacto-apurado";

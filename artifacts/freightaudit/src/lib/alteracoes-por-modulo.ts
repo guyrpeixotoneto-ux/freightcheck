@@ -1,7 +1,7 @@
 import {
   COBERTURAS,
   ROTULO_DA_COBERTURA,
-  type CartaoDeModulo,
+
   type CoberturaDoCatalogo,
 } from "@workspace/comparison/alteracoes-por-modulo";
 import { escreverModulo } from "@/lib/monitor-equipe";
@@ -92,7 +92,7 @@ export function escreverPares(pares: ParesDoCatalogo): string {
  * `escreverModulo` é a mesma função que o Monitor Equipe usa, para que o mesmo
  * assunto não tenha dois nomes em duas telas.
  */
-export function nomeDoCartao(cartao: CartaoDeModulo): string {
+export function nomeDoCartao(cartao: { rotulo: string | null; modulo: string }): string {
   return cartao.rotulo ?? escreverModulo(cartao.modulo);
 }
 
@@ -105,10 +105,27 @@ export function nomeDoCartao(cartao: CartaoDeModulo): string {
  * `enderecoDaAuditoria` do Monitor.
  */
 export function enderecoDoCartao(
-  cartao: CartaoDeModulo,
+  /*
+    A forma mínima, e não `CartaoDeModulo`: os dois catálogos — o por par e o de
+    últimas alterações — têm cartões de formatos diferentes e o **mesmo**
+    caminho para a auditoria. Tipar o mínimo comum é o que impede uma segunda
+    função de endereço, que divergiria no dia em que o par mudasse de nome.
+  */
+  cartao: {
+    rota: string;
+    par: { baseId: string; comparadaId: string } | null;
+  },
   contexto: { scopeHash: string | null; canal: string | null },
 ): string {
-  const q = new URLSearchParams();
+  /*
+    A rota pode **já** ter consulta própria — os assuntos do QLP trazem
+    `?quadro=OPERACIONAL`, que é o que distingue os dois quadros. Colar um
+    segundo `?` produzia um endereço que o roteador lê pela metade: a auditoria
+    abria no par de partida dela, e o número da tela não era o do cartão.
+    Nenhum erro aparecia; só dois números diferentes em duas telas.
+  */
+  const [caminho, existente = ""] = cartao.rota.split("?");
+  const q = new URLSearchParams(existente);
   if (cartao.par) {
     q.set("base", cartao.par.baseId);
     q.set("comparada", cartao.par.comparadaId);
@@ -116,7 +133,7 @@ export function enderecoDoCartao(
   if (contexto.scopeHash) q.set("scopeHash", contexto.scopeHash);
   if (contexto.canal) q.set("canal", contexto.canal);
   const query = q.toString();
-  return query === "" ? cartao.rota : `${cartao.rota}?${query}`;
+  return query === "" ? caminho : `${caminho}?${query}`;
 }
 
 /** O nome da cobertura, como a tela o escreve ao pé do cartão. */

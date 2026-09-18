@@ -38,6 +38,7 @@ const deIpva = (over: Partial<LinhaDeIpva> = {}): LinhaDeIpva => ({
   variacao: -83.55,
   estado: "ALTERADO",
   motivo: null,
+  baseNumerica: 15106.89,
   impactoAmount: -12621.02,
   impactoPeriodicidade: "ANUAL",
   impactoCalculado: true,

@@ -31,12 +31,28 @@ export function consultaDoIntervalo(
    * que ela sempre teve.
    */
   tipo?: TipoDaLinhaDoTempo | null,
+  /**
+   * O recorte por parâmetro, quando alguém chegou por um link que o nomeia.
+   *
+   * São `parameterKey`s (`FAMÍLIA|parâmetro`), e é o servidor que os produz —
+   * ver `parametrosDoHistorico`, no domínio. A tela nunca os monta: mandar
+   * código de atributo aqui abriria a leitura vazia sem erro nenhum, que é
+   * exatamente o defeito que a Evolução anual do FINAME já teve.
+   *
+   * Ele entra na chave junto com o resto: o histórico do FINAME e o histórico
+   * inteiro são perguntas diferentes sobre o mesmo intervalo, e compartilhar
+   * cache entre elas mostraria uma no lugar da outra.
+   */
+  parametros?: readonly string[] | null,
 ): URLSearchParams {
   const query = new URLSearchParams(consulta);
   query.delete("period");
   query.set("from", de);
   query.set("to", ate);
   if (tipo) query.set("tipo", tipo);
+  if (parametros && parametros.length > 0) {
+    query.set("parameters", [...parametros].join(","));
+  }
   return query;
 }
 
@@ -45,11 +61,12 @@ export function opcoesDoIntervalo(
   de: string,
   ate: string,
   tipo?: TipoDaLinhaDoTempo | null,
+  parametros?: readonly string[] | null,
 ): Pick<
   UseQueryOptions<Movimentos | null>,
   "queryKey" | "queryFn" | "staleTime"
 > {
-  const query = consultaDoIntervalo(consulta, de, ate, tipo);
+  const query = consultaDoIntervalo(consulta, de, ate, tipo, parametros);
   return {
     queryKey: ["changes-range", query.toString()],
     queryFn: () => fetchJsonOrNull<Movimentos>(`/changes/range?${query}`),

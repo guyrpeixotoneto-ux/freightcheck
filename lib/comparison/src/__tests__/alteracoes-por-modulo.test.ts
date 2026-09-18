@@ -39,6 +39,7 @@ function resumoDeIpva(): ResumoDoModulo {
     impactoDeOrigem: {
       modulo: "IPVA",
       porPeriodicidade: { ANUAL: -144874.5 },
+      basePorPeriodicidade: { ANUAL: 591325 },
       naoCalculavel: 47,
       foraDaSoma: 47,
       valoresNegativos: 1,
@@ -193,6 +194,7 @@ describe("o catálogo agrupa, e nunca funde régua nenhuma", () => {
       impactoDeOrigem: {
         modulo: "FINAME",
         porPeriodicidade: { MENSAL: -17171.54 },
+        basePorPeriodicidade: { MENSAL: 42756.51 },
         naoCalculavel: 0,
         foraDaSoma: 0,
         cobertasPorParcelas: 3,

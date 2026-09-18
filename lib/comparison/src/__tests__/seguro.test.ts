@@ -36,6 +36,7 @@ const linha = (over: Partial<LinhaDeSeguro> = {}): LinhaDeSeguro => ({
   variacao: 8.02,
   estado: "ALTERADO",
   motivo: null,
+  baseNumerica: 573.95,
   impactoAmount: 46.05,
   impactoPeriodicidade: "MENSAL",
   impactoCalculado: true,

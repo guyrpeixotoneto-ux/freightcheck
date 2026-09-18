@@ -60,6 +60,7 @@ export function LinhaDoTempoDeImpacto({
   periods,
   currentPeriod,
   tipo = null,
+  recorte = null,
 }: {
   consulta: URLSearchParams;
   periods: { date: string; label: string }[];
@@ -73,6 +74,14 @@ export function LinhaDoTempoDeImpacto({
    * atravessa a subárvore pelo contexto de `lib/tipo-da-linha-do-tempo`.
    */
   tipo?: TipoDaLinhaDoTempo | null;
+  /**
+   * O recorte por parâmetro e a ponta inicial pedidos no endereço.
+   *
+   * Vem de "Ver histórico", no catálogo de últimas alterações. Ele entra na
+   * **leitura**, e não num filtro de tela: `vehiclesTouched` só significa o que
+   * o rótulo promete quando quem recorta é o servidor.
+   */
+  recorte?: { de: string | null; parametros: string[] } | null;
 }) {
   const ordenadas = [...periods].sort((a, b) => a.date.localeCompare(b.date));
   const primeira = ordenadas[0]?.date;
@@ -114,7 +123,13 @@ export function LinhaDoTempoDeImpacto({
     resposta ou já está no cache, ou está a caminho.
   */
   const movimentos = useQuery({
-    ...opcoesDoIntervalo(consulta, primeira ?? currentPeriod, currentPeriod, tipo),
+    ...opcoesDoIntervalo(
+      consulta,
+      recorte?.de ?? primeira ?? currentPeriod,
+      currentPeriod,
+      tipo,
+      recorte?.parametros,
+    ),
     enabled: ordenadas.length > 1,
   });
 

@@ -191,6 +191,14 @@ export interface CartaoDeModulo {
   /** O impacto do módulo, balde a balde, como ele o publicou. Nunca somado. */
   porPeriodicidade: Record<string, number>;
   /**
+   * O que as **mesmas linhas** que o módulo somou valiam na vigência base.
+   *
+   * Vazio onde o módulo não publica montante. Serve ao cartão de última
+   * alteração, que escreve "antes" e "depois" sem refazer conta nenhuma: o
+   * número vem do mesmo laço da função de impacto do módulo.
+   */
+  basePorPeriodicidade: Record<string, number>;
+  /**
    * Por que não há dinheiro neste cartão, quando não há **por natureza**.
    *
    * Preenchida onde a ausência é estrutural (o QLP sem semântica confirmada, o
@@ -316,6 +324,7 @@ export function cartaoDoCustoFixo(resumo: ResumoDoModulo): CartaoDeModulo {
     ganhos: resumo.ganhos,
     perdas: resumo.perdas,
     porPeriodicidade: resumo.porPeriodicidade,
+    basePorPeriodicidade: resumo.impactoDeOrigem.basePorPeriodicidade,
     semImpacto: null,
     notas: notasDoCustoFixo(resumo.impactoDeOrigem),
   };
@@ -353,6 +362,7 @@ export function cartaoDeEquipe(
     ganhos: null,
     perdas: null,
     porPeriodicidade: {},
+    basePorPeriodicidade: {},
     semImpacto: entrada.semImpacto,
     notas: notasDaEquipe(resumo),
   };
@@ -372,6 +382,8 @@ export interface LinhaDeRecorte {
 
 export interface ImpactoDeRecorte {
   porPeriodicidade: Record<string, number>;
+  /** Opcional: só as rubricas que publicam montante o acumulam. */
+  basePorPeriodicidade?: Record<string, number>;
   naoCalculavel?: number;
   foraDaSoma: number;
 }
@@ -432,6 +444,7 @@ export function cartaoDeRubrica(entrada: {
     ganhos: null,
     perdas: null,
     porPeriodicidade: entrada.impacto.porPeriodicidade,
+    basePorPeriodicidade: entrada.impacto.basePorPeriodicidade ?? {},
     semImpacto: entrada.semImpacto ?? null,
     notas,
   };
@@ -468,6 +481,7 @@ export function cartaoAusente(entrada: {
     ganhos: null,
     perdas: null,
     porPeriodicidade: {},
+    basePorPeriodicidade: {},
     semImpacto: null,
     notas: [],
   };
