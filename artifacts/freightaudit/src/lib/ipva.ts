@@ -13,6 +13,7 @@ import {
   type MedidaDaVariavel,
   type VereditoDaAliquota,
 } from "@workspace/comparison/ipva";
+import { contarVeiculos } from "@workspace/comparison/agrupamento-por-veiculo";
 import { numeroParaCsv } from "@/lib/csv";
 import { formatBrl, formatNumber } from "@/lib/format";
 
@@ -264,7 +265,19 @@ export {
   type FiltrosDeIpva,
 };
 
-/** Quantas linhas cada aba tem, contadas sobre o mesmo recorte da tabela. */
+/**
+ * Quantos **veículos** cada aba tem, contados sobre o mesmo recorte da tabela.
+ *
+ * Veículos, e não linhas, desde que a tabela passou a listar placas: a aba e o
+ * rodapé contam o que a tela de fato desenha, e o número da aba é o número de
+ * linhas que o clique abre. Contando alterações, "Alterados (22)" abria uma
+ * tabela de dez placas — com o cartão "Veículos com alteração" dizendo 10 dois
+ * centímetros acima. A régua é uma só: {@link contarVeiculos}, a mesma que o
+ * agrupamento usa para montar as linhas.
+ *
+ * As abas podem somar mais do que "Todas": a placa com uma variável alterada e
+ * outra em conflito aparece nas duas, e uma vez só na tabela inteira.
+ */
 export function contagemPorAba(
   linhas: readonly LinhaDeIpva[],
   filtros: FiltrosDeIpva,
@@ -272,12 +285,11 @@ export function contagemPorAba(
   const contagem: Record<string, number> = { TODAS: 0 };
   for (const aba of ABAS_DE_ESTADO) {
     if (aba.chave === "TODAS") continue;
-    contagem[aba.chave] = filtrarLinhasDeIpva(linhas, {
-      ...filtros,
-      estado: aba.chave,
-    }).length;
+    contagem[aba.chave] = contarVeiculos(
+      filtrarLinhasDeIpva(linhas, { ...filtros, estado: aba.chave }),
+    );
   }
-  contagem.TODAS = filtrarLinhasDeIpva(linhas, { ...filtros, estado: "TODAS" }).length;
+  contagem.TODAS = contarVeiculos(filtrarLinhasDeIpva(linhas, { ...filtros, estado: "TODAS" }));
   return contagem;
 }
 

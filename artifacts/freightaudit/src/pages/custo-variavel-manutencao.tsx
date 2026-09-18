@@ -519,8 +519,11 @@ export default function AuditoriaDeManutencao() {
    * primeiro obrigaria cada filtro a decidir o que significa "uma placa
    * alterada", e a aba diria 33 sobre uma tabela de 7 linhas.
    *
-   * Por isso a contagem das abas continua em alterações: é o que elas contam. A
-   * paginação, essa sim, passou a ser de veículos — é o que a tabela mostra.
+   * O filtro continua sendo sobre a linha; a **contagem**, não: a aba conta as
+   * placas que sobraram do recorte dela (`contarVeiculos`), que é exatamente o
+   * que a tabela desenha quando se clica nela — e a mesma unidade dos cartões
+   * do topo. Enquanto ela contava linhas, "Alterados (22)" abria uma tabela de
+   * dez placas com o cartão "Veículos com alteração" dizendo 10 logo acima.
    */
   const veiculos = useMemo(() => agruparPorVeiculoDeManutencao(filtradas), [filtradas]);
   const naPagina = useMemo(

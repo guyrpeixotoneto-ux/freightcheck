@@ -115,9 +115,13 @@ import { cn } from "@/lib/utils";
  * e a placa entra na lista quando sobra alguma linha dela. Agrupar antes
  * obrigaria cada filtro a decidir o que é "uma placa alterada".
  *
- * **As abas contam alterações; a paginação conta veículos.** Cada uma conta o
- * que de fato mostra: a aba conta o que o filtro dela recorta, e o rodapé conta
- * as linhas que a tabela desenhou.
+ * **As abas, a paginação e os cartões contam veículos — a mesma unidade.** É o
+ * que a tabela desenha, e por isso o número da aba é o número de linhas que o
+ * clique nela abre. Enquanto a aba contava alterações, "Alterados (22)" abria
+ * uma tabela de dez placas, com o cartão "Veículos com alteração" dizendo 10 a
+ * dois centímetros dali: duas respostas para "quantos alterados?" na mesma
+ * tela. Quantas variáveis se moveram continua escrito — na nota do cartão e no
+ * gráfico "Alterações por variável" —, onde a palavra é outra.
  *
  * **O CSV continua por variável.** Ele é o arquivo que a auditoria confere linha
  * a linha, e agrupá-lo esconderia justamente a variável que se moveu.
@@ -588,8 +592,11 @@ export default function AuditoriaDeFiname() {
    * recorte. Agrupar primeiro obrigaria cada filtro a decidir o que significa
    * "uma placa alterada", e a aba diria 33 sobre uma tabela de 7 linhas.
    *
-   * Por isso a contagem das abas continua em alterações: é o que elas contam. A
-   * paginação, essa sim, passou a ser de veículos — é o que a tabela mostra.
+   * O filtro continua sendo sobre a linha; a **contagem**, não: a aba conta as
+   * placas que sobraram do recorte dela (`contarVeiculos`), que é exatamente o
+   * que a tabela desenha quando se clica nela — e a mesma unidade dos cartões
+   * do topo. Enquanto ela contava linhas, "Alterados (22)" abria uma tabela de
+   * dez placas com o cartão "Veículos com alteração" dizendo 10 logo acima.
    */
   const veiculos = useMemo(() => agruparPorVeiculo(filtradas), [filtradas]);
   const naPagina = useMemo(
