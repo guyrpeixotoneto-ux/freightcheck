@@ -52,16 +52,35 @@
  * linha de base e a entrega estática, mas não o pedágio.
  */
 
-const [, , BASE_BRUTA, COOKIE] = process.argv;
+const [, , BASE_BRUTA, EXCEDENTE] = process.argv;
 if (!BASE_BRUTA) {
-  console.error("\nUso: node scripts/diagnostico/pedagio-e-latencia.mjs https://<app>.replit.app <cookie>\n");
+  console.error("\nUso: node scripts/diagnostico/pedagio-e-latencia.mjs https://<app>.replit.app");
+  console.error("O cookie vem de FREIGHTCHECK_COOKIE, nunca por argumento.\n");
   process.exit(1);
 }
+if (EXCEDENTE !== undefined) {
+  console.error("\nEste script NÃO aceita o cookie por argumento: ele ficaria no histórico do");
+  console.error("shell e visível em `ps aux`. Exporte FREIGHTCHECK_COOKIE e rode de novo:\n");
+  console.error("  read -rs FREIGHTCHECK_COOKIE && export FREIGHTCHECK_COOKIE\n");
+  process.exit(2);
+}
 const BASE = BASE_BRUTA.replace(/\/+$/, "");
+const COOKIE = process.env.FREIGHTCHECK_COOKIE || "";
 const N = Number(process.env.N || 40);
+const JSON_SAIDA = process.env.FASE0_JSON || null;
+/** Tudo que for para o relatório passa por aqui. A credencial nunca sai. */
+const relatorio = { alvo: BASE, em: new Date().toISOString(), amostras: N, medicoes: [], pedagio: null, rotas: [], processo: null };
 
-/** As rotas do caminho crítico das telas mais lentas da auditoria (§4.1). */
-const ROTAS_DE_PRODUTO = (process.env.ROTAS ?? [
+/**
+ * As rotas do caminho crítico das telas mais lentas da auditoria (§4.1).
+ *
+ * A variável é `ROTAS_API`, e não `ROTAS`, porque `medir-no-ar.mjs` também lê
+ * uma lista — de **telas**. Com um nome só, exportar a lista de um corrompia
+ * a entrada do outro em silêncio: as telas entravam aqui como se fossem
+ * endpoints, respondiam o `index.html` e apareciam na tabela de API com 3.829
+ * bytes e "pedágio 100%". Aconteceu na primeira execução do orquestrador.
+ */
+const ROTAS_DE_PRODUTO = (process.env.ROTAS_API ?? [
   "/api/contexts",
   "/api/change-sets",
   "/api/imports",
@@ -73,6 +92,12 @@ const ROTAS_DE_PRODUTO = (process.env.ROTAS ?? [
   "/api/curation/queue",
   "/api/composition/fleet",
 ].join(",")).split(",").filter(Boolean);
+
+if (ROTAS_DE_PRODUTO.some((r) => !r.startsWith("/api/"))) {
+  console.error("\nROTAS_API só aceita caminhos sob /api/. Recebido:\n  " +
+    ROTAS_DE_PRODUTO.filter((r) => !r.startsWith("/api/")).join("\n  ") + "\n");
+  process.exit(3);
+}
 
 async function medir(caminho, comCookie) {
   const t0 = process.hrtime.bigint();
@@ -124,6 +149,8 @@ const healthz = await amostrar("/api/healthz", false);
 const buildSem = await amostrar("/api/build", false);
 console.log(linha(healthz, "/api/healthz (0 consultas)"));
 console.log(linha(buildSem, "/api/build sem cookie (0 consultas)"));
+relatorio.medicoes.push({ rotulo: "/api/healthz (0 consultas)", ...healthz },
+                        { rotulo: "/api/build sem cookie (0 consultas)", ...buildSem });
 
 if (healthz.n === 0) {
   console.error("\n\x1b[1;31mNenhuma resposta. Confira a URL e se o deployment está no ar.\x1b[0m\n");
@@ -138,10 +165,21 @@ if (COOKIE) {
   const sessao = await amostrar("/api/auth/session", true);
   console.log(linha(buildCom, "/api/build com cookie (3 consultas)"));
   console.log(linha(sessao, "/api/auth/session (10 consultas)"));
+  relatorio.medicoes.push({ rotulo: "/api/build com cookie (3 consultas)", ...buildCom },
+                          { rotulo: "/api/auth/session (10 consultas)", ...sessao });
 
   if (buildCom.status === 200 && buildSem.status === 200) {
     pedagio = { p50: buildCom.p50 - buildSem.p50, p95: buildCom.p95 - buildSem.p95 };
     const rtt = pedagio.p50 / 3;
+    /* Uma diferença de percentis pode sair negativa quando as duas medições
+       ficam dentro do ruído do relógio — e um "pedágio de −0,3 ms" seria uma
+       afirmação falsa sobre o banco. Abaixo de 0,5 ms a resposta honesta é
+       que o pedágio não se distingue do ruído. */
+    const abaixoDoRuido = pedagio.p50 < 0.5;
+    relatorio.pedagio = {
+      p50: r1(pedagio.p50), p95: r1(Math.max(0, pedagio.p95)), rttPorConsulta: r1(rtt),
+      veredito: abaixoDoRuido ? "ABAIXO_DO_RUIDO" : rtt < 2 ? "MESMA_REGIAO" : rtt < 10 ? "PROXIMO" : "DISTANTE",
+    };
     console.log(`\n  \x1b[1mpedágio (3 consultas)\x1b[0m   p50 ${r1(pedagio.p50)} ms   p95 ${r1(pedagio.p95)} ms`);
     console.log(`  \x1b[1mRTT estimado até o banco\x1b[0m  ~${r1(rtt)} ms por consulta`);
     if (rtt < 2)       console.log("  \x1b[1;32m  ▸ Banco na mesma região. O pedágio é barato; R4 continua alto, não crítico.\x1b[0m");
@@ -165,6 +203,7 @@ if (COOKIE) {
       sufixo = `   pedágio ≈ ${Math.round(parte)}% do total`;
     }
     console.log(linha(r) + sufixo);
+    relatorio.rotas.push({ ...r, parteDoPedagio: pedagio && r.p50 > 0 ? Math.round(Math.min(100, (pedagio.p50 / r.p50) * 100)) : null });
   }
 }
 
@@ -174,8 +213,14 @@ try {
   const r = await fetch(`${BASE}/api/build`, { headers: COOKIE ? { cookie: `freightcheck_session=${COOKIE}` } : {} });
   const b = await r.json();
   console.log(`  pid ${b.pid}  ·  de pé há ${b.uptimeSeconds}s  ·  startedAt ${b.startedAt}  ·  revision ${b.revision}`);
+  relatorio.processo = { pid: b.pid, uptimeSeconds: b.uptimeSeconds, startedAt: b.startedAt, revision: b.revision, builtAt: b.builtAt };
   console.log("  Rode de novo depois de 15 min de ociosidade: pid diferente com a mesma revision = o Autoscale recolheu e subiu de novo.");
 } catch {
   console.log("  /api/build não respondeu JSON.");
+}
+
+if (JSON_SAIDA) {
+  const { writeFileSync } = await import("node:fs");
+  writeFileSync(JSON_SAIDA, JSON.stringify(relatorio, null, 2));
 }
 console.log("");

@@ -16,6 +16,11 @@
 #
 # SOMENTE LEITURA: só faz GET e HEAD. Não escreve, não publica, não muda nada.
 #
+# Não recebe credencial nenhuma: tudo aqui é acesso público.
+#
+# Com FASE0_JSON=<arquivo> grava também um resumo em JSON, para o orquestrador
+# `fase-0-publicado.sh` montar o relatório consolidado.
+#
 # Uso:  ./scripts/diagnostico/entrega-estatica.sh https://<app>.replit.app
 # ===========================================================================
 set -Eeuo pipefail
@@ -23,6 +28,11 @@ set -Eeuo pipefail
 URL="${1:-}"
 [ -n "$URL" ] || { printf '\n\033[1;31mUso:\033[0m %s https://<app>.replit.app\n\n' "$0" >&2; exit 1; }
 URL="${URL%/}"
+
+JSON_SAIDA="${FASE0_JSON:-}"
+JSON_ITENS=""
+# Escapa o que vai para dentro de uma string JSON: barra invertida e aspas.
+json_txt() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }
 
 azul()  { printf '\n\033[1;36m%s\033[0m\n' "$1"; }
 alerta(){ printf '\033[1;33m  ▸ %s\033[0m\n' "$1"; }
@@ -88,12 +98,20 @@ medir_um() {
   fi
 
   # Revisita: o navegador manda o validador de volta. 304 é cache útil.
+  local revisita="sem-validador"
   if [ -n "$etag" ]; then
     local st; st="$(curl -sS -o /dev/null -H "if-none-match: $etag" -w '%{http_code}' "$alvo" || echo 000)"
+    revisita="$st"
     if [ "$st" = "304" ]; then bom "Revisita: 304 com if-none-match — o navegador não rebaixa este arquivo."
     else alerta "Revisita: $st com if-none-match — o arquivo é rebaixado inteiro a cada abertura."; fi
   else
     alerta "Sem ETag: a revisita não tem validador para usar."
+  fi
+
+  if [ -n "$JSON_SAIDA" ]; then
+    JSON_ITENS="${JSON_ITENS:+$JSON_ITENS,}$(printf '{"rotulo":"%s","caminho":"%s","contentType":"%s","contentEncoding":"%s","cacheControl":"%s","etag":"%s","vary":"%s","bruto":%s,"rede":%s,"revisita":"%s"}' \
+      "$(json_txt "$rotulo")" "$(json_txt "$caminho")" "$(json_txt "${tipo:-}")" "$(json_txt "${escolhida:-}")" \
+      "$(json_txt "${cc:-}")" "$(json_txt "${etag:-}")" "$(json_txt "${vary:-}")" "${bruto:-0}" "${rede:-0}" "$revisita")"
   fi
 }
 
@@ -112,6 +130,16 @@ for ae in "gzip, deflate, br, zstd" "gzip" "br" "identity"; do
   esc="$(curl -sSI -H "accept-encoding: $ae" "$URL/" | grep -i '^content-encoding:' | tr -d '\r' | cut -d' ' -f2- || true)"
   printf '    accept-encoding: %-26s → %s\n' "$ae" "${esc:-<nenhuma>}"
 done
+
+if [ -n "$JSON_SAIDA" ]; then
+  NEG=""
+  for ae in "gzip, deflate, br, zstd" "gzip" "br" "identity"; do
+    esc="$(curl -sSI -H "accept-encoding: $ae" "$URL/" | grep -i '^content-encoding:' | tr -d '\r' | cut -d' ' -f2- || true)"
+    NEG="${NEG:+$NEG,}$(printf '{"aceita":"%s","escolhida":"%s"}' "$(json_txt "$ae")" "$(json_txt "${esc:-}")")"
+  done
+  printf '{"alvo":"%s","em":"%s","assets":[%s],"negociacao":[%s]}\n' \
+    "$(json_txt "$URL")" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$JSON_ITENS" "$NEG" > "$JSON_SAIDA"
+fi
 
 azul "Pronto."
 echo "  Cole esta saída na Fase 0. A linha que decide o plano é o content-encoding do JavaScript."

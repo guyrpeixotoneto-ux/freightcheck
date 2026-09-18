@@ -5,9 +5,10 @@ Fases 1–3.
 
 > **Nada foi alterado no produto.** Nenhuma otimização, índice, cache,
 > infraestrutura ou mudança na política de repetição. O que entrou no
-> repositório são **três scripts de diagnóstico somente-leitura**, em
+> repositório são **cinco scripts de diagnóstico somente-leitura**, em
 > `scripts/diagnostico/`, ao lado dos que já existiam — eles são o instrumento
-> da Fase 0, não uma correção.
+> da Fase 0, não uma correção. Nenhum arquivo de `artifacts/` ou `lib/` foi
+> tocado.
 
 ---
 
@@ -73,11 +74,66 @@ Qualquer um destes resolve, em ordem de esforço:
 
 ## 2. O instrumento, pronto para rodar
 
-Três scripts, escritos e **validados contra a pilha local de produção** (bundle
-de produção + API em `NODE_ENV=production`), onde reproduzem exatamente os
-números da auditoria. Todos são somente-leitura.
+**Um comando só.** O orquestrador roda as três medições, confere os
+pré-requisitos, lê a credencial sem ecoar, redige qualquer vazamento e escreve
+um relatório consolidado e auditável.
+
+```bash
+./scripts/diagnostico/fase-0-publicado.sh https://<app>.replit.app
+```
+
+Ele pede o cookie em entrada silenciosa. Para não digitar na hora:
+
+```bash
+read -rs FREIGHTCHECK_COOKIE && export FREIGHTCHECK_COOKIE
+./scripts/diagnostico/fase-0-publicado.sh https://<app>.replit.app
+```
+
+O que ele produz, em `./fase-0-<carimbo>/`:
+
+| Arquivo | Conteúdo |
+|---|---|
+| `RELATORIO.md` | o consolidado — **é este que você me manda** |
+| `bruto/1-estatica.txt`, `2-pedagio.txt`, `3-navegador.txt` | a saída crua de cada etapa, também anexada ao relatório |
+| `json/*.json` | os mesmos dados estruturados |
+
+Um exemplo completo da forma da saída está em
+[`docs/exemplos/fase-0-saida-exemplo.md`](exemplos/fase-0-saida-exemplo.md) —
+gerado contra a pilha local, com o aviso no topo de que os números **não** valem
+como evidência do ar.
+
+### 2.0 A credencial
+
+O cookie **nunca** entra por argumento: em `argv` ele fica no histórico do shell
+e aparece em `ps aux` para qualquer processo da máquina. Os três scripts o leem
+só de `FREIGHTCHECK_COOKIE`, **recusam** um argumento a mais em vez de aceitá-lo
+calados, e nenhum deles imprime o valor.
+
+O orquestrador ainda faz duas coisas por cima disso:
+
+1. passa o relatório inteiro por uma redação que troca a credencial por
+   `<REDIGIDO>` — cinto e suspensório, caso uma biblioteca futura resolva ecoar
+   um cabeçalho;
+2. no fim, **procura a credencial em todos os arquivos de saída** e se recusa a
+   terminar se encontrar.
+
+Como obter o valor, sem expor nada: abra o FreightCheck publicado já logado →
+DevTools → Application → Cookies → `freightcheck_session` → copiar.
+
+### 2.0.1 Somente leitura, e o que isso quer dizer aqui
+
+Só há `GET` e `HEAD`. Nada escreve no banco, na configuração, no cache ou no
+deployment. A única escrita é o diretório de saída, na máquina onde o comando
+roda.
+
+O 503 do cenário H5 é injetado **dentro do navegador** (`page.route`): o
+deployment nunca recebe nada diferente do que um usuário mandaria. E o teste de
+concorrência da auditoria **não** faz parte da Fase 0, de propósito — não se põe
+carga num ambiente de produção sem combinar antes.
 
 ### 2.1 Entrega estática — item 1 do pedido
+
+Rodada pelo orquestrador; também roda sozinha:
 
 ```bash
 ./scripts/diagnostico/entrega-estatica.sh https://<app>.replit.app
@@ -103,11 +159,9 @@ Saída validada localmente:
 ### 2.2 Pedágio e latência até o banco — item 2 do pedido
 
 ```bash
-node scripts/diagnostico/pedagio-e-latencia.mjs https://<app>.replit.app <cookie>
+read -rs FREIGHTCHECK_COOKIE && export FREIGHTCHECK_COOKIE
+node scripts/diagnostico/pedagio-e-latencia.mjs https://<app>.replit.app
 ```
-
-O cookie é o `freightcheck_session` de uma sessão aberta (DevTools →
-Application → Cookies).
 
 **Como ele mede o RTT até o Neon sem credencial de banco e sem shell no
 deployment.** Conferido no log do Postgres em 18/09/2026:
@@ -157,8 +211,8 @@ a mesma revision** é a assinatura do cold start do Autoscale.
 ### 2.3 As cinco hipóteses no ar — item 3 do pedido
 
 ```bash
-npm install playwright-core@1.50.1 --no-save --prefix /tmp/pw
-node scripts/diagnostico/medir-no-ar.mjs https://<app>.replit.app <cookie>
+npm install playwright-core@1.50.1 --no-save --prefix /tmp/pw   # o orquestrador faz isto sozinho
+node scripts/diagnostico/medir-no-ar.mjs https://<app>.replit.app
 ```
 
 | Hipótese | Como é conferida |
@@ -350,7 +404,7 @@ aprovação.
 
 O que preciso de você para destravar a Fase 0 é uma destas três:
 
-1. rodar os três comandos do §2 e colar a saída;
+1. rodar **o comando do §2** e me mandar o `RELATORIO.md`;
 2. me passar a URL do app **e** liberar `*.replit.app` na política de rede desta sessão;
 3. rodar do Shell do Replit — é o único lugar de onde a medição API→Neon é de dentro.
 

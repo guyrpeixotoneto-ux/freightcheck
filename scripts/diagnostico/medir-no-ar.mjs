@@ -23,33 +23,61 @@
  *
  * SOMENTE LEITURA: navega e observa. Não clica em nada que escreva.
  *
+ * A credencial nunca entra pela linha de comando: um cookie em `argv` fica no
+ * histórico do shell e aparece em `ps aux`. Este script lê só de
+ * `FREIGHTCHECK_COOKIE`, recusa um terceiro argumento, e nunca imprime o valor.
+ *
  * Antes:
  *   npm install playwright-core@1.50.1 --no-save --prefix /tmp/pw
  *
  * Uso:
- *   node scripts/diagnostico/medir-no-ar.mjs https://<app>.replit.app <cookie>
+ *   read -rs FREIGHTCHECK_COOKIE && export FREIGHTCHECK_COOKIE
+ *   node scripts/diagnostico/medir-no-ar.mjs https://<app>.replit.app
  *
  * O cookie é o valor de `freightcheck_session` de uma sessão aberta
  * (DevTools → Application → Cookies).
+ *
+ * Com `FASE0_JSON=<arquivo>` grava também um resumo em JSON, sem a credencial.
  */
 
 import { chromium } from "/tmp/pw/node_modules/playwright-core/index.mjs";
 
-const [, , BASE_BRUTA, COOKIE] = process.argv;
+const [, , BASE_BRUTA, EXCEDENTE] = process.argv;
+const COOKIE = process.env.FREIGHTCHECK_COOKIE || "";
 if (!BASE_BRUTA || !COOKIE) {
-  console.error("\nUso: node scripts/diagnostico/medir-no-ar.mjs https://<app>.replit.app <cookie>\n");
+  console.error("\nUso: node scripts/diagnostico/medir-no-ar.mjs https://<app>.replit.app");
+  console.error("O cookie vem de FREIGHTCHECK_COOKIE:\n");
+  console.error("  read -rs FREIGHTCHECK_COOKIE && export FREIGHTCHECK_COOKIE\n");
   process.exit(1);
 }
+if (EXCEDENTE !== undefined) {
+  console.error("\nEste script NÃO aceita o cookie por argumento: ele ficaria no histórico do");
+  console.error("shell e visível em `ps aux`. Exporte FREIGHTCHECK_COOKIE e rode de novo.\n");
+  process.exit(2);
+}
+const JSON_SAIDA = process.env.FASE0_JSON || null;
+const relatorio = { alvo: null, em: new Date().toISOString(), bundle: null, rotas: [],
+                    duplicadas: [], h1: null, h3: null, h5: null, errosDeConsole: [] };
 const BASE = BASE_BRUTA.replace(/\/+$/, "");
 const DOMINIO = new URL(BASE).hostname;
 const EXECUTAVEL = process.env.CHROMIUM ?? "/opt/pw-browsers/chromium-1194/chrome-linux/chrome";
 
-/** Uma amostra pequena e representativa das 65 rotas — as mais lentas do §4.1
- *  e algumas baratas, para o contraste. */
-const ROTAS = (process.env.ROTAS ?? [
+/**
+ * Uma amostra pequena e representativa das 65 rotas — as mais lentas do §4.1 e
+ * algumas baratas, para o contraste.
+ *
+ * `ROTAS_TELA`, e não `ROTAS`: `pedagio-e-latencia.mjs` lê a sua própria lista,
+ * de endpoints. Ver a nota lá sobre o que a colisão produziu.
+ */
+const ROTAS = (process.env.ROTAS_TELA ?? [
   "/panorama", "/dre", "/curadoria", "/linha-do-tempo", "/resumo-executivo",
   "/dashboard", "/composicao", "/alteracoes", "/vigencia", "/custo-fixo-finame",
 ].join(",")).split(",").filter(Boolean);
+
+if (ROTAS.some((r) => r.startsWith("/api/"))) {
+  console.error("\nROTAS_TELA é lista de telas, não de endpoints. Recebido /api/… — use ROTAS_API no outro script.\n");
+  process.exit(3);
+}
 
 const PARTIDA = "/visao-gerencial";
 const LIMITE = 45_000;
@@ -108,6 +136,7 @@ async function irPara(rota) {
   return { casca, util, chamadas: api.map((c) => c.u) };
 }
 
+relatorio.alvo = BASE;
 console.log(`\nAlvo: ${BASE}   ·   ${new Date().toISOString()}`);
 
 // --- H4: o bundle ----------------------------------------------------------
@@ -134,6 +163,7 @@ console.log(`  na rede / bruto         ${kb(bundle.rede)} / ${kb(bundle.bruto)} 
 console.log(`  maior chunk             ${kb(bundle.maior)}`);
 console.log(`  FCP / DCL               ${bundle.fcp} ms / ${bundle.dcl} ms`);
 console.log(`  primeira abertura útil  ${abertura.util ?? "não estabilizou"} ms`);
+relatorio.bundle = { ...bundle, aberturaUtilMs: abertura.util };
 console.log(bundle.arquivos <= 2
   ? "  \x1b[1;33m  ▸ CONFIRMADO: chunk único. R2 vale no ar.\x1b[0m"
   : `  \x1b[1;32m  ▸ Há ${bundle.arquivos} arquivos — o bundle já está dividido.\x1b[0m`);
@@ -172,7 +202,12 @@ for (const rota of ROTAS) {
   const d = a.util !== null && b.util !== null ? `${Math.round(((b.util - a.util) / a.util) * 100)}%` : "—";
   if (b.chamadas.length > 0) refazem++;
   console.log(`  | ${rota} | ${a.casca ?? "—"} | ${a.util ?? "∞"} | ${a.chamadas.length} | ${b.util ?? "∞"} | ${b.chamadas.length} | ${d} |`);
+  relatorio.rotas.push({ rota, cascaMs: a.casca, primeiraUtilMs: a.util, primeiraReq: a.chamadas.length,
+                         revisitaUtilMs: b.util, revisitaReq: b.chamadas.length, deltaPct: d,
+                         chamadasPrimeira: a.chamadas.map((u) => u.split("?")[0]) });
 }
+relatorio.h3 = { refazem, total: ROTAS.length, esperaSegundos: ESPERA_S,
+                 veredito: refazem > ROTAS.length / 2 ? "CONFIRMADO" : "NAO_CONFIRMADO" };
 console.log(refazem > ROTAS.length / 2
   ? `\n  \x1b[1;33m  ▸ H3 CONFIRMADO: ${refazem} de ${ROTAS.length} rotas refazem chamadas na revisita, ${ESPERA_S}s depois.\x1b[0m`
   : `\n  \x1b[1;32m  ▸ H3 não se confirmou: só ${refazem} de ${ROTAS.length} refazem, ${ESPERA_S}s depois.\x1b[0m`);
@@ -201,7 +236,10 @@ for (const rota of ROTAS) {
   const proprias = saiu.filter((u) => !CASCA.some((c) => u.startsWith(c)));
   if (daCasca.length < 4) cascaEmTodas = false;
   console.log(`  | ${rota} | ${daCasca.length} | ${proprias.length} | ${util ?? "∞"} ms |`);
+  const linhaDaRota = relatorio.rotas.find((x) => x.rota === rota);
+  if (linhaDaRota) Object.assign(linhaDaRota, { aberturaCasca: daCasca.length, aberturaProprias: proprias.length, aberturaUtilMs: util });
 }
+relatorio.h1 = { veredito: cascaEmTodas ? "CONFIRMADO" : "NAO_CONFIRMADO" };
 console.log(cascaEmTodas
   ? "\n  \x1b[1;33m  ▸ H1 CONFIRMADO: toda abertura paga a casca inteira.\x1b[0m"
   : "\n  \x1b[1;32m  ▸ H1 não se confirmou no ar.\x1b[0m");
@@ -212,7 +250,7 @@ let houve = false;
 for (const rota of ROTAS) {
   const c = new Map();
   for (const u of primeira.get(rota).chamadas) c.set(u, (c.get(u) ?? 0) + 1);
-  for (const [u, n] of c) if (n > 1) { console.log(`  ${rota.padEnd(22)} ${u.split("?")[0]} ×${n}`); houve = true; }
+  for (const [u, n] of c) if (n > 1) { console.log(`  ${rota.padEnd(22)} ${u.split("?")[0]} ×${n}`); houve = true; relatorio.duplicadas.push({ rota, url: u.split("?")[0], vezes: n }); }
 }
 if (!houve) console.log("  nenhuma");
 
@@ -235,11 +273,18 @@ while (Date.now() - tD < 40_000) {
 await page.unroute("**/api/dre/fleet*");
 console.log(`  esqueleto aparece em          ${esqueletoEm ?? "—"} ms`);
 console.log(`  a tela diz que houve erro em  ${apareceu ?? "não disse em 40 s"} ms`);
+relatorio.h5 = { esqueletoEmMs: esqueletoEm, erroVisivelEmMs: apareceu,
+                 veredito: apareceu === null || apareceu > 5000 ? "CONFIRMADO" : "NAO_CONFIRMADO" };
 console.log(apareceu === null || apareceu > 5000
   ? "  \x1b[1;33m  ▸ H5 CONFIRMADO: a tela fica calada por mais de 5 s.\x1b[0m"
   : "  \x1b[1;32m  ▸ H5 não se confirmou no ar.\x1b[0m");
 
 if (erros.length) console.log(`\n\x1b[1;36mErros de console\x1b[0m\n  ${[...new Set(erros)].slice(0, 6).join("\n  ")}`);
 
+relatorio.errosDeConsole = [...new Set(erros)].slice(0, 10);
 await navegador.close();
+if (JSON_SAIDA) {
+  const { writeFileSync } = await import("node:fs");
+  writeFileSync(JSON_SAIDA, JSON.stringify(relatorio, null, 2));
+}
 console.log("");
