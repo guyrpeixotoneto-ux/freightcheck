@@ -7,9 +7,11 @@ import {
   SERIES_DA_BARRA,
   TETO_DA_SERIE,
   competenciaInicial,
+  pontosDeImpacto,
   recorteDaJanela,
   type PontoDeImpacto,
 } from "../grafico-de-impacto";
+import type { RangeEntry } from "@/lib/analise";
 
 /**
  * Onde cada barra começa e termina — contra o empilhador do próprio Recharts.
@@ -228,5 +230,118 @@ describe("competenciaInicial", () => {
 describe("TETO_DA_SERIE", () => {
   it("cabe mais que a maior janela por meses", () => {
     expect(TETO_DA_SERIE).toBeGreaterThan(Math.max(...QUANTIDADES));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// pontosDeImpacto — qual balde de periodicidade vai para a tela
+// ---------------------------------------------------------------------------
+
+/**
+ * A captura que motivou este bloco: agosto/2026 · 2ª quinzena, 151 alterações e
+ * **nenhuma** com valor apurado.
+ *
+ * Sem valor apurado a vigência não tem periodicidade a preferir, e o desempate
+ * passava a ser `periodicidades[0]` — a lista que `seriesDoIntervalo` devolve
+ * **em ordem alfabética**. `ANUAL` vem antes de `MENSAL`, e a tela publicou seis
+ * vigências coladas no zero, com o eixo em R$/ano, ao lado de um seletor que
+ * anunciava R$ 73.772 e −R$ 44.464 nas mesmas vigências.
+ */
+const VIGENCIAS = [
+  { date: "2026-07-01", label: "01/07/2026" },
+  { date: "2026-08-01", label: "01/08/2026" },
+];
+
+function entrada(
+  periodo: string,
+  periodicity: string | null,
+  amount: number | null,
+  confidence = "CALCULATED",
+): RangeEntry {
+  return {
+    key: `${periodo}-${periodicity}-${amount}`,
+    period: periodo,
+    periodLabel: periodo,
+    parameterKey: "financiamento",
+    parameterName: "Financiamento",
+    family: "Aquisição e financiamento",
+    attributeCode: null,
+    title: "Financiamento",
+    equipment: "CAVALO",
+    entityType: "CAVALO",
+    vehicles: 1,
+    unit: null,
+    amount,
+    periodicity,
+    confidence,
+    reason: null,
+    badge: "x",
+    badgeLabel: "x",
+    group: {
+      key: "g",
+      attributeCode: null,
+      entityType: null,
+      changeType: "VALUE_CHANGED",
+      comparability: "COMPARABLE",
+      vehicles: 1,
+    } as RangeEntry["group"],
+  };
+}
+
+describe("pontosDeImpacto — a periodicidade desenhada", () => {
+  const INTERVALO = [
+    entrada("2026-07-01", "MENSAL", 73772),
+    entrada("2026-08-01", "MENSAL", -44464),
+    entrada("2026-07-01", "ANUAL", 4),
+  ];
+
+  it("a vigência aberta manda quando ela tem valor apurado", () => {
+    const { periodicity } = pontosDeImpacto(VIGENCIAS, INTERVALO, "ANUAL");
+    expect(periodicity).toBe("ANUAL");
+  });
+
+  it("sem preferência, desenha o balde de maior magnitude — não o primeiro do alfabeto", () => {
+    const { pontos, periodicity } = pontosDeImpacto(VIGENCIAS, INTERVALO, null);
+    expect(periodicity).toBe("MENSAL");
+    expect(pontos.map((p) => p.liquido)).toEqual([73772, -44464]);
+  });
+
+  it("preferência que o intervalo não tem também cai na magnitude", () => {
+    const { periodicity } = pontosDeImpacto(VIGENCIAS, INTERVALO, "SEM_PERIODICIDADE");
+    expect(periodicity).toBe("MENSAL");
+  });
+
+  /*
+    O líquido não pode mandar no desempate: uma carteira cujo mês fecha zerado
+    por compensação é a mais movimentada que existe, e escolher pelo líquido a
+    trocaria por um balde de quatro reais — exatamente o gráfico plano que esta
+    correção desfaz.
+  */
+  it("balde que se anula no líquido continua sendo o dominante", () => {
+    const compensado = [
+      entrada("2026-07-01", "MENSAL", 120000),
+      entrada("2026-08-01", "MENSAL", -120000),
+      entrada("2026-07-01", "ANUAL", 4),
+    ];
+    const { periodicity, pontos } = pontosDeImpacto(VIGENCIAS, compensado, null);
+    expect(periodicity).toBe("MENSAL");
+    expect(pontos.map((p) => p.liquido)).toEqual([120000, -120000]);
+  });
+
+  it("intervalo sem nada valorado não desenha, e diz que não desenhou", () => {
+    const semValor = [
+      entrada("2026-07-01", null, null, "NOT_CALCULABLE"),
+      entrada("2026-08-01", "MENSAL", 0),
+    ];
+    expect(pontosDeImpacto(VIGENCIAS, semValor, null)).toEqual({ pontos: [], periodicity: null });
+  });
+
+  it("empate mantém ordem estável — o gráfico não troca de eixo entre dois quadros", () => {
+    const empatado = [
+      entrada("2026-07-01", "MENSAL", 1000),
+      entrada("2026-07-01", "ANUAL", 1000),
+    ];
+    expect(pontosDeImpacto(VIGENCIAS, empatado, null).periodicity).toBe("ANUAL");
+    expect(pontosDeImpacto(VIGENCIAS, [...empatado].reverse(), null).periodicity).toBe("ANUAL");
   });
 });

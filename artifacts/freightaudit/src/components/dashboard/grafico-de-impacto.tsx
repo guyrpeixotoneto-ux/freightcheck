@@ -86,8 +86,8 @@ export interface PontoDeImpacto {
  * Não reimplementa a soma de ganhos/perdas por vigência: `seriesDoIntervalo`
  * (a mesma conta que a linha do tempo antiga usava) já devolve isso por
  * periodicidade; esta função só escolhe a periodicidade certa — a da vigência
- * corrente quando o intervalo tem dado nela, senão a que tiver mais
- * periodicidades disponíveis — e soma o líquido de cada ponto, que é
+ * corrente quando o intervalo tem dado nela, senão a de maior magnitude no
+ * intervalo (`dominanteDoIntervalo`) — e soma o líquido de cada ponto, que é
  * `ganhos + perdas` porque `perdas` já vem negativo.
  *
  * `periodicity` sai `null` quando o intervalo não tem nenhuma alteração
@@ -105,7 +105,7 @@ export function pontosDeImpacto(
   const periodicidade =
     periodicidadePreferida && periodicidades.includes(periodicidadePreferida)
       ? periodicidadePreferida
-      : periodicidades[0];
+      : dominanteDoIntervalo(valor, periodicidades);
 
   const base = valor.get(periodicidade) ?? [];
   return {
@@ -115,6 +115,51 @@ export function pontosDeImpacto(
     })),
     periodicity: periodicidade,
   };
+}
+
+/**
+ * A periodicidade que o intervalo tem mais — o desempate de quando a vigência
+ * aberta não tem preferência a impor.
+ *
+ * Era `periodicidades[0]`, e `periodicidades` vem de `seriesDoIntervalo`
+ * ordenada **alfabeticamente**: `ANUAL` antes de `MENSAL`. Numa vigência sem
+ * valor apurado — que é exatamente quando não há preferência — o gráfico caía
+ * no balde `ANUAL`, e uma carteira que é mensal com um punhado de linhas anuais
+ * desenhava seis vigências coladas no zero, com o eixo em R$/ano, ao lado de um
+ * seletor que anunciava R$ 73.772 e −R$ 44.464 nas mesmas vigências. O dinheiro
+ * todo estava no balde que não foi desenhado.
+ *
+ * A régua agora é a mesma de `janelaDoImpacto` (`lib/panorama.ts`): manda a
+ * magnitude, não o alfabeto. Isso não é gosto — os dois cartões dividem a dobra
+ * lado a lado no Panorama, e é a divergência calada entre eles que este
+ * desempate existe para não ter.
+ *
+ * A soma é **bruta** (|ganhos| + |perdas|), e não o líquido: um balde de
+ * R$ 120 mil de ganho contra R$ 120 mil de perda tem líquido zero e é a
+ * vigência mais movimentada do semestre — escolher pelo líquido o descartaria
+ * em favor de um balde de R$ 4.
+ *
+ * Empate escolhe o primeiro de `periodicidades`, que segue alfabético: com dois
+ * baldes de mesma magnitude não há resposta melhor, e uma ordem estável é o que
+ * impede o gráfico de trocar de eixo entre dois quadros do mesmo dado.
+ */
+function dominanteDoIntervalo(
+  valor: Map<string, { ganhos: number; perdas: number }[]>,
+  periodicidades: string[],
+): string {
+  let escolhida = periodicidades[0];
+  let maior = -1;
+  for (const periodicidade of periodicidades) {
+    const total = (valor.get(periodicidade) ?? []).reduce(
+      (soma, ponto) => soma + Math.abs(ponto.ganhos) + Math.abs(ponto.perdas),
+      0,
+    );
+    if (total > maior) {
+      maior = total;
+      escolhida = periodicidade;
+    }
+  }
+  return escolhida;
 }
 
 /**
