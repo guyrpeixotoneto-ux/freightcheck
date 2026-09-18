@@ -32,6 +32,14 @@ export interface VigenciaDoPar {
    * possíveis é — sem comparação calculada, ou primeira do histórico.
    */
   nota?: { curto: string; porque: string } | null;
+  /**
+   * A grandeza que a coluna não publica — ver `tambemEmOutraPeriodicidade`.
+   *
+   * Vai **abaixo** do número, em corpo menor: a coluna continua sendo de uma
+   * periodicidade só, e esta linha existe para que a outra não desapareça da
+   * tela sem que nada diga que ela existe.
+   */
+  tambem?: { curto: string; porque: string } | null;
 }
 
 /**
@@ -151,8 +159,24 @@ export function SeletorDoParDoPanorama({
                     ? "text-red-700"
                     : "text-emerald-700",
               )}
+              title={`${formatBrlShort(opcao.impacto)}${
+                periodicidade ? periodicitySuffix(periodicidade) : ""
+              } em relação à vigência anterior a esta`}
             >
               {formatBrlShort(opcao.impacto)}
+              {periodicidade && (
+                <span className="font-normal text-muted-foreground">
+                  {periodicitySuffix(periodicidade)}
+                </span>
+              )}
+            </span>
+          )}
+          {opcao.tambem && (
+            <span
+              title={opcao.tambem.porque}
+              className="text-[0.65rem] italic text-muted-foreground"
+            >
+              {opcao.tambem.curto}
             </span>
           )}
           {/* Ver a mesma nota no seletor do cabeçalho: a linha com contagem e
@@ -228,11 +252,33 @@ export function SeletorDoParDoPanorama({
               </SelectValue>
             </SelectTrigger>
             <SelectContent>
-              {periodicidade && (
-                <p className="px-2 py-1.5 text-xs text-muted-foreground">
-                  Impacto líquido em R${periodicitySuffix(periodicidade)}
-                </p>
-              )}
+              {/*
+                O cabeçalho da lista diz **de que recorte** a coluna é.
+
+                Sem esta linha, o número ao lado de cada vigência era lido como
+                o impacto do par aberto logo acima — e as duas coisas não são a
+                mesma: a coluna é sempre a leitura de ida de cada vigência
+                (contra a anterior dela), e o par aberto pode ser salteado ou
+                invertido. Foi exatamente essa leitura cruzada que produziu, em
+                18/09/2026, um seletor com R$ 43.556 ao lado de um cartão
+                dizendo "nenhum valor apurado": os dois estavam certos, sobre
+                pares diferentes, e nada na tela dizia isso.
+              */}
+              <p className="px-2 py-1.5 text-xs text-muted-foreground">
+                {periodicidade ? (
+                  <>
+                    Impacto líquido em R${periodicitySuffix(periodicidade)}{" "}
+                    <span className="font-semibold">vs. vigência anterior</span> — não é o
+                    resultado do par aberto.
+                  </>
+                ) : (
+                  <>
+                    Cada linha é a leitura da vigência{" "}
+                    <span className="font-semibold">vs. a anterior dela</span> — não é o
+                    resultado do par aberto.
+                  </>
+                )}
+              </p>
               {opcoes.map((opcao) => (
                 <SelectItem key={opcao.data} value={opcao.data} className={ITEM_LARGO}>
                   {linha(opcao)}

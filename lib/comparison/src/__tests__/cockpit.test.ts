@@ -275,6 +275,7 @@ function view(groups: ChangeGroup[], overrides: Partial<CockpitInput> = {}): Coc
       excludedChanges: 0,
       notCalculable: changes,
       calculatedChanges: 0,
+      zeroChanges: 0,
     },
     accumulated: {
       byPeriodicity: {},
@@ -283,6 +284,7 @@ function view(groups: ChangeGroup[], overrides: Partial<CockpitInput> = {}): Coc
       excludedChanges: 0,
       notCalculable: 0,
       calculatedChanges: 0,
+      zeroChanges: 0,
       comparisons: 1,
       from: "2026-08-01",
       to: "2026-08-01",
@@ -493,6 +495,7 @@ describe("panorama — a composição do risco", () => {
           excludedChanges: 6,
           notCalculable: 10,
           calculatedChanges: 68,
+          zeroChanges: 0,
         },
       }),
     );
@@ -673,6 +676,7 @@ describe("narrativa — composição determinística, nunca modelo", () => {
           excludedChanges: 0,
           notCalculable: 0,
           calculatedChanges: 62,
+          zeroChanges: 0,
         },
       }),
     );
@@ -778,6 +782,7 @@ describe("histórico — não confundir vigência com acumulado", () => {
           excludedChanges: 0,
           notCalculable: 0,
           calculatedChanges: 100,
+          zeroChanges: 0,
           comparisons: 16,
           from: "2026-01-02",
           to: "2026-08-01",

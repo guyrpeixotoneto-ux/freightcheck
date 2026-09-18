@@ -22,6 +22,7 @@ export * from "./ipva";
 export * from "./aquisicao";
 export * from "./aluguel";
 export * from "./politica-do-impacto";
+export * from "./contrato-de-impacto";
 export * from "./impostos";
 export * from "./km-rodado";
 export * from "./velocidade-media";

@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import type { PeriodicidadeApurada } from "@workspace/comparison/contrato-de-impacto";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
 import { BarChart3, Clock, FileSearch, History } from "lucide-react";
@@ -71,7 +72,11 @@ import {
 import { SeletorDoParDoPanorama } from "@/components/panorama/seletor-do-par";
 import { TravessiaDoQuadro } from "@/components/panorama/travessia-do-quadro";
 import { OQuePuxou } from "@/components/panorama/o-que-puxou";
-import { motivoSemNumeros, useResumoPorVigencia } from "@/hooks/use-resumo-por-vigencia";
+import {
+  motivoSemNumeros,
+  tambemEmOutraPeriodicidade,
+  useResumoPorVigencia,
+} from "@/hooks/use-resumo-por-vigencia";
 import {
   aoEscolherDe,
   aoEscolherPara,
@@ -375,7 +380,24 @@ export default function Panorama() {
     [administrativo.data, operacional.data],
   );
 
-  const serieDaUnidade = useSerieDeImpacto(visaoGeral ? null : view, consulta, !visaoGeral);
+  /*
+    A grandeza escolhida no gráfico — estado da página, e não do gráfico.
+
+    Fica aqui pela mesma razão que a janela: o cartão "O que puxou a janela"
+    divide a dobra com o gráfico e lê o **mesmo** recorte. Se cada um guardasse
+    a sua grandeza, a tela publicaria R$/ano num e R$/mês no outro, lado a lado,
+    sem nada acusando — que é a divergência que esta entrega inteira corrige.
+
+    `null` é "ainda não escolheram": aí manda a régua do contrato.
+  */
+  const [grandezaDaSerie, setGrandezaDaSerie] = useState<string | null>(null);
+
+  const serieDaUnidade = useSerieDeImpacto(
+    visaoGeral ? null : view,
+    consulta,
+    !visaoGeral,
+    grandezaDaSerie,
+  );
   const serieGeral = useSerieDeImpactoGeral(
     periodosOverview,
     periodoOverviewEfetivo,
@@ -568,6 +590,8 @@ export default function Panorama() {
                   nome={nome}
                   pontos={serieDaUnidade.pontos}
                   periodicityDaSerie={serieDaUnidade.periodicity}
+                  periodicidadesDaSerie={serieDaUnidade.disponiveis}
+                  onPeriodicidadeDaSerie={setGrandezaDaSerie}
                   serieCarregando={serieDaUnidade.carregando}
                   vigenciaAberta={view.period}
                   parametros={parametros}
@@ -635,6 +659,7 @@ function ParDaLeitura({
       // importação" — a única coisa que não pode ser, já que a lista sai das
       // vigências importadas do contexto.
       nota: motivoSemNumeros(data, resumo),
+      tambem: tambemEmOutraPeriodicidade(data, resumo),
     });
     if (view) {
       return [...view.periods]
@@ -704,6 +729,8 @@ function Corpo({
   nome,
   pontos,
   periodicityDaSerie,
+  periodicidadesDaSerie,
+  onPeriodicidadeDaSerie,
   serieCarregando,
   vigenciaAberta,
   parametros,
@@ -724,6 +751,9 @@ function Corpo({
   nome: NomeDaLeitura;
   pontos: ReturnType<typeof useSerieDeImpacto>["pontos"];
   periodicityDaSerie: string | null;
+  /** As grandezas do recorte desenhado — o gráfico oferece a troca entre elas. */
+  periodicidadesDaSerie?: PeriodicidadeApurada[];
+  onPeriodicidadeDaSerie?: (periodicity: string) => void;
   serieCarregando: boolean;
   vigenciaAberta: string | null;
   parametros: URLSearchParams;
@@ -886,6 +916,13 @@ function Corpo({
         veredito={veredito}
         medidas={placar}
         nome={nome}
+        /*
+          A leitura canônica do que está em tela — do par quando há par, da
+          vigência quando não. Ela vem pronta do servidor: montá-la aqui seria
+          a quinta redação da mesma regra, que é o defeito que o contrato
+          existe para não ter.
+        */
+        leitura={view?.leitura ?? overview?.leitura ?? null}
         verDetalhes={
           comDestino
             ? linkDasSemPreco(daVigencia)
@@ -964,6 +1001,8 @@ function Corpo({
             onEscolherVigencia={(periodo) => onTrocar({ period: periodo })}
             janela={janelaAberta}
             onJanela={setJanelaAberta}
+            periodicidades={periodicidadesDaSerie}
+            onPeriodicidade={onPeriodicidadeDaSerie}
           />
           {/*
             A leitura por tipo de ativo — cavalo, carreta, trecho — **não** é um

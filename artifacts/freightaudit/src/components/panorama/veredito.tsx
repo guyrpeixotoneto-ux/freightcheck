@@ -3,9 +3,17 @@ import { Medalhao, Superficie } from "@/components/ui/superficie";
 import { LinhaDeCobertura } from "@/components/impacto-apurado/faixa-de-cobertura";
 import { Placar } from "@/components/panorama/placar";
 import { comSinal } from "@/lib/impacto-apurado";
-import { escreverVariacao } from "@/lib/visao-geral";
+import { escreverVariacao, type LadosDoImpacto } from "@/lib/visao-geral";
 import { formatBrlShort, periodicitySuffix } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import {
+  avisoDeInversao,
+  avisoDeOutrasPeriodicidades,
+  avisoDeSalteado,
+  fraseDaLeitura,
+  rotuloDoPar,
+  type LeituraDeImpacto,
+} from "@/lib/impacto/contrato";
 import type { MedidaDoPlacar, Veredito as DadosDoVeredito } from "@/lib/panorama";
 import type { NomeDaLeitura } from "@/lib/par-do-panorama";
 
@@ -68,6 +76,7 @@ export function Veredito({
   medidas,
   verDetalhes,
   nome,
+  leitura,
 }: {
   veredito: DadosDoVeredito;
   /** As medidas de contexto da vigência — a régua não desenha a do líquido. */
@@ -82,8 +91,26 @@ export function Veredito({
    * pontas. A frase passou a nomear o par quando é um par que está em tela.
    */
   nome: NomeDaLeitura;
+  /**
+   * A leitura canônica do que está em tela — `null` só enquanto ela não chegou.
+   *
+   * É ela que traz o que faltava a este cartão: **qual par** foi somado, se ele
+   * é consecutivo, e quanto da comparação está de fato apurado. Sem isso, o
+   * cartão publicava um número (ou a ausência dele) sem dizer sobre o que, e o
+   * seletor logo acima publicava outro sobre outro par — os dois certos, a tela
+   * inteira contraditória.
+   */
+  leitura?: LeituraDeImpacto | null;
 }) {
   const { situacao } = veredito;
+  /*
+    A frase só existe quando a leitura existe — ver a mesma nota em
+    `components/impacto-apurado/manchete.tsx`.
+  */
+  const frase = leitura ? fraseDaLeitura({ situacao: "LIDO", leitura }) : null;
+  const aviso = leitura
+    ? (avisoDeSalteado(leitura) ?? avisoDeInversao(leitura))
+    : null;
   const lados = situacao.estado === "com_movimento" ? situacao.lados : null;
 
   const sufixo = lados
@@ -108,6 +135,20 @@ export function Veredito({
           <div className="min-w-0">
             <Rotulo>Impacto líquido apurado</Rotulo>
 
+            {/*
+              O par, escrito, logo abaixo do rótulo.
+
+              Este cartão publica **uma diferença**, e uma diferença tem duas
+              pontas. Sem elas na tela, o número era lido como "o impacto desta
+              vigência" mesmo quando o par aberto pulava duas vigências — e o
+              seletor ao lado, que é outro recorte, parecia contradizê-lo.
+            */}
+            {leitura && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                {rotuloDoPar(leitura)}
+              </p>
+            )}
+
             {lados || situacao.estado === "apurado_em_zero" ? (
               <p className="mt-3 flex items-baseline gap-2 flex-wrap">
                 <span
@@ -124,8 +165,16 @@ export function Veredito({
               </p>
             ) : (
               <>
+                {/*
+                  A frase vem do contrato (`fraseDaLeitura`), e não daqui.
+
+                  "Nenhum valor apurado" dizia, com as mesmas palavras, duas
+                  coisas opostas: "a conta deu zero" e "ninguém fez a conta". O
+                  contrato separa as duas, e esta tela passa a escrever a que é.
+                */}
                 <p className="mt-3 text-3xl font-extrabold leading-tight tracking-[-0.02em]">
-                  {situacao.estado === "sem_alteracao" ? "Nada mudou" : "Nenhum valor apurado"}
+                  {frase?.titulo ??
+                    (situacao.estado === "sem_alteracao" ? "Nada mudou" : "Nenhum valor apurado")}
                 </p>
                 {/*
                   O vazio ganhou uma linha, e ela responde a pergunta que o
@@ -134,11 +183,24 @@ export function Veredito({
                   promete o que a tela não vai entregar.
                 */}
                 <p className="text-sm text-muted-foreground mt-2 leading-relaxed max-w-md">
-                  {situacao.estado === "sem_alteracao"
-                    ? `Nenhuma alteração foi detectada ${nome.nesta} — não há resultado a apurar.`
-                    : `Não há impacto financeiro apurado para ${nome.esta} no momento.`}
+                  {frase
+                    ? frase.detalhe
+                    : situacao.estado === "sem_alteracao"
+                      ? `Nenhuma alteração foi detectada ${nome.nesta} — não há resultado a apurar.`
+                      : `Não há impacto financeiro apurado para ${nome.esta} no momento.`}
                 </p>
               </>
+            )}
+
+            {/*
+              O valor publicado é parcial — e dizê-lo ao lado dele não é
+              ressalva de rodapé: sem esta linha, um impacto apurado sobre 212
+              de 300 alterações é lido como o impacto da comparação inteira.
+            */}
+            {frase?.publicaValor && frase.parcial && (
+              <p className="mt-2 max-w-md text-xs leading-relaxed text-brand-red">
+                {frase.detalhe}
+              </p>
             )}
 
             <Variacao variacao={veredito.variacaoDoLiquido} />
@@ -192,6 +254,20 @@ export function Veredito({
       </div>
 
       {/*
+        O aviso do par que não se sucede.
+
+        Fica no cartão do resultado, e não numa nota de ajuda: quem usa este
+        número para decidir precisa saber, **antes**, que ele é o que dois ou
+        mais passos somaram — "o que esta vigência custou" deixa de ser
+        verdade num par salteado.
+      */}
+      {aviso && (
+        <p className="mt-5 border-t border-brand/15 pt-4 text-xs leading-relaxed text-muted-foreground">
+          {aviso}
+        </p>
+      )}
+
+      {/*
         Líquido zero tem duas causas, e elas pedem conversas diferentes: ganho e
         perda que se anularam, ou linhas apuradas em R$ 0,00. A primeira é dita
         aqui porque o número sozinho não a mostra — a mesma frase que a manchete
@@ -222,15 +298,19 @@ export function Veredito({
         />
       )}
 
-      {veredito.outras.length > 0 && (
-        <p className="text-xs text-muted-foreground mt-4 leading-snug border-t border-brand/15 pt-3">
-          Esta vigência também tem{" "}
-          {veredito.outras
-            .map((l) => `${formatBrlShort(l.liquido)}${periodicitySuffix(l.periodicity)}`)
-            .join(" e ")}{" "}
-          — grandezas que não somam com a de cima.
-        </p>
-      )}
+      {/*
+        A grandeza que o número grande não publica — **uma** linha, e no rodapé.
+
+        A frase vem do contrato quando a leitura chegou (`avisoDeOutras…`), e da
+        lista antiga quando não. Duas linhas dizendo a mesma coisa em lugares
+        diferentes do mesmo cartão foi o que o navegador mostrou na primeira
+        conferência desta entrega: o contrato dizia certo, e dizia duas vezes.
+      */}
+      <OutrasGrandezas
+        leitura={leitura ?? null}
+        publicada={lados?.periodicity ?? null}
+        outras={veredito.outras}
+      />
     </Superficie>
   );
 }
@@ -345,5 +425,39 @@ function Balanca({
         <span className="h-full rounded-full bg-brand-red" style={{ width: `${100 - verde}%` }} />
       )}
     </div>
+  );
+}
+
+
+/**
+ * A grandeza que o número grande não publica — uma linha, e nunca uma soma.
+ *
+ * R$/mês e R$/ano não se somam. O cartão publica uma delas em corpo grande; as
+ * outras aparecem aqui, inteiras, porque sumir com elas é como este produto
+ * mostrou um gráfico chapado no zero ao lado de um seletor com dezenas de
+ * milhares de reais.
+ */
+function OutrasGrandezas({
+  leitura,
+  publicada,
+  outras,
+}: {
+  leitura: LeituraDeImpacto | null;
+  publicada: string | null;
+  /** O caminho antigo, para quando a leitura canônica ainda não chegou. */
+  outras: LadosDoImpacto[];
+}) {
+  const aviso = leitura
+    ? avisoDeOutrasPeriodicidades(leitura, publicada)
+    : outras.length > 0
+      ? `Esta vigência também tem ${outras
+          .map((l) => `${formatBrlShort(l.liquido)}${periodicitySuffix(l.periodicity)}`)
+          .join(" e ")} — grandezas que não somam com a de cima.`
+      : null;
+  if (aviso === null) return null;
+  return (
+    <p className="text-xs text-muted-foreground mt-4 leading-snug border-t border-brand/15 pt-3">
+      {aviso}
+    </p>
   );
 }

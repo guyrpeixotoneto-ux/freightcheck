@@ -1,3 +1,4 @@
+import { qualidadeDaCobertura as qualidadeCanonica } from "@workspace/comparison/contrato-de-impacto";
 import { excluidoDaSoma } from "@workspace/comparison/deduplicacao";
 import type { BalancoResumo } from "@/components/balanco/tipos";
 import type {
@@ -1817,10 +1818,16 @@ function linkDeCuradoria(grupo: ChangeGroup): string {
  * número, e nunca no lugar dele.
  */
 export function qualidadeDaCobertura(percentual: number): { palavra: string; tom: Tom } {
-  if (percentual >= 99) return { palavra: "Excelente", tom: "ok" };
-  if (percentual >= 95) return { palavra: "Alta", tom: "ok" };
-  if (percentual >= 85) return { palavra: "Parcial", tom: "atencao" };
-  return { palavra: "Baixa", tom: "grave" };
+  /*
+    Os cortes moram no contrato (`contrato-de-impacto.ts`), e não nesta linha.
+
+    Eram dois lugares com os mesmos quatro números — aqui e no domínio —, e
+    dois lugares com a mesma régua é uma régua que pode divergir sem que nada
+    acuse: bastaria um dos dois mudar 85 para 80 para a mesma cobertura ser
+    "Parcial" numa tela e "Baixa" na outra. Esta função continua existindo
+    porque `Tom` é o vocabulário de cor da interface; a decisão é de lá.
+  */
+  return qualidadeCanonica(percentual);
 }
 
 /**

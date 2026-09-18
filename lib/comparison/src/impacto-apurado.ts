@@ -77,6 +77,7 @@ export function impactoVazio(): ResumoDeImpacto {
     excludedChanges: 0,
     calculatedChanges: 0,
     notCalculable: 0,
+    zeroChanges: 0,
   };
 }
 

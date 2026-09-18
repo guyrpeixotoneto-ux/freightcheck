@@ -155,11 +155,22 @@ export function resumirIntervalo(
           {
             alteracoes: linha.changes,
             impacto,
-            // Só quando a coluna ficou sem o que publicar: com número na
-            // coluna, dizer "e também tem R$/mês" seria roubar a atenção do
-            // número que a pessoa veio ler.
-            outrasPeriodicidades:
-              impacto === null ? Object.keys(linha.impact.byPeriodicity).sort() : [],
+            /*
+              **Todas** as outras periodicidades em que esta vigência tem
+              dinheiro — e não só quando a coluna ficou vazia.
+
+              Era só no caso vazio, com o argumento de não roubar a atenção do
+              número publicado. O preço disso apareceu no dado real: julho/2026
+              tem `MENSAL −11.712,30` **e** `ANUAL −144.874,50`, a coluna é
+              mensal, e o anual — dez vezes maior — não aparecia em lugar
+              nenhum desta lista. Não roubar a atenção não vale esconder a
+              maior parte do dinheiro; a linha secundária é discreta, e existir
+              é o mínimo.
+            */
+            outrasPeriodicidades: Object.entries(linha.impact.byPeriodicity)
+              .filter(([p, valor]) => p !== dominante && valor !== 0)
+              .map(([p]) => p)
+              .sort(),
           },
         ];
       }),
@@ -296,6 +307,33 @@ export function useResumoPorVigenciaGeral(periodos: string[]): ResumoDasVigencia
  * não a da coluna. Ali a contagem continua escrita, e sem a nota o espaço
  * vazio acima dela seria lido como "não saiu preço de nada aqui", quando saiu.
  */
+/**
+ * A grandeza que a coluna **não** publica — a linha discreta sob o número.
+ *
+ * A coluna é de uma periodicidade só, e essa recusa continua certa: R$/mês e
+ * R$/ano não se comparam, e alternar entre as duas na mesma lista convidaria a
+ * ler um anual como doze vezes um mensal. O que estava errado era a outra
+ * grandeza **sumir**: julho/2026, no export real, tem −R$ 11.712,30/mês na
+ * coluna e −R$ 144.874,50/ano fora dela — dez vezes mais dinheiro, invisível.
+ *
+ * `null` quando a vigência só tem a grandeza da coluna, que é o caso comum.
+ */
+export function tambemEmOutraPeriodicidade(
+  data: string,
+  resumo: ResumoDasVigencias,
+): { curto: string; porque: string } | null {
+  const lida = resumo.porVigencia.get(data);
+  if (!lida || lida.impacto === null || lida.outrasPeriodicidades.length === 0) return null;
+  const delas = lida.outrasPeriodicidades.map((p) => `R$${periodicitySuffix(p)}`).join(" e ");
+  return {
+    curto: `+ ${delas}`,
+    porque:
+      `Esta vigência também apurou impacto em ${delas}, que a coluna não publica — ` +
+      `ela é de uma periodicidade só, porque R$/mês e R$/ano não se comparam. ` +
+      `A Linha do Tempo separa as duas e mostra as duas.`,
+  };
+}
+
 export function motivoSemNumeros(
   data: string,
   resumo: ResumoDasVigencias,

@@ -479,6 +479,18 @@ export interface ResumoDeImpacto {
   excludedChanges: number;
   calculatedChanges: number;
   notCalculable: number;
+  /**
+   * Quantas das apuradas deram **R$ 0,00** — a conta aconteceu e não moveu nada.
+   *
+   * Existe porque sem ela esse fato não tem como ser dito. `byPeriodicity`
+   * guarda o balde zerado, mas `sides` descarta o zero de propósito ("zero não
+   * é lado nenhum", `families-view.ts`), e uma vigência inteira apurada em zero
+   * chega às telas com `sides: []` — do mesmo feitio de uma vigência sem preço
+   * nenhum. As duas pedem frases opostas: "não mudou o dinheiro" e "ninguém
+   * sabe quanto mudou". Este contador é o que as separa em qualquer superfície,
+   * sem que ela precise reabrir as linhas.
+   */
+  zeroChanges: number;
 }
 
 const somar = (baldes: Record<string, number>, balde: string, valor: number) => {
@@ -525,6 +537,7 @@ export function resumirImpacto(
   };
   let calculatedChanges = 0;
   let notCalculable = 0;
+  let zeroChanges = 0;
 
   for (const linha of linhas) {
     const valor = precoDe(linha);
@@ -533,6 +546,7 @@ export function resumirImpacto(
       continue;
     }
     calculatedChanges++;
+    if (valor === 0) zeroChanges++;
     const balde = linha.impactPeriodicity ?? SEM_PERIODICIDADE;
     somar(bruto, balde, valor);
 
@@ -574,6 +588,7 @@ export function resumirImpacto(
     excludedChanges: ETAPAS.reduce((n, e) => n + removidas[e], 0),
     calculatedChanges,
     notCalculable,
+    zeroChanges,
   };
 }
 
@@ -621,6 +636,7 @@ export function somarResumos(resumos: ResumoDeImpacto[]): ResumoDeImpacto {
   let excludedChanges = 0;
   let calculatedChanges = 0;
   let notCalculable = 0;
+  let zeroChanges = 0;
 
   for (const resumo of resumos) {
     for (const [balde, valor] of Object.entries(resumo.byPeriodicity)) {
@@ -638,6 +654,7 @@ export function somarResumos(resumos: ResumoDeImpacto[]): ResumoDeImpacto {
     excludedChanges += resumo.excludedChanges;
     calculatedChanges += resumo.calculatedChanges;
     notCalculable += resumo.notCalculable;
+    zeroChanges += resumo.zeroChanges;
   }
 
   const corrente = { ...bruto };
@@ -665,6 +682,7 @@ export function somarResumos(resumos: ResumoDeImpacto[]): ResumoDeImpacto {
     excludedChanges,
     calculatedChanges,
     notCalculable,
+    zeroChanges,
   };
 }
 

@@ -10,6 +10,12 @@ import {
 } from "@/lib/visao-geral";
 import { linkDeAlteracoes, linkDosParametros, type Recorte } from "@/lib/recorte";
 import { formatBrlShort } from "@/lib/format";
+import {
+  coberturaDaApuracao as coberturaCanonica,
+  estadoDaApuracao,
+  periodicidadePrincipal,
+  periodicidadesDaLeitura,
+} from "@workspace/comparison/contrato-de-impacto";
 import type { ItemCockpit } from "@/lib/cockpit";
 import type { FamiliesView } from "@/components/inicio/types";
 import type { PontoDeImpacto } from "@/components/dashboard/grafico-de-impacto";
@@ -88,24 +94,45 @@ export function situacaoDaApuracao(
   const lados = ladosDoImpacto(view);
   if (lados.length > 0) return { estado: "com_movimento", lados: lados[0] };
 
-  if (alteracoes === 0) return { estado: "sem_alteracao" };
+  /*
+    A decisão é a do contrato, e esta função é a **forma** que as telas antigas
+    já consomem.
 
+    Ela tinha a sua própria escada de `if` — alterações, apuradas, baldes — e
+    era uma das quatro leituras que discordavam entre si. Agora quem decide é
+    `estadoDaApuracao`, a mesma função que o cartão, o assistente e a
+    exportação consultam; o que sobra aqui é traduzir os quatro estados do
+    contrato para os quatro nomes que estes componentes esperam.
+
+    Enquanto os dois vocabulários convivem, esta é a única ponte entre eles — e
+    é de propósito que ela seja uma só.
+  */
   const impacto = view?.summary.impact;
-  const apuradas = impacto?.calculatedChanges ?? 0;
-  if (apuradas === 0) {
+  const estado = estadoDaApuracao(alteracoes, {
+    calculatedChanges: impacto?.calculatedChanges ?? 0,
+    notCalculable: impacto?.notCalculable ?? alteracoes,
+  });
+
+  if (estado === "SEM_ALTERACAO") return { estado: "sem_alteracao" };
+  if (estado === "NAO_CALCULAVEL") {
     return { estado: "nada_apurado", semPreco: impacto?.notCalculable ?? alteracoes };
   }
 
   /*
-    Apurado, e deu zero. A periodicidade sai do balde oficial — que existe com
-    valor 0 justamente porque houve linha com preço nele. Ela pode faltar quando
-    **toda** linha com preço saiu por dupla contagem (o balde nunca chega ao
-    oficial), e aí a tela escreve o zero sem grandeza em vez de inventar uma.
+    Apurado, e sem movimento. A periodicidade sai do contrato pela mesma régua
+    que decide o eixo do gráfico e a coluna do seletor — quem tem movimento
+    primeiro, depois quem moveu mais bruto. Ela pode faltar quando **toda**
+    linha com preço saiu por dupla contagem (o balde nunca chega ao oficial), e
+    aí a tela escreve o zero sem grandeza em vez de inventar uma.
   */
-  const baldes = Object.entries(impacto?.byPeriodicity ?? {});
-  const periodicity =
-    baldes.sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))[0]?.[0] ?? null;
-  return { estado: "apurado_em_zero", periodicity, alteracoes: apuradas };
+  const periodicity = periodicidadePrincipal(
+    periodicidadesDaLeitura({ byPeriodicity: impacto?.byPeriodicity ?? {} }),
+  );
+  return {
+    estado: "apurado_em_zero",
+    periodicity,
+    alteracoes: impacto?.calculatedChanges ?? 0,
+  };
 }
 
 /**
@@ -186,16 +213,23 @@ export function coberturaApurada(
   total: number,
   semPreco: number,
 ): CoberturaApurada | null {
-  if (total <= 0) return null;
-  const apurado = total - semPreco;
-  const percentual = (apurado / total) * 100;
+  /*
+    A conta é a do contrato (`coberturaDaApuracao`), e não uma cópia dela.
+
+    O que sobra aqui é o nome do campo: esta tela chama de `apurado` o que o
+    contrato chama de `apuradas`. Um rename varreria dezenas de componentes por
+    nenhum ganho de verdade; o que não podia continuar é a **divisão** existir
+    duas vezes, porque era assim que o mesmo recorte ganhava duas coberturas.
+  */
+  const canonica = coberturaCanonica(total, semPreco);
+  if (canonica === null) return null;
   return {
-    apurado,
-    semPreco,
-    total,
-    percentual,
-    qualidade: qualidadeDaCobertura(percentual),
-    parcial: semPreco > 0,
+    apurado: canonica.apuradas,
+    semPreco: canonica.semPreco,
+    total: canonica.total,
+    percentual: canonica.percentual,
+    qualidade: canonica.qualidade,
+    parcial: canonica.parcial,
   };
 }
 

@@ -1,5 +1,6 @@
 import type { ContextInfo } from "./series";
 import { somarResumos, resumoVazio, type ResumoDeImpacto } from "./deduplicacao";
+import { montarLeituraDeImpacto } from "./contrato-de-impacto";
 import {
   BADGE_ORDER,
   coverageLabel,
@@ -688,6 +689,24 @@ export function consolidarParametros(
     cockpit: buildCockpit(corpo),
     summary,
     families,
+    /*
+      A leitura canônica da Visão Geral.
+
+      O recorte continua sendo "cada vigência contra a anterior dela" — só que
+      somado sobre várias unidades, e por isso a ponta De não é uma só:
+      `pontaDePorUnidade` é o que impede a tela de ler o `de: null` daqui como
+      "primeira vigência do histórico".
+    */
+    leitura: montarLeituraDeImpacto({
+      recorte: "VIGENCIA_VS_ANTERIOR",
+      de: null,
+      pontaDePorUnidade: true,
+      para: { date: period, label: periodLabel },
+      vigencias: corpo.periods.map((p) => p.date),
+      impact,
+      sides: summary.sides,
+      totais: { alteracoes: totals.changes, veiculos: totals.vehiclesTouched },
+    }),
     visaoGeral: {
       unidades: new Set(leituras.map((l) => l.unidade)).size,
       contextos: leituras.map((l) => ({

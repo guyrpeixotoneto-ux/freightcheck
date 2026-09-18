@@ -1480,6 +1480,7 @@ export async function getAccumulatedImpact(
       excludedChanges: 0,
       notCalculable: 0,
       calculatedChanges: 0,
+      zeroChanges: 0,
       comparisons: 0,
       from: null,
       to: null,
