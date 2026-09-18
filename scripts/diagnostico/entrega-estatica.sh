@@ -98,14 +98,32 @@ medir_um() {
   fi
 
   # Revisita: o navegador manda o validador de volta. 304 é cache útil.
+  #
+  # São DOIS validadores, e testar só o ETag dá resposta errada quando o
+  # servidor manda apenas `Last-Modified` — que é o caso do host do Replit.
+  # A primeira versão deste script dizia "a revisita não tem validador para
+  # usar" sobre uma resposta que trazia um, e isso é a diferença entre rebaixar
+  # 3,8 MB a cada abertura e não rebaixar nada.
   local revisita="sem-validador"
   if [ -n "$etag" ]; then
     local st; st="$(curl -sS -o /dev/null -H "if-none-match: $etag" -w '%{http_code}' "$alvo" || echo 000)"
-    revisita="$st"
+    revisita="etag:$st"
     if [ "$st" = "304" ]; then bom "Revisita: 304 com if-none-match — o navegador não rebaixa este arquivo."
     else alerta "Revisita: $st com if-none-match — o arquivo é rebaixado inteiro a cada abertura."; fi
+  elif [ -n "$lm" ]; then
+    local st; st="$(curl -sS -o /dev/null -H "if-modified-since: $lm" -w '%{http_code}' "$alvo" || echo 000)"
+    revisita="last-modified:$st"
+    if [ "$st" = "304" ]; then bom "Revisita: 304 com if-modified-since — sem ETag, mas o Last-Modified serve de validador."
+    else alerta "Revisita: $st com if-modified-since — o arquivo é rebaixado INTEIRO a cada abertura."; fi
   else
-    alerta "Sem ETag: a revisita não tem validador para usar."
+    revisita="sem-validador"
+    alerta "Sem ETag e sem Last-Modified: a revisita não tem validador nenhum."
+  fi
+
+  # O que a ausência de compressão custa, neste arquivo, nesta rede.
+  if [ -z "${escolhida:-}" ] && [ "${bruto:-0}" -gt 100000 ]; then
+    printf '    custo sem gzip  %s\n' "$(awk -v b="$bruto" 'BEGIN{
+      printf "4G (9 Mb/s): %.1f s · 3G (1,6 Mb/s): %.1f s", b*8/9e6, b*8/1.6e6 }')"
   fi
 
   if [ -n "$JSON_SAIDA" ]; then

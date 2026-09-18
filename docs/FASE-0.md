@@ -12,7 +12,12 @@ Fases 1–3.
 
 ---
 
-## 1. A Fase 0 não pôde ser executada desta sessão
+## 1. A Fase 0 não pôde ser executada **desta sessão** — mas foi parcialmente executada por você
+
+> Atualizado em 18/09/2026: a parte pública foi medida no ar e está no §2.5.
+> O bloqueio abaixo continua valendo para as etapas autenticadas.
+
+### O bloqueio original
 
 Preciso dizer isto antes de qualquer outra coisa, porque o pedido é explícito
 sobre não aceitar conclusão sem evidência: **eu não consegui alcançar o
@@ -309,6 +314,86 @@ Validado contra a pilha local, onde os quatro mensuráveis confirmam:
 
 ---
 
+## 2.5 RESULTADO PARCIAL — medido no ar em 18/09/2026
+
+`https://freightaudit.replit.app`, execução sem cookie (só a parte pública).
+
+### A resposta da pergunta que mais importava
+
+**O host do Replit não comprime nada.**
+
+| Recurso | content-encoding | bruto | na rede | fator |
+|---|---|--:|--:|--:|
+| `/assets/index-BdnUKe7y.js` | **NENHUMA** | 3.866.331 B | 3.866.331 B | **1,0×** |
+| `/assets/index-CuesaPAH.css` | **NENHUMA** | 211.742 B | 211.742 B | **1,0×** |
+| `/` (index.html) | **NENHUMA** | 3.829 B | 3.829 B | **1,0×** |
+
+E não é negociação malsucedida — é ausência de compressão, em qualquer forma:
+
+| accept-encoding oferecido | escolhido pelo servidor |
+|---|---|
+| `gzip, deflate, br, zstd` | **nenhuma** |
+| `gzip` | **nenhuma** |
+| `br` | **nenhuma** |
+
+**O bundle publicado é byte a byte idêntico ao que eu construí aqui** — mesmo
+nome com hash (`index-BdnUKe7y.js`), mesmos 3.866.331 bytes. Isso permite dizer
+o ganho com certeza, sem estimar:
+
+| | Hoje, no ar | Com gzip −9 | Economia |
+|---|--:|--:|--:|
+| JavaScript | 3.866.331 B | **1.026.253 B** | **2.840.078 B (−73,5%)** |
+| CSS | 211.742 B | **30.830 B** | 180.912 B (−85,4%) |
+| **Por primeira abertura** | **4,08 MB** | **1,04 MB** | **3,04 MB** |
+
+Em tempo de transferência, só do JavaScript:
+
+| Rede | Hoje | Com gzip |
+|---|--:|--:|
+| 4G (9 Mb/s) | **3,4 s** | 0,9 s |
+| 3G (1,6 Mb/s) | **19,3 s** | 5,1 s |
+
+### Cabeçalhos de cache
+
+`cache-control: private`, **sem `max-age`**, **sem ETag**, com `Last-Modified`.
+Para arquivos cujo nome já carrega o hash do conteúdo, isso é o pior dos
+mundos: eles são imutáveis por construção e mesmo assim o navegador é obrigado
+a revalidar a cada abertura.
+
+> **Uma lacuna do meu script, corrigida aqui.** Ele testava a revisita só com
+> `If-None-Match` e concluiu *"sem ETag: a revisita não tem validador"* — mas a
+> resposta traz `Last-Modified`, que é um validador. A diferença entre as duas
+> leituras é rebaixar 3,8 MB a cada abertura ou não rebaixar nada, e eu não
+> podia deixar isso no palpite. O script agora testa os dois, e **esta linha
+> continua pendente de medição no ar**.
+
+### Linha de base de rede
+
+| Medição | p50 | p95 | p99 | min |
+|---|--:|--:|--:|--:|
+| `/api/healthz` (0 consultas) | 53,6 ms | 64,0 ms | 66,8 ms | 49,8 ms |
+| `/api/build` sem cookie (0 consultas) | 52,6 ms | 57,5 ms | 57,7 ms | 49,8 ms |
+
+As duas iguais, e as duas sem tocar o banco: **~53 ms é o custo de ida e volta
+até o app**, do próprio Shell do Replit. A aplicação não acrescenta nada
+mensurável a uma rota sem dado.
+
+### Processo publicado
+
+`pid 19` · de pé há 4.152 s (~69 min) · `revision b21ffa24`.
+
+Duas observações: a revisão publicada **não é** a que medi localmente
+(`f7bbda5`), embora o bundle seja idêntico; e uma amostra só não diz nada sobre
+o cold start do Autoscale — é preciso repetir depois de ociosidade.
+
+### O que esta execução **não** respondeu
+
+Sem cookie, ficaram de fora: o pedágio de autenticação e o RTT até o Neon (H2),
+a abertura autenticada, a navegação interna, a revisita (H1, H3), o bundle no
+navegador (H4) e o silêncio durante a repetição (H5).
+
+---
+
 ## 3. A árvore de decisão — o que cada resultado muda
 
 O plano do §4 está escrito para valer nos dois desfechos, e estes são os dois
@@ -316,8 +401,8 @@ resultados que **reordenam** a prioridade:
 
 | Se a medição disser | Então |
 |---|---|
-| **JS sem `content-encoding`** | **E1 sobe para o primeiro lugar absoluto.** Deixa de ser código e vira configuração do host: +2,7 s em 4G e +15,1 s em 3G, de graça, sem tocar no produto. E o code splitting (E2) perde metade do ganho relativo |
-| **JS comprimido** | E1 sai da fase 1; E2 continua onde está |
+| ~~**JS sem `content-encoding`**~~ → **CONFIRMADO em 18/09** | **E1 é o primeiro lugar absoluto.** É configuração do host, não código: **−2,84 MB por primeira abertura**, −2,5 s em 4G, −14,2 s em 3G, sem tocar no produto. E o code splitting (E2) passa a render menos em termos relativos, porque a maior parte do ganho vem da compressão |
+| ~~**JS comprimido**~~ | descartado pela medição |
 | **RTT > 10 ms** | **D1 sobe para o primeiro lugar do backend.** Uma tela de 14 chamadas passa a pagar `14 × 3 × RTT` de pedágio: a 15 ms são 630 ms; a 60 ms, 2,5 s. Nessa faixa, tirar o pedágio rende mais que D2 e D3 somados |
 | **RTT < 2 ms** | D1 cai para a fase 2; D2 (592→63 ms) vira o item de backend mais valioso |
 | **`cache-control` sem `immutable`/`max-age` longo nos assets** | entra um item novo em E, de custo quase zero |
@@ -361,8 +446,9 @@ Nenhum item de risco alto entra em execução com ela pendente.
 
 | # | Problema | Evidência local | Evidência no ar | Causa-raiz | Mudança proposta | Ganho esperado | Risco | Esforço | Validação objetiva | Rollback |
 |--:|---|---|---|---|---|---|---|---|---|---|
-| **E1** | O host estático pode não comprimir | com gzip: 4G **1.896 ms** · sem: **4.603 ms**. 3G: 7.727 → **22.820 ms** | `entrega-estatica.sh` — **PENDENTE, e é a medição que reordena tudo** | configuração do host, não código | ligar compressão no host (ou pré-comprimir no build) | **−2,7 s em 4G, −15,1 s em 3G** | Muito baixo | **PP** | o próprio script: `content-encoding` presente e fator ≥ 3× | configuração |
+| **E1** | O host estático **não comprime nada** | com gzip: 4G **1.896 ms** · sem: **4.603 ms**. 3G: 7.727 → **22.820 ms** | **MEDIDO 18/09: `content-encoding` ausente em JS, CSS e HTML; gzip, br e zstd todos recusados; fator 1,0×** | configuração do host, não código | ligar compressão no host (ou pré-comprimir no build e servir `.gz`) | **−2,84 MB por abertura · −2,5 s em 4G · −14,2 s em 3G** | Muito baixo | **PP** | o próprio script: `content-encoding` presente e fator ≥ 3× | configuração |
 | **E2** | Bundle inicial único de 3,87 MB | 1 arquivo, 1.009 KB na rede; FCP 344 ms local, **1.312 ms em 4G** | `medir-no-ar.mjs` H4 — **PENDENTE** | `App.tsx` importa as ~65 páginas estaticamente; zero `lazy()` no repositório | `lazy()` por rota + `manualChunks` para `recharts`/`framer-motion` | entrada **1.032 → ~400 KB** gzip; 4G **1.896 → ~1.100 ms** | Baixo | M | `vite build` + os 4 perfis de rede do §5.1 da auditoria | por rota |
+| **E1b** | `cache-control: private`, sem `max-age`, sem ETag | — | **MEDIDO 18/09** | os assets têm hash no nome — são imutáveis por construção — e mesmo assim o navegador revalida a cada abertura | `public, max-age=31536000, immutable` nos `/assets/*` | tira uma ida e volta de ~53 ms da abertura, e o rebaixamento inteiro se não houver 304 | Muito baixo | **PP** | `curl -I` mostra `max-age`; revisita não emite requisição | configuração |
 | **E3** | Sem orçamento de bundle — cresceu 52% em 3 semanas | 2.540 KB (26/08) → **3.866 KB** (18/09) | — | nada falha quando cresce | Teto no CI: **600 KB gzip** na entrada, 1.200 KB no total | impede a regressão voltar | Muito baixo | P | o CI reprova o PR que estourar | remover a regra |
 | **E4** | Prefetch ausente | 1ª visita 561 ms em `/dre` | **PENDENTE** | — | prefetch do chunk **no hover do menu**, e só dele | tira o download do caminho crítico | Baixo | P | 1ª visita após hover cai ao nível da revisita | desligar a flag |
 

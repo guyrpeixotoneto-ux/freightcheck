@@ -52,7 +52,11 @@ else {
   p("|---|---|--:|--:|--:|---|---|---|");
   for (const a of estatica.assets ?? []) {
     const fator = a.bruto > 0 && a.rede > 0 ? `${(a.bruto / a.rede).toFixed(1)}×` : "—";
-    p(`| ${a.rotulo} (\`${a.caminho}\`) | ${a.contentEncoding || "**NENHUMA**"} | ${kb(a.bruto)} | ${kb(a.rede)} | ${fator} | ${ou(a.cacheControl, "**ausente**")} | ${a.etag ? "sim" : "**ausente**"} | ${a.revisita === "304" ? "304 (bom)" : `**${a.revisita}**`} |`);
+    const rev = String(a.revisita ?? "");
+    const revTexto = rev.endsWith(":304")
+      ? `304 via ${rev.startsWith("etag") ? "ETag" : "Last-Modified"} (bom)`
+      : rev === "sem-validador" ? "**sem validador**" : `**${rev}**`;
+    p(`| ${a.rotulo} (\`${a.caminho}\`) | ${a.contentEncoding || "**NENHUMA**"} | ${kb(a.bruto)} | ${kb(a.rede)} | ${fator} | ${ou(a.cacheControl, "**ausente**")} | ${a.etag ? "sim" : "ausente"} | ${revTexto} |`);
   }
   p("");
   p("Negociação, como um Chrome pediria:");
@@ -71,8 +75,14 @@ else {
       p(`**VEREDITO — o JavaScript chega comprimido (\`${js.contentEncoding}\`, fator ${(js.bruto / js.rede).toFixed(1)}×).** E1 sai da fase 1.`);
     }
     p("");
-    if (!/max-age|immutable/.test(js.cacheControl ?? "") && js.revisita !== "304") {
-      p("**Atenção:** sem `max-age` longo e sem validador, o bundle é rebaixado inteiro a cada abertura.");
+    const revJs = String(js.revisita ?? "");
+    if (!revJs.endsWith(":304")) {
+      p(`**Atenção — a revisita rebaixa o bundle inteiro.** Sem 304, cada abertura paga ${kb(js.bruto)} de novo.`);
+      p("");
+    } else if (!/max-age|immutable/.test(js.cacheControl ?? "")) {
+      p("**Atenção:** o validador funciona (304), mas sem `max-age` o navegador revalida a");
+      p("cada abertura — uma ida e volta antes de poder pintar. Com nome de arquivo com hash,");
+      p("`max-age=31536000, immutable` elimina até essa ida.");
       p("");
     }
   }
