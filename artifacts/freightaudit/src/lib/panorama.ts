@@ -640,7 +640,44 @@ export interface JanelaDoImpacto {
   vigencias: number;
   /** A periodicidade em que a janela foi lida. `null` quando não há líquido. */
   periodicity: string | null;
-  linhas: LinhaDoRanking[];
+  linhas: LinhaDaJanela[];
+}
+
+/**
+ * A linha da janela — a do ranking, mais **em quantas vigências** ela se mexeu.
+ *
+ * O número já vai escrito dentro de `contexto` ("em 4 de 6 vigências"), que é
+ * onde o cartão o lê; separado, ele serve a quem precisa dele como número — a
+ * gaveta do parâmetro, que escreve a mesma contagem noutra frase. Repetir a
+ * extração a partir do texto do contexto seria ler uma frase para achar um
+ * inteiro que a leitura já tinha na mão.
+ */
+export interface LinhaDaJanela extends LinhaDoRanking {
+  /** Em quantas das vigências da janela este parâmetro se mexeu. */
+  periodos: number;
+}
+
+/**
+ * A linha da janela de um parâmetro — o que a gaveta dele precisa saber.
+ *
+ * A janela cobre várias vigências e a gaveta explica **uma**, e é essa distância
+ * que a nota da gaveta declara: sem ela, quem clica numa linha de R$ 31.218 e
+ * cai num painel de R$ 14.939 fica com dois números e nenhuma frase dizendo que
+ * são de intervalos diferentes.
+ */
+export function daJanela(
+  janela: JanelaDoImpacto | null,
+  chave: string | null,
+): { linha: LinhaDaJanela; rotulo: string; vigencias: number; periodicity: string | null } | null {
+  if (janela === null || chave === null) return null;
+  const linha = janela.linhas.find((l) => l.chave === chave);
+  if (!linha) return null;
+  return {
+    linha,
+    rotulo: janela.rotulo,
+    vigencias: janela.vigencias,
+    periodicity: janela.periodicity,
+  };
 }
 
 /**
@@ -709,6 +746,7 @@ export function janelaDoImpacto(
       return {
         chave: p.parameterKey,
         nome: p.parameterName,
+        periodos: p.periods,
         /*
           "em N de M vigências" é o que esta lista tem e as outras não: ele
           separa o solavanco de uma quinzena da pressão que volta sempre, que é

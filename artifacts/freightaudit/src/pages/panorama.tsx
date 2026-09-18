@@ -43,7 +43,9 @@ import {
   ponteDoImpacto,
   type FiltroDeMudanca,
 } from "@/lib/impacto-apurado";
+import { formatBrlShort, periodicitySuffix } from "@/lib/format";
 import {
+  daJanela,
   estadoDaProcedencia,
   graoValido,
   janelaDoImpacto,
@@ -903,6 +905,17 @@ function Corpo({
   );
   const detalheFamilia = detalheDaFamilia(leitura.resumo, familiaAberta, periodicidade);
   const detalheImpacto = detalheDoImpacto(view, impactoAberto, periodicidade);
+  /*
+    A leitura da janela do parâmetro aberto — a nota que a gaveta escreve em
+    cima do próprio número.
+
+    Ela vale venha o clique de onde vier: quem abriu pelo ranking da dobra 3 lê
+    a mesma tela, com o mesmo cartão de janela publicado acima, e a distância
+    entre os dois números é a mesma. Ligar a nota à origem do clique exigiria
+    guardar a origem no endereço — e um link colado voltaria sem ela, o que faz
+    a ressalva sumir justamente no caso em que ninguém viu o cartão.
+  */
+  const naJanela = daJanela(janela, impactoAberto);
 
   const unidadesDoDrill: UnidadeDoDrill[] = view
     ? [
@@ -1221,6 +1234,15 @@ function Corpo({
           period={view.period}
           periodLabel={view.periodLabel}
           recorte={{ ...recorte, period: view.period }}
+          naJanela={
+            naJanela
+              ? {
+                  rotulo: naJanela.rotulo,
+                  valor: `${formatBrlShort(naJanela.linha.valor)}${periodicitySuffix(naJanela.periodicity)}`,
+                  vigencias: `${naJanela.linha.periodos.toLocaleString("pt-BR")} de ${naJanela.vigencias.toLocaleString("pt-BR")} ${naJanela.vigencias === 1 ? "vigência" : "vigências"}`,
+                }
+              : null
+          }
           onFechar={() => onTrocar({ impacto: null })}
         />
       )}

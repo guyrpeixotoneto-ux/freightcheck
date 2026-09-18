@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   estadoDaProcedencia,
   graoValido,
+  daJanela,
   janelaDoImpacto,
   leituraDaUnidade,
   leituraDaVisaoGeral,
@@ -738,6 +739,44 @@ describe("a janela do gráfico", () => {
     expect(janela.rotulo).toBe("maio/2026 · 2ªq → agosto/2026 · 1ªq");
     expect(janela.vigencias).toBe(4);
     expect(janela.linhas[0].contexto).toContain("em 1 de 4 vigências");
+    /* A mesma contagem como número, para quem precisa dela fora da frase — a
+       gaveta do parâmetro a escreve noutra. */
+    expect(janela.linhas[0].periodos).toBe(1);
+  });
+
+  /*
+    A nota que a gaveta escreve em cima do próprio número. Ela existe porque o
+    painel explica **uma** competência e a linha clicada soma várias: sem a
+    frase, quem clica em R$ 31.218 e cai em R$ 14.939 fica com dois números e
+    nenhuma explicação.
+  */
+  it("entrega a leitura da janela do parâmetro aberto, com o intervalo junto", () => {
+    const janela = janelaDoImpacto(
+      movimentos([parametro("Financiamento", 31218, { periods: 3 })]),
+      "MENSAL",
+      6,
+    )!;
+
+    const lida = daJanela(janela, "financiamento")!;
+    expect(lida.linha.valor).toBe(31218);
+    expect(lida.linha.periodos).toBe(3);
+    expect(lida.rotulo).toBe("maio/2026 · 2ªq → agosto/2026 · 1ªq");
+    expect(lida.vigencias).toBe(4);
+    expect(lida.periodicity).toBe("MENSAL");
+  });
+
+  /*
+    Sem linha, sem nota — e é o caso comum: o parâmetro que se mexeu nesta
+    competência e não entrou nas linhas da janela (ou a Visão Geral, onde não há
+    janela nenhuma). Uma nota inventada sobre um intervalo que não tem aquele
+    parâmetro seria pior do que nota nenhuma.
+  */
+  it("não inventa nota para quem a janela não tem", () => {
+    const janela = janelaDoImpacto(movimentos([parametro("Financiamento", 14939)]), "MENSAL", 6)!;
+
+    expect(daJanela(janela, "ipva")).toBeNull();
+    expect(daJanela(janela, null)).toBeNull();
+    expect(daJanela(null, "financiamento")).toBeNull();
   });
 
   it("ordena pelo módulo do líquido da janela — a perda grande vem antes do ganho pequeno", () => {

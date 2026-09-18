@@ -53,12 +53,28 @@ export function DetalheDoImpacto({
   period,
   periodLabel,
   recorte = RECORTE_VAZIO,
+  naJanela = null,
   onFechar,
 }: {
   detalhe: DetalheDeImpacto | null;
   period: string;
   periodLabel: string | null;
   recorte?: Recorte;
+  /**
+   * O que a **janela** do Panorama diz deste mesmo parâmetro — opcional, porque
+   * só o Panorama tem janela.
+   *
+   * O painel explica uma competência; o cartão "O que puxou a janela" soma
+   * várias. Quem clica numa linha de R$ 31.218 e cai num painel de R$ 14.939
+   * fica, sem esta nota, com dois números e nenhuma frase dizendo que são de
+   * intervalos diferentes — e dois números sem frase viram desconfiança do
+   * menor, que é justamente o que este painel existe para responder.
+   *
+   * As telas sem janela (Impacto Apurado, Visão geral) não passam nada e a nota
+   * não desenha: uma ressalva sobre um intervalo que a tela não tem seria uma
+   * pergunta nova em vez de uma resposta.
+   */
+  naJanela?: { rotulo: string; valor: string; vigencias: string } | null;
   onFechar: () => void;
 }) {
   /*
@@ -116,6 +132,22 @@ export function DetalheDoImpacto({
             remuneração{periodLabel ? ` em ${periodLabel}` : " nesta vigência"} — a soma dos
             grupos abaixo, sem o que não tem preço e sem o que já está contado noutro lugar.
           </SheetDescription>
+
+          {/*
+            A nota da janela — colada no número, e não num rodapé.
+
+            A ressalva que impede a leitura errada tem de estar onde a leitura
+            acontece: longe do número, ressalva não é ressalva. É a mesma regra
+            do subtítulo do cartão que trouxe quem clicou até aqui.
+          */}
+          {naJanela && (
+            <p className="mt-3 rounded-lg bg-muted/60 px-3 py-2 text-xs leading-snug text-muted-foreground">
+              Na janela do gráfico ({naJanela.rotulo}) este parâmetro soma{" "}
+              <span className="font-bold tabular-nums text-foreground">{naJanela.valor}</span>, em{" "}
+              {naJanela.vigencias} — o número acima é só{" "}
+              {periodLabel ?? "a vigência aberta"}.
+            </p>
+          )}
         </header>
 
         <div className="flex-1 overflow-y-auto px-7 py-6 space-y-8">
