@@ -70,12 +70,63 @@ import { promisify } from "node:util";
 
 const execFileP = promisify(execFile);
 const N = Number(process.env.N || 12);
-const BRUTA = process.env.PRODUCTION_DATABASE_URL || process.env.DATABASE_URL || "";
-const DE_ONDE = process.env.PRODUCTION_DATABASE_URL ? "PRODUCTION_DATABASE_URL" : "DATABASE_URL";
+/**
+ * Pergunta a URL sem eco, quando ela não veio do ambiente.
+ *
+ * Existe para que ninguém precise de `read -rs` numa linha e o comando na
+ * seguinte: colados juntos, o `read` engole a linha do comando e a variável
+ * fica vazia — aconteceu duas vezes, e nas duas a sonda caiu no banco de
+ * desenvolvimento sem ninguém perceber.
+ */
+async function perguntarUrl() {
+  if (!process.stdin.isTTY) return "";
+  /* Modo cru ANTES do texto do prompt: se a colagem chegar entre os dois, o
+     terminal ainda estaria ecoando, e a credencial apareceria na tela. */
+  process.stdin.setRawMode(true);
+  process.stdin.resume();
+  process.stdout.write(
+    "\n  Cole a PRODUCTION_DATABASE_URL (secrets do Deployment) e aperte ENTER.\n" +
+    "  Nada aparece na tela. ENTER vazio cancela.\n\n  > ",
+  );
+  return new Promise((resolve) => {
+    let buf = "";
+    const aoTeclar = (bloco) => {
+      const t = bloco.toString("utf8");
+      for (const ch of t) {
+        if (ch === "\r" || ch === "\n") {
+          process.stdin.setRawMode(false);
+          process.stdin.pause();
+          process.stdin.off("data", aoTeclar);
+          process.stdout.write("\n");
+          resolve(buf.trim());
+          return;
+        }
+        if (ch === "\u0003") { process.stdout.write("\n"); process.exit(130); }
+        if (ch === "\u007f") { buf = buf.slice(0, -1); continue; }
+        buf += ch;
+      }
+    };
+    process.stdin.on("data", aoTeclar);
+  });
+}
+
+let BRUTA = process.env.PRODUCTION_DATABASE_URL || process.env.DATABASE_URL || "";
+let DE_ONDE = process.env.PRODUCTION_DATABASE_URL ? "PRODUCTION_DATABASE_URL" : "DATABASE_URL";
+
+/* O banco de desenvolvimento do Replit não responde à pergunta desta sonda:
+   se for ele que está no ambiente, pergunta-se a de produção antes de medir. */
+const pareceDev = /(^|@)(helium|localhost|127\.)/.test(BRUTA) || (BRUTA !== "" && !/\.[a-z]{2,}/.test(new URL(BRUTA).hostname));
+if ((!BRUTA || pareceDev) && process.stdin.isTTY) {
+  if (pareceDev) {
+    console.log("\n\x1b[1;33m  O ambiente tem o banco de desenvolvimento do Replit.\x1b[0m");
+    console.log("  Ele responde em menos de 1 ms e não diz nada sobre o publicado.");
+  }
+  const digitada = await perguntarUrl();
+  if (digitada) { BRUTA = digitada; DE_ONDE = "digitada no prompt"; }
+}
 
 if (!BRUTA) {
-  console.error("\nDefina DATABASE_URL (ou PRODUCTION_DATABASE_URL) e rode de novo.");
-  console.error("No Shell do Replit ela já costuma estar no ambiente.\n");
+  console.error("\nSem URL. Defina PRODUCTION_DATABASE_URL, ou cole no prompt quando ele pedir.\n");
   process.exit(1);
 }
 

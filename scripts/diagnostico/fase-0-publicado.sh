@@ -44,7 +44,7 @@
 #   FREIGHTCHECK_COOKIE_FILE  um arquivo com só esse valor dentro. É a saída
 #                         para quem não consegue colar no prompt silencioso:
 #                         nem `argv` nem histórico do shell veem a credencial.
-#   SAIDA                 diretório do relatório (padrão: ./fase-0-<carimbo>)
+#   SAIDA                 diretório do relatório (padrão: /tmp/fase-0-<carimbo>)
 #   SEM_NAVEGADOR=1       pula a etapa 3 (útil onde não dá para instalar o
 #                         playwright-core)
 #   N                     amostras por endpoint na etapa 2 (padrão 40)
@@ -148,7 +148,11 @@ fi
 
 # --- Saída ----------------------------------------------------------------
 CARIMBO="$(date -u +%Y%m%d-%H%M%SZ)"
-DIR="${SAIDA:-./fase-0-$CARIMBO}"
+# Fora do repositório por padrão. A primeira versão escrevia em `./`, e o
+# resultado foram três diretórios `fase-0-<carimbo>/` largados no workspace de
+# quem rodou — num diretório que é um clone do git, onde eles aparecem como
+# lixo não rastreado e ninguém sabe de onde vieram.
+DIR="${SAIDA:-/tmp/fase-0-$CARIMBO}"
 mkdir -p "$DIR/bruto" "$DIR/json"
 REL="$DIR/RELATORIO.md"
 ok "saída em $DIR"

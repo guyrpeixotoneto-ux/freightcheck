@@ -57,3 +57,6 @@ lib/assistant/trajetoria*.md
 
 # Relatórios da rodada do PR 7, escritos localmente.
 relatorios-pr7/
+
+# Saída dos diagnósticos da Fase 0, quando alguém aponta SAIDA para cá.
+fase-0-*/
