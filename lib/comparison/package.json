@@ -51,7 +51,8 @@
     "./tipos-da-vigencia": "./src/tipos-da-vigencia.ts",
     "./visao-geral-de-parametros": "./src/visao-geral-de-parametros.ts",
     "./pendencias-do-real": "./src/pendencias-do-real.ts",
-    "./fonte-real-do-acervo": "./src/fonte-real-do-acervo.ts"
+    "./fonte-real-do-acervo": "./src/fonte-real-do-acervo.ts",
+    "./reconciliacao-de-finame": "./src/reconciliacao-de-finame.ts"
   },
   "scripts": {
     "test": "vitest run",

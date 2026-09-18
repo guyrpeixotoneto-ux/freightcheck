@@ -30,6 +30,13 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import type { EstadoDaLinhaDeFiname, EvolucaoDoTipo } from "@workspace/comparison/finame";
+/* Os nomes dos degraus vêm da reconciliação, e não são redigitados aqui: os
+   chips deste painel e a escada logo acima falam do mesmo dinheiro, e dois
+   vocabulários para ele foi o que produziu a pergunta "por que não batem?". */
+import {
+  EXPLICACAO_DO_DEGRAU,
+  ROTULO_DO_DEGRAU,
+} from "@workspace/comparison/reconciliacao-de-finame";
 
 /**
  * Os quatro gráficos, e a regra que vale para os quatro: **nenhum deles soma o
@@ -302,8 +309,9 @@ export function EvolucaoEntreVigencias({
       titulo="Evolução entre as duas vigências"
       fonte={
         "A diferença de cada tipo, do total da base para o total da comparada. As três parcelas " +
-        "somam a diferença: o que se moveu em quem está nas duas vigências, o que entrou de frota " +
-        "e o que saiu. Só a primeira aparece como diferença na tabela abaixo."
+        "somam a diferença, com o mesmo sinal da reconciliação acima: positivo aumenta o custo da " +
+        "comparada, e a saída de frota é negativa. Só a primeira aparece como diferença na tabela " +
+        "abaixo — e é dela que a reconciliação sai para chegar ao cartão Impacto financeiro."
       }
     >
       {evolucao.length === 0 ? (
@@ -370,8 +378,11 @@ export interface RecorteDaParcela {
  * os estados. É o recorte que contém exatamente os veículos que ele conta —
  * quem está nas duas vigências e teve a parcela mexida. A aba Alterados conta
  * alteração de qualquer variável, e mandaria para lá um número que não é o dela.
- * Por isso o rótulo também é "Parcela alterada", e não "Alterados": um chip
- * promete o que entrega.
+ *
+ * Os três rótulos saem de `ROTULO_DO_DEGRAU`, a taxonomia da reconciliação, e
+ * não de três literais aqui: este chip e o degrau "Frota existente" da escada
+ * são o mesmo número, e duas palavras para ele deixariam de novo a tela com
+ * dois vocabulários para o mesmo dinheiro.
  *
  * Os outros dois abrem Novos e Ausentes sem filtrar variável, porque entrada e
  * saída de ativo não citam atributo — o motor as grava uma vez por veículo, com
@@ -389,40 +400,42 @@ function ParcelasDaDiferenca({
     valor: number;
     veiculos: number;
     operador: string;
-    /** O sinal com que a parcela entra na soma — a saída é escrita positiva. */
-    negativa?: boolean;
     explicacao: string;
     recorte: RecorteDaParcela;
   }[] = [
     {
-      rotulo: "Parcela alterada",
+      rotulo: ROTULO_DO_DEGRAU.FROTA_EXISTENTE,
       valor: e.alterados,
       veiculos: e.veiculosAlterados,
       operador: "",
-      explicacao:
-        "Veículos presentes nas duas vigências cuja parcela se moveu. É a única " +
-        "das três que a coluna Diferença da tabela mostra.",
+      explicacao: EXPLICACAO_DO_DEGRAU.FROTA_EXISTENTE,
       recorte: { tipo: e.entityType, estado: "TODAS", variavel: "parcela" },
     },
     {
-      rotulo: "Entradas",
+      rotulo: ROTULO_DO_DEGRAU.ENTRADAS,
       valor: e.entradas,
       veiculos: e.veiculosEntradas,
       operador: "+",
       explicacao:
-        "Parcela de quem só a vigência comparada tem. Conta veículo com parcela, " +
-        "então pode diferir da aba Novos, que conta veículo.",
+        `${EXPLICACAO_DO_DEGRAU.ENTRADAS} Conta veículo com parcela, então pode ` +
+        "diferir da aba Novos, que conta veículo.",
       recorte: { tipo: e.entityType, estado: "NOVO_NA_VIGENCIA", variavel: "TODAS" },
     },
     {
-      rotulo: "Saídas",
-      valor: e.saidas,
+      /*
+        A saída é escrita **negativa**, e não positiva com um "−" ao lado.
+        Enquanto os dois blocos da tela usavam convenções diferentes para o
+        mesmo dinheiro, somar a coluna de cima para baixo exigia trocar o sinal
+        no meio — e a escada da reconciliação, que soma exatamente estes três
+        números, não fecharia sem essa conversão silenciosa.
+      */
+      rotulo: ROTULO_DO_DEGRAU.SAIDAS,
+      valor: -e.saidas,
       veiculos: e.veiculosSaidas,
-      operador: "−",
-      negativa: true,
+      operador: "+",
       explicacao:
-        "Parcela de quem só a vigência base tem — dinheiro que deixou o total. " +
-        "Conta veículo com parcela, então pode diferir da aba Ausentes, que conta veículo.",
+        `${EXPLICACAO_DO_DEGRAU.SAIDAS} Conta veículo com parcela, então pode ` +
+        "diferir da aba Ausentes, que conta veículo.",
       recorte: { tipo: e.entityType, estado: "AUSENTE_NA_COMPARADA", variavel: "TODAS" },
     },
   ];
@@ -455,16 +468,13 @@ function ParcelasDaDiferenca({
                 <span className="text-[0.7rem] font-semibold text-muted-foreground">
                   {p.rotulo}
                 </span>
-                {/* A saída é escrita positiva e pintada de perda: o operador
-                    "−" ao lado já diz que ela sai, e "−R$ 17.798,77" depois de
-                    um "−" se lê como dois sinais sobre o mesmo número. */}
                 <span
                   className={cn(
                     "font-mono text-xs tabular-nums",
-                    corDaDiferenca(p.negativa ? -p.valor : p.valor, "DINHEIRO"),
+                    corDaDiferenca(p.valor, "DINHEIRO"),
                   )}
                 >
-                  {p.negativa ? formatBrl(p.valor) : escreverDiferenca(p.valor, "DINHEIRO")}
+                  {escreverDiferenca(p.valor, "DINHEIRO")}
                 </span>
                 <span className="font-mono text-[0.7rem] text-muted-foreground">
                   {formatNumber(p.veiculos, 0)} veíc.

@@ -23,7 +23,9 @@ import {
   operacaoDoSnapshot,
   resumirFiname,
   evolucaoPorTipo,
+  reconciliarFiname,
   totaisPorVigencia,
+  type ValorDaPonta,
   variavelDoCodigo,
   VARIAVEIS_DE_FINAME,
   vigenciasQueCobrem,
@@ -375,6 +377,87 @@ router.get("/finame/comparacao", async (req, res, next): Promise<void> => {
 });
 
 /**
+ * A parcela FINAME de cada veículo, nas duas pontas do par.
+ *
+ * Uma leitura, três leitores: os totais do gráfico, a decomposição da evolução
+ * e a escada da reconciliação. Ela morava dentro de `GET /finame/totais`, e
+ * copiá-la para a rota nova seria o caminho mais curto para dois painéis da
+ * mesma tela lerem acervos ligeiramente diferentes — que é o desencontro que a
+ * reconciliação existe para fechar.
+ *
+ * A recusa de recorte sobe como erro: quem responde 422 é a rota, que tem `res`
+ * à mão. Ver `classificarFalha` nas duas chamadas.
+ */
+async function parcelaDasPontas(
+  req: Parameters<Parameters<IRouter["get"]>[1]>[0],
+  base: string,
+  comparada: string,
+): Promise<ValorDaPonta[]> {
+  const vigencias = await listComparableSnapshots(db, {
+    operacao: operacaoDaConsulta(req.query as Record<string, unknown>),
+  });
+  const pontas = [
+    { ponta: "BASE" as const, snapshot: vigencias.find((v) => v.id === base) },
+    { ponta: "COMPARADA" as const, snapshot: vigencias.find((v) => v.id === comparada) },
+  ];
+
+  const valores: ValorDaPonta[] = [];
+
+  /*
+    OS TIPOS QUE **AS DUAS PONTAS** TRAZEM — o mesmo recorte do motor.
+
+    Sem ele, um tipo que só existe de um lado saía deste painel como movimento
+    de frota: comparando uma vigência com carreta contra uma sem, as 71 carretas
+    que nunca foram importadas apareciam como "Saídas · 71 veíc." — ao lado de
+    um cartão, na mesma tela, dizendo "Ausentes na comparada: 0". Os dois
+    números liam o mesmo par e discordavam, porque um já recortava e o outro
+    não.
+
+    A regra é a de `engine.ts`: um tipo presente numa ponta só não é frota que
+    entrou nem que saiu; é cobertura de arquivo. Aqui ele simplesmente não entra
+    na leitura — e o painel passa a falar do que as duas vigências têm.
+  */
+  const tiposDoPar = coberturaComum(
+    pontas[0].snapshot?.entityTypeSet,
+    pontas[1].snapshot?.entityTypeSet,
+  );
+
+  for (const { ponta, snapshot } of pontas) {
+    if (!snapshot) continue;
+    for (const entityType of ["CAVALO", "CARRETA"] as const) {
+        if (!tiposDoPar.includes(entityType)) continue;
+      /* O código da parcela sai do catálogo, e não de uma segunda lista aqui:
+         a decisão de qual coluna é "a parcela" da carreta é uma só, e mora lá. */
+      const code = PARCELA?.codigo[entityType];
+      if (!code) continue;
+      const tabela = await getEntityTable(
+        db,
+        entityType,
+        [code],
+        contextoDoPar(snapshot, req),
+        snapshot.effectiveDate,
+      );
+      if (!tabela) continue;
+      for (const linha of tabela.rows) {
+        const bruto = linha.values[code]?.value ?? null;
+        const numero = bruto === null ? null : Number(bruto);
+        valores.push({
+          ponta,
+          entityType,
+          entityId: linha.entityId,
+          /* A placa viaja junto desde aqui: é ela que a reconciliação abre, e
+             derivá-la depois exigiria uma segunda leitura do acervo. */
+          entityLabel: linha.label,
+          attributeCode: code,
+          valor: numero !== null && Number.isFinite(numero) ? numero : null,
+        });
+      }
+    }
+    }
+  return valores;
+}
+
+/**
  * O total de parcela FINAME de cada ponta — a série do primeiro gráfico.
  *
  * Separado da comparação porque a pergunta é outra: um total tem de incluir
@@ -411,73 +494,9 @@ router.get("/finame/totais", async (req, res): Promise<void> => {
     await exigirOperacaoDoRecurso(req, "vigência", id, () => operacaoDoSnapshot(db, id));
   }
 
-  const vigencias = await listComparableSnapshots(db, {
-    operacao: operacaoDaConsulta(req.query as Record<string, unknown>),
-  });
-  const pontas = [
-    { ponta: "BASE" as const, snapshot: vigencias.find((v) => v.id === base) },
-    { ponta: "COMPARADA" as const, snapshot: vigencias.find((v) => v.id === comparada) },
-  ];
-
-  const valores: {
-    ponta: "BASE" | "COMPARADA";
-    entityType: string;
-    /* Quem sustenta o valor. O total não precisa dele; a decomposição precisa,
-       porque é por veículo que se sabe se um real é alteração ou entrada. */
-    entityId: string;
-    attributeCode: string;
-    valor: number | null;
-  }[] = [];
-
-  /*
-    OS TIPOS QUE **AS DUAS PONTAS** TRAZEM — o mesmo recorte do motor.
-
-    Sem ele, um tipo que só existe de um lado saía deste painel como movimento
-    de frota: comparando uma vigência com carreta contra uma sem, as 71 carretas
-    que nunca foram importadas apareciam como "Saídas · 71 veíc." — ao lado de
-    um cartão, na mesma tela, dizendo "Ausentes na comparada: 0". Os dois
-    números liam o mesmo par e discordavam, porque um já recortava e o outro
-    não.
-
-    A regra é a de `engine.ts`: um tipo presente numa ponta só não é frota que
-    entrou nem que saiu; é cobertura de arquivo. Aqui ele simplesmente não entra
-    na leitura — e o painel passa a falar do que as duas vigências têm.
-  */
-  const tiposDoPar = coberturaComum(
-    pontas[0].snapshot?.entityTypeSet,
-    pontas[1].snapshot?.entityTypeSet,
-  );
-
+  let valores: ValorDaPonta[];
   try {
-    for (const { ponta, snapshot } of pontas) {
-      if (!snapshot) continue;
-      for (const entityType of ["CAVALO", "CARRETA"] as const) {
-        if (!tiposDoPar.includes(entityType)) continue;
-        /* O código da parcela sai do catálogo, e não de uma segunda lista aqui:
-           a decisão de qual coluna é "a parcela" da carreta é uma só, e mora lá. */
-        const code = PARCELA?.codigo[entityType];
-        if (!code) continue;
-        const tabela = await getEntityTable(
-          db,
-          entityType,
-          [code],
-          contextoDoPar(snapshot, req),
-          snapshot.effectiveDate,
-        );
-        if (!tabela) continue;
-        for (const linha of tabela.rows) {
-          const bruto = linha.values[code]?.value ?? null;
-          const numero = bruto === null ? null : Number(bruto);
-          valores.push({
-            ponta,
-            entityType,
-            entityId: linha.entityId,
-            attributeCode: code,
-            valor: numero !== null && Number.isFinite(numero) ? numero : null,
-          });
-        }
-      }
-    }
+    valores = await parcelaDasPontas(req, base, comparada);
   } catch (err) {
     /* Pedir o escopo do par é pedir um recorte que pode não ter contexto — e a
        recusa de recorte é frase para quem opera, não 500. A mesma tradução de
@@ -490,6 +509,71 @@ router.get("/finame/totais", async (req, res): Promise<void> => {
   }
 
   res.json({ totais: totaisPorVigencia(valores), evolucao: evolucaoPorTipo(valores) });
+});
+
+/**
+ * A RECONCILIAÇÃO — a escada que liga o cartão do topo ao painel de baixo.
+ *
+ * `GET /finame/reconciliacao?base=<snapshotId>&comparada=<snapshotId>`
+ *
+ * É a única rota do módulo que lê **as duas** matérias-primas: as alterações do
+ * motor, de onde sai o impacto, e a leitura das duas vigências, de onde sai o
+ * saldo da frota. Enquanto cada uma vivia numa rota, ninguém podia escrever a
+ * conta que as liga — e a tela publicava os dois números a um palmo um do outro
+ * com uma observação dizendo que as bases eram diferentes.
+ *
+ * Os três recortes saem prontos daqui, pela mesma razão que `porTipo` sai de
+ * `/finame/comparacao`: a aba Cavalo precisa de uma escada que feche sozinha, e
+ * recompô-la no navegador seria a segunda régua da mesma conta.
+ */
+router.get("/finame/reconciliacao", async (req, res, next): Promise<void> => {
+  if (fonteDaConsulta({ query: req.query as Record<string, unknown> }, res, ["REMUNERADO"]) === null) {
+    return;
+  }
+  const base = typeof req.query.base === "string" ? req.query.base : "";
+  const comparada = typeof req.query.comparada === "string" ? req.query.comparada : "";
+  if (!base || !comparada) {
+    res.status(400).json({ error: "Informe base e comparada." });
+    return;
+  }
+  for (const id of [base, comparada]) {
+    await exigirOperacaoDoRecurso(req, "vigência", id, () => operacaoDoSnapshot(db, id));
+  }
+
+  try {
+    /* O mesmo change set da comparação, reaproveitado: uma segunda contagem
+       daria uma segunda resposta para o mesmo par. */
+    const resumo =
+      (await getChangeSetForPair(db, base, comparada)) ??
+      (await computeChangeSet(db, base, comparada, { computedBy: "api:finame" }));
+    const { rows } = await listChanges(db, resumo.id, {
+      attributeCodes: [...CODIGOS_DO_DETALHE],
+      limit: 5000,
+    });
+    const linhas = linhasDeFiname(rows);
+    const valores = await parcelaDasPontas(req, base, comparada);
+
+    res.json({
+      changeSetId: resumo.id,
+      recortes: Object.fromEntries(
+        (["TODOS", "CAVALO", "CARRETA"] as const).map((recorte) => [
+          recorte,
+          reconciliarFiname(
+            recorte === "TODOS" ? linhas : linhas.filter((l) => l.entityType === recorte),
+            recorte === "TODOS" ? valores : valores.filter((v) => v.entityType === recorte),
+          ),
+        ]),
+      ),
+    });
+  } catch (err) {
+    const desfecho = classificarFalha(err);
+    if (desfecho.tipo !== "REGRA") {
+      next(err);
+      return;
+    }
+    req.log.warn({ err }, "Reconciliação de FINAME recusada");
+    res.status(422).json({ error: desfecho.mensagem });
+  }
 });
 
 /**

@@ -10,6 +10,7 @@ import {
   type FiltrosDeFiname,
 } from "@workspace/comparison/finame";
 import { contarVeiculos } from "@workspace/comparison/agrupamento-por-veiculo";
+import type { ReconciliacaoPorPeriodicidade } from "@workspace/comparison/reconciliacao-de-finame";
 import type { EvolucaoDoTipo } from "@workspace/comparison/finame";
 import type { RecorteDeTipo } from "@/components/comparacao/recorte-de-equipamento";
 import {
@@ -113,6 +114,18 @@ export interface TotaisDeFiname {
    * leitura, ou a tela mostra duas versões da mesma diferença.
    */
   evolucao: EvolucaoDoTipo[];
+}
+
+/**
+ * A escada que liga o cartão do topo ao saldo da frota, já recortada.
+ *
+ * Os três recortes chegam prontos de `GET /finame/reconciliacao` — a aba Cavalo
+ * precisa de uma escada que feche sozinha, e recompô-la aqui seria a segunda
+ * régua da mesma conta.
+ */
+export interface ReconciliacaoDeFiname {
+  changeSetId: string;
+  recortes: Record<string, { periodicidades: ReconciliacaoPorPeriodicidade[] }>;
 }
 
 /**

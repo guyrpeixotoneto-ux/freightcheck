@@ -11,6 +11,11 @@
 // três parcelas que a produzem, que a soma delas é a diferença escrita ao lado
 // — a identidade, e não uma aproximação — e que cada parcela leva a tabela para
 // o recorte que a sustenta, com os três filtros escritos de uma vez.
+//
+// Desde a reconciliação, verifica também que este painel fala a **mesma língua**
+// da escada de cima: os rótulos saem de `ROTULO_DO_DEGRAU` e a saída de frota é
+// escrita negativa. Dois vocabulários e duas convenções de sinal para o mesmo
+// dinheiro foi o que produziu a pergunta "por que não batem?".
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -60,8 +65,9 @@ describe("a evolução entre as duas vigências", () => {
     renderizar();
     expect(screen.getByText("+R$ 12.410,08")).toBeTruthy();
     expect(screen.getByText("+R$ 96.233,40")).toBeTruthy();
-    /* A saída é escrita positiva: o operador "−" ao lado é que a subtrai. */
-    expect(screen.getByText("R$ 17.798,77")).toBeTruthy();
+    /* A saída é escrita **negativa**, a mesma convenção da reconciliação acima:
+       somar a linha de cima para baixo chega ao saldo sem trocar sinal no meio. */
+    expect(screen.getByText("−R$ 17.798,77")).toBeTruthy();
     expect(
       CARRETA.base + CARRETA.alterados + CARRETA.entradas - CARRETA.saidas,
     ).toBeCloseTo(CARRETA.comparada, 2);
@@ -76,7 +82,7 @@ describe("a evolução entre as duas vigências", () => {
 
   it("leva a tabela para a variável Parcela — e não para a aba Alterados", () => {
     const { onRecorte } = renderizar();
-    fireEvent.click(screen.getByRole("button", { name: /Parcela alterada/ }));
+    fireEvent.click(screen.getByRole("button", { name: /Frota existente/ }));
     /* A aba Alterados conta alteração de qualquer variável; este número é só da
        parcela, e mandar para lá seria prometer um recorte e abrir outro. */
     expect(onRecorte).toHaveBeenCalledWith({
@@ -107,7 +113,7 @@ describe("a evolução entre as duas vigências", () => {
 
   it("sem para onde levar, os chips não clicam", () => {
     renderizar({ comRecorte: false });
-    for (const rotulo of [/Parcela alterada/, /Entradas/, /Saídas/]) {
+    for (const rotulo of [/Frota existente/, /Entradas/, /Saídas/]) {
       expect(screen.getByRole("button", { name: rotulo }).hasAttribute("disabled")).toBe(true);
     }
   });
