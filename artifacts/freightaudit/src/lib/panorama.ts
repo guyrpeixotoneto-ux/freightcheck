@@ -1,4 +1,8 @@
 import {
+  periodicidadePrincipal,
+  periodicidadesDaLeitura,
+} from "@workspace/comparison/contrato-de-impacto";
+import {
   escreverImpacto,
   escreverPercentual,
   frotaTotal,
@@ -656,18 +660,19 @@ export function janelaDoImpacto(
   if (movimentos === null) return null;
 
   /*
-    A periodicidade da manchete quando ela existe; a dominante da janela quando
-    não. Uma vigência sem valor apurado ainda pode ter janela com valor — e ler
-    a janela numa grandeza e o gráfico noutra seria a divergência calada que
-    este módulo existe para não ter, então quem manda é a mesma escolha que o
-    gráfico faz.
+    A periodicidade é a do contrato — a mesma função que o gráfico ao lado
+    chama, e não uma segunda régua com o mesmo propósito.
+
+    A anterior aceitava a preferida pela mera **existência** do balde
+    (`!== undefined`), e um balde apurado inteiramente em R$ 0,00 existe: a
+    janela era lida numa grandeza parada enquanto o dinheiro estava noutra.
+    `periodicidadePrincipal` exige movimento antes de respeitar a preferência,
+    que é a correção de 18/09/2026.
   */
-  const balde =
-    periodicidade !== null && movimentos.impact.byPeriodicity[periodicidade] !== undefined
-      ? periodicidade
-      : (Object.entries(movimentos.impact.byPeriodicity).sort(
-          (a, b) => Math.abs(b[1]) - Math.abs(a[1]),
-        )[0]?.[0] ?? null);
+  const balde = periodicidadePrincipal(
+    periodicidadesDaLeitura(movimentos.impact),
+    periodicidade,
+  );
 
   const vigencias = movimentos.periods.filter(
     (p) => p.date >= movimentos.from && p.date <= movimentos.to,

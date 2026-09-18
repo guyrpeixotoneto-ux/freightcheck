@@ -12,6 +12,7 @@ import {
 } from "@/components/dashboard/grafico-de-impacto";
 import type { FamiliesOverview, FamiliesView } from "@/components/inicio/types";
 import type { Movimentos } from "@/lib/analise";
+import type { PeriodicidadeApurada } from "@workspace/comparison/contrato-de-impacto";
 
 /**
  * As opções da consulta de um intervalo — **a chave escrita uma vez**.
@@ -79,9 +80,20 @@ export function useSerieDeImpacto(
     desenha. Quem chama diz qual dos dois casos é o seu.
   */
   habilitado = true,
+  /**
+   * A grandeza que a pessoa escolheu no gráfico — `null` enquanto ela não
+   * escolheu nada.
+   *
+   * Ela entra como **preferência**, e não como imposição: uma escolha que o
+   * recorte aberto não tem (trocou-se de unidade depois de escolher R$/ano) cai
+   * na régua do contrato em vez de esvaziar o gráfico.
+   */
+  periodicidadeEscolhida: string | null = null,
 ): {
   pontos: PontoDeImpacto[];
   periodicity: string | null;
+  /** As grandezas do recorte desenhado — para o seletor do gráfico. */
+  disponiveis: PeriodicidadeApurada[];
   carregando: boolean;
   /**
    * A resposta crua do intervalo — para quem precisa do **rollup da janela**, e
@@ -175,12 +187,20 @@ export function useSerieDeImpacto(
     e zero aqui não é "não mudou nada", é "não foi perguntado".
   */
   const serie = useMemo(() => {
-    if (!movimentos) return { pontos: [], periodicity: null };
+    if (!movimentos) return { pontos: [], periodicity: null, disponiveis: [] };
     const ordenadas = movimentos.periods
       .filter((p) => p.date >= movimentos.from && p.date <= movimentos.to)
       .sort((a, b) => a.date.localeCompare(b.date));
-    return pontosDeImpacto(ordenadas, movimentos.entries, dominante);
-  }, [movimentos, dominante]);
+    /*
+      A escolha da pessoa manda sobre a da vigência — e as duas são
+      preferências, resolvidas pela mesma régua do contrato lá dentro.
+    */
+    return pontosDeImpacto(
+      ordenadas,
+      movimentos.entries,
+      periodicidadeEscolhida ?? dominante,
+    );
+  }, [movimentos, dominante, periodicidadeEscolhida]);
 
   return { ...serie, carregando, movimentos };
 }

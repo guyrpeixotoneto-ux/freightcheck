@@ -3,6 +3,13 @@ import { cn } from "@/lib/utils";
 import { formatBrlShort, periodicitySuffix } from "@/lib/format";
 import { comSinal, type SituacaoDaApuracao } from "@/lib/impacto-apurado";
 import type { LadosDoImpacto } from "@/lib/visao-geral";
+import {
+  avisoDeInversao,
+  avisoDeSalteado,
+  fraseDaLeitura,
+  rotuloDoPar,
+  type LeituraDeImpacto,
+} from "@/lib/impacto/contrato";
 
 /**
  * A manchete financeira — o único número grande da tela.
@@ -36,6 +43,7 @@ export function Manchete({
   situacao,
   outras,
   contexto,
+  leitura,
 }: {
   /**
    * Em que pé está a apuração — quatro desfechos, e nenhum deles é o outro.
@@ -54,7 +62,22 @@ export function Manchete({
    */
   outras: LadosDoImpacto[];
   contexto: ContextoDaManchete;
+  /**
+   * A leitura canônica — o par comparado, o estado e a cobertura, como o
+   * servidor os montou. `null` só enquanto ela não chegou.
+   */
+  leitura?: LeituraDeImpacto | null;
 }) {
+  /*
+    A frase só existe quando a leitura existe.
+
+    Sem ela o cartão mantém a redação anterior, que os chamadores antigos ainda
+    alimentam por `situacao`. O que ele **não** faz é cair na frase de espera:
+    "carregando" é uma afirmação sobre a tela, e escrevê-la sobre um dado que já
+    chegou por outro caminho seria trocar um erro por outro.
+  */
+  const frase = leitura ? fraseDaLeitura({ situacao: "LIDO", leitura }) : null;
+  const aviso = leitura ? (avisoDeSalteado(leitura) ?? avisoDeInversao(leitura)) : null;
   const lados = situacao.estado === "com_movimento" ? situacao.lados : null;
   const sufixo = lados
     ? periodicitySuffix(lados.periodicity)
@@ -71,6 +94,8 @@ export function Manchete({
         <p className="text-[11px] font-bold tracking-[0.14em] uppercase opacity-80">
           Impacto líquido apurado
         </p>
+        {/* O par comparado, sempre — ver `components/panorama/veredito.tsx`. */}
+        {leitura && <p className="text-xs opacity-70 mt-1">{rotuloDoPar(leitura)}</p>}
         {lados || situacao.estado === "apurado_em_zero" ? (
           <>
             <p className="mt-3 flex items-baseline gap-2 flex-wrap">
@@ -84,7 +109,9 @@ export function Manchete({
               </span>
               {sufixo && <span className="text-base font-semibold opacity-80">{sufixo}</span>}
             </p>
-            <p className="text-xs opacity-80 mt-3 leading-snug">{DESCRICAO[situacao.estado]}</p>
+            <p className="text-xs opacity-80 mt-3 leading-snug">
+              {frase ? frase.detalhe : DESCRICAO[situacao.estado]}
+            </p>
             {/*
               Líquido zero tem duas causas, e elas pedem conversas diferentes:
               ganho e perda que se anularam, ou linhas apuradas em R$ 0,00. A
@@ -100,10 +127,19 @@ export function Manchete({
         ) : (
           <>
             <p className="mt-3 text-2xl font-extrabold leading-tight">
-              {situacao.estado === "sem_alteracao" ? "Nada mudou" : "Nenhum valor apurado"}
+              {frase?.titulo ??
+                (situacao.estado === "sem_alteracao" ? "Nada mudou" : "Nenhum valor apurado")}
             </p>
-            <p className="text-xs opacity-80 mt-3 leading-snug">{DESCRICAO[situacao.estado]}</p>
+            <p className="text-xs opacity-80 mt-3 leading-snug">
+              {frase ? frase.detalhe : DESCRICAO[situacao.estado]}
+            </p>
           </>
+        )}
+
+        {aviso && (
+          <p className="text-xs opacity-80 mt-3 leading-snug border-t border-white/20 pt-2">
+            {aviso}
+          </p>
         )}
 
         {outras.length > 0 && (

@@ -24,6 +24,11 @@ import {
   type Janela,
 } from "@/lib/janela-de-vigencias";
 import type { RangeEntry } from "@/lib/analise";
+import {
+  periodicidadePrincipal,
+  periodicidadesDaLeitura,
+  type PeriodicidadeApurada,
+} from "@workspace/comparison/contrato-de-impacto";
 
 /*
   A janela — "quantas, e de quê" — mora em `lib/janela-de-vigencias.ts`, junto
@@ -85,10 +90,15 @@ export interface PontoDeImpacto {
  *
  * Não reimplementa a soma de ganhos/perdas por vigência: `seriesDoIntervalo`
  * (a mesma conta que a linha do tempo antiga usava) já devolve isso por
- * periodicidade; esta função só escolhe a periodicidade certa — a da vigência
- * corrente quando o intervalo tem dado nela, senão a de maior magnitude no
- * intervalo (`dominanteDoIntervalo`) — e soma o líquido de cada ponto, que é
- * `ganhos + perdas` porque `perdas` já vem negativo.
+ * periodicidade; esta função só escolhe a periodicidade certa — pelo contrato
+ * (`periodicidadePrincipal`), e nunca por uma régua escrita aqui — e soma o
+ * líquido de cada ponto, que é `ganhos + perdas` porque `perdas` já vem
+ * negativo.
+ *
+ * A preferência da vigência aberta continua valendo, com uma condição que
+ * faltava: ela precisa **ter movimento** no recorte desenhado. Sem essa
+ * condição, um balde apurado em R$ 0,00 ganhava o eixo e escondia o balde onde
+ * estava o dinheiro todo — o defeito de 18/09/2026.
  *
  * `periodicity` sai `null` quando o intervalo não tem nenhuma alteração
  * valorada — aí não há o que desenhar, e quem chama decide o que mostrar no
@@ -98,14 +108,40 @@ export function pontosDeImpacto(
   periodosOrdenados: { date: string; label: string }[],
   entradas: RangeEntry[],
   periodicidadePreferida: string | null,
-): { pontos: PontoDeImpacto[]; periodicity: string | null } {
+): {
+  pontos: PontoDeImpacto[];
+  periodicity: string | null;
+  /**
+   * As grandezas que o recorte desenhado **tem** — todas, na ordem do contrato.
+   *
+   * Devolvidas para que a tela possa oferecer a troca em vez de o gráfico
+   * escolher calado. Enquanto só o eixo saía daqui, R$/mês e R$/ano existiam no
+   * mesmo intervalo e quem lia via um só, sem nada dizendo que havia outro.
+   */
+  disponiveis: PeriodicidadeApurada[];
+} {
   const { valor, periodicidades } = seriesDoIntervalo(periodosOrdenados, entradas);
-  if (periodicidades.length === 0) return { pontos: [], periodicity: null };
+  if (periodicidades.length === 0) {
+    return { pontos: [], periodicity: null, disponiveis: [] };
+  }
 
-  const periodicidade =
-    periodicidadePreferida && periodicidades.includes(periodicidadePreferida)
-      ? periodicidadePreferida
-      : dominanteDoIntervalo(valor, periodicidades);
+  /*
+    A escolha é a do contrato, e não uma régua deste arquivo.
+
+    Era `preferida se o balde existir, senão a de maior magnitude`, e as duas
+    metades estavam erradas. Existir não é ter dinheiro: um balde apurado
+    inteiramente em R$ 0,00 existe, vencia a preferência e desenhava o gráfico
+    chapado no zero. E a magnitude sozinha perde para o líquido compensado —
+    R$ 120 mil de ganho contra R$ 120 mil de perda é a vigência mais
+    movimentada do semestre e sai como zero.
+
+    `periodicidadePrincipal` decide pelas duas coisas certas, na ordem certa:
+    quem **tem movimento** primeiro, depois quem moveu mais bruto. E decide
+    igual aqui, no seletor, no cartão e na janela — que é o ponto inteiro.
+  */
+  const disponiveis = periodicidadesDaSerie(valor, periodicidades);
+  const periodicidade = periodicidadePrincipal(disponiveis, periodicidadePreferida);
+  if (periodicidade === null) return { pontos: [], periodicity: null, disponiveis };
 
   const base = valor.get(periodicidade) ?? [];
   return {
@@ -114,52 +150,45 @@ export function pontosDeImpacto(
       liquido: Number((ponto.ganhos + ponto.perdas).toFixed(2)),
     })),
     periodicity: periodicidade,
+    disponiveis,
   };
 }
 
 /**
- * A periodicidade que o intervalo tem mais — o desempate de quando a vigência
- * aberta não tem preferência a impor.
+ * A série da janela, na forma do contrato — uma `PeriodicidadeApurada` por balde.
  *
- * Era `periodicidades[0]`, e `periodicidades` vem de `seriesDoIntervalo`
- * ordenada **alfabeticamente**: `ANUAL` antes de `MENSAL`. Numa vigência sem
- * valor apurado — que é exatamente quando não há preferência — o gráfico caía
- * no balde `ANUAL`, e uma carteira que é mensal com um punhado de linhas anuais
- * desenhava seis vigências coladas no zero, com o eixo em R$/ano, ao lado de um
- * seletor que anunciava R$ 73.772 e −R$ 44.464 nas mesmas vigências. O dinheiro
- * todo estava no balde que não foi desenhado.
- *
- * A régua agora é a mesma de `janelaDoImpacto` (`lib/panorama.ts`): manda a
- * magnitude, não o alfabeto. Isso não é gosto — os dois cartões dividem a dobra
- * lado a lado no Panorama, e é a divergência calada entre eles que este
- * desempate existe para não ter.
- *
- * A soma é **bruta** (|ganhos| + |perdas|), e não o líquido: um balde de
- * R$ 120 mil de ganho contra R$ 120 mil de perda tem líquido zero e é a
- * vigência mais movimentada do semestre — escolher pelo líquido o descartaria
- * em favor de um balde de R$ 4.
- *
- * Empate escolhe o primeiro de `periodicidades`, que segue alfabético: com dois
- * baldes de mesma magnitude não há resposta melhor, e uma ordem estável é o que
- * impede o gráfico de trocar de eixo entre dois quadros do mesmo dado.
+ * O adaptador existe porque o gráfico não lê uma leitura pronta: ele lê a série
+ * já recortada pela janela aberta (3, 6 ou 12 vigências), e o movimento que
+ * decide o eixo é o **do recorte desenhado**, não o da vigência. Montar o
+ * contrato aqui é o que faz a decisão do eixo obedecer à mesma régua do resto,
+ * sobre a população que a tela de fato mostra.
  */
-function dominanteDoIntervalo(
+export function periodicidadesDaSerie(
   valor: Map<string, { ganhos: number; perdas: number }[]>,
   periodicidades: string[],
-): string {
-  let escolhida = periodicidades[0];
-  let maior = -1;
-  for (const periodicidade of periodicidades) {
-    const total = (valor.get(periodicidade) ?? []).reduce(
-      (soma, ponto) => soma + Math.abs(ponto.ganhos) + Math.abs(ponto.perdas),
-      0,
-    );
-    if (total > maior) {
-      maior = total;
-      escolhida = periodicidade;
-    }
-  }
-  return escolhida;
+): PeriodicidadeApurada[] {
+  return periodicidadesDaLeitura(
+    {
+      byPeriodicity: Object.fromEntries(
+        periodicidades.map((p) => [
+          p,
+          (valor.get(p) ?? []).reduce((soma, x) => soma + x.ganhos + x.perdas, 0),
+        ]),
+      ),
+    },
+    periodicidades.map((p) => {
+      const pontos = valor.get(p) ?? [];
+      const ganhos = pontos.reduce((soma, x) => soma + x.ganhos, 0);
+      const perdas = pontos.reduce((soma, x) => soma + x.perdas, 0);
+      return {
+        periodicity: p,
+        net: Number((ganhos + perdas).toFixed(2)),
+        // A contagem de alterações não é da série; o contrato não a inventa.
+        gains: { total: Number(ganhos.toFixed(2)), changes: 0 },
+        losses: { total: Number(perdas.toFixed(2)), changes: 0 },
+      };
+    }),
+  );
 }
 
 /**
@@ -206,6 +235,8 @@ export function GraficoDeImpacto({
   onEscolherVigencia,
   janela: janelaPedida,
   onJanela,
+  periodicidades = [],
+  onPeriodicidade,
 }: {
   pontos: PontoDeImpacto[];
   periodicity: string | null;
@@ -237,6 +268,15 @@ export function GraficoDeImpacto({
    */
   janela?: Janela;
   onJanela?: (janela: Janela) => void;
+  /**
+   * As grandezas que este recorte tem — de `pontosDeImpacto`.
+   *
+   * Com mais de uma **com movimento**, o gráfico oferece a troca em vez de
+   * publicar uma calada. Não somar as duas continua valendo; o que muda é que
+   * a segunda deixa de ser invisível.
+   */
+  periodicidades?: PeriodicidadeApurada[];
+  onPeriodicidade?: (periodicity: string) => void;
 }) {
   const [janelaLocal, setJanelaLocal] = useState<Janela>(JANELA_PADRAO);
   const janela = janelaPedida ?? janelaLocal;
@@ -315,9 +355,16 @@ export function GraficoDeImpacto({
           com três vigências no banco, todos os botões desenhariam o mesmo
           gráfico e prometeriam uma escolha que não existe.
         */}
-        {pontos.length > QUANTIDADES[0] && (
-          <SeletorDeJanela janela={janela} onJanela={trocarJanela} />
-        )}
+        <div className="flex items-center gap-2">
+          <SeletorDeGrandeza
+            periodicidades={periodicidades}
+            escolhida={periodicity}
+            onEscolher={onPeriodicidade}
+          />
+          {pontos.length > QUANTIDADES[0] && (
+            <SeletorDeJanela janela={janela} onJanela={trocarJanela} />
+          )}
+        </div>
       </div>
       <ResponsiveContainer width="100%" height={300}>
         <ComposedChart
@@ -370,6 +417,59 @@ export function GraficoDeImpacto({
           />
         </ComposedChart>
       </ResponsiveContainer>
+    </div>
+  );
+}
+
+
+/**
+ * A troca de grandeza — R$/mês, R$/ano — quando o recorte tem mais de uma.
+ *
+ * ---------------------------------------------------------------------------
+ * Por que não basta escolher bem
+ * ---------------------------------------------------------------------------
+ * `periodicidadePrincipal` escolhe a certa: a que tem movimento, e entre elas
+ * a que mais moveu. Isso resolve o desenho chapado no zero, e **não** resolve o
+ * resto: com R$/ano e R$/mês no mesmo intervalo, o gráfico desenha um e o outro
+ * continua fora da tela. Somar os dois está fora de questão — não é a mesma
+ * grandeza —, e uma nota de rodapé não deixa ninguém *ver* a outra série.
+ *
+ * Então a escolha vira gesto. O botão só aparece quando há de fato duas
+ * grandezas com dinheiro se movendo: com uma só, ele prometeria uma alternativa
+ * que não existe, que é o mesmo defeito do seletor de janela ao lado.
+ */
+function SeletorDeGrandeza({
+  periodicidades,
+  escolhida,
+  onEscolher,
+}: {
+  periodicidades: PeriodicidadeApurada[];
+  escolhida: string | null;
+  onEscolher?: (periodicity: string) => void;
+}) {
+  const comMovimento = periodicidades.filter((p) => p.temMovimento);
+  if (comMovimento.length < 2 || typeof onEscolher !== "function") return null;
+  return (
+    <div
+      role="group"
+      aria-label="Grandeza do gráfico"
+      className="flex items-center gap-1 rounded-full bg-muted/60 p-0.5"
+    >
+      {comMovimento.map((p) => (
+        <button
+          key={p.periodicity}
+          type="button"
+          onClick={() => onEscolher(p.periodicity)}
+          aria-pressed={p.periodicity === escolhida}
+          className={
+            p.periodicity === escolhida
+              ? "rounded-full bg-background px-2.5 py-1 text-xs font-semibold shadow-sm"
+              : "rounded-full px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground"
+          }
+        >
+          R${periodicitySuffix(p.periodicity)}
+        </button>
+      ))}
     </div>
   );
 }

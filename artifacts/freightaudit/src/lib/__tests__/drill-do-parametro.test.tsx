@@ -22,6 +22,7 @@ const RESUMO_VAZIO = {
     rastro: { brutoByPeriodicity: {}, degraus: [], oficialByPeriodicity: {} },
     excludedChanges: 0,
     calculatedChanges: 0,
+    zeroChanges: 0,
     notCalculable: 0,
   },
   lossesByPeriodicity: {},

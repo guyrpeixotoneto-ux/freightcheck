@@ -1,3 +1,7 @@
+import {
+  montarLeituraDeImpacto,
+  type LeituraDeImpacto,
+} from "./contrato-de-impacto";
 import type { Database } from "@workspace/db";
 import type { FamilyCode } from "./families";
 import {
@@ -115,6 +119,15 @@ export interface FamiliesOverview {
    * se sabe que não havia sobreposição.
    */
   vehiclesTouchedDistinct: number;
+  /**
+   * A leitura canônica da consolidação — recorte `VIGENCIA_VS_ANTERIOR`, com
+   * `pontaDePorUnidade: true`.
+   *
+   * Aqui a ponta De **não é uma só**: cada unidade foi comparada com a anterior
+   * dela. O contrato diz isso em vez de deixar o `de: null` ser lido como
+   * "primeira vigência do histórico", que é outro fato e outra frase.
+   */
+  leitura: LeituraDeImpacto;
   unitsIncluded: OverviewUnitIncluded[];
   unitsExcluded: OverviewUnitExcluded[];
   /**
@@ -347,6 +360,7 @@ function mergeSummaries(summaries: ExecutiveSummary[]): ExecutiveSummary {
       excludedChanges: summaries.reduce((soma, s) => soma + s.impact.excludedChanges, 0),
       calculatedChanges: summaries.reduce((soma, s) => soma + s.impact.calculatedChanges, 0),
       notCalculable: summaries.reduce((soma, s) => soma + s.impact.notCalculable, 0),
+      zeroChanges: summaries.reduce((soma, s) => soma + s.impact.zeroChanges, 0),
     },
     lossesByPeriodicity: somarRecords(summaries.map((s) => s.lossesByPeriodicity)),
     gainsByPeriodicity: somarRecords(summaries.map((s) => s.gainsByPeriodicity)),
@@ -723,6 +737,21 @@ export async function getFamiliesOverview(
     period,
     summary,
     vehiclesTouchedDistinct: new Set(views.flatMap((v) => v.entityIdsTouched)).size,
+    leitura: montarLeituraDeImpacto({
+      recorte: "VIGENCIA_VS_ANTERIOR",
+      de: null,
+      pontaDePorUnidade: true,
+      /*
+        O rótulo vem da primeira unidade lida, e não de uma segunda régua
+        escrita aqui: numa consolidação todas leem a mesma competência, e é o
+        servidor que a nomeia (`rotuloCurtoDaVigencia`). Sem unidade lida, a
+        data crua — que é honesta — em vez de um nome inventado.
+      */
+      para: { date: period, label: views[0]?.periodLabel ?? period },
+      impact: summary.impact,
+      sides: summary.sides,
+      totais: { alteracoes: summary.changes, veiculos: summary.vehiclesTouched },
+    }),
     unitsIncluded,
     unitsExcluded,
     consolidado: consolidar(consolidaveis),

@@ -302,7 +302,12 @@ function Corpo({
   temAnterior,
   unidadeAberta,
 }: {
-  resumo: Pick<FamiliesView, "summary">;
+  /*
+    A leitura canônica entra junto do resumo: as duas vêm da mesma resposta, e
+    é isso que faz o cartão anunciar o par que de fato foi somado. Opcional
+    porque a Visão Geral compartilha esta tela e nem toda resposta dela a traz.
+  */
+  resumo: Pick<FamiliesView, "summary"> & Partial<Pick<FamiliesView, "leitura">>;
   /** O contexto da manchete mais o `semPreco`, que só a faixa de cobertura lê. */
   contexto: ContextoDaManchete & { semPreco: number };
   pontos: ReturnType<typeof useSerieDeImpacto>["pontos"];
@@ -375,7 +380,12 @@ function Corpo({
 
   return (
     <>
-      <Manchete situacao={situacao} outras={outrasPeriodicidades(resumo)} contexto={contexto} />
+      <Manchete
+        situacao={situacao}
+        outras={outrasPeriodicidades(resumo)}
+        contexto={contexto}
+        leitura={resumo.leitura ?? null}
+      />
 
       {cobertura ? (
         <FaixaDeCobertura

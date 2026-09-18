@@ -44,6 +44,7 @@ import {
   INTEIRO,
   cobertura,
   dinheiro,
+  impactoDescrito,
   impactoEmTexto,
   numerosDoImpacto,
   rotuloDoPeriodo,
@@ -444,7 +445,7 @@ export async function resumoDaVigencia(
   if (leitura.pendente) return leitura.evidencia;
   const visao = leitura.visao;
   const r = visao.summary;
-  const impacto = impactoEmTexto(r.impact);
+  const impacto = impactoDescrito(r.impact, r.changes);
 
   return {
     ferramenta: "resumoDaVigencia",
@@ -460,12 +461,18 @@ export async function resumoDaVigencia(
         valor: INTEIRO.format(r.vehiclesTouched),
         detalhe: "ativos distintos — o mesmo caminhão não conta duas vezes",
       },
+      /*
+        O estado da apuração vai **junto** do valor.
+
+        Antes esta linha dizia "não apurável com este export" em dois casos
+        opostos — nada apurado e tudo apurado em R$ 0,00 — e publicava o valor
+        parcial sem dizer que era parcial. `impactoDescrito` escreve os quatro
+        estados com quatro frases, e é a mesma régua que a interface usa.
+      */
       {
         rotulo: "Impacto apurado",
-        valor: impacto ?? "não apurável com este export",
-        detalhe: impacto
-          ? "por periodicidade, nunca somado entre elas"
-          : `${INTEIRO.format(r.notCalculable)} alterações sem preço`,
+        valor: impacto.valor,
+        detalhe: impacto.detalhe,
       },
       /*
         A participação sai calculada daqui, e não da cabeça do modelo.
@@ -619,7 +626,7 @@ export async function movimentoDoParametro(
   for (const familia of visao.families) {
     for (const p of familia.parameters) {
       if (p.name !== alvo.parametro) continue;
-      const impacto = impactoEmTexto(p.impact);
+      const impacto = impactoDescrito(p.impact, p.changes);
       return {
         ferramenta: "movimentoDoParametro",
         titulo: `${p.name} em ${visao.periodLabel}`,
@@ -633,8 +640,8 @@ export async function movimentoDoParametro(
           { rotulo: "Veículos afetados", valor: INTEIRO.format(p.vehicles) },
           {
             rotulo: "Impacto apurado",
-            valor: impacto ?? "não apurável com este export",
-            detalhe: impacto ? undefined : `${INTEIRO.format(p.impact.notCalculable)} sem preço`,
+            valor: impacto.valor,
+            detalhe: impacto.detalhe,
           },
           ...(p.groups.length > 0
             ? [{ rotulo: "O que mudou dentro dela", valor: p.groups.slice(0, 5).map((g) => g.title).join(", ") }]
@@ -770,7 +777,7 @@ export async function compararIntervalo(
   ]);
   if (!movimento) return null;
 
-  const impactoMovimento = impactoEmTexto(movimento.impact);
+  const impactoMovimento = impactoDescrito(movimento.impact, movimento.totals.changes);
   const fatos: Fato[] = [
     {
       rotulo: "Intervalo",
@@ -779,8 +786,10 @@ export async function compararIntervalo(
     },
     {
       rotulo: "Movimentos do período",
-      valor: impactoMovimento ?? "não apurável",
-      detalhe: `${INTEIRO.format(movimento.totals.changes)} alterações · um valor que subiu e voltou conta duas vezes`,
+      valor: impactoMovimento.valor,
+      detalhe:
+        `${impactoMovimento.detalhe} · ${INTEIRO.format(movimento.totals.changes)} alterações · ` +
+        "um valor que subiu e voltou conta duas vezes",
     },
   ];
 
@@ -791,11 +800,13 @@ export async function compararIntervalo(
   ];
 
   if (pontaAPonta) {
-    const impactoPonta = impactoEmTexto(pontaAPonta.impact);
+    const impactoPonta = impactoDescrito(pontaAPonta.impact, pontaAPonta.totals.changes);
     fatos.push({
       rotulo: "Ponta a ponta",
-      valor: impactoPonta ?? "não apurável",
-      detalhe: `${INTEIRO.format(pontaAPonta.totals.changes)} alterações que permanecem · o que subiu e voltou some aqui`,
+      valor: impactoPonta.valor,
+      detalhe:
+        `${impactoPonta.detalhe} · ${INTEIRO.format(pontaAPonta.totals.changes)} alterações que permanecem · ` +
+        "o que subiu e voltou some aqui",
     });
     numeros.push(pontaAPonta.totals.changes, ...numerosDoImpacto(pontaAPonta.impact));
   }

@@ -11,6 +11,7 @@
  */
 
 import type { ImpactSummary } from "@workspace/comparison";
+import { estadoDaApuracao } from "@workspace/comparison/contrato-de-impacto";
 
 export const REAIS = new Intl.NumberFormat("pt-BR", {
   style: "currency",
@@ -47,6 +48,69 @@ export function impactoEmTexto(impacto: ImpactSummary): string | null {
     .filter(([, valor]) => valor !== 0)
     .map(([periodicidade, valor]) => dinheiro(valor, periodicidade));
   return linhas.length > 0 ? linhas.join(" · ") : null;
+}
+
+/**
+ * O impacto como **frase**, com o estado da apuração embutido.
+ *
+ * ---------------------------------------------------------------------------
+ * O que o `null` de `impactoEmTexto` não distinguia
+ * ---------------------------------------------------------------------------
+ * Ele voltava `null` em dois casos opostos, e as ferramentas escreviam a mesma
+ * coisa nos dois — "não apurável com este export":
+ *
+ * - **nada foi apurado**: as alterações existem e nenhuma tem preço. Aí a frase
+ *   está certa;
+ * - **tudo foi apurado e deu zero**: a conta aconteceu. Chamar isso de "não
+ *   apurável" é o assistente negando um trabalho que o produto fez.
+ *
+ * E havia um terceiro caso que nenhuma das duas cobria: a apuração **parcial**,
+ * em que o valor é verdadeiro e incompleto. O assistente publicava o número sem
+ * dizer que ele cobre 70% das alterações — que é a afirmação que faz alguém
+ * decidir errado.
+ *
+ * O estado vem do contrato (`estadoDaApuracao`), o mesmo que a interface lê.
+ * Nenhuma redação nova de regra mora aqui: só a redação das palavras.
+ */
+export function impactoDescrito(
+  impacto: ImpactSummary,
+  /** As alterações do recorte — `totals.changes`, `summary.changes`. */
+  alteracoes: number,
+): { valor: string; detalhe: string } {
+  const texto = impactoEmTexto(impacto);
+  const estado = estadoDaApuracao(alteracoes, impacto);
+
+  switch (estado) {
+    case "SEM_ALTERACAO":
+      return {
+        valor: "sem alteração",
+        detalhe: "nenhuma alteração neste recorte — não há impacto a apurar",
+      };
+    case "NAO_CALCULAVEL":
+      return {
+        valor: "ainda não calculado",
+        detalhe:
+          `${INTEIRO.format(impacto.notCalculable)} alterações sem preço apurado — ` +
+          "o resultado não é zero, é desconhecido",
+      };
+    case "PARCIALMENTE_CALCULADO":
+      return {
+        valor: texto ?? "R$ 0,00",
+        detalhe:
+          `parcial: ${INTEIRO.format(impacto.calculatedChanges)} de ${INTEIRO.format(alteracoes)} ` +
+          `alterações calculadas · ${INTEIRO.format(impacto.notCalculable)} ainda sem preço`,
+      };
+    case "CALCULADO":
+      return texto === null
+        ? {
+            valor: "R$ 0,00",
+            detalhe: "todas as alterações foram apuradas e não mudaram a remuneração",
+          }
+        : {
+            valor: texto,
+            detalhe: "por periodicidade, nunca somado entre elas",
+          };
+  }
 }
 
 /** Os números crus de um impacto, para a validação conferir. */
@@ -101,6 +165,10 @@ export function numerosDoResumoDeImpacto(impacto: ImpactSummary): number[] {
     impacto.excludedChanges,
     impacto.notCalculable,
     impacto.calculatedChanges,
+    // As apuradas em R$ 0,00 entram pela mesma regra: elas aparecem no conteúdo
+    // (é o que separa "deu zero" de "ninguém apurou"), e o que aparece precisa
+    // estar no lastro, ou a trava poda a frase certa.
+    impacto.zeroChanges,
   ].filter((v) => typeof v === "number");
 }
 

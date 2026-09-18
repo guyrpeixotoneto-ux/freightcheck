@@ -2,6 +2,11 @@ import { sql } from "drizzle-orm";
 import type { Database } from "@workspace/db";
 import { daLinhaDoBanco, type Deduplicador } from "./deduplicacao";
 import {
+  agruparPendencias,
+  montarLeituraDeImpacto,
+  type LeituraDeImpacto,
+} from "./contrato-de-impacto";
+import {
   FAMILIES,
   FAMILY_ORDER,
   placementOf,
@@ -194,6 +199,17 @@ export interface ExecutiveSummary {
 export interface FamiliesView extends GroupedView {
   summary: ExecutiveSummary;
   families: FamilyView[];
+  /**
+   * A leitura canônica de impacto desta resposta — o contrato que toda
+   * superfície lê em vez de reinterpretar `summary` por conta própria.
+   *
+   * Ela viaja **dentro** da resposta, e não é montada na tela, porque só aqui
+   * se sabe o que ela precisa declarar: qual par foi comparado, se ele é
+   * consecutivo, quantas alterações ficaram sem preço e por quê. Montada no
+   * navegador, cada tela voltaria a montar a sua — que é a origem das quatro
+   * leituras divergentes que `contrato-de-impacto.ts` descreve.
+   */
+  leitura: LeituraDeImpacto;
 }
 
 const round = (v: number) => Number(v.toFixed(2));
@@ -213,6 +229,7 @@ function emptyImpact(): ImpactSummary {
     excludedChanges: 0,
     notCalculable: 0,
     calculatedChanges: 0,
+    zeroChanges: 0,
   };
 }
 
@@ -363,7 +380,77 @@ export async function getFamiliesView(
     });
   }
 
-  return { ...view, summary: buildSummary(view, families, rows, dedup), families };
+  const summary = buildSummary(view, families, rows, dedup);
+  return {
+    ...view,
+    summary,
+    families,
+    leitura: leituraDaVigencia(view, summary, rows, de),
+  };
+}
+
+/**
+ * A leitura canônica de uma vigência (ou do par que a pessoa montou).
+ *
+ * As duas pontas saem da própria resposta: `view.period` é a de chegada, e a de
+ * partida é a que quem pediu escolheu (`de`) ou a **anterior imediata** dela —
+ * que é exatamente a comparação que a leitura sem ponta pedida lê
+ * (`grouped.ts`, cláusula `ladoA`). Derivar isso aqui, e não na tela, é o que
+ * impede um cartão de anunciar um par diferente do que foi somado.
+ */
+function leituraDaVigencia(
+  view: GroupedView,
+  summary: ExecutiveSummary,
+  rows: Rows,
+  dePedido?: string,
+): LeituraDeImpacto {
+  const datas = view.periods.map((p) => p.date).sort();
+  const nome = (data: string | null) =>
+    data === null
+      ? null
+      : { date: data, label: view.periods.find((p) => p.date === data)?.label ?? data };
+
+  const anterior = datas.filter((d) => d < view.period).pop() ?? null;
+  const de = dePedido ?? anterior;
+
+  return montarLeituraDeImpacto({
+    recorte: dePedido === undefined ? "VIGENCIA_VS_ANTERIOR" : "PAR_SELECIONADO",
+    de: nome(de),
+    para: nome(view.period)!,
+    vigencias: datas,
+    impact: view.impact,
+    sides: summary.sides,
+    totais: { alteracoes: view.totals.changes, veiculos: view.totals.vehiclesTouched },
+    pendencias: agruparPendencias(rows),
+  });
+}
+
+/**
+ * A leitura canônica de **um passo** do intervalo — a linha do seletor.
+ *
+ * O recorte é sempre `VIGENCIA_VS_ANTERIOR`: cada movimento do intervalo é uma
+ * vigência contra a anterior dela, e é por isso que o número desta linha não é
+ * o do par que a tela tem aberto. Sem `sides` por passo, o contrato usa o que
+ * há — `byPeriodicity` — e diz o que sabe.
+ */
+function leituraDoPasso(
+  periodo: string,
+  datas: readonly string[],
+  linhas: Rows,
+  impact: ImpactSummary,
+  veiculos: number,
+): LeituraDeImpacto {
+  const ordenadas = [...datas].sort();
+  const anterior = ordenadas.filter((d) => d < periodo).pop() ?? null;
+  return montarLeituraDeImpacto({
+    recorte: "VIGENCIA_VS_ANTERIOR",
+    de: anterior === null ? null : { date: anterior, label: rotuloCurtoDaVigencia(anterior, ordenadas) },
+    para: { date: periodo, label: rotuloCurtoDaVigencia(periodo, ordenadas) },
+    vigencias: ordenadas,
+    impact,
+    totais: { alteracoes: linhas.length, veiculos },
+    pendencias: agruparPendencias(linhas),
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -397,6 +484,14 @@ export interface RangeMovement {
   comparisons: number;
   changes: number;
   vehicles: number;
+  /**
+   * A leitura canônica deste passo — recorte `VIGENCIA_VS_ANTERIOR`.
+   *
+   * É o que a coluna do seletor publica, e é por carregá-la que a coluna pode
+   * dizer, ao lado do número, contra o que ele é. Sem ela, o valor da linha
+   * era lido como o do par aberto na tela — a confusão de 18/09/2026.
+   */
+  leitura: LeituraDeImpacto;
   impact: ImpactSummary;
 }
 
@@ -453,6 +548,15 @@ export interface RangeAnalysis {
   movements: RangeMovement[];
   /** Vigências dentro do intervalo sem comparação nenhuma. Nomeadas, nunca zero. */
   gaps: { period: string; label: string; reason: string }[];
+  /**
+   * A leitura canônica do intervalo — recorte `INTERVALO_ACUMULADO`.
+   *
+   * Não é o par das duas pontas, e o contrato diz qual das duas coisas é: o
+   * intervalo soma o caminho (um valor que foi de 10 a 20 e voltou conta duas
+   * alterações), o par compara os dois retratos (e daria zero). Publicar os
+   * dois sob o mesmo rótulo é como as telas passaram a discordar entre si.
+   */
+  leitura: LeituraDeImpacto;
   /** O impacto do intervalo inteiro, já sem dupla contagem, por periodicidade. */
   impact: ImpactSummary;
   /** Só o que reduz a remuneração. Nunca somado ao ganho, nem entre periodicidades. */
@@ -669,15 +773,21 @@ export async function getRangeAnalysis(
     .filter((periodo) => sets.some((s) => s.period === periodo))
     .map((periodo) => {
       const linhas = rowsPorPeriodo.get(periodo) ?? [];
+      // Uma soma só por vigência: `leituraDoPasso` recebe o resumo em vez de
+      // refazê-lo. Somar duas vezes daria o mesmo número por construção, mas
+      // dobraria o custo do intervalo — e um dia deixaria de dar.
+      const impact = summariseImpact(linhas, dedup);
+      const veiculos = new Set(
+        linhas.map((r) => r.entity_id).filter((v): v is string => v !== null),
+      ).size;
       return {
         period: periodo,
         label: rotuloCurtoDaVigencia(periodo, datas),
         comparisons: sets.filter((s) => s.period === periodo).length,
         changes: linhas.length,
-        vehicles: new Set(
-          linhas.map((r) => r.entity_id).filter((v): v is string => v !== null),
-        ).size,
-        impact: summariseImpact(linhas, dedup),
+        vehicles: veiculos,
+        impact,
+        leitura: leituraDoPasso(periodo, datas, linhas, impact, veiculos),
       };
     });
 
@@ -797,6 +907,8 @@ export async function getRangeAnalysis(
     else if (valor > 0) gains[balde] = (gains[balde] ?? 0) + valor;
   }
 
+  const impactoDoIntervalo = summariseImpact(rows, dedup);
+
   return {
     context,
     from: inicio,
@@ -806,7 +918,35 @@ export async function getRangeAnalysis(
     periods: datas.map((d) => ({ date: d, label: rotuloCurtoDaVigencia(d, datas) })),
     movements,
     gaps,
-    impact: summariseImpact(rows, dedup),
+    impact: impactoDoIntervalo,
+    leitura: montarLeituraDeImpacto({
+      recorte: "INTERVALO_ACUMULADO",
+      de: { date: inicio, label: rotuloCurtoDaVigencia(inicio, datas) },
+      para: { date: fim, label: rotuloCurtoDaVigencia(fim, datas) },
+      vigencias: datas,
+      impact: impactoDoIntervalo,
+      /*
+        Os dois lados do intervalo saem dos mesmos `gains`/`losses` que a
+        resposta já publica — e não de uma segunda varredura. O `changes` de
+        cada lado não é rastreado aqui, e o contrato não o inventa: fica zero,
+        que é o que se sabe. As contagens que importam estão em `totais`.
+      */
+      sides: [...new Set([...Object.keys(gains), ...Object.keys(losses)])].map(
+        (periodicity) => ({
+          periodicity,
+          net: round((gains[periodicity] ?? 0) + (losses[periodicity] ?? 0)),
+          gains: { total: round(gains[periodicity] ?? 0), changes: 0 },
+          losses: { total: round(losses[periodicity] ?? 0), changes: 0 },
+        }),
+      ),
+      totais: {
+        alteracoes: rows.length,
+        veiculos: new Set(
+          rows.map((r) => r.entity_id).filter((v): v is string => v !== null),
+        ).size,
+      },
+      pendencias: agruparPendencias(rows),
+    }),
     lossesByPeriodicity: Object.fromEntries(
       Object.entries(losses).map(([k, v]) => [k, round(v)]),
     ),

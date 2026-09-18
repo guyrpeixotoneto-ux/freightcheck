@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { motivoSemNumeros, resumirIntervalo } from "@/hooks/use-resumo-por-vigencia";
+import {
+  motivoSemNumeros,
+  resumirIntervalo,
+  tambemEmOutraPeriodicidade,
+} from "@/hooks/use-resumo-por-vigencia";
 
 /**
  * A coluna de números do seletor "Trocar vigência".
@@ -26,15 +30,24 @@ describe("resumirIntervalo", () => {
     ]);
 
     expect(resumo.periodicidade).toBe("MENSAL");
+    /*
+      `outrasPeriodicidades` traz o anual **mesmo com número na coluna**.
+
+      Era vazio aqui, com o argumento de que o número publicado já era a
+      resposta. O dado real desmentiu o argumento: julho/2026 tem
+      −R$ 11.712,30/mês na coluna e −R$ 144.874,50/ano fora dela — dez vezes
+      mais dinheiro, invisível na lista inteira. A coluna continua sendo de uma
+      periodicidade só; o que mudou é que a outra deixou de sumir.
+    */
     expect(resumo.porVigencia.get("2026-07-01")).toEqual({
       alteracoes: 400,
       impacto: -12_000,
-      outrasPeriodicidades: [],
+      outrasPeriodicidades: ["ANUAL"],
     });
     expect(resumo.porVigencia.get("2026-08-01")).toEqual({
       alteracoes: 402,
       impacto: 3_000,
-      outrasPeriodicidades: [],
+      outrasPeriodicidades: ["ANUAL"],
     });
   });
 
@@ -91,14 +104,31 @@ describe("resumirIntervalo", () => {
     expect(nota?.porque).toContain("R$/ano");
   });
 
-  it("quem tem número na coluna não ganha nota — o número já é a resposta", () => {
+  it("quem tem número na coluna não ganha a nota de ausência — ganha a de grandeza", () => {
+    /*
+      Duas notas diferentes, e é essa distinção que o teste trava:
+
+      - `motivoSemNumeros` responde "por que esta linha está vazia", e continua
+        `null` aqui: a linha **tem** número;
+      - `tambemEmOutraPeriodicidade` responde "o que a coluna não publica", e é
+        a correção de 18/09/2026 — sem ela, a maior parte do dinheiro de uma
+        vigência mista não aparecia em lugar nenhum do seletor.
+    */
     const resumo = resumirIntervalo([
       linha("2026-07-01", 400, { MENSAL: -12_000, ANUAL: -900 }),
       linha("2026-08-01", 402, { MENSAL: -3_000 }),
     ]);
 
-    expect(resumo.porVigencia.get("2026-07-01")?.outrasPeriodicidades).toEqual([]);
+    expect(resumo.porVigencia.get("2026-07-01")?.outrasPeriodicidades).toEqual(["ANUAL"]);
     expect(motivoSemNumeros("2026-07-01", resumo)).toBeNull();
+
+    const tambem = tambemEmOutraPeriodicidade("2026-07-01", resumo);
+    expect(tambem?.curto).toBe("+ R$/ano");
+    expect(tambem?.porque).toContain("a coluna não publica");
+
+    // A vigência que só tem a grandeza da coluna não ganha nota nenhuma.
+    expect(resumo.porVigencia.get("2026-08-01")?.outrasPeriodicidades).toEqual([]);
+    expect(tambemEmOutraPeriodicidade("2026-08-01", resumo)).toBeNull();
   });
 
   it("vigência que não apurou nada em régua nenhuma continua sem nota de régua", () => {

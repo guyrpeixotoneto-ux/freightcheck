@@ -1,3 +1,5 @@
+import type { LeituraDeImpacto } from "@workspace/comparison/contrato-de-impacto";
+
 /**
  * O contrato de `GET /changes/grouped`, do lado da tela.
  *
@@ -442,6 +444,17 @@ export interface FamiliesView extends GroupedView {
   visaoGeral?: FamiliesViewConsolidada["visaoGeral"];
   /** O que o Freightech publica e este export não traz. Nota de rodapé. */
   freightechSemDado: { family: string; parameters: string[] }[];
+  /**
+   * A leitura canônica de impacto — o contrato, tal como o servidor o montou.
+   *
+   * Este é o único tipo deste arquivo **importado** do pacote em vez de
+   * reescrito. A regra do cabeçalho (não arrastar o cliente de banco para o
+   * bundle) continua valendo: `contrato-de-impacto.ts` não importa `@workspace/db`
+   * nem drizzle — ele é tipos e projeções puras. E aqui a cópia seria pior do
+   * que o acoplamento: um contrato que a tela redeclara é um contrato que a
+   * tela pode contradizer, que é exatamente o defeito que ele corrige.
+   */
+  leitura: LeituraDeImpacto;
 }
 
 /**
@@ -570,6 +583,14 @@ export interface FamiliesOverview {
    * mostrando a soma em vez de chamar de "distinto" um número que não é.
    */
   vehiclesTouchedDistinct?: number;
+  /**
+   * A leitura canônica da consolidação — ver `FamiliesView.leitura`.
+   *
+   * Opcional pela mesma razão do campo acima: uma resposta de versão anterior
+   * ainda em cache não a traz, e a tela mantém a redação antiga em vez de
+   * fingir um contrato que não chegou.
+   */
+  leitura?: LeituraDeImpacto;
   unitsIncluded: OverviewUnitIncluded[];
   unitsExcluded: OverviewUnitExcluded[];
   consolidado: OverviewConsolidado;

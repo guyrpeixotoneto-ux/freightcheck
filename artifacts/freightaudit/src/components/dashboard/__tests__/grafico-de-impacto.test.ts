@@ -333,7 +333,17 @@ describe("pontosDeImpacto — a periodicidade desenhada", () => {
       entrada("2026-07-01", null, null, "NOT_CALCULABLE"),
       entrada("2026-08-01", "MENSAL", 0),
     ];
-    expect(pontosDeImpacto(VIGENCIAS, semValor, null)).toEqual({ pontos: [], periodicity: null });
+    /*
+      `disponiveis` vazio junto: sem grandeza nenhuma no recorte, o seletor de
+      grandeza do gráfico não aparece. Ele só existe quando há **duas** com
+      dinheiro se movendo — oferecer a troca aqui prometeria uma alternativa
+      que não existe.
+    */
+    expect(pontosDeImpacto(VIGENCIAS, semValor, null)).toEqual({
+      pontos: [],
+      periodicity: null,
+      disponiveis: [],
+    });
   });
 
   it("empate mantém ordem estável — o gráfico não troca de eixo entre dois quadros", () => {
