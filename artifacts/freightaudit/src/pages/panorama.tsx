@@ -12,10 +12,7 @@ import {
 import { Superficie, CabecalhoDaSuperficie } from "@/components/ui/superficie";
 import { EstadoVazio } from "@/components/ui/estado-vazio";
 import { ApiErrorNotice } from "@/components/api-error";
-import {
-  EmAtualizacao,
-  classeDeAtualizacao,
-} from "@/components/ui/em-atualizacao";
+import { EmAtualizacao, classeDeAtualizacao } from "@/components/ui/em-atualizacao";
 import { cn } from "@/lib/utils";
 import { fetchJson, fetchJsonOrNull } from "@/lib/api";
 import { GESTAO_A_VISTA, LINHA_DO_TEMPO, PANORAMA } from "@/lib/ambiente";
@@ -31,10 +28,7 @@ import {
 import { JANELA_PADRAO, type Janela } from "@/lib/janela-de-vigencias";
 import { recorteDaJanela } from "@/components/dashboard/grafico-de-impacto";
 import { lerRecorte, nomeDaUnidade, type Recorte } from "@/lib/recorte";
-import {
-  travessiaDoQuadro,
-  type LinhaDaTravessia,
-} from "@/lib/travessia-do-quadro";
+import { travessiaDoQuadro, type LinhaDaTravessia } from "@/lib/travessia-do-quadro";
 import type { AuditoriaDoQuadro } from "@/lib/qlp-auditoria";
 import {
   detalheDaFamilia,
@@ -107,11 +101,7 @@ import { DetalheDoImpacto } from "@/components/inicio/detalhe-do-impacto";
 import { unidadesPorImpacto } from "@/components/inicio/visao-geral-consolidada";
 import type { UnidadeDoDrill } from "@/lib/drill-da-familia";
 import type { BalancoDoRecorte } from "@/components/balanco/tipos";
-import type {
-  FamiliesOverview,
-  FamiliesView,
-  GroupedView,
-} from "@/components/inicio/types";
+import type { FamiliesOverview, FamiliesView, GroupedView } from "@/components/inicio/types";
 
 /**
  * O Panorama Executivo — a leitura executiva inteira, numa tela só.
@@ -218,10 +208,7 @@ export default function Panorama() {
   /* Como os andares chamam o que estão lendo — ver `nomeDaLeitura`. */
   const nome = nomeDaLeitura(emPar);
 
-  const vigencia = useQuery({
-    ...opcoesDaVigencia(consulta),
-    enabled: !visaoGeral && !emPar,
-  });
+  const vigencia = useQuery({ ...opcoesDaVigencia(consulta), enabled: !visaoGeral && !emPar });
   const invertida = useQuery({
     ...opcoesDoPar(
       consultaDoPar(consulta, { de: dePedido ?? "", para: paraPedido ?? "" }),
@@ -234,18 +221,15 @@ export default function Panorama() {
   const contextos = useContextosDaCasca();
   const periodosOverview = useMemo(
     () =>
-      Array.from(
-        new Set(contextos.contextos.flatMap((c) => c.periodosDisponiveis)),
-      ).sort((a, b) => b.localeCompare(a)),
+      Array.from(new Set(contextos.contextos.flatMap((c) => c.periodosDisponiveis))).sort((a, b) =>
+        b.localeCompare(a),
+      ),
     [contextos.contextos],
   );
   /* Sem `?period=`, a Visão Geral abre na competência mais recente — a mesma
      régua dos outros módulos, e a que quem abre a tela veio ver. */
-  const periodoOverviewEfetivo =
-    parametros.get("period") ?? periodosOverview[0] ?? null;
-  const overviewQuery = useFamiliesOverviewQuery(periodoOverviewEfetivo, {
-    enabled: visaoGeral,
-  });
+  const periodoOverviewEfetivo = parametros.get("period") ?? periodosOverview[0] ?? null;
+  const overviewQuery = useFamiliesOverviewQuery(periodoOverviewEfetivo, { enabled: visaoGeral });
   const overview = visaoGeral ? (overviewQuery.data ?? null) : null;
 
   const recorte = lerRecorte(search);
@@ -259,17 +243,11 @@ export default function Panorama() {
     lateral), e a unidade aberta é a mesma que ela nomeia.
   */
   const periodosDoContexto = useMemo(
-    () =>
-      contextoAberto(contextos.contextos, recorte.scopeHash)
-        ?.periodosDisponiveis ?? [],
+    () => contextoAberto(contextos.contextos, recorte.scopeHash)?.periodosDisponiveis ?? [],
     [contextos.contextos, recorte.scopeHash],
   );
-  const atualizadoEm = visaoGeral
-    ? overviewQuery.dataUpdatedAt
-    : principal.dataUpdatedAt;
-  const atualizando = visaoGeral
-    ? overviewQuery.isPlaceholderData
-    : principal.isPlaceholderData;
+  const atualizadoEm = visaoGeral ? overviewQuery.dataUpdatedAt : principal.dataUpdatedAt;
+  const atualizando = visaoGeral ? overviewQuery.isPlaceholderData : principal.isPlaceholderData;
 
   /*
     A vigência anterior — só para a variação do andar 1, e só quando existe.
@@ -298,20 +276,13 @@ export default function Panorama() {
   */
   const anterior = useMemo(() => {
     if (!view || emPar) return null;
-    const ordenadas = [...view.periods].sort((a, b) =>
-      a.date.localeCompare(b.date),
-    );
+    const ordenadas = [...view.periods].sort((a, b) => a.date.localeCompare(b.date));
     const indice = ordenadas.findIndex((p) => p.date === view.period);
     return indice > 0 ? ordenadas[indice - 1] : null;
   }, [view, emPar]);
 
   const comparacao = useQuery({
-    queryKey: [
-      "grouped",
-      "panorama-anterior",
-      anterior?.date,
-      consulta.toString(),
-    ],
+    queryKey: ["grouped", "panorama-anterior", anterior?.date, consulta.toString()],
     enabled: anterior !== null,
     ...LEITURA_DE_APURACAO,
     queryFn: async () => {
@@ -344,14 +315,11 @@ export default function Panorama() {
     `scopeHash` cairia na unidade padrão do servidor — a procedência de **uma**
     debaixo de números que somaram todas. É a mesma recusa de `comDestino`.
   */
-  const principalPronto = visaoGeral
-    ? !overviewQuery.isLoading
-    : !principal.isLoading;
+  const principalPronto = visaoGeral ? !overviewQuery.isLoading : !principal.isLoading;
   const periodoDaProcedencia = view?.period ?? null;
   const consultaDaProcedencia = useMemo(() => {
     const query = new URLSearchParams(consulta);
-    if (periodoDaProcedencia !== null)
-      query.set("period", periodoDaProcedencia);
+    if (periodoDaProcedencia !== null) query.set("period", periodoDaProcedencia);
     return query.toString();
   }, [consulta, periodoDaProcedencia]);
 
@@ -359,8 +327,7 @@ export default function Panorama() {
     queryKey: ["balance-recorte", "panorama", consultaDaProcedencia],
     enabled: principalPronto && !visaoGeral && periodoDaProcedencia !== null,
     ...LEITURA_DE_APURACAO,
-    queryFn: () =>
-      fetchJson<BalancoDoRecorte>(`/balance/recorte?${consultaDaProcedencia}`),
+    queryFn: () => fetchJson<BalancoDoRecorte>(`/balance/recorte?${consultaDaProcedencia}`),
   });
 
   /*
@@ -395,18 +362,14 @@ export default function Panorama() {
     enabled: principalPronto,
     retry: false,
     ...LEITURA_DE_APURACAO,
-    queryFn: () =>
-      fetchJsonOrNull<AuditoriaDoQuadro>(
-        "/qlp/auditoria?quadro=ADMINISTRATIVO",
-      ),
+    queryFn: () => fetchJsonOrNull<AuditoriaDoQuadro>("/qlp/auditoria?quadro=ADMINISTRATIVO"),
   });
   const operacional = useQuery({
     queryKey: ["qlp", "auditoria", "quadro=OPERACIONAL"],
     enabled: principalPronto,
     retry: false,
     ...LEITURA_DE_APURACAO,
-    queryFn: () =>
-      fetchJsonOrNull<AuditoriaDoQuadro>("/qlp/auditoria?quadro=OPERACIONAL"),
+    queryFn: () => fetchJsonOrNull<AuditoriaDoQuadro>("/qlp/auditoria?quadro=OPERACIONAL"),
   });
   const travessia = useMemo(
     () =>
@@ -449,13 +412,9 @@ export default function Panorama() {
     navegar(texto ? `${PANORAMA}?${texto}` : PANORAMA);
   };
 
-  const paraGestaoAVista = consulta.toString()
-    ? `${GESTAO_A_VISTA}?${consulta}`
-    : GESTAO_A_VISTA;
+  const paraGestaoAVista = consulta.toString() ? `${GESTAO_A_VISTA}?${consulta}` : GESTAO_A_VISTA;
   const unidade = view ? nomeDaUnidade(view.context) : null;
-  const periodoAtual = visaoGeral
-    ? (overview?.period ?? null)
-    : (view?.period ?? null);
+  const periodoAtual = visaoGeral ? (overview?.period ?? null) : (view?.period ?? null);
 
   /*
     `isPending` e não `isLoading`: enquanto `enabled` é falso — o conteúdo
@@ -558,21 +517,11 @@ export default function Panorama() {
           <>
             {overviewQuery.isLoading && <Carregando />}
             {overviewQuery.error && (
-              <ApiErrorNotice
-                error={overviewQuery.error}
-                what="Não foi possível montar o Panorama."
-              />
+              <ApiErrorNotice error={overviewQuery.error} what="Não foi possível montar o Panorama." />
             )}
-            {!overviewQuery.isLoading &&
-              !overviewQuery.error &&
-              overview === null && <SemVigencia />}
+            {!overviewQuery.isLoading && !overviewQuery.error && overview === null && <SemVigencia />}
             {overview && (
-              <div
-                className={cn(
-                  "space-y-5",
-                  classeDeAtualizacao(overviewQuery.isPlaceholderData),
-                )}
-              >
+              <div className={cn("space-y-5", classeDeAtualizacao(overviewQuery.isPlaceholderData))}>
                 <Corpo
                   leitura={leituraDaVisaoGeral(overview)}
                   view={null}
@@ -619,21 +568,11 @@ export default function Panorama() {
             />
             {principal.isLoading && <Carregando />}
             {principal.error && (
-              <ApiErrorNotice
-                error={principal.error}
-                what="Não foi possível montar o Panorama."
-              />
+              <ApiErrorNotice error={principal.error} what="Não foi possível montar o Panorama." />
             )}
-            {!principal.isLoading && !principal.error && view === null && (
-              <SemVigencia />
-            )}
+            {!principal.isLoading && !principal.error && view === null && <SemVigencia />}
             {view && (
-              <div
-                className={cn(
-                  "space-y-5",
-                  classeDeAtualizacao(principal.isPlaceholderData),
-                )}
-              >
+              <div className={cn("space-y-5", classeDeAtualizacao(principal.isPlaceholderData))}>
                 <Corpo
                   leitura={leituraDaUnidade(view)}
                   view={view}
@@ -741,10 +680,7 @@ function ParDaLeitura({
   }, [view, periodosDoContexto, resumo]);
 
   const datas = useMemo(() => opcoes.map((o) => o.data), [opcoes]);
-  const par = parEmTela(datas, {
-    para: view?.period ?? paraPedido,
-    de: dePedido,
-  });
+  const par = parEmTela(datas, { para: view?.period ?? paraPedido, de: dePedido });
 
   /*
     Uma ponta por gesto — e nada mais.
@@ -831,19 +767,13 @@ function Corpo({
   const comDestino = view !== null;
 
   const veredito = vereditoDoPanorama(leitura, anterior);
-  const lados =
-    veredito.situacao.estado === "com_movimento"
-      ? veredito.situacao.lados
-      : null;
+  const lados = veredito.situacao.estado === "com_movimento" ? veredito.situacao.lados : null;
   const periodicidade = lados?.periodicity ?? null;
 
   const placar = placarDoPanorama(leitura, veredito, {
     recorte: daVigencia,
     comDestino,
-    variacaoDeAlteracoes: variacao(
-      leitura.alteracoes,
-      anterior?.totals.changes,
-    ),
+    variacaoDeAlteracoes: variacao(leitura.alteracoes, anterior?.totals.changes),
   });
 
   const ponte = ponteDoImpacto(leitura.resumo, periodicidade);
@@ -895,9 +825,7 @@ function Corpo({
     botão habilitado sobre uma lista vazia no dia em que a regra mudasse.
   */
   const pedidoDeGrao = parametros.get("grao");
-  const grao: GraoDoRanking = graoValido(pedidoDeGrao)
-    ? pedidoDeGrao
-    : "familia";
+  const grao: GraoDoRanking = graoValido(pedidoDeGrao) ? pedidoDeGrao : "familia";
   const filtro = filtroAberto(parametros);
   const doGrao = (f: FiltroDeMudanca, limite: number) =>
     grao === "familia"
@@ -910,6 +838,7 @@ function Corpo({
     perdas: doGrao("perdas", Infinity).length,
   };
 
+
   /*
     A janela do gráfico — **uma, para os dois cartões da dobra 2.**
 
@@ -920,10 +849,7 @@ function Corpo({
     exatamente o que aconteceu na primeira versão desta dobra.
   */
   const [janelaAberta, setJanelaAberta] = useState<Janela>(JANELA_PADRAO);
-  const desenhados = useMemo(
-    () => recorteDaJanela(pontos, janelaAberta),
-    [pontos, janelaAberta],
-  );
+  const desenhados = useMemo(() => recorteDaJanela(pontos, janelaAberta), [pontos, janelaAberta]);
   /*
     O rollup por parâmetro é somado **pelo servidor** sobre o intervalo pedido,
     e não se corta no navegador: `byParameter` traz o total de cada parâmetro na
@@ -972,17 +898,10 @@ function Corpo({
     população que a gaveta consulta, lida uma vez por render.
   */
   const parametrosDaVigencia = useMemo(
-    () =>
-      new Set(
-        (view?.families ?? []).flatMap((f) => f.parameters.map((p) => p.key)),
-      ),
+    () => new Set((view?.families ?? []).flatMap((f) => f.parameters.map((p) => p.key))),
     [view],
   );
-  const detalheFamilia = detalheDaFamilia(
-    leitura.resumo,
-    familiaAberta,
-    periodicidade,
-  );
+  const detalheFamilia = detalheDaFamilia(leitura.resumo, familiaAberta, periodicidade);
   const detalheImpacto = detalheDoImpacto(view, impactoAberto, periodicidade);
 
   const unidadesDoDrill: UnidadeDoDrill[] = view
@@ -990,12 +909,7 @@ function Corpo({
         {
           chave: view.context.scopeHash,
           label: nomeDaUnidade(view.context),
-          contexts: [
-            {
-              scopeHash: view.context.scopeHash,
-              channel: view.context.channel,
-            },
-          ],
+          contexts: [{ scopeHash: view.context.scopeHash, channel: view.context.channel }],
           summary: view.summary,
         },
       ]
@@ -1037,9 +951,7 @@ function Corpo({
         anterior — são a notícia da tela, e não uma nota de pé de cartão.
       */}
       {!veredito.cobertura && (
-        <FaixaSemAlteracao
-          temAnterior={view ? view.cockpit.baseline.hasBaseline : true}
-        />
+        <FaixaSemAlteracao temAnterior={view ? view.cockpit.baseline.hasBaseline : true} />
       )}
 
       {/* ---- Dobra 2 · a janela ---- */}
@@ -1094,10 +1006,7 @@ function Corpo({
             Só o título aqui. O gráfico escreve a própria linha de subtítulo, e a
             que havia neste lugar começava com as mesmas três palavras.
           */}
-          <CabecalhoDaSuperficie
-            titulo="Impacto das alterações por vigência"
-            className="mb-1"
-          />
+          <CabecalhoDaSuperficie titulo="Impacto das alterações por vigência" className="mb-1" />
           <GraficoDeImpacto
             pontos={pontos}
             periodicity={periodicityDaSerie ?? periodicidade}
@@ -1124,14 +1033,10 @@ function Corpo({
           */}
           <p className="text-xs text-muted-foreground mt-4 pt-4 border-t flex items-center gap-1.5 flex-wrap">
             <History className="w-3.5 h-3.5 shrink-0" />
-            Para ler este mesmo histórico por tipo de ativo — a população
-            inteira trocada, e não só este gráfico —
+            Para ler este mesmo histórico por tipo de ativo — a população inteira trocada, e não só
+            este gráfico —
             <Link
-              href={
-                consulta.toString()
-                  ? `${LINHA_DO_TEMPO}?${consulta}`
-                  : LINHA_DO_TEMPO
-              }
+              href={consulta.toString() ? `${LINHA_DO_TEMPO}?${consulta}` : LINHA_DO_TEMPO}
               className="font-semibold text-brand hover:underline"
             >
               abra a Linha do Tempo
@@ -1157,11 +1062,7 @@ function Corpo({
             carregando={serieCarregando || intervalo.carregando}
             chaveAberta={impactoAberto}
             abriveis={parametrosDaVigencia}
-            onAbrir={
-              view
-                ? (chave) => onTrocar({ impacto: chave, familia: null })
-                : null
-            }
+            onAbrir={view ? (chave) => onTrocar({ impacto: chave, familia: null }) : null}
           />
         )}
       </div>
@@ -1203,20 +1104,12 @@ function Corpo({
           <CabecalhoDaSuperficie
             titulo="Composição do impacto líquido"
             descricao={`De onde vem o resultado apurado ${nome.desta}`}
-            acao={
-              <span className={cn(BOTAO_DE_TROCA, "cursor-default")}>
-                {DECOMPOSICOES.familia}
-              </span>
-            }
+            acao={<span className={cn(BOTAO_DE_TROCA, "cursor-default")}>{DECOMPOSICOES.familia}</span>}
           />
           {ponte && ponte.degraus.length > 0 ? (
             <PonteDoImpactoGrafico
               ponte={ponte}
-              onAbrirFamilia={
-                view
-                  ? (code) => onTrocar({ familia: code, impacto: null })
-                  : null
-              }
+              onAbrirFamilia={view ? (code) => onTrocar({ familia: code, impacto: null }) : null}
               /*
                 A regra de densidade: a altura segue o que há para desenhar.
 
@@ -1284,9 +1177,7 @@ function Corpo({
       <Mapa
         mapa={mapa}
         onAbrirUnidade={
-          overview
-            ? (chave) => onTrocar({ visaoGeral: null, scopeHash: chave })
-            : null
+          overview ? (chave) => onTrocar({ visaoGeral: null, scopeHash: chave }) : null
         }
       />
 

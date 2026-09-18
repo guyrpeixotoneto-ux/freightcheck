@@ -100,12 +100,12 @@ export function OQuePuxou({
         <ol className="mt-1 divide-y flex-1 flex flex-col justify-center">
           {janela.linhas.map((linha, indice) => {
             /*
-              A mesma gaveta do ranking ao lado, aberta pela mesma chave de
+              A mesma gaveta do ranking da dobra 3, aberta pela mesma chave de
               endereço (`?impacto=`): as duas listas falam de parâmetro, e duas
               maneiras de abrir o mesmo parâmetro seriam duas telas para a mesma
-              pergunta. O que este cartão acrescenta é a origem do clique — aqui
-              se clica no que puxou a **janela**, e a gaveta responde pela
-              competência aberta, que é o que o subtítulo dela já diz.
+              pergunta. O que muda é de onde se clica — aqui se clica no que
+              puxou a **janela**, e a gaveta responde pela competência aberta,
+              que é o que o cabeçalho dela já diz.
             */
             const abrivel = onAbrir !== null && abriveis.has(linha.chave);
             return (
@@ -116,23 +116,13 @@ export function OQuePuxou({
                 nome={linha.nome}
                 contexto={linha.contexto}
                 proporcao={linha.proporcao}
-                corDaBarra={
-                  linha.classificacao === "perda"
-                    ? "bg-red-600"
-                    : "bg-emerald-600"
-                }
+                corDaBarra={linha.classificacao === "perda" ? "bg-red-600" : "bg-emerald-600"}
                 valor={formatBrlShort(linha.valor)}
-                corDoValor={
-                  linha.classificacao === "perda"
-                    ? "text-red-700"
-                    : "text-emerald-700"
-                }
+                corDoValor={linha.classificacao === "perda" ? "text-red-700" : "text-emerald-700"}
                 subvalor={sufixo}
                 aberta={chaveAberta === linha.chave}
-                titulo={
-                  abrivel ? `De onde vem o impacto de ${linha.nome}` : undefined
-                }
-                onAbrir={abrivel ? () => onAbrir!(linha.chave) : null}
+                titulo={abrivel ? `De onde vem o impacto de ${linha.nome}` : undefined}
+                onAbrir={abrivel ? () => onAbrir(linha.chave) : null}
               />
             );
           })}

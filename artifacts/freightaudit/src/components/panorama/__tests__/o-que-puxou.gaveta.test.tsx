@@ -28,8 +28,7 @@ const JANELA: JanelaDoImpacto = {
     {
       chave: "financiamento",
       nome: "Financiamento",
-      contexto:
-        "Aquisição e financiamento · em 2 de 6 vigências · 38 alterações",
+      contexto: "Aquisição e financiamento · em 2 de 6 vigências · 38 alterações",
       classificacao: "ganho",
       valor: 37956,
       liquido: null,
@@ -38,8 +37,7 @@ const JANELA: JanelaDoImpacto = {
     {
       chave: "depreciacao",
       nome: "Depreciação",
-      contexto:
-        "Aquisição e financiamento · em 2 de 6 vigências · 5 alterações",
+      contexto: "Aquisição e financiamento · em 2 de 6 vigências · 5 alterações",
       classificacao: "perda",
       valor: -35002,
       liquido: null,
@@ -64,9 +62,7 @@ describe("o cartão da janela", () => {
       />,
     );
 
-    fireEvent.click(
-      screen.getByTitle("De onde vem o impacto de Financiamento"),
-    );
+    fireEvent.click(screen.getByTitle("De onde vem o impacto de Financiamento"));
     expect(onAbrir).toHaveBeenCalledWith("financiamento");
   });
 
@@ -121,15 +117,11 @@ describe("o cartão da janela", () => {
       />,
     );
 
-    expect(
-      linha("Depreciação")
-        .querySelector("button")!
-        .getAttribute("aria-expanded"),
-    ).toBe("true");
-    expect(
-      linha("Financiamento")
-        .querySelector("button")!
-        .getAttribute("aria-expanded"),
-    ).toBe("false");
+    expect(linha("Depreciação").querySelector("button")!.getAttribute("aria-expanded")).toBe(
+      "true",
+    );
+    expect(linha("Financiamento").querySelector("button")!.getAttribute("aria-expanded")).toBe(
+      "false",
+    );
   });
 });
