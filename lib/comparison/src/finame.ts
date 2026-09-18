@@ -141,7 +141,10 @@ export const VARIAVEIS_DE_FINAME: readonly VariavelDeFiname[] = [
     medida: "DINHEIRO",
     codigo: { CAVALO: "cavalo.finame_cavalo", CARRETA: "carreta.finame_implemento" },
     /*
-      Três parcelas, e a terceira só existe no implemento.
+      Quatro parcelas, e as duas últimas são de um tipo só: `aluguel` existe no
+      implemento, `lucro_fixo_do_cavalo` existe no cavalo. As duas entram pela
+      mesma razão e com a mesma consequência — ver o bloco do aluguel abaixo e,
+      para o cavalo, `docs/ACHADO-QUITACAO-DO-CAVALO.md`.
 
       `aluguel` entrou quando a curadoria confirmou a periodicidade da coluna por
       base aritmética: `finameImplemento = amortização + juros + aluguel` fecha
@@ -156,7 +159,7 @@ export const VARIAVEIS_DE_FINAME: readonly VariavelDeFiname[] = [
       se move, que é o que impede o módulo Aluguel de contar o mesmo dinheiro
       uma segunda vez.
     */
-    parcelas: ["juros", "amortizacao", "aluguel"],
+    parcelas: ["juros", "amortizacao", "aluguel", "lucro_fixo_do_cavalo"],
     ajuda:
       "Amortização do principal mais juros, no período da vigência — e, nos " +
       "implementos alugados, o aluguel, que ocupa o lugar do financiamento.",
@@ -298,6 +301,51 @@ export const VARIAVEIS_DE_DETALHE: readonly VariavelDeFiname[] = [
     ajuda:
       "A soma da parcela do cavalo com a do implemento. Fica fora da tabela e do " +
       "impacto oficial para o mesmo dinheiro não ser contado duas vezes.",
+  },
+  {
+    /*
+      A terceira parcela do cavalo — e por que ela mora no detalhe, e não na
+      tabela.
+
+      `COMPOSITIONS` (`composition.ts`) declara e mede a identidade do cavalo:
+      `finame_cavalo = amortizacao + juros + lucro_fixomodelo_novo_ciclo_cavalo`,
+      532 de 533 linhas com total não nulo. O catálogo daqui só conhecia as duas
+      primeiras, e a falta apareceu no acervo como uma **quitação**: na QYP3G72,
+      entre julho e a 1ª de agosto de 2026, o financiamento acabou
+      (`status_financiamento` foi de FINAME para QUITADO), amortização e juros
+      zeraram e R$ 4.677,85 do custo passaram a sair como lucro fixo. A parcela
+      caiu só R$ 5.169,50 — a diferença entre o que saiu e o que entrou —, e a
+      expansão da placa mostrava esse total ao lado de duas partes zeradas, sem
+      nada dizendo para onde o dinheiro tinha ido. É o mesmo defeito que
+      `docs/ACHADO-ALUGUEL.md` descreve nos implementos alugados.
+
+      Declará-la faz as duas coisas que o aluguel já fazia: a expansão passa a
+      explicar a parcela inteira, e a regra de `cobertasPorParcelasEm` passa a
+      tirar a parcela do total quando **só** o lucro fixo se move — que é a
+      dupla contagem contra a Auditoria de Lucro Fixo que ainda não aconteceu no
+      acervo (zero casos em 10 quitações) e que nada impedia de acontecer.
+
+      **No detalhe, e não na tabela**, que é onde ela difere do aluguel. Os
+      códigos da tabela são o universo que a aba Evolução soma
+      (`EVOLUCAO_DO_FINAME`), e ali não há `foraDaSoma` para consultar: pôr uma
+      coluna que se move e que outro módulo soma naquele universo faria a
+      Evolução do FINAME publicar dinheiro do Lucro Fixo. O aluguel está na
+      tabela porque é constante no acervo — 36 linhas, sempre o mesmo valor —,
+      e o lucro fixo do cavalo se move em toda quitação.
+    */
+    chave: "lucro_fixo_do_cavalo",
+    rotulo: "Lucro fixo do cavalo",
+    medida: "DINHEIRO",
+    codigo: { CAVALO: "cavalo.lucro_fixomodelo_novo_ciclo_cavalo" },
+    foraDaSoma:
+      "O lucro fixo é rubrica do módulo Lucro Fixo, que é quem o soma. Ele está " +
+      "aqui porque é a terceira parcela da parcela do cavalo — sem ele a " +
+      "identidade falha em toda quitação —, e é como parcela que ele tira o total " +
+      "da soma deste módulo. Somá-lo aqui *e* lá contaria o mesmo dinheiro duas " +
+      "vezes; é a mesma recusa que esta tela já faz sobre o aluguel do implemento.",
+    ajuda:
+      "O que o cavalo quitado passa a custar como lucro fixo, no lugar da parcela " +
+      "do financiamento. Quem o soma é a Auditoria de Lucro Fixo.",
   },
   {
     chave: "spread_bndes",
@@ -805,6 +853,22 @@ export interface ImpactoDeFiname {
   /** Linhas retiradas do total por já estarem representadas nas parcelas. */
   cobertasPorParcelas: number;
   /**
+   * O dinheiro que a **parcela moveu** e que outro módulo soma — a ponte entre
+   * este cartão e o painel "Evolução entre as duas vigências".
+   *
+   * Os dois respondem perguntas diferentes, e é por isso que podem divergir: o
+   * painel soma a parcela FINAME, inteira; este total soma o que é rubrica
+   * **deste** módulo. Quando uma placa quita o financiamento, parte da parcela
+   * vira lucro fixo (e, nos implementos alugados, aluguel): a parcela sai da
+   * soma por estar coberta pelas partes, as partes deste módulo entram e as de
+   * outro módulo ficam de fora — porque quem as soma é a auditoria delas.
+   *
+   * A diferença entre as duas leituras é exatamente este número, por
+   * periodicidade. Ele existe para a tela poder **escrever** a diferença, em vez
+   * de deixar dois totais discordarem em silêncio a um palmo um do outro.
+   */
+  porOutroModulo: Record<string, number>;
+  /**
    * Linhas retiradas do total por **pertencerem a outro módulo** — a base de
    * compra e os dois tributos da aquisição.
    *
@@ -890,10 +954,61 @@ export function cobertasPorParcelasEm(
   return cobertas;
 }
 
+/**
+ * O que a parcela de um veículo moveu e este módulo **não** somou.
+ *
+ * É a diferença, veículo a veículo, entre o que o painel da evolução conta (a
+ * parcela FINAME, inteira) e o que este total conta nesse mesmo veículo — e ela
+ * só existe onde a parcela saiu da soma por estar coberta pelas partes. Onde a
+ * parcela ficou, as duas leituras já contam o mesmo e o resíduo é zero.
+ *
+ * Definido como **resíduo**, e não como "a soma das partes de outro módulo",
+ * de propósito: a segunda redação suporia que a identidade da parcela sempre
+ * fecha, e o acervo mostra que não. Nas quitações de dezembro a parcela vai a
+ * zero e o lucro fixo que aparece no lugar **não** está dentro dela; na QYP3G72,
+ * em agosto, está. A diferença é o que ela é — medida, e não deduzida.
+ */
+const residuoDoVeiculo = (
+  total: LinhaDeFiname,
+  partesSomadas: readonly LinhaDeFiname[],
+): number =>
+  (total.diferenca ?? 0) - partesSomadas.reduce((s, p) => s + (p.impactoAmount ?? 0), 0);
+
 export function impactoPorPeriodicidade(
   linhas: readonly LinhaDeFiname[],
 ): ImpactoDeFiname {
   const cobertas = cobertasPorParcelasEm(linhas);
+
+  /*
+    Os veículos cuja parcela saiu por estar coberta — é só neles que a diferença
+    entre este total e o painel da evolução existe. Numa placa em que a parcela
+    ficou, os dois já contam o mesmo.
+  */
+  const comTotalCoberto = new Set(
+    [...cobertas].map((chave) => chave.split("\u001f").slice(0, 2).join("\u001f")),
+  );
+  const porOutroModulo: Record<string, number> = {};
+  for (const total of linhas) {
+    if (total.estado !== "ALTERADO") continue;
+    const parcelas = VARIAVEIS_DE_FINAME.find((v) => v.chave === total.variavel)?.parcelas;
+    if (!parcelas) continue;
+    const veiculo = `${total.entityLabel}\u001f${total.entityType}`;
+    if (!comTotalCoberto.has(veiculo)) continue;
+    /* As partes que este módulo de fato somou — as de outro módulo saem por
+       `foraDaSoma`, antes de qualquer conta. */
+    const somadas = linhas.filter(
+      (p) =>
+        p.estado === "ALTERADO" &&
+        parcelas.includes(p.variavel) &&
+        `${p.entityLabel}\u001f${p.entityType}` === veiculo &&
+        !p.foraDaSoma &&
+        p.impactoCalculado &&
+        p.impactoAmount !== null,
+    );
+    const balde = total.impactoPeriodicidade ?? "SEM_PERIODICIDADE";
+    porOutroModulo[balde] =
+      (porOutroModulo[balde] ?? 0) + residuoDoVeiculo(total, somadas);
+  }
 
   const porPeriodicidade: Record<string, number> = {};
   let naoCalculavel = 0;
@@ -933,7 +1048,10 @@ export function impactoPorPeriodicidade(
   for (const balde of Object.keys(porPeriodicidade)) {
     porPeriodicidade[balde] = Number(porPeriodicidade[balde].toFixed(6));
   }
-  return { porPeriodicidade, naoCalculavel, cobertasPorParcelas, foraDaSoma };
+  for (const balde of Object.keys(porOutroModulo)) {
+    porOutroModulo[balde] = Number(porOutroModulo[balde].toFixed(6));
+  }
+  return { porPeriodicidade, porOutroModulo, naoCalculavel, cobertasPorParcelas, foraDaSoma };
 }
 
 // ---------------------------------------------------------------------------

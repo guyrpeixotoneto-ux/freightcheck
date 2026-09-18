@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   agruparVeiculos,
+  contarVeiculos,
   medidaDoDestaque,
   rubricaTemDinheiro,
 } from "../agrupamento-por-veiculo";
@@ -534,5 +535,37 @@ describe("a rubrica tem dinheiro, ou não tem — e quem responde é o catálogo
     const opcoes = { ordemDasVariaveis: ["ipva"], destaque: "ipva" };
     expect(medidaDoDestaque(opcoes)).toBe("DINHEIRO");
     expect(rubricaTemDinheiro(opcoes)).toBe(true);
+  });
+});
+
+/**
+ * A CONTAGEM DAS PLACAS — o número que as abas mostram.
+ *
+ * A aba e a tabela precisam contar a mesma coisa: enquanto a aba contava
+ * linhas, "Alterados (22)" abria uma tabela de dez placas, ao lado de um cartão
+ * que dizia 10. O que estes casos prendem é a igualdade que impede isso de
+ * voltar — `contarVeiculos` é o `length` de `agruparVeiculos`, sempre.
+ */
+describe("quantas placas há num recorte", () => {
+  const linhas = [
+    deIpva(),
+    deIpva({ id: 2, variavel: "ano", rotuloDaVariavel: "Ano", medida: "ANO" }),
+    deIpva({ id: 3, entityLabel: "QYP3G72" }),
+    /* A mesma placa em dois tipos é duas linhas da tabela: a chave é o par
+       (placa, tipo), e não a placa. */
+    deIpva({ id: 4, entityLabel: "QYP3G72", entityType: "CARRETA" }),
+  ];
+
+  it("conta placas, e não linhas", () => {
+    expect(linhas).toHaveLength(4);
+    expect(contarVeiculos(linhas)).toBe(3);
+  });
+
+  it("dá o mesmo número que a tabela desenha", () => {
+    expect(contarVeiculos(linhas)).toBe(agruparPorVeiculoDeIpva(linhas).length);
+  });
+
+  it("um recorte vazio é zero — e não um travessão nem um erro", () => {
+    expect(contarVeiculos([])).toBe(0);
   });
 });

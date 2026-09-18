@@ -441,6 +441,31 @@ export function agruparVeiculos<L extends LinhaAgrupavel>(
 }
 
 /**
+ * Quantas placas um recorte de linhas tem — o número que as abas mostram.
+ *
+ * É o tamanho de {@link agruparVeiculos} sobre as mesmas linhas, sem montar os
+ * veículos: a contagem não precisa do estado, da ordem nem do destaque, e
+ * calcular tudo isso para depois ler só `.length` custaria as sete contagens
+ * das abas a cada tecla da busca.
+ *
+ * Existe porque a aba e a tabela precisam contar **a mesma coisa**. Enquanto a
+ * aba contava linhas e a tabela desenhava placas, "Alterados (22)" abria uma
+ * tabela de dez veículos — e o cartão ao lado, que sempre contou veículos,
+ * dizia 10 sob o mesmo rótulo. Duas respostas para "quantos alterados?" na
+ * mesma tela, a um centímetro uma da outra.
+ *
+ * As abas podem somar mais do que "Todas", e é correto: uma placa com uma
+ * variável alterada e outra em conflito é contada nas duas, porque ela aparece
+ * nas duas quando se clica — e aparece uma vez só na tabela inteira, que é o
+ * que "Todas" conta.
+ */
+export function contarVeiculos(linhas: readonly LinhaAgrupavel[]): number {
+  const placas = new Set<string>();
+  for (const l of linhas) placas.add(chaveDoVeiculo(l));
+  return placas.size;
+}
+
+/**
  * O primeiro valor não nulo de um campo de contexto, entre as linhas da placa.
  *
  * O contexto é **do veículo**, mas chega repetido em cada linha dela — e nem

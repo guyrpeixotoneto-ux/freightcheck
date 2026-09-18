@@ -48,6 +48,7 @@ import {
   contagemPorAba,
   ehModoDeFiname,
   ehRecorteDeTipo,
+  escreverImpacto,
   enderecoComTroca,
   escreverValor,
   filtrar,
@@ -115,9 +116,13 @@ import { cn } from "@/lib/utils";
  * e a placa entra na lista quando sobra alguma linha dela. Agrupar antes
  * obrigaria cada filtro a decidir o que é "uma placa alterada".
  *
- * **As abas contam alterações; a paginação conta veículos.** Cada uma conta o
- * que de fato mostra: a aba conta o que o filtro dela recorta, e o rodapé conta
- * as linhas que a tabela desenhou.
+ * **As abas, a paginação e os cartões contam veículos — a mesma unidade.** É o
+ * que a tabela desenha, e por isso o número da aba é o número de linhas que o
+ * clique nela abre. Enquanto a aba contava alterações, "Alterados (22)" abria
+ * uma tabela de dez placas, com o cartão "Veículos com alteração" dizendo 10 a
+ * dois centímetros dali: duas respostas para "quantos alterados?" na mesma
+ * tela. Quantas variáveis se moveram continua escrito — na nota do cartão e no
+ * gráfico "Alterações por variável" —, onde a palavra é outra.
  *
  * **O CSV continua por variável.** Ele é o arquivo que a auditoria confere linha
  * a linha, e agrupá-lo esconderia justamente a variável que se moveu.
@@ -588,8 +593,11 @@ export default function AuditoriaDeFiname() {
    * recorte. Agrupar primeiro obrigaria cada filtro a decidir o que significa
    * "uma placa alterada", e a aba diria 33 sobre uma tabela de 7 linhas.
    *
-   * Por isso a contagem das abas continua em alterações: é o que elas contam. A
-   * paginação, essa sim, passou a ser de veículos — é o que a tabela mostra.
+   * O filtro continua sendo sobre a linha; a **contagem**, não: a aba conta as
+   * placas que sobraram do recorte dela (`contarVeiculos`), que é exatamente o
+   * que a tabela desenha quando se clica nela — e a mesma unidade dos cartões
+   * do topo. Enquanto ela contava linhas, "Alterados (22)" abria uma tabela de
+   * dez placas com o cartão "Veículos com alteração" dizendo 10 logo acima.
    */
   const veiculos = useMemo(() => agruparPorVeiculo(filtradas), [filtradas]);
   const naPagina = useMemo(
@@ -924,7 +932,34 @@ export default function AuditoriaDeFiname() {
             )}
 
             {/*
-              O segundo aviso é de outra natureza, e por isso é outra frase: ali,
+              A ponte entre este cartão e o painel "Evolução entre as duas
+              vigências", logo abaixo — e a razão de ela estar escrita.
+
+              Os dois somam coisas diferentes, e é por isso que podem divergir:
+              o painel soma a parcela FINAME inteira, este cartão soma o que é
+              rubrica **deste** módulo. Numa quitação, parte da parcela vira
+              lucro fixo do cavalo (ou aluguel, no implemento alugado) e passa a
+              ser somada pela auditoria dela — e os dois totais se separam
+              exatamente por esse valor.
+
+              Enquanto isso não estava escrito, a tela mostrava R$ 7.238,85 aqui
+              e R$ 11.916,70 dois centímetros abaixo, sem nada ligando um ao
+              outro. `impacto.porOutroModulo` é a diferença medida, e não uma
+              suposição sobre a composição da parcela — ver `finame.ts`.
+            */}
+            {escreverImpacto((agregados ?? comparacao.data).resumo.impacto.porOutroModulo)
+              .filter((p) => Math.abs(p.bruto) >= 0.01)
+              .map((p) => (
+                <p key={p.rotulo} className="text-xs text-muted-foreground">
+                  {p.valor} por {p.rotulo} do que a parcela moveu é rubrica de outro módulo —
+                  lucro fixo do cavalo quitado, aluguel do implemento — e está somado lá. É
+                  essa a diferença entre este cartão e o painel “Evolução entre as duas
+                  vigências”, que soma a parcela inteira.
+                </p>
+              ))}
+
+            {/*
+              O terceiro aviso é de outra natureza, e por isso é outra frase: ali,
               dinheiro deste módulo já contado noutra linha **deste** módulo;
               aqui, dinheiro que não é deste módulo. A base de compra e os dois
               tributos da aquisição ficam na tabela porque conferem o

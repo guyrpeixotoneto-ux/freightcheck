@@ -9,6 +9,7 @@ import {
   filtrarLinhasDeFiname,
   type FiltrosDeFiname,
 } from "@workspace/comparison/finame";
+import { contarVeiculos } from "@workspace/comparison/agrupamento-por-veiculo";
 import type { EvolucaoDoTipo } from "@workspace/comparison/finame";
 import type { RecorteDeTipo } from "@/components/comparacao/recorte-de-equipamento";
 import {
@@ -58,6 +59,11 @@ export interface AgregadosDeFiname {
       porPeriodicidade: Record<string, number>;
       naoCalculavel: number;
       cobertasPorParcelas: number;
+      /**
+       * O que a parcela moveu e outro módulo soma — a diferença entre o cartão
+       * de impacto e o painel da evolução, escrita.
+       */
+      porOutroModulo: Record<string, number>;
       /** Linhas fora do total por serem rubrica de outro módulo — base e tributos. */
       foraDaSoma: number;
     };
@@ -276,7 +282,19 @@ export {
   type FiltrosDeFiname as FiltrosDeFiname,
 };
 
-/** Quantas linhas cada aba tem, contadas sobre o mesmo recorte da tabela. */
+/**
+ * Quantos **veículos** cada aba tem, contados sobre o mesmo recorte da tabela.
+ *
+ * Veículos, e não linhas, desde que a tabela passou a listar placas: a aba e o
+ * rodapé contam o que a tela de fato desenha, e o número da aba é o número de
+ * linhas que o clique abre. Contando alterações, "Alterados (22)" abria uma
+ * tabela de dez placas — com o cartão "Veículos com alteração" dizendo 10 dois
+ * centímetros acima. A régua é uma só: {@link contarVeiculos}, a mesma que o
+ * agrupamento usa para montar as linhas.
+ *
+ * As abas podem somar mais do que "Todas": a placa com uma variável alterada e
+ * outra em conflito aparece nas duas, e uma vez só na tabela inteira.
+ */
 export function contagemPorAba(
   linhas: readonly LinhaDeFiname[],
   filtros: FiltrosDeFiname,
@@ -284,9 +302,11 @@ export function contagemPorAba(
   const contagem: Record<string, number> = { TODAS: 0 };
   for (const aba of ABAS_DE_ESTADO) {
     if (aba.chave === "TODAS") continue;
-    contagem[aba.chave] = filtrarLinhasDeFiname(linhas, { ...filtros, estado: aba.chave }).length;
+    contagem[aba.chave] = contarVeiculos(
+      filtrarLinhasDeFiname(linhas, { ...filtros, estado: aba.chave }),
+    );
   }
-  contagem.TODAS = filtrarLinhasDeFiname(linhas, { ...filtros, estado: "TODAS" }).length;
+  contagem.TODAS = contarVeiculos(filtrarLinhasDeFiname(linhas, { ...filtros, estado: "TODAS" }));
   return contagem;
 }
 

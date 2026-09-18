@@ -245,6 +245,74 @@ describe("o impacto financeiro", () => {
     expect(impacto.cobertasPorParcelas).toBe(1);
   });
 
+  /*
+    A quitação — a QYP3G72 entre julho e a 1ª de agosto de 2026.
+
+    O financiamento acabou: amortização e juros zeraram e R$ 4.677,85 do custo
+    passaram a sair como lucro fixo, que é rubrica do módulo Lucro Fixo. A
+    parcela caiu R$ 5.169,50, a diferença entre o que saiu e o que entrou.
+  */
+  it("tira a parcela do total quando só o lucro fixo do cavalo se move", () => {
+    /* A dupla contagem que a terceira parcela impede: sem ela, o FINAME somaria
+       a parcela inteira enquanto o Lucro Fixo soma o lucro fixo. */
+    const linhas = linhasDeFiname([
+      alteracao({ attributeCode: "cavalo.finame_cavalo", impactAmount: "4677.85" }),
+      alteracao({
+        attributeCode: "cavalo.lucro_fixomodelo_novo_ciclo_cavalo",
+        deltaAbsolute: "4677.85",
+        impactAmount: "4677.85",
+      }),
+    ]);
+
+    const impacto = impactoPorPeriodicidade(linhas);
+    expect(impacto.porPeriodicidade).toEqual({});
+    expect(impacto.cobertasPorParcelas).toBe(1);
+    expect(impacto.foraDaSoma).toBe(1);
+  });
+
+  it("escreve a diferença entre o total do módulo e a parcela do painel", () => {
+    const linhas = linhasDeFiname([
+      alteracao({
+        attributeCode: "cavalo.finame_cavalo",
+        valueBefore: "9847.35",
+        valueAfter: "4677.85",
+        deltaAbsolute: "-5169.5",
+        impactAmount: "-5169.5",
+      }),
+      alteracao({
+        attributeCode: "cavalo.amortizacao_cavalo",
+        deltaAbsolute: "-7700.16",
+        impactAmount: "-7700.16",
+      }),
+      alteracao({
+        attributeCode: "cavalo.juros_finame_cavalo",
+        deltaAbsolute: "-2147.19",
+        impactAmount: "-2147.19",
+      }),
+      alteracao({
+        attributeCode: "cavalo.lucro_fixomodelo_novo_ciclo_cavalo",
+        deltaAbsolute: "4677.85",
+        impactAmount: "4677.85",
+      }),
+    ]);
+
+    const impacto = impactoPorPeriodicidade(linhas);
+    /* O módulo soma as duas partes que são dele. */
+    expect(impacto.porPeriodicidade.MENSAL).toBe(-9847.35);
+    expect(impacto.porOutroModulo.MENSAL).toBe(4677.85);
+    /* A identidade que a tela escreve: total do módulo + ponte = o que a
+       parcela moveu, que é o que o painel da evolução soma. */
+    expect(impacto.porPeriodicidade.MENSAL + impacto.porOutroModulo.MENSAL).toBeCloseTo(
+      -5169.5,
+      2,
+    );
+  });
+
+  it("não inventa ponte onde a parcela ficou no total", () => {
+    const linhas = linhasDeFiname([alteracao({ impactAmount: "310" })]);
+    expect(impactoPorPeriodicidade(linhas).porOutroModulo).toEqual({});
+  });
+
   it("conta a parcela quando as partes dela não se moveram", () => {
     const linhas = linhasDeFiname([alteracao({ impactAmount: "310" })]);
     expect(impactoPorPeriodicidade(linhas).porPeriodicidade).toEqual({ MENSAL: 310 });
