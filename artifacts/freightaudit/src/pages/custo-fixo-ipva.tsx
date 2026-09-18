@@ -47,6 +47,7 @@ import {
   TotalPorVigencia,
 } from "@/components/ipva/graficos";
 import { TabelaDeIpva } from "@/components/ipva/tabela";
+import { TabelaDeAliquotas } from "@/components/ipva/aliquota-por-veiculo";
 import { JustificarDialog } from "@/components/justificativas/justificar-dialog";
 import { BarraDoLote } from "@/components/justificativas/barra-do-lote";
 import { JustificarEmLoteDialog } from "@/components/justificativas/justificar-em-lote-dialog";
@@ -64,6 +65,7 @@ import {
   escreverValor,
   filtrar,
   linhasDoCsv,
+  linhasDoCsvDeAliquota,
   type ComparacaoDeIpva,
   type FiltrosDeIpva,
   type TotaisDeIpva,
@@ -113,6 +115,15 @@ import { cn } from "@/lib/utils";
  * e moram no núcleo (`@workspace/comparison/recorte-de-rubrica`) justamente para
  * não existirem em duas versões.
  *
+ * **A tabela tem duas leituras, e uma de cada vez.** Em reais, ela é a lista das
+ * alterações do par. Ligado o alternador **Comparar % alíquotas** — que ficou no
+ * lugar de "Mostrar veículos sem alteração" —, ela passa a ser a frota inteira
+ * com o IPVA de cada ponta escrito como percentual do valor de nota, lido de
+ * `/ipva/totais`, que é a mesma leitura que alimenta a régua agregada logo
+ * acima. Os dois modos respondem perguntas diferentes sobre a mesma queda: em
+ * reais, depreciação e troca de fórmula produzem a mesma célula; em percentual,
+ * produzem células opostas.
+ *
  * **A comparação é sempre do motor.** `/ipva/comparacao` reaproveita o change set
  * quando ele existe e manda calcular quando não existe: é o mesmo caminho de
  * Comparar vigências e o mesmo da Auditoria de FINAME, de modo que as três telas
@@ -150,7 +161,21 @@ export default function AuditoriaDeIpva() {
   const [base, setBase] = useParNaUrl("base");
   const [comparada, setComparada] = useParNaUrl("comparada");
   const [filtros, setFiltros] = useState<FiltrosDeIpva>(FILTROS_VAZIOS);
-  const [comSemAlteracao, setComSemAlteracao] = useState(false);
+  /**
+   * O modo alíquota — a tela lendo percentual da nota em vez de reais.
+   *
+   * Ele entrou no lugar do alternador "Mostrar veículos sem alteração", e não
+   * ao lado dele, porque faz o que aquele fazia e mais: a lista de alíquotas
+   * vem do acervo das duas vigências (`/ipva/totais`), não do `change_set`, de
+   * modo que **toda** placa aparece — inclusive a que não se moveu, que aqui é
+   * resposta e não ruído, porque é ela que mostra que a régua ficou a mesma.
+   *
+   * E responde a pergunta que a coluna de reais não responde: uma queda de
+   * R$ 3.064,74 pode ser a mesma alíquota sobre uma nota menor ou a mesma nota
+   * sob outra alíquota — economia num caso, troca de critério no outro, e
+   * idênticas na tabela de dinheiro.
+   */
+  const [modoAliquota, setModoAliquota] = useState(false);
   const [pagina, setPagina] = useState(1);
   const [porPagina, setPorPagina] = useState(50);
   const [aberto, setAberto] = useState<{
@@ -407,13 +432,10 @@ export default function AuditoriaDeIpva() {
   const candidatos = useCandidatosDoPar("ipva", comparada, escopoAberto);
 
   const comparacao = useQuery({
-    queryKey: ["ipva", "comparacao", base, comparada, comSemAlteracao],
+    queryKey: ["ipva", "comparacao", base, comparada],
     enabled: Boolean(base && comparada),
     queryFn: () =>
-      fetchJson<ComparacaoDeIpva>(
-        `/ipva/comparacao?base=${base}&comparada=${comparada}` +
-          (comSemAlteracao ? "&semAlteracao=true" : ""),
-      ),
+      fetchJson<ComparacaoDeIpva>(`/ipva/comparacao?base=${base}&comparada=${comparada}`),
   });
 
   const totais = useQuery({
@@ -494,8 +516,33 @@ export default function AuditoriaDeIpva() {
     [veiculos, pagina, porPagina],
   );
 
+  /**
+   * As alíquotas placa a placa, no mesmo recorte de equipamento e da mesma busca.
+   *
+   * Vêm de `/ipva/totais` — a leitura do acervo das duas vigências —, e não de
+   * `linhas`: a alteração só existe para quem mudou, e uma placa que manteve a
+   * alíquota é exatamente a linha que confirma que a régua não se moveu ali.
+   *
+   * A busca é a mesma caixa da tabela de alterações, e aqui ela só pode ser de
+   * placa: não há variável a procurar quando a tabela inteira é de uma só.
+   */
+  const aliquotasDoRecorte = useMemo(() => {
+    const todos = totais.data?.porAtivo ?? [];
+    const termo = filtros.busca.trim().toLowerCase();
+    return todos.filter(
+      (a) =>
+        (recorteDeTipo === "TODOS" || a.entityType === recorteDeTipo) &&
+        (termo === "" || (a.entityLabel ?? "").toLowerCase().includes(termo)),
+    );
+  }, [totais.data, recorteDeTipo, filtros.busca]);
+
+  const aliquotasNaPagina = useMemo(
+    () => aliquotasDoRecorte.slice((pagina - 1) * porPagina, pagina * porPagina),
+    [aliquotasDoRecorte, pagina, porPagina],
+  );
+
   // Filtrar encurta a lista; a página em que se estava pode não existir mais.
-  useEffect(() => setPagina(1), [filtros, base, comparada, comSemAlteracao]);
+  useEffect(() => setPagina(1), [filtros, base, comparada, modoAliquota]);
 
   /*
     As duas pontas escritas como quem fala delas — `julho/2026`.
@@ -560,14 +607,28 @@ export default function AuditoriaDeIpva() {
     comparada,
     filtros,
     filtrosVazios: FILTROS_VAZIOS,
-    semAlteracao: comSemAlteracao,
+    semAlteracao: false,
   });
 
+  /*
+    O CSV é o da tabela que está na tela, e não sempre o das alterações: quem
+    exporta com o modo alíquota ligado está olhando percentuais, e receber um
+    arquivo de reais seria o botão respondendo a outra pergunta. O nome do
+    arquivo diz qual dos dois é, para que os dois não se confundam na pasta de
+    quem baixar os dois.
+  */
   function exportar() {
-    const blob = csvComoBlob(linhasDoCsv(filtradas, justificar.justificadaPor));
+    const daAliquota = modoAliquota;
+    const blob = csvComoBlob(
+      daAliquota
+        ? linhasDoCsvDeAliquota(aliquotasDoRecorte)
+        : linhasDoCsv(filtradas, justificar.justificadaPor),
+    );
     salvarArquivo(
       blob,
-      `ipva-${paraNomeDeArquivo(rotuloBase)}-para-${paraNomeDeArquivo(rotuloComparada)}.csv`,
+      `ipva${daAliquota ? "-aliquotas" : ""}-${paraNomeDeArquivo(rotuloBase)}-para-${paraNomeDeArquivo(
+        rotuloComparada,
+      )}.csv`,
     );
   }
 
@@ -755,29 +816,32 @@ export default function AuditoriaDeIpva() {
               rotuloComparada={rotuloComparada}
             />
 
-            <div className="flex flex-wrap items-center gap-x-5 gap-y-1 border-b">
-              {ABAS_DE_ESTADO.map((aba) => (
-                <button
-                  key={aba.chave}
-                  type="button"
-                  role="tab"
-                  aria-selected={filtros.estado === aba.chave}
-                  onClick={() => setFiltros((f) => ({ ...f, estado: aba.chave }))}
-                  className={cn(
-                    "border-b-2 py-2 text-sm font-semibold",
-                    filtros.estado === aba.chave
-                      ? "border-brand text-brand"
-                      : "border-transparent text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  {/* Com o alternador ligado a lista deixa de ser só de
-                      alterações — chamar centenas de linhas iguais de
-                      "alterações" seria o rótulo contradizendo a coluna Status. */}
-                  {aba.chave === "TODAS" && comSemAlteracao ? "Todas as linhas" : aba.rotulo} (
-                  {formatNumber(contagens[aba.chave] ?? 0, 0)})
-                </button>
-              ))}
-            </div>
+            {/* As abas são de estado da alteração, e o modo alíquota não lista
+                alterações: lista a frota inteira com a régua de cada ponta.
+                Mantê-las no ar ofereceria "Ausentes (24)" sobre uma tabela que
+                não conhece esse recorte. */}
+            {!modoAliquota && (
+              <div className="flex flex-wrap items-center gap-x-5 gap-y-1 border-b">
+                {ABAS_DE_ESTADO.map((aba) => (
+                  <button
+                    key={aba.chave}
+                    type="button"
+                    role="tab"
+                    aria-selected={filtros.estado === aba.chave}
+                    onClick={() => setFiltros((f) => ({ ...f, estado: aba.chave }))}
+                    className={cn(
+                      "border-b-2 py-2 text-sm font-semibold",
+                      filtros.estado === aba.chave
+                        ? "border-brand text-brand"
+                        : "border-transparent text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {aba.rotulo} (
+                    {formatNumber(contagens[aba.chave] ?? 0, 0)})
+                  </button>
+                ))}
+              </div>
+            )}
 
             <div className="flex flex-wrap items-center gap-2.5">
               <div className="relative min-w-[13rem] flex-1">
@@ -802,22 +866,24 @@ export default function AuditoriaDeIpva() {
                 recorte está aberto" — e a de baixo, entre filtros de tabela,
                 sugeriria que o recorte é só da tabela.
               */}
-              <Select
-                value={filtros.variavel}
-                onValueChange={(variavel) => setFiltros((f) => ({ ...f, variavel }))}
-              >
-                <SelectTrigger className="w-[15rem]" aria-label="Variável de IPVA">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="TODAS">Todas as variáveis</SelectItem>
-                  {[...VARIAVEIS_DE_IPVA, ...VARIAVEIS_DE_DETALHE_DE_IPVA].map((v) => (
-                    <SelectItem key={v.chave} value={v.chave}>
-                      {v.rotulo}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {!modoAliquota && (
+                <Select
+                  value={filtros.variavel}
+                  onValueChange={(variavel) => setFiltros((f) => ({ ...f, variavel }))}
+                >
+                  <SelectTrigger className="w-[15rem]" aria-label="Variável de IPVA">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="TODAS">Todas as variáveis</SelectItem>
+                    {[...VARIAVEIS_DE_IPVA, ...VARIAVEIS_DE_DETALHE_DE_IPVA].map((v) => (
+                      <SelectItem key={v.chave} value={v.chave}>
+                        {v.rotulo}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
 
               {/*
                 O filtro de negativos é o único desta tela que não existe na de
@@ -827,35 +893,48 @@ export default function AuditoriaDeIpva() {
                 mas ficam a um clique de distância de quem for perguntar à Ambev
                 se são estorno ou erro.
               */}
-              <label
-                htmlFor="ipva-so-negativos"
-                className="flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm"
-              >
-                <Switch
-                  id="ipva-so-negativos"
-                  checked={filtros.soNegativos}
-                  onCheckedChange={(soNegativos) =>
-                    setFiltros((f) => ({ ...f, soNegativos }))
-                  }
-                />
-                Só valores negativos
-                {negativos > 0 && (
-                  <span className="rounded-full bg-warning/15 px-2 py-0.5 text-xs font-semibold text-warning-foreground">
-                    {formatNumber(negativos, 0)}
-                  </span>
-                )}
-              </label>
+              {!modoAliquota && (
+                <label
+                  htmlFor="ipva-so-negativos"
+                  className="flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm"
+                >
+                  <Switch
+                    id="ipva-so-negativos"
+                    checked={filtros.soNegativos}
+                    onCheckedChange={(soNegativos) =>
+                      setFiltros((f) => ({ ...f, soNegativos }))
+                    }
+                  />
+                  Só valores negativos
+                  {negativos > 0 && (
+                    <span className="rounded-full bg-warning/15 px-2 py-0.5 text-xs font-semibold text-warning-foreground">
+                      {formatNumber(negativos, 0)}
+                    </span>
+                  )}
+                </label>
+              )}
 
+              {/*
+                O alternador da alíquota — onde morava "Mostrar veículos sem
+                alteração", e no lugar dele.
+
+                Os dois pediam a mesma coisa à tela, que é ver a frota inteira e
+                não só o que se moveu; este entrega isso **com a régua junto**. E
+                é a régua que resolve a ambiguidade da coluna de reais: a mesma
+                queda de R$ 3.064,74 é economia quando a alíquota ficou parada e
+                a nota caiu, e é troca de critério quando a nota ficou parada e a
+                alíquota caiu. Em reais, os dois casos são a mesma célula.
+              */}
               <label
-                htmlFor="ipva-sem-alteracao"
+                htmlFor="ipva-modo-aliquota"
                 className="flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm"
               >
                 <Switch
-                  id="ipva-sem-alteracao"
-                  checked={comSemAlteracao}
-                  onCheckedChange={setComSemAlteracao}
+                  id="ipva-modo-aliquota"
+                  checked={modoAliquota}
+                  onCheckedChange={setModoAliquota}
                 />
-                Mostrar veículos sem alteração
+                Comparar % alíquotas
               </label>
 
               {/*
@@ -873,7 +952,7 @@ export default function AuditoriaDeIpva() {
                 aba Conflito aberta, entrar no modo mostraria uma coluna de
                 caixas todas desabilitadas.
               */}
-              {!lote.emLote && (
+              {!lote.emLote && !modoAliquota && (
                 <Button
                   type="button"
                   variant="outline"
@@ -890,7 +969,9 @@ export default function AuditoriaDeIpva() {
                 type="button"
                 variant="outline"
                 onClick={exportar}
-                disabled={filtradas.length === 0}
+                disabled={
+                  modoAliquota ? aliquotasDoRecorte.length === 0 : filtradas.length === 0
+                }
                 className={cn("gap-2", lote.emLote && "ml-auto")}
               >
                 <Download className="h-4 w-4" aria-hidden="true" />
@@ -900,9 +981,65 @@ export default function AuditoriaDeIpva() {
 
             {/* A barra entre os filtros e a tabela — e só enquanto o modo
                 estiver ligado. Ver `barra-do-lote.tsx`. */}
-            {lote.emLote && <BarraDoLote {...lote.propsDaBarra} />}
+            {lote.emLote && !modoAliquota && <BarraDoLote {...lote.propsDaBarra} />}
 
-            {filtradas.length === 0 ? (
+            {/*
+              As duas tabelas ocupam o mesmo lugar, e nunca as duas ao mesmo
+              tempo: são duas leituras do mesmo par — reais e percentual da nota
+              — e empilhá-las obrigaria quem lê a decidir, a cada linha, qual das
+              duas está respondendo a pergunta dele.
+            */}
+            {modoAliquota ? (
+              totais.error ? (
+                <ApiErrorNotice
+                  error={totais.error}
+                  what="as alíquotas do par"
+                  onTentarDeNovo={() => void totais.refetch()}
+                  tentando={totais.isFetching}
+                />
+              ) : totais.isLoading ? (
+                <Skeleton className="h-96 rounded-xl" />
+              ) : aliquotasDoRecorte.length === 0 ? (
+                <EstadoVazio
+                  icone={Receipt}
+                  titulo="Nenhum veículo com IPVA nas duas vigências"
+                  descricao={
+                    filtros.busca.trim() === ""
+                      ? "O par não trouxe ativo com IPVA declarado — sem tributo não há alíquota a comparar."
+                      : "Nenhuma placa do recorte casa com a busca. Limpe o campo para ver as demais."
+                  }
+                />
+              ) : (
+                <>
+                  <TabelaDeAliquotas
+                    ativos={aliquotasNaPagina}
+                    rotuloBase={rotuloBase}
+                    rotuloComparada={rotuloComparada}
+                  />
+                  <Paginacao
+                    pagina={pagina}
+                    porPagina={porPagina}
+                    total={aliquotasDoRecorte.length}
+                    onPagina={setPagina}
+                    onPorPagina={setPorPagina}
+                    tamanhos={[50, 100, 300]}
+                    unidade="veículos"
+                    unidadeSingular="veículo"
+                  />
+                  {/* O mesmo rodapé da régua agregada, pela mesma razão: quem lê
+                      um percentual precisa saber o que ele ainda não é. */}
+                  <p className="text-xs text-muted-foreground">
+                    A alíquota é o IPVA declarado dividido pelo valor de nota do mesmo
+                    ativo, ponta a ponta — a frota inteira, e não só o que mudou. Ativo sem
+                    valor de nota sai com o percentual em travessão, nunca em 0%.{" "}
+                    <strong className="font-semibold">
+                      O que falta para isto virar conferência fiscal continua faltando:
+                    </strong>{" "}
+                    ano-modelo, categoria e a UF do emplacamento.
+                  </p>
+                </>
+              )
+            ) : filtradas.length === 0 ? (
               linhas.length === 0 ? (
                 <EstadoVazio
                   icone={Receipt}

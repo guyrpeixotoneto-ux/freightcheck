@@ -3,6 +3,7 @@ import {
   CODIGOS_DA_TABELA_DE_IPVA,
   CODIGOS_DO_DETALHE_DE_IPVA,
   aliquotaImplicita,
+  aliquotaPorAtivo,
   alteracoesPorVariavelDeIpva,
   celulasDoCsvDeIpva,
   COLUNAS_DO_CSV_DE_IPVA,
@@ -346,6 +347,86 @@ describe("a alíquota implícita", () => {
     expect(linhas).toHaveLength(2);
     expect(linhas.find((l) => l.ponta === "BASE")!.veredito).toBe("FORMULA_UNICA");
     expect(linhas.find((l) => l.ponta === "COMPARADA")!.veredito).toBe("POR_VEICULO");
+  });
+});
+
+/**
+ * A alíquota placa a placa — o que a tabela do modo "Comparar % alíquotas" lê.
+ *
+ * O que estes testes prendem é o que separa esta leitura da agregada: ali a
+ * pergunta é qual critério a vigência aplica, e o estorno sai da régua para não
+ * inverter o veredito de uma frota; aqui a pergunta é sobre **uma** placa, e
+ * apagá-la seria tirar da tela justamente a linha que alguém vai abrir na
+ * planilha.
+ */
+describe("a alíquota ativo a ativo", () => {
+  const ativo = (
+    ponta: "BASE" | "COMPARADA",
+    entityLabel: string,
+    ipva: number | null,
+    valorNf: number | null,
+    entityType = "CAVALO",
+  ): ValorDeIpva => ({ ponta, entityType, entityLabel, ipva, valorNf });
+
+  it("põe as duas pontas da mesma placa na mesma linha, com a diferença em p.p.", () => {
+    const [linha] = aliquotaPorAtivo([
+      ativo("BASE", "RPG0C44", 7210, 721000),
+      ativo("COMPARADA", "RPG0C44", 4145.26, 636760),
+    ]);
+    expect(linha.aliquotaBase).toBe(1);
+    expect(linha.aliquotaComparada).toBe(0.651);
+    expect(linha.diferenca).toBe(-0.349);
+  });
+
+  /*
+    É esta a leitura que a coluna de reais não dá: o IPVA caiu R$ 3.064,74 nas
+    duas placas, e só uma delas mudou de régua. Sem o percentual, as duas linhas
+    são idênticas — e uma é depreciação, a outra é troca de critério.
+  */
+  it("distingue a nota que caiu da alíquota que caiu", () => {
+    const [depreciou, trocouDeRegra] = aliquotaPorAtivo([
+      ativo("BASE", "AAA1A11", 7210, 721000),
+      ativo("COMPARADA", "AAA1A11", 4145.26, 414526),
+      ativo("BASE", "BBB2B22", 7210, 721000),
+      ativo("COMPARADA", "BBB2B22", 4145.26, 721000),
+    ]);
+    expect(depreciou.diferenca).toBe(0);
+    expect(trocouDeRegra.diferenca).toBeLessThan(0);
+  });
+
+  it("não inventa denominador: sem nota, o percentual é nulo e o real continua", () => {
+    const [semNota, notaZero] = aliquotaPorAtivo([
+      ativo("BASE", "AAA1A11", 2450, null),
+      ativo("BASE", "BBB2B22", 2450, 0),
+    ]);
+    expect(semNota.aliquotaBase).toBeNull();
+    expect(semNota.ipvaBase).toBe(2450);
+    expect(notaZero.aliquotaBase).toBeNull();
+  });
+
+  it("mostra o estorno em vez de escondê-lo, e o marca", () => {
+    const [linha] = aliquotaPorAtivo([
+      ativo("BASE", "AAA1A11", -1709.86, 170986),
+      ativo("COMPARADA", "AAA1A11", 1709.86, 170986),
+    ]);
+    expect(linha.estorno).toBe(true);
+    expect(linha.aliquotaBase).toBe(-1);
+  });
+
+  it("aceita a placa que só existe numa das pontas, sem diferença inventada", () => {
+    const [nova] = aliquotaPorAtivo([ativo("COMPARADA", "CCC3C33", 2450, 245000)]);
+    expect(nova.aliquotaBase).toBeNull();
+    expect(nova.aliquotaComparada).toBe(1);
+    expect(nova.diferenca).toBeNull();
+  });
+
+  it("não junta cavalo com carreta de mesma placa — são ativos diferentes", () => {
+    const linhas = aliquotaPorAtivo([
+      ativo("BASE", "AAA1A11", 2450, 245000, "CAVALO"),
+      ativo("BASE", "AAA1A11", 150, 200000, "CARRETA"),
+    ]);
+    expect(linhas).toHaveLength(2);
+    expect(linhas.map((l) => l.entityType)).toEqual(["CARRETA", "CAVALO"]);
   });
 });
 

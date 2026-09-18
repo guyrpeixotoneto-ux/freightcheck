@@ -8,6 +8,7 @@ import {
   temValorNegativoDeIpva,
   type FiltrosDeIpva,
   type AliquotaDaVigencia,
+  type AliquotaDoAtivo,
   type EstadoDaLinhaDeIpva,
   type LinhaDeIpva,
   type MedidaDaVariavel,
@@ -98,7 +99,11 @@ export interface TotaisDeIpva {
     negativos: number;
   }[];
   aliquotas: AliquotaDaVigencia[];
+  /** A mesma alíquota, sem agregar — uma linha por placa, as duas pontas juntas. */
+  porAtivo: AliquotaDoAtivo[];
 }
+
+export type { AliquotaDoAtivo };
 
 /**
  * Um valor escrito na unidade da própria variável.
@@ -235,7 +240,14 @@ export const SELO_DO_VEREDITO: Record<VereditoDaAliquota, string> = {
 
 export { ROTULO_DO_ESTADO, ROTULO_DO_VEREDITO };
 
-/** Os estados que a fileira de abas oferece, na ordem em que a tela os lê. */
+/**
+ * Os estados que a fileira de abas oferece, na ordem em que a tela os lê.
+ *
+ * Sem "Sem alteração": a comparação só traz o que se moveu, e uma aba que marca
+ * zero em todo par é um filtro que promete um recorte inexistente. Quem quer ver
+ * a frota inteira liga **Comparar % alíquotas**, que lê o acervo das duas
+ * vigências e mostra cada placa com a régua que explica o resto da tela.
+ */
 export const ABAS_DE_ESTADO: { chave: "TODAS" | EstadoDaLinhaDeIpva; rotulo: string }[] = [
   { chave: "TODAS", rotulo: "Todas as alterações" },
   { chave: "ALTERADO", rotulo: "Alterados" },
@@ -243,7 +255,6 @@ export const ABAS_DE_ESTADO: { chave: "TODAS" | EstadoDaLinhaDeIpva; rotulo: str
   { chave: "AUSENTE_NA_COMPARADA", rotulo: "Ausentes" },
   { chave: "DADO_INCOMPLETO", rotulo: "Dado incompleto" },
   { chave: "CONFLITO", rotulo: "Conflito" },
-  { chave: "SEM_ALTERACAO", rotulo: "Sem alteração" },
 ];
 
 /**
@@ -324,6 +335,75 @@ export function linhasDoCsv(
       }),
     ),
   ];
+}
+
+/** O cabeçalho do CSV da comparação de alíquotas. */
+export const COLUNAS_DO_CSV_DE_ALIQUOTA = [
+  "Veículo",
+  "Tipo",
+  "IPVA de (R$)",
+  "Valor de NF de (R$)",
+  "Alíquota de (%)",
+  "IPVA para (R$)",
+  "Valor de NF para (R$)",
+  "Alíquota para (%)",
+  "Diferença (p.p.)",
+  "Estorno",
+];
+
+/**
+ * A tabela de alíquotas virando arquivo.
+ *
+ * Os reais viajam junto com os percentuais de propósito: quem abre o CSV para
+ * conferir uma placa precisa do numerador e do denominador para refazer a
+ * divisão — um arquivo só com o resultado obriga a confiar nele.
+ */
+export function linhasDoCsvDeAliquota(ativos: readonly AliquotaDoAtivo[]): string[][] {
+  return [
+    [...COLUNAS_DO_CSV_DE_ALIQUOTA],
+    ...ativos.map((a) => [
+      a.entityLabel ?? "",
+      a.entityType,
+      a.ipvaBase === null ? "" : numeroParaCsv(a.ipvaBase),
+      a.nfBase === null ? "" : numeroParaCsv(a.nfBase),
+      a.aliquotaBase === null ? "" : numeroParaCsv(a.aliquotaBase),
+      a.ipvaComparada === null ? "" : numeroParaCsv(a.ipvaComparada),
+      a.nfComparada === null ? "" : numeroParaCsv(a.nfComparada),
+      a.aliquotaComparada === null ? "" : numeroParaCsv(a.aliquotaComparada),
+      a.diferenca === null ? "" : numeroParaCsv(a.diferenca),
+      a.estorno ? "sim" : "",
+    ]),
+  ];
+}
+
+/**
+ * A diferença entre as duas alíquotas, escrita em pontos percentuais.
+ *
+ * Três casas, como a alíquota, e pela mesma razão: é a terceira que separa
+ * "mudou" de "arredondou". E "0,000 p.p." fica escrito por extenso em vez de
+ * virar travessão — uma placa que ficou exatamente igual é uma resposta, e
+ * apagá-la a confundiria com a placa que não tem base para responder.
+ */
+export function escreverDiferencaDeAliquota(diferenca: number | null): string {
+  if (diferenca === null) return "—";
+  const sinal = diferenca > 0 ? "+" : diferenca < 0 ? "−" : "";
+  const escrito = Math.abs(diferenca).toLocaleString("pt-BR", {
+    minimumFractionDigits: 3,
+    maximumFractionDigits: 3,
+  });
+  return `${sinal}${escrito} p.p.`;
+}
+
+/**
+ * A cor da diferença de alíquota — a mesma régua de dinheiro desta tela.
+ *
+ * O IPVA aqui é rubrica remunerada na tabela de frete: alíquota que cai é
+ * receita que some, e por isso desce em vermelho. Zero fica sem cor, porque não
+ * há o que apontar.
+ */
+export function corDaDiferencaDeAliquota(diferenca: number | null): string {
+  if (diferenca === null || diferenca === 0) return "";
+  return diferenca > 0 ? "text-success" : "text-destructive";
 }
 
 /**

@@ -942,6 +942,107 @@ export function aliquotaImplicita(
     .sort((a, b) => a.entityType.localeCompare(b.entityType) || a.ponta.localeCompare(b.ponta));
 }
 
+/**
+ * A alíquota implícita de **um ativo**, nas duas pontas.
+ *
+ * É a mesma conta de {@link aliquotaImplicita} — IPVA sobre valor de nota —, só
+ * que sem agregar: uma linha por placa, com o percentual de cada vigência lado a
+ * lado. A agregada responde "qual critério esta vigência aplica"; esta responde
+ * a pergunta seguinte, que é a de quem já leu o veredito e quer saber **em quais
+ * placas** ele se sustenta e em quais não.
+ *
+ * As duas nascem da mesma leitura (`/ipva/totais`) de propósito: a média da
+ * tabela de cima e os percentuais da de baixo saem dos mesmos ativos, e não de
+ * duas consultas que poderiam cair em recortes diferentes.
+ */
+export interface AliquotaDoAtivo {
+  entityLabel: string | null;
+  entityType: string;
+  /** O IPVA declarado em cada ponta, em reais. Nulo quando a vigência não o trouxe. */
+  ipvaBase: number | null;
+  ipvaComparada: number | null;
+  /** O valor de nota do mesmo ativo em cada ponta — o denominador da alíquota. */
+  nfBase: number | null;
+  nfComparada: number | null;
+  /** Em pontos percentuais: `1.0` para 1,000% da nota. Nula sem base que divida. */
+  aliquotaBase: number | null;
+  aliquotaComparada: number | null;
+  /** `aliquotaComparada − aliquotaBase`, em pontos percentuais. Nula sem as duas. */
+  diferenca: number | null;
+  /** Alguma das duas pontas veio negativa — estorno ou erro de cadastro. */
+  estorno: boolean;
+}
+
+/**
+ * A alíquota implícita ativo a ativo, com as duas pontas na mesma linha.
+ *
+ * As regras de quem entra são as mesmas da agregada, e pela mesma razão: sem
+ * valor de nota, ou com nota zero, **não há alíquota** — dividir por zero não
+ * produz percentual, e escrever 0% no lugar faria um cadastro em branco passar
+ * por isenção. A diferença é que aqui a ausência fica visível na linha, em vez
+ * de sumir da média: a placa aparece com o IPVA em reais e o percentual em
+ * travessão, que é o que permite ir cobrar o cadastro que falta.
+ *
+ * **O estorno entra, marcado.** Na agregada ele sai da régua porque um crédito
+ * não é alíquota baixa e dois deles invertiam o veredito de uma frota inteira;
+ * aqui não há dispersão a proteger — há uma placa a mostrar —, e escondê-la
+ * seria tirar da tela exatamente a linha que alguém precisa abrir na planilha.
+ *
+ * Um ativo que só existe numa das pontas entra com a outra metade nula: é
+ * entrada ou saída de frota, e é leitura, não falta de dado.
+ */
+export function aliquotaPorAtivo(valores: readonly ValorDeIpva[]): AliquotaDoAtivo[] {
+  const porAtivo = new Map<string, AliquotaDoAtivo>();
+
+  for (const v of valores) {
+    const chave = `${v.entityType}|${v.entityLabel ?? ""}`;
+    const atual: AliquotaDoAtivo = porAtivo.get(chave) ?? {
+      entityLabel: v.entityLabel,
+      entityType: v.entityType,
+      ipvaBase: null,
+      ipvaComparada: null,
+      nfBase: null,
+      nfComparada: null,
+      aliquotaBase: null,
+      aliquotaComparada: null,
+      diferenca: null,
+      estorno: false,
+    };
+    if (v.ponta === "BASE") {
+      atual.ipvaBase = v.ipva;
+      atual.nfBase = v.valorNf;
+    } else {
+      atual.ipvaComparada = v.ipva;
+      atual.nfComparada = v.valorNf;
+    }
+    porAtivo.set(chave, atual);
+  }
+
+  const percentual = (ipva: number | null, nf: number | null): number | null =>
+    ipva === null || nf === null || nf === 0 ? null : Number(((ipva / nf) * 100).toFixed(4));
+
+  return [...porAtivo.values()]
+    .map((a) => {
+      const aliquotaBase = percentual(a.ipvaBase, a.nfBase);
+      const aliquotaComparada = percentual(a.ipvaComparada, a.nfComparada);
+      return {
+        ...a,
+        aliquotaBase,
+        aliquotaComparada,
+        diferenca:
+          aliquotaBase === null || aliquotaComparada === null
+            ? null
+            : Number((aliquotaComparada - aliquotaBase).toFixed(4)),
+        estorno: (a.ipvaBase ?? 0) < 0 || (a.ipvaComparada ?? 0) < 0,
+      };
+    })
+    .sort(
+      (a, b) =>
+        a.entityType.localeCompare(b.entityType) ||
+        (a.entityLabel ?? "").localeCompare(b.entityLabel ?? "", "pt-BR"),
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Exportação
 // ---------------------------------------------------------------------------

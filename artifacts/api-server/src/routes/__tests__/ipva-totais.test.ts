@@ -202,4 +202,17 @@ describe("GET /ipva/totais", () => {
     expect(daBase.veiculos).toBe(1);
     expect(daBase.media).toBeCloseTo((50_000 / 900_000) * 100, 4);
   });
+
+  /* A alíquota placa a placa sai da **mesma** leitura, e é isso que este caso
+     prende: se a de cima e a de baixo divergissem de recorte, a tela publicaria
+     uma média sobre uma população e a lista sobre outra — e quem conferisse
+     placa a placa não fecharia com o veredito impresso acima. */
+  it("dá a mesma alíquota, ativo a ativo, no mesmo recorte", async () => {
+    const res = await get(
+      `/ipva/totais?base=${vigencia.pernambucoBase}&comparada=${vigencia.pernambucoComparada}`,
+    );
+    const daBase = res.body.aliquotas.find((a: any) => a.ponta === "BASE");
+    expect(res.body.porAtivo).toHaveLength(daBase.veiculos);
+    expect(res.body.porAtivo[0].aliquotaBase).toBeCloseTo(daBase.media, 3);
+  });
 });
