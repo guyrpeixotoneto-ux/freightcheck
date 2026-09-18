@@ -50,6 +50,68 @@ node /tmp/fase0/scripts/diagnostico/topologia-app-banco.mjs
 Ele responde, de uma vez: região do Neon (pelo nome do host), se o endpoint é o
 *pooled*, TCP p50/p95, TCP+TLS, `SELECT 1`, e o veredito entre A, B/C e misto.
 
+### Primeira execução: medida do banco errado
+
+Rodada no Shell do Replit em 18/09/2026, a sonda respondeu:
+
+```
+  host            helium
+  resolve para    172.24.0.3
+  TCP (1 ida e volta)   p50 0.9 ms
+  ▸ NÃO é geografia.
+```
+
+**Esse veredito é inválido, e a culpa é do script.** `helium` em `172.24.0.3` é
+o Postgres de **desenvolvimento** do Replit, na rede privada do contêiner — não
+é o Neon que o deployment usa. A sonda mediu o RTT de um banco e comparou com o
+custo por consulta de **outro**. O número é verdadeiro; a conclusão, não.
+
+No Shell do workspace, `DATABASE_URL` aponta para o banco de desenvolvimento. O
+do deployment mora nos secrets do Deployment, que é outro lugar.
+
+> **A lição já estava neste diretório, e eu não a apliquei.**
+> `ler-producao.sh` abre com três travas e o comentário: *"com a variável vazia
+> o libpq cai nos defaults e conecta EM OUTRO BANCO em silêncio"*. Escrevi a
+> sonda nova sem nenhuma delas. Agora ela recusa endereço privado, `localhost`,
+> nome sem domínio e os nomes internos do Replit — e só mede um banco local se
+> alguém disser, por escrito, que é isso que quer (`ACEITO_BANCO_LOCAL=1`).
+> Também passou a dizer quando o servidor **recusa SSL**, em vez de mostrar um
+> travessão: um banco de produção não recusaria.
+
+**Então a pergunta da Etapa 1 continua aberta.** Não sabemos ainda se os 123,4 ms
+são geografia (A), conexão por consulta (B), o endpoint *pooled* (C) ou compute
+suspenso (D).
+
+### As duas formas de fechá-la
+
+**A mais barata, e sem tocar em credencial nenhuma** — dois fatos, de dois
+painéis:
+
+| Onde | O que olhar |
+|---|---|
+| Painel do **Neon** | a região do projeto (ex.: `sa-east-1`, `us-east-2`) |
+| Painel do **Replit** → Deployments | a região do deployment |
+
+Se forem continentes diferentes, é geografia e está respondido. A sonda já
+extrai a região do nome do host do Neon sozinha, se preferir esse caminho:
+
+```bash
+read -rs PRODUCTION_DATABASE_URL && export PRODUCTION_DATABASE_URL
+node /tmp/fase0/scripts/diagnostico/topologia-app-banco.mjs
+```
+
+(a URL vem dos secrets do **Deployment**, não do workspace; a sonda nunca
+imprime usuário, senha nem a URL — só host, porta e região.)
+
+### Uma ressalva que vale para as duas
+
+Mesmo com a URL certa, rodar do Shell mede **workspace → Neon**, e o que
+importa é **deployment → Neon**. Os dois podem não estar no mesmo lugar: o
+próprio `/api/healthz` responde em ~56 ms do Shell, o que já é muito para dois
+serviços vizinhos. Se a região do Neon e a do deployment coincidirem e mesmo
+assim o custo por consulta for 123 ms, a causa é B, C ou D — e aí a sonda de
+região não resolve sozinha.
+
 ### O que ele **não** responde, e como obter
 
 | | Como obter |
@@ -200,7 +262,7 @@ Três saídas, e a primeira é a que eu recomendaria tentar antes:
 
 | | |
 |---|---|
-| Etapa 1 (topologia) | instrumento pronto; **falta rodar no Shell do Replit** |
+| Etapa 1 (topologia) | **rodada, e mediu o banco errado** — a sonda ganhou as travas que faltavam. Falta rodar contra o Neon, ou as duas regiões dos painéis |
 | Etapa 1a | **provada localmente**; falta a autorização sobre `artifacts/` e a medição no ar |
 | Etapa 1b | **não iniciada**, e por desenho: espera o veredito da topologia |
 | `staleTime`, C4, esqueleto, rotas de 33/48 consultas | não tocados |

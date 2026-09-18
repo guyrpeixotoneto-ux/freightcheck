@@ -43,7 +43,24 @@
  *
  *   node scripts/diagnostico/topologia-app-banco.mjs
  *
- * Variáveis: `DATABASE_URL` (ou `PRODUCTION_DATABASE_URL`), `N` (amostras).
+ * ---------------------------------------------------------------------------
+ * A trava que faltava
+ * ---------------------------------------------------------------------------
+ * A primeira versão aceitava qualquer `DATABASE_URL` do ambiente — e no Shell
+ * do Replit essa variável aponta para o **banco de desenvolvimento**, não para
+ * o Neon de produção. Rodada assim, em 18/09/2026, ela mediu `helium` em
+ * `172.24.0.3` (rede privada do contêiner), respondeu **0,9 ms** e concluiu
+ * "não é geografia" — comparando o RTT de um banco com o custo por consulta de
+ * outro. A conclusão estava errada e parecia certa.
+ *
+ * `ler-producao.sh`, neste mesmo diretório, já carregava a lição em três travas
+ * ("com a variável vazia o libpq cai nos defaults e conecta EM OUTRO BANCO em
+ * silêncio"). Este script não as tinha. Agora tem: ele recusa endereço privado,
+ * `localhost` e os nomes do banco de desenvolvimento do Replit, a não ser que
+ * se diga, por escrito, que é isso mesmo que se quer medir.
+ *
+ * Variáveis: `PRODUCTION_DATABASE_URL` (preferida) ou `DATABASE_URL`;
+ * `N` (amostras); `ACEITO_BANCO_LOCAL=1` para medir um banco local de propósito.
  */
 import net from "node:net";
 import tls from "node:tls";
@@ -53,7 +70,8 @@ import { promisify } from "node:util";
 
 const execFileP = promisify(execFile);
 const N = Number(process.env.N || 12);
-const BRUTA = process.env.DATABASE_URL || process.env.PRODUCTION_DATABASE_URL || "";
+const BRUTA = process.env.PRODUCTION_DATABASE_URL || process.env.DATABASE_URL || "";
+const DE_ONDE = process.env.PRODUCTION_DATABASE_URL ? "PRODUCTION_DATABASE_URL" : "DATABASE_URL";
 
 if (!BRUTA) {
   console.error("\nDefina DATABASE_URL (ou PRODUCTION_DATABASE_URL) e rode de novo.");
@@ -68,6 +86,22 @@ try { url = new URL(BRUTA); } catch {
 }
 const HOST = url.hostname;
 const PORTA = Number(url.port || 5432);
+
+/**
+ * Este endereço é o banco de produção, ou o de desenvolvimento ao lado?
+ *
+ * Endereço privado, `localhost` e os nomes internos do Postgres de
+ * desenvolvimento do Replit (`helium` e parentes) não respondem à pergunta
+ * desta sonda, e medi-los produz um número que **parece** resposta.
+ */
+function ehBancoLocal(host, ip) {
+  if (/^(localhost|127\.|::1$)/.test(host)) return "localhost";
+  if (/^(helium|neon-local|postgres|db)$/i.test(host)) return `nome interno do Replit ("${host}")`;
+  if (!host.includes(".")) return `nome sem domínio ("${host}") — é um vizinho de rede, não um serviço na internet`;
+  if (ip && /^(10\.|127\.|192\.168\.|169\.254\.)/.test(ip)) return `endereço privado (${ip})`;
+  if (ip && /^172\.(1[6-9]|2\d|3[01])\./.test(ip)) return `endereço privado (${ip})`;
+  return null;
+}
 
 /** A região que o nome do host do Neon carrega: ep-algo-123.<REGIÃO>.aws.neon.tech */
 function regiaoDoHost(host) {
@@ -143,25 +177,64 @@ console.log(`  porta           ${PORTA}`);
 const reg = regiaoDoHost(HOST);
 console.log(`  região          ${reg ? `\x1b[1m${reg.regiao}\x1b[0m (${reg.provedor})` : "não deduzível pelo nome do host"}`);
 console.log(`  endpoint        ${ehPooled ? "\x1b[1;33mpooled (pgbouncer)\x1b[0m" : "direto"}`);
+let ipPrimeiro = null;
 try {
   const ips = await dns.lookup(HOST, { all: true });
+  ipPrimeiro = ips[0]?.address ?? null;
   console.log(`  resolve para    ${ips.map((i) => i.address).join(", ")}`);
 } catch { console.log("  resolve para    (falhou)"); }
+console.log(`  veio de         ${DE_ONDE}`);
+
+const motivoLocal = ehBancoLocal(HOST, ipPrimeiro);
+if (motivoLocal && process.env.ACEITO_BANCO_LOCAL !== "1") {
+  console.error(`
+\x1b[1;31mRECUSADO — este não é o banco de produção.\x1b[0m
+
+  ${DE_ONDE} aponta para ${motivoLocal}.
+
+  No Shell do Replit, DATABASE_URL é o banco de **desenvolvimento**: ele fica na
+  rede do contêiner e responde em menos de 1 ms. Medi-lo e comparar com os
+  123,4 ms que a Fase 0 mediu no ambiente publicado compara dois bancos
+  diferentes — e produz um veredito que parece certo e está errado.
+
+  Para responder à pergunta, uma destas:
+
+    1. Pegue a URL do Neon nos secrets do **Deployment** (não do workspace) e:
+         read -rs PRODUCTION_DATABASE_URL && export PRODUCTION_DATABASE_URL
+         node scripts/diagnostico/topologia-app-banco.mjs
+
+    2. Ou, sem mexer em credencial nenhuma, me diga só duas coisas:
+         · a região do projeto no painel do Neon;
+         · a região do Deployment no painel do Replit.
+       As duas juntas já decidem se a causa é geografia.
+
+  Se você quer mesmo medir este banco local, rode com ACEITO_BANCO_LOCAL=1.
+`);
+  process.exit(2);
+}
 
 // --- Medição ---------------------------------------------------------------
 console.log(`\n\x1b[1;36mLatência, ${N} amostras\x1b[0m\n`);
 const tcps = [], tlss = [];
+let recusouSsl = false;
 for (let i = 0; i < N; i++) {
   const r = await tlsPostgres();
   if (r.tcp !== null) tcps.push(r.tcp);
   if (r.tls !== null) tlss.push(r.tls);
+  if (r.aceitaSsl === false) recusouSsl = true;
 }
 if (!tcps.length) {
   console.error("  Não consegui abrir conexão. Confira DATABASE_URL e a rede.\n");
   process.exit(1);
 }
 console.log(`  TCP (1 ida e volta)        p50 ${r1(pct(tcps, 0.5))} ms  · p95 ${r1(pct(tcps, 0.95))} ms  · min ${r1(Math.min(...tcps))} ms`);
-console.log(`  TCP+TLS (3-4 idas)         p50 ${r1(pct(tlss, 0.5))} ms  · p95 ${r1(pct(tlss, 0.95))} ms  · min ${r1(Math.min(...tlss))} ms`);
+if (tlss.length) {
+  console.log(`  TCP+TLS (3-4 idas)         p50 ${r1(pct(tlss, 0.5))} ms  · p95 ${r1(pct(tlss, 0.95))} ms  · min ${r1(Math.min(...tlss))} ms`);
+} else if (recusouSsl) {
+  console.log(`  TCP+TLS                    \x1b[1;33mo servidor RECUSOU SSL\x1b[0m — um banco de produção não faria isso`);
+} else {
+  console.log(`  TCP+TLS                    não completou`);
+}
 
 const consultas = [];
 for (let i = 0; i < Math.min(N, 8); i++) { const v = await selectUm(); if (v !== null) consultas.push(v); }
