@@ -30,10 +30,13 @@ describe("Ver histórico — o que o endereço carrega", () => {
     const q = new URLSearchParams(enderecoDoHistorico(cartao, contexto).split("?")[1]);
 
     expect(q.get("scopeHash")).toBe("hash-da-unidade");
-    /* As pontas são as do par **do cartão**: quem clica no histórico do FINAME
-       quer ver até a alteração que o cartão está mostrando, com ela dentro. */
-    expect(q.get("de")).toBe("2026-07-16");
+    /*
+      Só a ponta final. Mandar as duas abriria um intervalo de uma comparação
+      só — os gráficos de série vazios e o impacto repetindo o número do cartão
+      de origem. Um histórico de um passo não é histórico.
+    */
     expect(q.get("period")).toBe("2026-08-01");
+    expect(q.has("de")).toBe(false);
     expect(q.get("parametros")).toBe("CUSTO_FIXO|FINAME,CUSTO_FIXO|Amortização");
     expect(q.get("recorte")).toBe("FINAME");
   });
@@ -60,7 +63,7 @@ describe("Ver histórico — o que o endereço carrega", () => {
     expect(q.has("recorte")).toBe(false);
   });
 
-  it("um cartão sem par não inventa intervalo", () => {
+  it("um cartão sem par não inventa ponta nenhuma", () => {
     const q = new URLSearchParams(
       enderecoDoHistorico({ ...cartao, par: null }, contexto).split("?")[1],
     );
@@ -78,7 +81,10 @@ describe("o ciclo fechado — escrever, ler, e perguntar ao servidor", () => {
     const endereco = enderecoDoHistorico(cartao, contexto);
     const recorte = lerRecorteDoHistorico(endereco.split("?")[1]);
 
-    expect(recorte.de).toBe("2026-07-16");
+    /* O botão não nomeia a ponta inicial — o destino abre o histórico inteiro
+       até a vigência do cartão. Mas um link que a nomeie continua sendo lido,
+       e é o caso logo abaixo. */
+    expect(recorte.de).toBeNull();
     expect(recorte.parametros).toEqual([
       "CUSTO_FIXO|FINAME",
       "CUSTO_FIXO|Amortização",
@@ -87,7 +93,7 @@ describe("o ciclo fechado — escrever, ler, e perguntar ao servidor", () => {
 
     const consulta = consultaDoIntervalo(
       new URLSearchParams({ scopeHash: "hash-da-unidade" }),
-      recorte.de!,
+      "2026-07-16",
       "2026-08-01",
       null,
       recorte.parametros,
@@ -97,6 +103,15 @@ describe("o ciclo fechado — escrever, ler, e perguntar ao servidor", () => {
     expect(consulta.get("to")).toBe("2026-08-01");
     /* `parameters`, e não `parametros`: é o nome que `/changes/range` lê. */
     expect(consulta.get("parameters")).toBe("CUSTO_FIXO|FINAME,CUSTO_FIXO|Amortização");
+  });
+
+  it("uma ponta inicial nomeada no endereço continua sendo honrada", () => {
+    /*
+      A capacidade fica: quem monta um link com `de=` — um favorito, um link
+      colado de outra conversa — recebe o intervalo que pediu.
+    */
+    const recorte = lerRecorteDoHistorico("de=2026-01-16&parametros=CUSTO_FIXO%7CFINAME");
+    expect(recorte.de).toBe("2026-01-16");
   });
 
   it("o recorte entra na chave de cache — senão uma leitura mostraria a outra", () => {

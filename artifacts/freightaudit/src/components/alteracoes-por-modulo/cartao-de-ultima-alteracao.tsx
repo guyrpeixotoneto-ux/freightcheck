@@ -206,10 +206,15 @@ function Financeiro({ cartao }: { cartao: CartaoDeUltimaAlteracao }) {
         <BlocoDoBalde key={balde.periodicidade} balde={balde} />
       ))}
 
+      {/*
+        "Afeta", e não "afetados": o rótulo da entidade muda de gênero conforme a
+        rubrica — entidades, veículos, trechos, cargos —, e um particípio fixo
+        erraria a concordância em metade dos cartões. O verbo não concorda com
+        nada, e diz a mesma coisa.
+      */}
       <p className="text-xs text-muted-foreground">
-        {formatNumber(cartao.movimento.entidades)}{" "}
-        {cartao.movimento.rotuloDaEntidade.toLowerCase()} afetad
-        {cartao.movimento.entidades === 1 ? "o" : "os"} ·{" "}
+        Afeta {formatNumber(cartao.movimento.entidades)}{" "}
+        {cartao.movimento.rotuloDaEntidade.toLowerCase()} ·{" "}
         {formatNumber(cartao.movimento.alteracoes)} alteraç
         {cartao.movimento.alteracoes === 1 ? "ão" : "ões"}
       </p>

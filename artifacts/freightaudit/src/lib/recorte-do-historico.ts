@@ -81,9 +81,23 @@ export interface HistoricoDoCartao {
 /**
  * O endereço de "Ver histórico" — a Linha do Tempo recortada neste módulo.
  *
- * As pontas do intervalo são as do **par do cartão**, e não o histórico inteiro:
- * quem clica em "Ver histórico" no cartão do IPVA quer ver o que aconteceu até a
- * alteração que o cartão está mostrando, com ela dentro.
+ * ---------------------------------------------------------------------------
+ * Por que o intervalo não é o par do cartão
+ * ---------------------------------------------------------------------------
+ * A primeira versão mandava as **duas** pontas do par, e a tela de destino abria
+ * um intervalo de uma comparação só: os dois gráficos de série saíam vazios (uma
+ * linha de um ponto não desenha), e o cartão de impacto repetia, sozinho, o
+ * número que o cartão de origem já dizia. Um histórico de um passo não é
+ * histórico — é a mesma comparação, noutra tela.
+ *
+ * Então só a ponta **final** viaja (`period`, que é o nome dela naquele
+ * endereço): o destino abre o histórico inteiro daquela unidade até a vigência
+ * em que o módulo se moveu, recortado no módulo. Quem quer a comparação isolada
+ * tem "Ver alterações" ao lado, que é exatamente essa pergunta.
+ *
+ * `de` continua sendo lido do endereço (`lerRecorteDoHistorico`) e continua
+ * chegando à leitura: um link que nomeie a ponta inicial é honrado. O que mudou
+ * é que este botão não a nomeia.
  */
 export function enderecoDoHistorico(
   cartao: HistoricoDoCartao,
@@ -93,9 +107,8 @@ export function enderecoDoHistorico(
   if (contexto.scopeHash) q.set("scopeHash", contexto.scopeHash);
   if (contexto.canal) q.set("canal", contexto.canal);
   if (cartao.tipoDoHistorico) q.set("tipo", cartao.tipoDoHistorico);
-  if (cartao.par?.baseData) q.set("de", cartao.par.baseData);
   /* `period` é a ponta final na Linha do Tempo — o nome dela naquele endereço,
-     e não um segundo parâmetro nosso. */
+     e não um segundo parâmetro nosso. A inicial fica com o destino: ver acima. */
   if (cartao.par?.comparadaData) q.set("period", cartao.par.comparadaData);
   if (cartao.parametrosDoHistorico.length > 0) {
     q.set("parametros", [...cartao.parametrosDoHistorico].join(","));
