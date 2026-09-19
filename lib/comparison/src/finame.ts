@@ -123,6 +123,20 @@ export interface VariavelDeFiname {
    * é a mesma escolha que o IPVA faz com a coluna mensal da carreta.
    */
   foraDaSoma?: string;
+  /**
+   * Quem soma esta rubrica, em três palavras — o destino, não a justificativa.
+   *
+   * `foraDaSoma` é o parágrafo que explica a recusa, e ele é longo de
+   * propósito: é a memória da dupla contagem medida. Numa célula de tabela ele
+   * não cabe — a reconciliação abriu a linha do lucro fixo com o parágrafo
+   * inteiro dentro da coluna Rubrica. Este campo é o que a célula escreve;
+   * aquele continua sendo o que o ⓘ conta.
+   *
+   * Ausente quando **ninguém** soma a coluna, que é o caso do valor de NF: ela
+   * não é custo de módulo nenhum, e inventar um destino para ela seria pior do
+   * que dizer que não há.
+   */
+  somadaPor?: string;
   /** Uma linha de contexto para o ⓘ da tela. */
   ajuda?: string;
 }
@@ -191,6 +205,7 @@ export const VARIAVEIS_DE_FINAME: readonly VariavelDeFiname[] = [
        linhas do acervo. Emparelhar os dois aqui faria a expansão do cavalo
        mostrar uma parcela que o cavalo não tem. */
     codigo: { CARRETA: "carreta.custo_aluguel" },
+    somadaPor: "Auditoria de Aluguel de Frota",
     foraDaSoma:
       "O aluguel do implemento é rubrica do módulo Aluguel de Frota, que é quem " +
       "o soma. Ele está aqui porque é a terceira parcela desta parcela — sem ele " +
@@ -249,6 +264,7 @@ export const VARIAVEIS_DE_FINAME: readonly VariavelDeFiname[] = [
     rotulo: "ICMS",
     medida: "DINHEIRO",
     codigo: { CAVALO: "cavalo.valor_icms", CARRETA: "carreta.valor_icms" },
+    somadaPor: "Auditoria de Impostos",
     foraDaSoma:
       "ICMS da aquisição é rubrica do módulo Impostos, que é quem o soma. Hoje a " +
       "coluna é zero nas 1.215 linhas do acervo, de modo que somá-la aqui não move " +
@@ -264,6 +280,7 @@ export const VARIAVEIS_DE_FINAME: readonly VariavelDeFiname[] = [
       CAVALO: "cavalo.valor_pis_cofins",
       CARRETA: "carreta.valor_pis_cofins",
     },
+    somadaPor: "Auditoria de Impostos",
     foraDaSoma:
       "PIS/COFINS da aquisição é rubrica do módulo Impostos, que é quem o soma. " +
       "Esta era a dupla contagem medida: a mesma alteração entrava nos dois totais, " +
@@ -337,6 +354,7 @@ export const VARIAVEIS_DE_DETALHE: readonly VariavelDeFiname[] = [
     rotulo: "Lucro fixo do cavalo",
     medida: "DINHEIRO",
     codigo: { CAVALO: "cavalo.lucro_fixomodelo_novo_ciclo_cavalo" },
+    somadaPor: "Auditoria de Lucro Fixo",
     foraDaSoma:
       "O lucro fixo é rubrica do módulo Lucro Fixo, que é quem o soma. Ele está " +
       "aqui porque é a terceira parcela da parcela do cavalo — sem ele a " +
@@ -1264,6 +1282,76 @@ export function distribuicaoPorEstado(
 }
 
 /** Um ponto do gráfico "valor total por vigência". */
+/**
+ * Um valor lido de uma das duas pontas — a matéria-prima dos totais.
+ *
+ * Saiu de dentro das assinaturas de {@link totaisPorVigencia} e
+ * {@link evolucaoPorTipo}, onde estava digitado duas vezes, quando a
+ * reconciliação passou a ler a mesma coisa: três redações do mesmo registro
+ * são três oportunidades de uma delas esquecer um campo.
+ */
+export interface ValorDaPonta {
+  ponta: "BASE" | "COMPARADA";
+  entityType: string;
+  /** Quem sustenta o valor. Sem ele não há como saber se o veículo tem as duas pontas. */
+  entityId?: string;
+  /**
+   * A placa, quando a leitura a trouxe.
+   *
+   * Opcional porque o total não precisa dela — mas a reconciliação precisa: um
+   * degrau que não se abre até a placa é um número que ninguém confere.
+   */
+  entityLabel?: string | null;
+  attributeCode: string;
+  valor: number | null;
+}
+
+/** A parcela de um veículo nas duas pontas. `undefined` é "aquela ponta não tem". */
+export interface ParcelaDoVeiculo {
+  entityType: string;
+  entityId: string;
+  label: string | null;
+  base?: number;
+  comparada?: number;
+}
+
+/**
+ * O pareamento da parcela por veículo — **a régua única** das duas leituras.
+ *
+ * `evolucaoPorTipo` e a reconciliação respondem perguntas diferentes sobre o
+ * mesmo pareamento: uma soma por tipo, a outra abre por placa. Enquanto cada
+ * uma montava o próprio mapa, "quem é entrada de frota" tinha duas definições
+ * livres para divergir — e divergir aqui é o painel de baixo deixar de fechar
+ * com a escada de cima, que é justamente o defeito que a reconciliação existe
+ * para não deixar voltar.
+ *
+ * Um veículo com mais de um fato de parcela na mesma ponta tem os valores
+ * somados, como o total sempre fez.
+ */
+export function parcelaPorVeiculo(
+  valores: readonly ValorDaPonta[],
+): ParcelaDoVeiculo[] {
+  const porVeiculo = new Map<string, ParcelaDoVeiculo>();
+  for (const v of valores) {
+    const variavel = variavelDoCodigo(v.attributeCode);
+    if (!variavel || variavel.chave !== "parcela" || v.valor === null) continue;
+    const entityId = v.entityId ?? v.entityLabel ?? "";
+    const chave = `${v.entityType}\u001f${entityId}`;
+    const atual =
+      porVeiculo.get(chave) ??
+      ({ entityType: v.entityType, entityId, label: v.entityLabel ?? null } as ParcelaDoVeiculo);
+    if (v.entityLabel != null) atual.label = v.entityLabel;
+    if (v.ponta === "BASE") atual.base = (atual.base ?? 0) + v.valor;
+    else atual.comparada = (atual.comparada ?? 0) + v.valor;
+    porVeiculo.set(chave, atual);
+  }
+  return [...porVeiculo.values()].sort(
+    (a, b) =>
+      a.entityType.localeCompare(b.entityType) ||
+      (a.label ?? a.entityId).localeCompare(b.label ?? b.entityId),
+  );
+}
+
 export interface TotalDaVigencia {
   /** `BASE` ou `COMPARADA` — a ponta, não a data. A data é do contexto. */
   ponta: "BASE" | "COMPARADA";
@@ -1281,14 +1369,7 @@ export interface TotalDaVigencia {
  * o mesmo dinheiro escrito em três linhas. Os valores vêm da leitura das duas
  * vigências, não do change set, porque um total tem de incluir quem não mudou.
  */
-export function totaisPorVigencia(
-  valores: readonly {
-    ponta: "BASE" | "COMPARADA";
-    entityType: string;
-    attributeCode: string;
-    valor: number | null;
-  }[],
-): TotalDaVigencia[] {
+export function totaisPorVigencia(valores: readonly ValorDaPonta[]): TotalDaVigencia[] {
   const acumulado = new Map<string, TotalDaVigencia>();
   for (const v of valores) {
     const variavel = variavelDoCodigo(v.attributeCode);
@@ -1356,32 +1437,12 @@ export interface EvolucaoDoTipo {
  * estar na aba Novos nem na Ausentes da tabela, que contam **veículo** e não
  * parcela; por isso o painel diz "veíc. com parcela", e não "novos".
  */
-export function evolucaoPorTipo(
-  valores: readonly {
-    ponta: "BASE" | "COMPARADA";
-    entityType: string;
-    /** Quem sustenta o valor. Sem ele não há como saber se o veículo tem as duas pontas. */
-    entityId: string;
-    attributeCode: string;
-    valor: number | null;
-  }[],
-): EvolucaoDoTipo[] {
-  /* Um mapa por tipo, e dentro dele um par de valores por veículo: `undefined`
-     é "aquela ponta não tem parcela deste veículo", que é justamente o que
-     separa uma entrada de uma alteração. */
-  const porTipo = new Map<string, Map<string, { base?: number; comparada?: number }>>();
-  for (const v of valores) {
-    const variavel = variavelDoCodigo(v.attributeCode);
-    if (!variavel || variavel.chave !== "parcela" || v.valor === null) continue;
-    const veiculos = porTipo.get(v.entityType) ?? new Map();
-    const atual = veiculos.get(v.entityId) ?? {};
-    if (v.ponta === "BASE") atual.base = (atual.base ?? 0) + v.valor;
-    else atual.comparada = (atual.comparada ?? 0) + v.valor;
-    veiculos.set(v.entityId, atual);
-    porTipo.set(v.entityType, veiculos);
-  }
-
+export function evolucaoPorTipo(valores: readonly ValorDaPonta[]): EvolucaoDoTipo[] {
   const duasCasas = (n: number) => Number(n.toFixed(2));
+  const porTipo = new Map<string, ParcelaDoVeiculo[]>();
+  for (const v of parcelaPorVeiculo(valores)) {
+    porTipo.set(v.entityType, [...(porTipo.get(v.entityType) ?? []), v]);
+  }
 
   return [...porTipo.entries()]
     .map(([entityType, veiculos]) => {
@@ -1396,7 +1457,7 @@ export function evolucaoPorTipo(
         veiculosEntradas: 0,
         veiculosSaidas: 0,
       };
-      for (const { base, comparada } of veiculos.values()) {
+      for (const { base, comparada } of veiculos) {
         e.base += base ?? 0;
         e.comparada += comparada ?? 0;
         if (base !== undefined && comparada !== undefined) {

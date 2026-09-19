@@ -26,6 +26,7 @@ import {
   type RecorteDeTipo,
 } from "@/components/comparacao/recorte-de-equipamento";
 import { CartoesDeFiname } from "@/components/finame/cartoes";
+import { ReconciliacaoDoImpacto } from "@/components/finame/reconciliacao";
 import { SeletorDeFonte } from "@/components/finame/seletor-de-fonte";
 import { ConfrontoDeFiname } from "@/components/finame/confronto";
 import { PendenciasDoReal } from "@/components/finame/pendencias-do-real";
@@ -48,7 +49,6 @@ import {
   contagemPorAba,
   ehModoDeFiname,
   ehRecorteDeTipo,
-  escreverImpacto,
   enderecoComTroca,
   escreverValor,
   filtrar,
@@ -57,6 +57,7 @@ import {
   type ModoDeFiname,
   type ComparacaoDeFiname,
   type FiltrosDeFiname,
+  type ReconciliacaoDeFiname,
   type TotaisDeFiname,
 } from "@/lib/finame";
 import {
@@ -523,6 +524,23 @@ export default function AuditoriaDeFiname() {
   });
 
   /**
+   * A escada que liga o cartão do topo ao saldo da frota.
+   *
+   * Consulta própria, e não um campo de `/finame/comparacao`, porque ela é a
+   * única leitura que precisa das **duas** matérias-primas ao mesmo tempo — as
+   * alterações do motor e a leitura das duas vigências. Pendurá-la na
+   * comparação faria toda tabela recalcular o saldo do acervo inteiro.
+   */
+  const reconciliacao = useQuery({
+    queryKey: ["finame", "reconciliacao", base, comparada],
+    enabled: fonte === "REMUNERADO" && Boolean(base && comparada),
+    queryFn: () =>
+      fetchJson<ReconciliacaoDeFiname>(
+        `/finame/reconciliacao?base=${base}&comparada=${comparada}`,
+      ),
+  });
+
+  /**
    * As justificativas desta comparação, por `change.id` — a última coluna.
    *
    * É uma segunda consulta, e não um campo da comparação: a justificativa é
@@ -932,31 +950,22 @@ export default function AuditoriaDeFiname() {
             )}
 
             {/*
-              A ponte entre este cartão e o painel "Evolução entre as duas
-              vigências", logo abaixo — e a razão de ela estar escrita.
+              A ponte entre este cartão e o painel da evolução era uma frase
+              aqui: "R$ X por mensal do que a parcela moveu é rubrica de outro
+              módulo… é essa a diferença entre este cartão e o painel". Ela
+              dizia a verdade e não servia para conferir nada — quem fecha o mês
+              precisa somar linhas, não ler uma ressalva.
 
-              Os dois somam coisas diferentes, e é por isso que podem divergir:
-              o painel soma a parcela FINAME inteira, este cartão soma o que é
-              rubrica **deste** módulo. Numa quitação, parte da parcela vira
-              lucro fixo do cavalo (ou aluguel, no implemento alugado) e passa a
-              ser somada pela auditoria dela — e os dois totais se separam
-              exatamente por esse valor.
-
-              Enquanto isso não estava escrito, a tela mostrava R$ 7.238,85 aqui
-              e R$ 11.916,70 dois centímetros abaixo, sem nada ligando um ao
-              outro. `impacto.porOutroModulo` é a diferença medida, e não uma
-              suposição sobre a composição da parcela — ver `finame.ts`.
+              O que a substitui é a escada logo abaixo: o mesmo número, agora
+              como um degrau de uma conta que vai do saldo da base ao da
+              comparada e **fecha**. A frase dizia por que os dois não batiam; a
+              escada mostra como eles batem.
             */}
-            {escreverImpacto((agregados ?? comparacao.data).resumo.impacto.porOutroModulo)
-              .filter((p) => Math.abs(p.bruto) >= 0.01)
-              .map((p) => (
-                <p key={p.rotulo} className="text-xs text-muted-foreground">
-                  {p.valor} por {p.rotulo} do que a parcela moveu é rubrica de outro módulo —
-                  lucro fixo do cavalo quitado, aluguel do implemento — e está somado lá. É
-                  essa a diferença entre este cartão e o painel “Evolução entre as duas
-                  vigências”, que soma a parcela inteira.
-                </p>
-              ))}
+            <ReconciliacaoDoImpacto
+              reconciliacao={reconciliacao.data?.recortes[recorteDeTipo]?.periodicidades ?? []}
+              rotuloBase={rotuloBase}
+              rotuloComparada={rotuloComparada}
+            />
 
             {/*
               O terceiro aviso é de outra natureza, e por isso é outra frase: ali,

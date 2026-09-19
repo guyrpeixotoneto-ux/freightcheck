@@ -11,6 +11,7 @@ export * from "./consolidated";
 export * from "./composition";
 export * from "./recorte-de-rubrica";
 export * from "./finame";
+export * from "./reconciliacao-de-finame";
 export * from "./fonte-de-finame";
 export * from "./competencia-de-finame";
 export * from "./confronto-de-finame";
