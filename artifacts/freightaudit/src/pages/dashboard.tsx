@@ -59,7 +59,12 @@ import {
   MenuDaGestaoAVista,
   SeletorDeUnidade,
 } from "@/components/dashboard/controles-do-recorte";
-import { GraficoDeImpacto, type PontoDeImpacto } from "@/components/dashboard/grafico-de-impacto";
+import { JANELA_PADRAO, type Janela } from "@/lib/janela-de-vigencias";
+import {
+  GraficoDeImpacto,
+  type CoberturaDoRecorte,
+  type PontoDeImpacto,
+} from "@/components/dashboard/grafico-de-impacto";
 import { useSerieDeImpacto, useSerieDeImpactoGeral } from "@/lib/serie-de-impacto";
 import {
   BotaoDeVoltarVigencia,
@@ -203,7 +208,20 @@ export default function Dashboard() {
     escritas em duas telas, bastaria uma delas mudar para as duas passarem a
     desenhar gráficos diferentes do mesmo dado.
   */
-  const serieDaUnidade = useSerieDeImpacto(visaoGeral ? null : view, consulta, !visaoGeral);
+  /*
+    A janela do gráfico é estado da tela porque é ela que decide a grandeza do
+    eixo — ver `useSerieDeImpacto`. Dentro do gráfico, a escolha do recorte
+    acontecia **depois** da escolha da grandeza, e as duas falavam de
+    populações diferentes.
+  */
+  const [janelaAberta, setJanelaAberta] = useState<Janela>(JANELA_PADRAO);
+  const serieDaUnidade = useSerieDeImpacto(
+    visaoGeral ? null : view,
+    consulta,
+    !visaoGeral,
+    null,
+    janelaAberta,
+  );
   /*
     O gráfico sai **depois** do conteúdo principal, não junto com ele.
 
@@ -230,6 +248,7 @@ export default function Dashboard() {
     periodoOverviewEfetivo,
     overview,
     visaoGeral && !overviewQuery.isLoading,
+    janelaAberta,
   );
 
   /*
@@ -237,7 +256,7 @@ export default function Dashboard() {
     aqui, e não no gráfico: trocar a vigência refaz a consulta e desmonta o
     corpo da tela enquanto ela não responde.
   */
-  const pontosDesenhados = visaoGeral ? serieGeral : serieDaUnidade.pontos;
+  const pontosDesenhados = visaoGeral ? serieGeral.pontos : serieDaUnidade.pontos;
   const vigenciaAberta = visaoGeral ? periodoOverviewEfetivo : (view?.period ?? null);
   const volta = useVoltaDeVigencia({
     periodo: vigenciaAberta,
@@ -299,7 +318,10 @@ export default function Dashboard() {
                 overview={overview}
                 atualizadoEm={atualizadoEm}
                 onTrocar={trocarPara}
-                serie={serieGeral}
+                serie={serieGeral.pontos}
+                carregadasDaSerie={serieGeral.carregadas}
+                janela={janelaAberta}
+                onJanela={setJanelaAberta}
                 familiaAberta={familiaAberta}
                 onAbrirFamilia={(code) => trocarPara({ familia: code })}
                 onFecharFamilia={() => trocarPara({ familia: null })}
@@ -332,6 +354,8 @@ export default function Dashboard() {
                 recorte={recorte}
                 atualizadoEm={atualizadoEm}
                 serie={serieDaUnidade}
+                janela={janelaAberta}
+                onJanela={setJanelaAberta}
                 familiaAberta={familiaAberta}
                 onAbrirFamilia={(code) => trocarPara({ familia: code })}
                 onFecharFamilia={() => trocarPara({ familia: null })}
@@ -454,6 +478,8 @@ function ConteudoDaUnidade({
   recorte,
   atualizadoEm,
   serie,
+  janela,
+  onJanela,
   familiaAberta,
   onAbrirFamilia,
   onFecharFamilia,
@@ -465,7 +491,17 @@ function ConteudoDaUnidade({
   recorte: ReturnType<typeof lerRecorte>;
   atualizadoEm: number;
   /** A série do gráfico, já pronta — ver `lib/serie-de-impacto.ts`. */
-  serie: { pontos: PontoDeImpacto[]; periodicity: string | null; carregando?: boolean };
+  serie: {
+    pontos: PontoDeImpacto[];
+    periodicity: string | null;
+    carregando?: boolean;
+    /** Quantas vigências o intervalo carregou — `pontos` é o recorte. */
+    carregadas?: number;
+    cobertura?: CoberturaDoRecorte | null;
+  };
+  /** A janela do recorte — estado da tela, porque é ela que decide a grandeza. */
+  janela: Janela;
+  onJanela: (janela: Janela) => void;
   familiaAberta: string | null;
   onAbrirFamilia: (code: string) => void;
   onFecharFamilia: () => void;
@@ -483,9 +519,17 @@ function ConteudoDaUnidade({
   // do número grande ao lado — misturar R$/mês no número e R$/ano na linha
   // seria a mesma mistura de escala que o produto se recusa a fazer em
   // qualquer outra tela.
+  /*
+    A vigência sem medida não entra na sparkline: uma linha que descesse ao
+    zero num mês sem preço apurado desenharia uma queda que ninguém mediu.
+  */
+  const comMedida = pontos.filter((p) => p.ganhos !== null && p.perdas !== null);
   const sparklines =
-    principal && periodicity === principal.periodicity && pontos.length >= 2
-      ? { ganhos: pontos.map((p) => p.ganhos), perdas: pontos.map((p) => p.perdas) }
+    principal && periodicity === principal.periodicity && comMedida.length >= 2
+      ? {
+          ganhos: comMedida.map((p) => p.ganhos ?? 0),
+          perdas: comMedida.map((p) => p.perdas ?? 0),
+        }
       : null;
 
   /*
@@ -522,6 +566,10 @@ function ConteudoDaUnidade({
         pontos={pontos}
         periodicity={periodicity}
         carregando={carregando}
+        carregadas={serie.carregadas}
+        cobertura={serie.cobertura ?? null}
+        janela={janela}
+        onJanela={onJanela}
         resumo={view}
         familias={view.families}
         dominante={dominante}
@@ -568,6 +616,10 @@ function ImpactoEPodio({
   pontos,
   periodicity,
   carregando = false,
+  carregadas,
+  cobertura,
+  janela,
+  onJanela,
   resumo,
   familias,
   dominante,
@@ -588,6 +640,11 @@ function ImpactoEPodio({
   periodicity: string | null;
   /** A série ainda a caminho — ver `GraficoDeImpacto`. */
   carregando?: boolean;
+  /** Quantas vigências o intervalo carregou — para o seletor de janela. */
+  carregadas?: number;
+  cobertura?: CoberturaDoRecorte | null;
+  janela?: Janela;
+  onJanela?: (janela: Janela) => void;
   /** A vigência ou o consolidado — o pódio lê `summary.sides` dos dois. */
   resumo: Pick<FamiliesView, "summary"> | null;
   familias: FamiliaNoPodio[];
@@ -664,6 +721,10 @@ function ImpactoEPodio({
           pontos={pontos}
           periodicity={periodicity}
           carregando={carregando}
+          carregadas={carregadas}
+          cobertura={cobertura}
+          janela={janela}
+          onJanela={onJanela}
           vigenciaAtiva={vigenciaAtiva}
           onEscolherVigencia={onEscolherVigencia}
         />
@@ -782,6 +843,9 @@ function ConteudoGeral({
   atualizadoEm,
   onTrocar,
   serie,
+  carregadasDaSerie,
+  janela,
+  onJanela,
   familiaAberta,
   onAbrirFamilia,
   onFecharFamilia,
@@ -793,6 +857,10 @@ function ConteudoGeral({
   atualizadoEm: number;
   onTrocar: (mudancas: Record<string, string | null>) => void;
   serie: PontoDeImpacto[];
+  /** Quantas competências o intervalo carregou — `serie` é o recorte. */
+  carregadasDaSerie?: number;
+  janela: Janela;
+  onJanela: (janela: Janela) => void;
   familiaAberta: string | null;
   onAbrirFamilia: (code: string) => void;
   onFecharFamilia: () => void;
@@ -821,9 +889,13 @@ function ConteudoGeral({
 
   // A mesma disciplina do modo Unidade: a sparkline só acompanha o número
   // grande quando as duas descrevem a mesma periodicidade.
+  const comMedida = serie.filter((p) => p.ganhos !== null && p.perdas !== null);
   const sparklines =
-    principal && serie.length >= 2
-      ? { ganhos: serie.map((p) => p.ganhos), perdas: serie.map((p) => p.perdas) }
+    principal && comMedida.length >= 2
+      ? {
+          ganhos: comMedida.map((p) => p.ganhos ?? 0),
+          perdas: comMedida.map((p) => p.perdas ?? 0),
+        }
       : null;
 
   return (
@@ -854,6 +926,9 @@ function ConteudoGeral({
       <ImpactoEPodio
         pontos={serie}
         periodicity={dominante}
+        carregadas={carregadasDaSerie}
+        janela={janela}
+        onJanela={onJanela}
         resumo={overview}
         familias={overview.consolidado.families}
         dominante={dominante}

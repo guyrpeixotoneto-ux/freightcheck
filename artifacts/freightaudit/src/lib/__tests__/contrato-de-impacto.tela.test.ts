@@ -317,7 +317,10 @@ describe("regressão: o gráfico não escolhe uma periodicidade parada", () => {
     // A preferida tem movimento aqui, então ela vale — mas o aviso da outra
     // grandeza é o que impede o mensal de sumir (ver a bateria acima).
     expect(serie.periodicity).toBe("ANUAL");
-    expect(serie.pontos.filter((p) => p.liquido !== 0)).toHaveLength(1);
+    // Uma vigência com valor anual; as outras são **lacuna**, e não R$ 0 — o
+    // dinheiro delas está na outra grandeza.
+    expect(serie.pontos.filter((p) => p.liquido !== null)).toHaveLength(1);
+    expect(serie.pontos.filter((p) => p.lacuna?.motivo === "OUTRA_GRANDEZA")).toHaveLength(4);
   });
 
   it("uma periodicidade preferida SEM movimento no recorte não ganha o eixo", () => {
@@ -329,7 +332,9 @@ describe("regressão: o gráfico não escolhe uma periodicidade parada", () => {
     ];
     const serie = pontosDeImpacto(periodos, comAnualZerado, "ANUAL");
     expect(serie.periodicity).toBe("MENSAL");
-    expect(serie.pontos.filter((p) => p.liquido !== 0).length).toBeGreaterThan(1);
+    expect(serie.pontos.filter((p) => p.liquido !== null && p.liquido !== 0).length).toBeGreaterThan(
+      1,
+    );
   });
 
   it("sem preferência, manda quem mais moveu — e não o alfabeto", () => {
@@ -337,11 +342,15 @@ describe("regressão: o gráfico não escolhe uma periodicidade parada", () => {
     expect(serie.periodicity).toBe("ANUAL"); // 144.874,50 bruto contra 134.986,30
   });
 
-  it("intervalo sem nenhuma alteração valorada não desenha e não inventa eixo", () => {
+  it("intervalo sem nenhuma alteração valorada não inventa eixo — e não inventa zero", () => {
     const serie = pontosDeImpacto(periodos, [], "MENSAL");
-    expect(serie.pontos).toEqual([]);
     expect(serie.periodicity).toBeNull();
     expect(serie.disponiveis).toEqual([]);
+    // As vigências continuam na lista, e cada uma diz por que está em branco:
+    // devolvê-las zeradas era a afirmação que esta entrega apagou.
+    expect(serie.pontos).toHaveLength(periodos.length);
+    expect(serie.pontos.every((p) => p.liquido === null)).toBe(true);
+    expect(serie.cobertura.calculadas).toBe(0);
   });
 
   it("as duas grandezas são oferecidas — a escolha é um gesto, não um silêncio", () => {
@@ -352,6 +361,6 @@ describe("regressão: o gráfico não escolhe uma periodicidade parada", () => {
     // E escolher a outra desenha a outra — sem somar as duas.
     const emMensal = pontosDeImpacto(periodos, entradas, "MENSAL");
     expect(emMensal.periodicity).toBe("MENSAL");
-    expect(emMensal.pontos.filter((p) => p.liquido !== 0).length).toBe(5);
+    expect(emMensal.pontos.filter((p) => p.liquido !== null).length).toBe(5);
   });
 });

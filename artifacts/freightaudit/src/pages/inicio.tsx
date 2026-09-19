@@ -34,6 +34,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { ApiError, fetchJson } from "@/lib/api";
 import { useContextosDaCasca } from "@/lib/contextos";
 import { useSerieDeImpacto, useSerieDeImpactoGeral } from "@/lib/serie-de-impacto";
+import { JANELA_PADRAO, type Janela } from "@/lib/janela-de-vigencias";
 import { GraficoDeImpacto, type PontoDeImpacto } from "@/components/dashboard/grafico-de-impacto";
 import {
   BotaoDeVoltarVigencia,
@@ -314,12 +315,24 @@ export default function Inicio() {
     veio o número grande do topo e ir até qualquer uma delas num clique, sem
     passar pelo menu do cabeçalho.
   */
-  const serieDaUnidade = useSerieDeImpacto(visaoGeral ? null : view, consulta, !visaoGeral);
+  /*
+    A janela do recorte mora na página: é ela que decide a grandeza do eixo,
+    e quem resolve a série precisa conhecê-la (ver `useSerieDeImpacto`).
+  */
+  const [janelaAberta, setJanelaAberta] = useState<Janela>(JANELA_PADRAO);
+  const serieDaUnidade = useSerieDeImpacto(
+    visaoGeral ? null : view,
+    consulta,
+    !visaoGeral,
+    null,
+    janelaAberta,
+  );
   const serieGeral = useSerieDeImpactoGeral(
     periodosOverview,
     periodoOverviewEfetivo,
     overview,
     visaoGeral,
+    janelaAberta,
   );
 
   /*
@@ -328,7 +341,7 @@ export default function Inicio() {
     desmonta enquanto ela não responde — ver
     `components/vigencia/voltar-de-vigencia.tsx`.
   */
-  const pontosDesenhados = visaoGeral ? serieGeral : serieDaUnidade.pontos;
+  const pontosDesenhados = visaoGeral ? serieGeral.pontos : serieDaUnidade.pontos;
   const vigenciaAberta = visaoGeral ? periodoOverviewEfetivo : (view?.period ?? null);
   const volta = useVoltaDeVigencia({
     periodo: vigenciaAberta,
@@ -503,7 +516,10 @@ export default function Inicio() {
                 integridade={integridadeDosDados}
                 ultima={ultima}
                 onTrocar={trocarPara}
-                serie={serieGeral}
+                serie={serieGeral.pontos}
+                carregadasDaSerie={serieGeral.carregadas}
+                janela={janelaAberta}
+                onJanela={setJanelaAberta}
                 periodoAberto={periodoOverviewEfetivo}
                 onEscolherVigencia={(periodo) => {
                   volta.registrar();
@@ -575,6 +591,11 @@ export default function Inicio() {
                 pontos={serieDaUnidade.pontos}
                 periodicity={serieDaUnidade.periodicity}
                 carregando={serieDaUnidade.carregando}
+                carregadas={serieDaUnidade.carregadas}
+                cobertura={serieDaUnidade.cobertura}
+                janela={janelaAberta}
+                onJanela={setJanelaAberta}
+                periodicidades={serieDaUnidade.disponiveis}
                 vigenciaAtiva={view.period}
                 onEscolherVigencia={(periodo) => {
                   volta.registrar();
@@ -2231,6 +2252,9 @@ function ConteudoDaVisaoGeral({
   ultima,
   onTrocar,
   serie,
+  carregadasDaSerie,
+  janela,
+  onJanela,
   periodoAberto,
   onEscolherVigencia,
   voltarPara,
@@ -2242,8 +2266,12 @@ function ConteudoDaVisaoGeral({
   integridade: ReturnType<typeof integridade>;
   ultima: ReturnType<typeof ultimaImportacao>;
   onTrocar: (mudancas: Record<string, string | null>) => void;
-  /** O mesmo gráfico da unidade, aqui somado entre unidades. */
+  /** O mesmo gráfico da unidade, aqui somado entre unidades — já recortado. */
   serie: PontoDeImpacto[];
+  /** Quantas competências o intervalo carregou — `serie` é o recorte. */
+  carregadasDaSerie?: number;
+  janela: Janela;
+  onJanela: (janela: Janela) => void;
   /** A competência aberta — a barra acesa, e a que o clique não repete. */
   periodoAberto: string | null;
   onEscolherVigencia: (periodo: string) => void;
@@ -2311,6 +2339,9 @@ function ConteudoDaVisaoGeral({
             <GraficoDeImpacto
               pontos={serie}
               periodicity={serie[0] ? (ladosDoImpacto(overview)[0]?.periodicity ?? null) : null}
+              carregadas={carregadasDaSerie}
+              janela={janela}
+              onJanela={onJanela}
               vigenciaAtiva={periodoAberto}
               onEscolherVigencia={onEscolherVigencia}
             />

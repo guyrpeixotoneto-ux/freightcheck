@@ -339,11 +339,19 @@ describe("pontosDeImpacto — a periodicidade desenhada", () => {
       dinheiro se movendo — oferecer a troca aqui prometeria uma alternativa
       que não existe.
     */
-    expect(pontosDeImpacto(VIGENCIAS, semValor, null)).toEqual({
-      pontos: [],
-      periodicity: null,
-      disponiveis: [],
-    });
+    const serie = pontosDeImpacto(VIGENCIAS, semValor, null);
+    expect(serie.periodicity).toBeNull();
+    expect(serie.disponiveis).toEqual([]);
+    /*
+      As vigências continuam na lista — sem número, e cada uma dizendo por quê.
+      A primeira não tem preço apurado; a segunda foi apurada em R$ 0,00, que é
+      um fato diferente e a tela escreve diferente.
+    */
+    expect(serie.pontos.map((p) => [p.periodo, p.liquido, p.lacuna?.motivo])).toEqual([
+      ["2026-07-01", null, "SEM_PRECO"],
+      ["2026-08-01", null, "SEM_MOVIMENTO"],
+    ]);
+    expect(serie.cobertura.calculadas).toBe(0);
   });
 
   it("empate mantém ordem estável — o gráfico não troca de eixo entre dois quadros", () => {

@@ -119,6 +119,22 @@ export function resumirIntervalo(
     gaps?: readonly { period: string }[];
     /** A ponta de partida que o servidor resolveu para o intervalo. */
     inicio?: string | null;
+    /**
+     * A grandeza que o gráfico ao lado resolveu — **a régua compartilhada**.
+     *
+     * A coluna e o gráfico liam o mesmo intervalo e escolhiam a periodicidade
+     * por réguas diferentes: aqui, a que aparece em mais vigências; lá, a que
+     * tem movimento e magnitude no recorte desenhado. Duas réguas independentes
+     * sobre o mesmo dado é a contradição que a tela publicava lado a lado —
+     * R$/ano no gráfico, R$/mês na lista.
+     *
+     * Agora a decisão é uma só: quem resolve é o recorte desenhado
+     * (`pontosDeImpacto`), e a coluna a recebe. Ela só é recusada quando a
+     * grandeza escolhida **não tem dinheiro nenhum** no histórico desta lista —
+     * aí a coluna ficaria muda em todas as linhas, e a régua de presença
+     * abaixo volta a valer.
+     */
+    periodicidade?: string | null;
   },
 ): ResumoDasVigencias {
   const movimento = new Map<string, number>();
@@ -130,15 +146,18 @@ export function resumirIntervalo(
     }
   }
 
+  const preferida = contorno?.periodicidade ?? null;
   const dominante =
-    [...movimento.entries()].sort(
+    preferida !== null && (movimento.get(preferida) ?? 0) > 0
+      ? preferida
+      : [...movimento.entries()].sort(
       (a, b) =>
         // Em quantas vigências ela existe — ver o cabeçalho.
         (vigencias.get(b[0]) ?? 0) - (vigencias.get(a[0]) ?? 0) ||
         // Empatadas na presença, decide o que moveu.
         b[1] - a[1] ||
-        a[0].localeCompare(b[0]),
-    )[0]?.[0] ?? null;
+          a[0].localeCompare(b[0]),
+      )[0]?.[0] ?? null;
 
   return {
     periodicidade: dominante,
@@ -190,6 +209,8 @@ export function resumirIntervalo(
 export function useResumoPorVigencia(
   view: FamiliesView | null,
   consulta: URLSearchParams,
+  /** A grandeza que o gráfico resolveu — ver `resumirIntervalo`. */
+  periodicidade: string | null = null,
 ): ResumoDasVigencias {
   const ordenadas = useMemo(
     () => (view ? [...view.periods].sort((a, b) => a.date.localeCompare(b.date)) : []),
@@ -230,8 +251,9 @@ export function useResumoPorVigencia(
         // resolve `from` contra o histórico do contexto, e é a ponta que ele
         // leu que a lista precisa marcar como primeira.
         inicio: movimentos.data?.from ?? null,
+        periodicidade,
       }),
-    [movimentos.data],
+    [movimentos.data, periodicidade],
   );
 }
 

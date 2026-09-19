@@ -12,7 +12,7 @@ import {
 import { cn } from "@/lib/utils";
 import { formatBrlShort, periodicitySuffix } from "@/lib/format";
 import { SeletorDeJanela } from "@/components/ui/seletor-de-janela";
-import { recorteDaJanela, type PontoDeImpacto } from "@/components/dashboard/grafico-de-impacto";
+import type { PontoDeImpacto } from "@/components/dashboard/grafico-de-impacto";
 import type { Janela } from "@/lib/janela-de-vigencias";
 import { extremosDaSerie } from "@/lib/impacto-apurado";
 
@@ -38,6 +38,7 @@ import { extremosDaSerie } from "@/lib/impacto-apurado";
 export function EvolucaoPorVigencia({
   pontos,
   periodicity,
+  carregadas,
   janela,
   onJanela,
   vigenciaAberta,
@@ -47,6 +48,8 @@ export function EvolucaoPorVigencia({
 }: {
   pontos: PontoDeImpacto[];
   periodicity: string | null;
+  /** Quantas vigências o intervalo carregou — só para o seletor de janela. */
+  carregadas?: number;
   janela: Janela;
   onJanela: (janela: Janela) => void;
   vigenciaAberta: string | null;
@@ -54,7 +57,16 @@ export function EvolucaoPorVigencia({
   carregando: boolean;
   className?: string;
 }) {
-  const naJanela = recorteDaJanela(pontos, janela);
+  /*
+    Os pontos já chegam recortados — quem lê o intervalo recorta antes de
+    resolver a grandeza (ver `useSerieDeImpacto`). Recortar de novo aqui seria
+    a segunda régua que esta entrega existe para apagar.
+
+    E a vigência sem medida não é desenhada: a série é de valor apurado, e um
+    ponto no zero dentro dela é uma afirmação que ninguém apurou.
+  */
+  const naJanela = pontos.filter((ponto) => ponto.liquido !== null);
+  const semMedida = pontos.length - naJanela.length;
   const extremos = extremosDaSerie(naJanela);
   const sufixo = periodicitySuffix(periodicity);
 
@@ -66,16 +78,30 @@ export function EvolucaoPorVigencia({
           <p className="text-xs text-muted-foreground mt-0.5">
             Impacto líquido apurado{sufixo ? ` (R$${sufixo})` : ""}
           </p>
+          {/* A ausência é dita, e não deixada em branco — a mesma régua do
+              gráfico de impacto. */}
+          {semMedida > 0 && naJanela.length > 0 && (
+            <p className="mt-1 text-xs text-brand-red">
+              {semMedida} {semMedida === 1 ? "vigência" : "vigências"} do recorte sem valor
+              apurado — fora da linha, porque desconhecido não é zero.
+            </p>
+          )}
         </div>
-        {pontos.length > 3 && <SeletorDeJanela janela={janela} onJanela={onJanela} />}
+        {(carregadas ?? pontos.length) > 3 && (
+          <SeletorDeJanela janela={janela} onJanela={onJanela} />
+        )}
       </div>
 
       {carregando ? (
         <p className="text-sm text-muted-foreground py-16 text-center">Carregando a série…</p>
       ) : naJanela.length === 0 ? (
-        <p className="text-sm text-muted-foreground py-16 text-center">
-          Nenhuma vigência com valor apurado no intervalo.
-        </p>
+        <div className="py-14 text-center">
+          <p className="text-base font-bold">Impacto financeiro ainda não calculado</p>
+          <p className="mx-auto mt-1.5 max-w-md text-sm leading-relaxed text-muted-foreground">
+            As alterações deste período ainda não possuem preço apurado. O resultado é
+            desconhecido, não zero.
+          </p>
+        </div>
       ) : naJanela.length === 1 ? (
         /*
           Um ponto só não é uma evolução. Desenhá-lo como gráfico prometeria
@@ -84,7 +110,7 @@ export function EvolucaoPorVigencia({
         */
         <div className="py-12 text-center">
           <p className="text-2xl font-extrabold tabular-nums">
-            {formatBrlShort(naJanela[0].liquido)}
+            {formatBrlShort(naJanela[0].liquido ?? 0)}
             {sufixo && <span className="text-sm font-normal text-muted-foreground">{sufixo}</span>}
           </p>
           <p className="text-xs text-muted-foreground mt-2">
@@ -120,8 +146,8 @@ export function EvolucaoPorVigencia({
                   <div className="rounded-lg border bg-card px-3 py-2 shadow-md text-xs">
                     <p className="font-bold">{ponto.label}</p>
                     <p className="tabular-nums mt-1">
-                      {formatBrlShort(ponto.liquido)}
-                      {sufixo}
+                      {ponto.liquido === null ? "sem preço apurado" : formatBrlShort(ponto.liquido)}
+                      {ponto.liquido === null ? "" : sufixo}
                     </p>
                     {/*
                       Só o líquido, e é decisão de reconciliação, não de espaço.
@@ -178,13 +204,13 @@ export function EvolucaoPorVigencia({
           <Extremo
             titulo="Melhor vigência"
             label={extremos.melhor.label}
-            valor={extremos.melhor.liquido}
+            valor={extremos.melhor.liquido ?? 0}
             sufixo={sufixo}
           />
           <Extremo
             titulo="Pior vigência"
             label={extremos.pior.label}
-            valor={extremos.pior.liquido}
+            valor={extremos.pior.liquido ?? 0}
             sufixo={sufixo}
           />
         </div>

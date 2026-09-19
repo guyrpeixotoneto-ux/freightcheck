@@ -26,7 +26,7 @@ import {
   useSerieDeImpactoGeral,
 } from "@/lib/serie-de-impacto";
 import { JANELA_PADRAO, type Janela } from "@/lib/janela-de-vigencias";
-import { recorteDaJanela } from "@/components/dashboard/grafico-de-impacto";
+import type { CoberturaDoRecorte } from "@/components/dashboard/grafico-de-impacto";
 import { lerRecorte, nomeDaUnidade, type Recorte } from "@/lib/recorte";
 import { travessiaDoQuadro, type LinhaDaTravessia } from "@/lib/travessia-do-quadro";
 import type { AuditoriaDoQuadro } from "@/lib/qlp-auditoria";
@@ -392,17 +392,31 @@ export default function Panorama() {
   */
   const [grandezaDaSerie, setGrandezaDaSerie] = useState<string | null>(null);
 
+  /*
+    A janela do gráfico é **estado da página**, e agora por uma segunda razão.
+
+    A primeira era o cartão ao lado, que lê o mesmo intervalo por parâmetro. A
+    segunda é maior: é o recorte que decide a grandeza do eixo, e quem resolve
+    a série precisa conhecê-lo. Enquanto ele vivia dentro do gráfico, a
+    decisão acontecia sobre as até 24 vigências carregadas e o desenho sobre as
+    6 em tela — e uma vigência anual fora do recorte punha o eixo em R$/ano
+    sobre seis barras mensais, todas no zero.
+  */
+  const [janelaAberta, setJanelaAberta] = useState<Janela>(JANELA_PADRAO);
+
   const serieDaUnidade = useSerieDeImpacto(
     visaoGeral ? null : view,
     consulta,
     !visaoGeral,
     grandezaDaSerie,
+    janelaAberta,
   );
   const serieGeral = useSerieDeImpactoGeral(
     periodosOverview,
     periodoOverviewEfetivo,
     overview,
     visaoGeral && !overviewQuery.isLoading,
+    janelaAberta,
   );
 
   /* A regra do endereço — inclusive a de quando `?base=` sobrevive a uma troca
@@ -530,8 +544,11 @@ export default function Panorama() {
                   consulta={consulta}
                   anterior={null}
                   nome={nomeDaLeitura(false)}
-                  pontos={serieGeral}
+                  pontos={serieGeral.pontos}
                   periodicityDaSerie={null}
+                  carregadasDaSerie={serieGeral.carregadas}
+                  janelaDoRecorte={janelaAberta}
+                  onJanela={setJanelaAberta}
                   serieCarregando={overviewQuery.isLoading}
                   vigenciaAberta={overview.period}
                   parametros={parametros}
@@ -560,6 +577,11 @@ export default function Panorama() {
             <ParDaLeitura
               view={view}
               consulta={consulta}
+              /*
+                A coluna de dinheiro do seletor sai na **mesma** grandeza que o
+                gráfico resolveu — uma régua só. Ver `resumirIntervalo`.
+              */
+              periodicidade={serieDaUnidade.periodicity}
               periodosDoContexto={periodosDoContexto}
               dePedido={dePedido}
               paraPedido={paraPedido}
@@ -592,6 +614,10 @@ export default function Panorama() {
                   periodicityDaSerie={serieDaUnidade.periodicity}
                   periodicidadesDaSerie={serieDaUnidade.disponiveis}
                   onPeriodicidadeDaSerie={setGrandezaDaSerie}
+                  carregadasDaSerie={serieDaUnidade.carregadas}
+                  coberturaDaSerie={serieDaUnidade.cobertura}
+                  janelaDoRecorte={janelaAberta}
+                  onJanela={setJanelaAberta}
                   serieCarregando={serieDaUnidade.carregando}
                   vigenciaAberta={view.period}
                   parametros={parametros}
@@ -626,6 +652,7 @@ export default function Panorama() {
 function ParDaLeitura({
   view,
   consulta,
+  periodicidade,
   periodosDoContexto,
   dePedido,
   paraPedido,
@@ -634,6 +661,8 @@ function ParDaLeitura({
 }: {
   view: FamiliesView | null;
   consulta: URLSearchParams;
+  /** A grandeza que o gráfico resolveu sobre o recorte — a régua da coluna. */
+  periodicidade: string | null;
   /** As vigências que a casca conhece — a reserva de quando não há leitura. */
   periodosDoContexto: string[];
   dePedido: string | null;
@@ -641,7 +670,7 @@ function ParDaLeitura({
   carregando: boolean;
   onTrocar: (mudancas: Record<string, string | null>) => void;
 }) {
-  const resumo = useResumoPorVigencia(view, consulta);
+  const resumo = useResumoPorVigencia(view, consulta, periodicidade);
 
   /*
     A lista sai da leitura quando há uma, e da casca quando não há.
@@ -731,6 +760,10 @@ function Corpo({
   periodicityDaSerie,
   periodicidadesDaSerie,
   onPeriodicidadeDaSerie,
+  carregadasDaSerie,
+  coberturaDaSerie,
+  janelaDoRecorte,
+  onJanela,
   serieCarregando,
   vigenciaAberta,
   parametros,
@@ -754,6 +787,13 @@ function Corpo({
   /** As grandezas do recorte desenhado — o gráfico oferece a troca entre elas. */
   periodicidadesDaSerie?: PeriodicidadeApurada[];
   onPeriodicidadeDaSerie?: (periodicity: string) => void;
+  /** Quantas vigências o intervalo carregou — o recorte é `pontos`. */
+  carregadasDaSerie?: number;
+  /** A cobertura do recorte desenhado — ver `pontosDeImpacto`. */
+  coberturaDaSerie?: CoberturaDoRecorte | null;
+  /** A janela aberta, e quem a troca — estado da página, ver lá em cima. */
+  janelaDoRecorte: Janela;
+  onJanela: (janela: Janela) => void;
   serieCarregando: boolean;
   vigenciaAberta: string | null;
   parametros: URLSearchParams;
@@ -848,8 +888,11 @@ function Corpo({
     a lado — seis vigências no gráfico e nove no cartão, sem nada acusando. Foi
     exatamente o que aconteceu na primeira versão desta dobra.
   */
-  const [janelaAberta, setJanelaAberta] = useState<Janela>(JANELA_PADRAO);
-  const desenhados = useMemo(() => recorteDaJanela(pontos, janelaAberta), [pontos, janelaAberta]);
+  /*
+    Os pontos já chegam recortados: quem lê a série recorta antes de resolver a
+    grandeza do eixo (ver `useSerieDeImpacto`). Aqui eles só são lidos.
+  */
+  const desenhados = pontos;
   /*
     O rollup por parâmetro é somado **pelo servidor** sobre o intervalo pedido,
     e não se corta no navegador: `byParameter` traz o total de cada parâmetro na
@@ -999,8 +1042,10 @@ function Corpo({
             carregando={serieCarregando}
             vigenciaAtiva={vigenciaAberta}
             onEscolherVigencia={(periodo) => onTrocar({ period: periodo })}
-            janela={janelaAberta}
-            onJanela={setJanelaAberta}
+            janela={janelaDoRecorte}
+            onJanela={onJanela}
+            carregadas={carregadasDaSerie}
+            cobertura={coberturaDaSerie}
             periodicidades={periodicidadesDaSerie}
             onPeriodicidade={onPeriodicidadeDaSerie}
           />
