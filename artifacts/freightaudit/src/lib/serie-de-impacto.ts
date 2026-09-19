@@ -8,8 +8,10 @@ import { contextoAberto, useContextosDaCasca } from "@/lib/contextos";
 import {
   TETO_DA_SERIE,
   pontosDeImpacto,
+  type CoberturaDoRecorte,
   type PontoDeImpacto,
 } from "@/components/dashboard/grafico-de-impacto";
+import { JANELA_PADRAO, recorteDaJanela, type Janela } from "@/lib/janela-de-vigencias";
 import type { FamiliesOverview, FamiliesView } from "@/components/inicio/types";
 import type { Movimentos } from "@/lib/analise";
 import type { PeriodicidadeApurada } from "@workspace/comparison/contrato-de-impacto";
@@ -89,11 +91,26 @@ export function useSerieDeImpacto(
    * na régua do contrato em vez de esvaziar o gráfico.
    */
   periodicidadeEscolhida: string | null = null,
+  /**
+   * O recorte que a tela desenha — 3, 6 ou 12 vigências (ou meses).
+   *
+   * Ele entra **aqui**, e não no gráfico, porque é ele que decide a grandeza
+   * do eixo: enquanto o corte acontecia depois, uma vigência fora do recorte
+   * (uma alteração anual de meio milhão em janeiro) elegia a periodicidade de
+   * seis vigências mensais desenhadas depois dela, e a tela publicava seis
+   * pontos no zero em R$/ano ao lado de um seletor em R$/mês.
+   */
+  janelaDoRecorte: Janela = JANELA_PADRAO,
 ): {
+  /** Os pontos **do recorte** — já cortados, na grandeza que o recorte elegeu. */
   pontos: PontoDeImpacto[];
   periodicity: string | null;
   /** As grandezas do recorte desenhado — para o seletor do gráfico. */
   disponiveis: PeriodicidadeApurada[];
+  /** Quantas vigências o intervalo carregou — para o seletor de janela. */
+  carregadas: number;
+  /** Quantas do recorte têm valor apurado, e por que as outras não têm. */
+  cobertura: CoberturaDoRecorte | null;
   carregando: boolean;
   /**
    * A resposta crua do intervalo — para quem precisa do **rollup da janela**, e
@@ -187,20 +204,40 @@ export function useSerieDeImpacto(
     e zero aqui não é "não mudou nada", é "não foi perguntado".
   */
   const serie = useMemo(() => {
-    if (!movimentos) return { pontos: [], periodicity: null, disponiveis: [] };
+    if (!movimentos)
+      return {
+        pontos: [],
+        periodicity: null,
+        disponiveis: [],
+        cobertura: null,
+        carregadas: 0,
+      };
     const ordenadas = movimentos.periods
       .filter((p) => p.date >= movimentos.from && p.date <= movimentos.to)
       .sort((a, b) => a.date.localeCompare(b.date));
     /*
+      O recorte antes da conta — o coração desta correção.
+
+      `ordenadas` é o intervalo carregado (até `TETO_DA_SERIE` vigências);
+      `desenhadas` é o que a tela mostra. Tudo o que `pontosDeImpacto` decide
+      passa a valer sobre `desenhadas`: a grandeza do eixo, as grandezas
+      oferecidas no seletor, e quais vigências ficam em branco por falta de
+      medida. O que está fora do recorte não opina sobre o que está dentro.
+    */
+    const desenhadas = recorteDaJanela(ordenadas, janelaDoRecorte, (p) => p.date);
+    /*
       A escolha da pessoa manda sobre a da vigência — e as duas são
       preferências, resolvidas pela mesma régua do contrato lá dentro.
     */
-    return pontosDeImpacto(
-      ordenadas,
-      movimentos.entries,
-      periodicidadeEscolhida ?? dominante,
-    );
-  }, [movimentos, dominante, periodicidadeEscolhida]);
+    return {
+      ...pontosDeImpacto(desenhadas, movimentos.entries, periodicidadeEscolhida ?? dominante, {
+        movimentos: movimentos.movements,
+        gaps: movimentos.gaps,
+        inicio: movimentos.from,
+      }),
+      carregadas: ordenadas.length,
+    };
+  }, [movimentos, dominante, periodicidadeEscolhida, janelaDoRecorte]);
 
   return { ...serie, carregando, movimentos };
 }
@@ -255,8 +292,11 @@ export function useSerieDeImpactoGeral(
   periodoAberto: string | null,
   overview: FamiliesOverview | null,
   habilitado: boolean,
-): PontoDeImpacto[] {
-  const janela = useMemo(() => {
+  /** O recorte desenhado — a mesma razão da série da unidade. */
+  janela: Janela = JANELA_PADRAO,
+): { pontos: PontoDeImpacto[]; carregadas: number } {
+  /* As competências **carregadas** — o recorte desenhado sai delas lá embaixo. */
+  const carregada = useMemo(() => {
     if (!habilitado || periodoAberto === null) return null;
     const ate = [...periodosOverview]
       .sort((a, b) => a.localeCompare(b))
@@ -281,19 +321,49 @@ export function useSerieDeImpactoGeral(
   const pontos = range.data?.serie;
   return useMemo(() => {
     const dominante = ladosDoImpacto(overview)[0]?.periodicity ?? null;
-    if (!dominante || !pontos || !janela) return [];
-    const naJanela = new Set(janela);
-    return pontos
-      .filter((ponto) => naJanela.has(ponto.period))
-      .map((ponto) => {
-        const lado = ponto.byPeriodicity[dominante] ?? { gains: 0, losses: 0 };
+    if (!dominante || !pontos || !carregada) return { pontos: [], carregadas: 0 };
+    const naJanela = new Set(carregada);
+    const doIntervalo = pontos.filter((ponto) => naJanela.has(ponto.period));
+    /*
+      O recorte acontece aqui, antes do desenho — como na série da unidade.
+    */
+    const desenhados = recorteDaJanela(doIntervalo, janela, (ponto) => ponto.period);
+    return {
+      carregadas: doIntervalo.length,
+      pontos: desenhados.map((ponto) => {
+        /*
+          O balde ausente é `null`, e não `{gains: 0, losses: 0}`.
+
+          Era esse `?? { gains: 0, losses: 0 }` que fazia a Visão Geral
+          desenhar no zero a competência em que a grandeza publicada não
+          apurou nada — a mesma afirmação inventada que o gráfico da unidade
+          deixou de fazer.
+        */
+        const lado = ponto.byPeriodicity[dominante] ?? null;
+        if (lado === null) {
+          return {
+            periodo: ponto.period,
+            label: ponto.label,
+            ganhos: null,
+            perdas: null,
+            liquido: null,
+            lacuna: {
+              motivo: "SEM_PRECO" as const,
+              curto: "sem preço apurado",
+              porque:
+                "As alterações desta competência não têm valor apurado nesta grandeza: o resultado é desconhecido, não zero.",
+            },
+          };
+        }
         return {
           periodo: ponto.period,
           label: ponto.label,
           ganhos: lado.gains,
           perdas: lado.losses,
           liquido: Number((lado.gains + lado.losses).toFixed(2)),
+          lacuna: null,
         };
-      });
-  }, [pontos, overview, janela]);
+      }),
+    };
+  }, [pontos, overview, carregada, janela]);
 }

@@ -124,15 +124,27 @@ export default function ImpactoApurado() {
     lá: as duas leituras de overview disputam o mesmo pool e a série não
     alimenta a resposta principal da tela.
   */
-  const serieDaUnidade = useSerieDeImpacto(visaoGeral ? null : view, consulta, !visaoGeral);
+  /*
+    A janela é declarada **antes** das séries porque agora entra nelas: é o
+    recorte que decide a grandeza do eixo (ver `useSerieDeImpacto`), e não o
+    intervalo carregado.
+  */
+  const [janela, setJanela] = useState<Janela>(JANELA_PADRAO);
+
+  const serieDaUnidade = useSerieDeImpacto(
+    visaoGeral ? null : view,
+    consulta,
+    !visaoGeral,
+    null,
+    janela,
+  );
   const serieGeral = useSerieDeImpactoGeral(
     periodosOverview,
     periodoOverviewEfetivo,
     overview,
     visaoGeral && !overviewQuery.isLoading,
+    janela,
   );
-
-  const [janela, setJanela] = useState<Janela>(JANELA_PADRAO);
 
   const trocarPara = (mudancas: Record<string, string | null>) => {
     const proxima = new URLSearchParams(search);
@@ -201,7 +213,8 @@ export default function ImpactoApurado() {
                 <Corpo
                   resumo={overview}
                   contexto={contextoDaVisaoGeral(overview)}
-                  pontos={serieGeral}
+                  pontos={serieGeral.pontos}
+                  carregadasDaSerie={serieGeral.carregadas}
                   periodicityDaSerie={null}
                   serieCarregando={overviewQuery.isLoading}
                   vigenciaAberta={overview.period}
@@ -236,6 +249,7 @@ export default function ImpactoApurado() {
                   resumo={view}
                   contexto={contextoDaUnidade(view)}
                   pontos={serieDaUnidade.pontos}
+                  carregadasDaSerie={serieDaUnidade.carregadas}
                   periodicityDaSerie={serieDaUnidade.periodicity}
                   serieCarregando={serieDaUnidade.carregando}
                   vigenciaAberta={view.period}
@@ -290,6 +304,7 @@ function Corpo({
   resumo,
   contexto,
   pontos,
+  carregadasDaSerie,
   periodicityDaSerie,
   serieCarregando,
   vigenciaAberta,
@@ -311,6 +326,8 @@ function Corpo({
   /** O contexto da manchete mais o `semPreco`, que só a faixa de cobertura lê. */
   contexto: ContextoDaManchete & { semPreco: number };
   pontos: ReturnType<typeof useSerieDeImpacto>["pontos"];
+  /** Quantas vigências o intervalo carregou — `pontos` é o recorte desenhado. */
+  carregadasDaSerie?: number;
   periodicityDaSerie: string | null;
   serieCarregando: boolean;
   vigenciaAberta: string | null;
@@ -439,6 +456,7 @@ function Corpo({
         <section className="superficie px-6 py-5 min-w-0">
           <EvolucaoPorVigencia
             pontos={pontos}
+            carregadas={carregadasDaSerie}
             periodicity={periodicityDaSerie ?? periodicidade}
             janela={janela}
             onJanela={onJanela}

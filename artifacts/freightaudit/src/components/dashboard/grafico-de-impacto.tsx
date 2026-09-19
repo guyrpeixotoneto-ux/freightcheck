@@ -68,17 +68,100 @@ const COR_LIQUIDO = "hsl(var(--brand))";
 export const EMPILHAMENTO = "sign" as const;
 export const SERIES_DA_BARRA = ["ganhos", "perdas"] as const;
 
+/**
+ * Por que uma vigência do recorte não tem número — e nunca um R$ 0 no lugar.
+ *
+ * Zero é uma afirmação sobre o dinheiro ("apurou-se, e não moveu nada"), e
+ * quatro coisas diferentes eram desenhadas como ela: a vigência sem preço
+ * apurado, a vigência cujo dinheiro está noutra grandeza, a vigência sem
+ * comparação calculada, e o zero de verdade. As três primeiras são lacunas —
+ * ausência de medida —, e o gráfico as deixa em branco.
+ */
+export type MotivoDaLacuna =
+  | "SEM_PRECO"
+  | "OUTRA_GRANDEZA"
+  | "SEM_COMPARACAO"
+  /**
+   * Apurado, e em R$ 0,00 — sem eixo em que desenhar.
+   *
+   * É o único dos quatro que **não** é desconhecido: a conta aconteceu e não
+   * moveu nada. Ele só vira lacuna quando o recorte inteiro é assim e não há
+   * grandeza nenhuma com movimento para servir de eixo; aí o gráfico diz "R$
+   * 0,00 apurado", que é o oposto de "não se sabe".
+   */
+  | "SEM_MOVIMENTO";
+
+export interface LacunaDoPonto {
+  motivo: MotivoDaLacuna;
+  /** Uma palavra para a tela — "sem preço apurado". */
+  curto: string;
+  /** A frase inteira, para o `title` e o tooltip. */
+  porque: string;
+}
+
 export interface PontoDeImpacto {
   periodo: string;
   label: string;
-  ganhos: number;
-  perdas: number;
-  liquido: number;
+  /**
+   * Os três saem `null` na vigência **sem medida** — ver {@link LacunaDoPonto}.
+   *
+   * `null` e `0` são fatos diferentes, e o Recharts os desenha diferentes: o
+   * zero é um ponto na linha de base, o `null` é buraco na linha e barra que
+   * não existe. Era isso que faltava para o gráfico parar de afirmar "não
+   * moveu nada" sobre o que ninguém apurou.
+   */
+  ganhos: number | null;
+  perdas: number | null;
+  liquido: number | null;
+  /** `null` quando a vigência tem número. */
+  lacuna?: LacunaDoPonto | null;
+}
+
+/** Quantas vigências do recorte têm medida, e por que as outras não têm. */
+export interface CoberturaDoRecorte {
+  desenhadas: number;
+  calculadas: number;
+  semPreco: number;
+  outraGrandeza: number;
+  semComparacao: number;
+  /** Apuradas, e em R$ 0,00 — ver {@link MotivoDaLacuna}. */
+  semMovimento: number;
 }
 
 /**
- * Os pontos do gráfico de impacto — uma **vigência** por linha, na
- * periodicidade dominante da vigência aberta.
+ * O contorno que separa lacuna de zero — o que `entries` sozinho não conta.
+ *
+ * `entries` traz os grupos de alteração; uma vigência **sem** grupo nenhum
+ * pode ser "nada mudou" (zero de verdade) ou "não há comparação calculada"
+ * (lacuna), e as duas chegam aqui como lista vazia. Quem lê o intervalo sabe
+ * a diferença — `movements` e `gaps` de `/changes/range` — e passa por aqui.
+ *
+ * Sem contorno, a vigência sem grupo é tratada como **lacuna**, e não como
+ * zero: entre afirmar um zero que ninguém apurou e admitir que não se sabe, a
+ * régua do produto é admitir.
+ */
+export interface ContornoDoRecorte {
+  movimentos?: readonly { period: string; changes: number }[];
+  gaps?: readonly { period: string }[];
+  /**
+   * A ponta de partida do intervalo lido — `from` de `/changes/range`.
+   *
+   * Ela não é uma transição: o intervalo são os passos que **vão** dela até o
+   * fim, e por isso ela não aparece em `movements`. Sem este campo, ela caía
+   * na vala do "não vi alteração" e era desenhada em R$ 0 — um ponto de
+   * partida no zero, que o gráfico ligava ao primeiro valor como se a queda
+   * tivesse acontecido ali.
+   */
+  inicio?: string | null;
+}
+
+/**
+ * Os pontos do gráfico de impacto — uma **vigência** por linha, na grandeza
+ * que o **recorte desenhado** elegeu.
+ *
+ * O recorte, e não o intervalo carregado: `periodosOrdenados` são as vigências
+ * que a tela mostra (3, 6 ou 12), e tudo o que esta função decide — o eixo, a
+ * unidade, quais vigências ficam em branco — sai delas. Ver a nota no corpo.
  *
  * Uma vigência, e não uma competência: `periodosOrdenados` são as datas de
  * `effective_date` que o contexto entregou, e uma unidade pode entregar duas
@@ -108,6 +191,7 @@ export function pontosDeImpacto(
   periodosOrdenados: { date: string; label: string }[],
   entradas: RangeEntry[],
   periodicidadePreferida: string | null,
+  contorno: ContornoDoRecorte = {},
 ): {
   pontos: PontoDeImpacto[];
   periodicity: string | null;
@@ -119,11 +203,64 @@ export function pontosDeImpacto(
    * mesmo intervalo e quem lia via um só, sem nada dizendo que havia outro.
    */
   disponiveis: PeriodicidadeApurada[];
+  /** Quantas do recorte têm medida — e por que as outras não têm. */
+  cobertura: CoberturaDoRecorte;
 } {
-  const { valor, periodicidades } = seriesDoIntervalo(periodosOrdenados, entradas);
-  if (periodicidades.length === 0) {
-    return { pontos: [], periodicity: null, disponiveis: [] };
+  /*
+    O recorte é a população inteira desta função — **a correção de 18/09/2026,
+    segunda parte**.
+
+    `entradas` chega com o intervalo carregado (até `TETO_DA_SERIE` vigências),
+    e o que a tela desenha são as 3, 6 ou 12 de `periodosOrdenados`. Enquanto
+    as entradas não eram filtradas, uma vigência fora do recorte decidia o eixo
+    por lá de fora: uma alteração anual de meio milhão em janeiro ganhava a
+    magnitude, o eixo saía em R$/ano, e as seis vigências desenhadas — todas
+    mensais — viravam seis pontos colados no zero, ao lado de um seletor
+    anunciando dezenas de milhares de reais por mês. Fora do recorte é fora da
+    conta: do eixo, da unidade e da frase.
+  */
+  const doRecorte = new Set(periodosOrdenados.map((p) => p.date));
+  const noRecorte = entradas.filter((e) => doRecorte.has(e.period));
+
+  /*
+    O que cada vigência **apurou**, por grandeza — inclusive em R$ 0,00.
+
+    `seriesDoIntervalo` soma só o que tem sinal (`amount !== 0`), que é o certo
+    para a soma e insuficiente para a pergunta desta função: uma vigência
+    apurada em R$ 0,00 tem medida, e o zero dela é um zero de verdade. Sem este
+    segundo passo, ela cairia na mesma vala da vigência sem preço nenhum.
+  */
+  const apuradasPorPeriodo = new Map<string, Set<string>>();
+  const comAlteracao = new Set<string>();
+  for (const entrada of noRecorte) {
+    comAlteracao.add(entrada.period);
+    if (entrada.confidence !== "CALCULATED" || entrada.amount === null) continue;
+    const balde = entrada.periodicity ?? "SEM_PERIODICIDADE";
+    const jaTem = apuradasPorPeriodo.get(entrada.period) ?? new Set<string>();
+    jaTem.add(balde);
+    apuradasPorPeriodo.set(entrada.period, jaTem);
   }
+  for (const linha of contorno.movimentos ?? []) {
+    if (linha.changes > 0) comAlteracao.add(linha.period);
+  }
+  const semComparacao = new Set((contorno.gaps ?? []).map((g) => g.period));
+  /*
+    Sem `movements`, "não vi alteração nenhuma" não prova "não houve alteração
+    nenhuma" — ver `ContornoDoRecorte`. A vigência muda para lacuna, nunca para
+    zero.
+  */
+  const sabeQuemNaoMudou = (contorno.movimentos ?? []).length > 0;
+  const naoMudou = new Set(
+    (contorno.movimentos ?? []).filter((l) => l.changes === 0).map((l) => l.period),
+  );
+  /*
+    Quem o intervalo **mediu**. Uma vigência de dentro do recorte que não está
+    aqui não foi medida: é a ponta de partida (`inicio`), ou uma vigência sem
+    comparação calculada. Nenhuma das duas é zero.
+  */
+  const medidas = new Set((contorno.movimentos ?? []).map((l) => l.period));
+
+  const { valor, periodicidades } = seriesDoIntervalo(periodosOrdenados, noRecorte);
 
   /*
     A escolha é a do contrato, e não uma régua deste arquivo.
@@ -141,16 +278,105 @@ export function pontosDeImpacto(
   */
   const disponiveis = periodicidadesDaSerie(valor, periodicidades);
   const periodicidade = periodicidadePrincipal(disponiveis, periodicidadePreferida);
-  if (periodicidade === null) return { pontos: [], periodicity: null, disponiveis };
 
-  const base = valor.get(periodicidade) ?? [];
+  /*
+    Sem grandeza nenhuma apurada, o recorte inteiro é lacuna — e continua sendo
+    **um recorte**, com as suas vigências: quem desenha precisa delas para
+    dizer quantas são e por que estão em branco. Devolver lista vazia era o que
+    fazia a tela cair na frase genérica de intervalo sem dado.
+  */
+  const lacunaDe = (periodo: string): LacunaDoPonto | null => {
+    if (semComparacao.has(periodo))
+      return {
+        motivo: "SEM_COMPARACAO",
+        curto: "sem comparação",
+        porque:
+          "Vigência importada sem comparação calculada: o que houve aqui não está somado — e não é zero.",
+      };
+    if (periodicidade !== null && apuradasPorPeriodo.get(periodo)?.has(periodicidade)) return null;
+    if ((apuradasPorPeriodo.get(periodo)?.size ?? 0) > 0)
+      return periodicidade === null
+        ? {
+            /*
+              Sem eixo nenhum no recorte, esta vigência não está sem preço: ela
+              está apurada em R$ 0,00. Chamá-la de desconhecida seria o erro
+              simétrico ao que esta entrega corrige.
+            */
+            motivo: "SEM_MOVIMENTO",
+            curto: "apurado em R$ 0,00",
+            porque: "A apuração aconteceu nesta vigência e não moveu dinheiro nenhum.",
+          }
+        : {
+            motivo: "OUTRA_GRANDEZA",
+            curto: "outra grandeza",
+            porque:
+              "Esta vigência apurou valor noutra grandeza, que não soma com a deste eixo — por isso ela fica em branco, e não em R$ 0.",
+          };
+    if (sabeQuemNaoMudou && !medidas.has(periodo))
+      return periodo === contorno.inicio
+        ? {
+            motivo: "SEM_COMPARACAO",
+            curto: "ponta de partida",
+            porque:
+              "É a vigência de onde o intervalo parte: não há transição anterior a ela para somar aqui.",
+          }
+        : {
+            motivo: "SEM_COMPARACAO",
+            curto: "sem comparação",
+            porque:
+              "Vigência importada sem comparação calculada: o que houve aqui não está somado — e não é zero.",
+          };
+    if (sabeQuemNaoMudou && naoMudou.has(periodo)) return null;
+    if (comAlteracao.has(periodo) || !sabeQuemNaoMudou)
+      return {
+        motivo: "SEM_PRECO",
+        curto: "sem preço apurado",
+        porque:
+          "As alterações desta vigência não têm preço apurado: o resultado é desconhecido, não zero.",
+      };
+    return null;
+  };
+
+  const base = valor.get(periodicidade ?? "") ?? [];
+  const somas = new Map(base.map((ponto) => [ponto.periodo, ponto]));
+  const pontos = periodosOrdenados.map((periodo) => {
+    const lacuna = lacunaDe(periodo.date);
+    if (lacuna !== null) {
+      return {
+        periodo: periodo.date,
+        label: periodo.label,
+        ganhos: null,
+        perdas: null,
+        liquido: null,
+        lacuna,
+      };
+    }
+    const soma = somas.get(periodo.date) ?? { ganhos: 0, perdas: 0 };
+    return {
+      periodo: periodo.date,
+      label: periodo.label,
+      ganhos: soma.ganhos,
+      perdas: soma.perdas,
+      liquido: Number((soma.ganhos + soma.perdas).toFixed(2)),
+      lacuna: null,
+    };
+  });
+
+  const conta = (motivo: MotivoDaLacuna) =>
+    pontos.filter((p) => p.lacuna?.motivo === motivo).length;
+
   return {
-    pontos: base.map((ponto) => ({
-      ...ponto,
-      liquido: Number((ponto.ganhos + ponto.perdas).toFixed(2)),
-    })),
+    pontos,
     periodicity: periodicidade,
     disponiveis,
+    cobertura: {
+      desenhadas: pontos.length,
+      calculadas: pontos.filter((p) => p.lacuna === null).length,
+      semPreco: conta("SEM_PRECO"),
+      outraGrandeza: conta("OUTRA_GRANDEZA"),
+      semComparacao: conta("SEM_COMPARACAO"),
+      semMovimento: conta("SEM_MOVIMENTO"),
+    },
   };
 }
 
@@ -235,6 +461,8 @@ export function GraficoDeImpacto({
   onEscolherVigencia,
   janela: janelaPedida,
   onJanela,
+  carregadas,
+  cobertura = null,
   periodicidades = [],
   onPeriodicidade,
 }: {
@@ -269,6 +497,19 @@ export function GraficoDeImpacto({
   janela?: Janela;
   onJanela?: (janela: Janela) => void;
   /**
+   * Quantas vigências o intervalo **carregou** — e não quantas estão em tela.
+   *
+   * Existe por uma razão só: decidir se o seletor de janela aparece. Enquanto
+   * o gráfico recebia a série inteira e recortava aqui dentro, `pontos.length`
+   * respondia isso sozinho; agora quem recorta é quem lê o intervalo (ver
+   * `useSerieDeImpacto`), porque é o recorte que decide a grandeza do eixo, e
+   * o gráfico desenha o que recebe. Sem este número ele ofereceria "12
+   * vigências" a quem tem seis.
+   */
+  carregadas?: number;
+  /** A cobertura do recorte — a linha que diz quantas vigências ficaram em branco. */
+  cobertura?: CoberturaDoRecorte | null;
+  /**
    * As grandezas que este recorte tem — de `pontosDeImpacto`.
    *
    * Com mais de uma **com movimento**, o gráfico oferece a troca em vez de
@@ -281,9 +522,17 @@ export function GraficoDeImpacto({
   const [janelaLocal, setJanelaLocal] = useState<Janela>(JANELA_PADRAO);
   const janela = janelaPedida ?? janelaLocal;
   const trocarJanela = onJanela ?? setJanelaLocal;
-  const desenhados = recorteDaJanela(pontos, janela);
+  /*
+    O que chega é o que se desenha. O recorte acontece antes, em quem lê o
+    intervalo, porque é ele que decide a grandeza do eixo: recortar aqui
+    embaixo fazia a decisão acontecer sobre uma população e o desenho sobre
+    outra — o defeito das seis barras no zero em R$/ano.
+  */
+  const desenhados = pontos;
+  const comMedida = desenhados.filter((ponto) => ponto.liquido !== null);
+  const totalCarregado = carregadas ?? pontos.length;
 
-  if (pontos.length === 0 || periodicity === null) {
+  if (pontos.length === 0) {
     /*
       Sem série ainda, a moldura fica no lugar com a altura que o gráfico vai
       ter (os 300px do `ResponsiveContainer` mais a linha do subtítulo): a tela
@@ -304,6 +553,61 @@ export function GraficoDeImpacto({
       <p className="text-sm text-muted-foreground">
         Nenhuma alteração valorada no intervalo recente.
       </p>
+    );
+  }
+
+  /*
+    O recorte inteiro sem medida — e a frase que o diz.
+
+    É o estado que o gráfico não tinha: com todas as vigências do recorte sem
+    preço apurado, ele desenhava seis pontos no zero e uma linha reta em cima
+    deles, que é a figura de "nada mudou" — a afirmação oposta à verdadeira.
+    Aqui não há o que desenhar, e a tela diz o que há: alteração detectada sem
+    preço, resultado desconhecido.
+
+    O seletor de janela continua na tela de propósito: o recorte vizinho pode
+    ter o dado que falta a este, e tirá-lo daqui seria prender quem chegou no
+    recorte vazio. O de grandeza não vem junto porque aqui não há grandeza
+    nenhuma a oferecer — seria um botão para uma série que não existe.
+  */
+  if (comMedida.length === 0 || periodicity === null) {
+    /*
+      O recorte apurado inteiro em R$ 0,00 não é desconhecido — é zero, e a
+      tela diz zero. As duas frases existem porque as duas situações pedem
+      ações opostas: uma é trabalho de Curadoria, a outra é notícia.
+    */
+    const tudoApuradoEmZero = desenhados.every((p) => p.lacuna?.motivo === "SEM_MOVIMENTO");
+    return (
+      <div className={classeDeAtualizacao(carregando)} data-testid="grafico-sem-apuracao">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-base font-bold">
+              {tudoApuradoEmZero
+                ? "Apurado, e sem efeito financeiro"
+                : "Impacto financeiro ainda não calculado"}
+            </p>
+            <p className="mt-1.5 max-w-md text-sm leading-relaxed text-muted-foreground">
+              {tudoApuradoEmZero
+                ? "As alterações deste período foram apuradas em R$ 0,00 — o resultado é zero, e não uma ausência."
+                : "As alterações deste período ainda não possuem preço apurado. O resultado é desconhecido, não zero."}
+              <EmAtualizacao ativo={carregando} className="ml-2 align-middle" />
+            </p>
+          </div>
+          {totalCarregado > QUANTIDADES[0] && (
+            <SeletorDeJanela janela={janela} onJanela={trocarJanela} />
+          )}
+        </div>
+        <ul className="mt-4 flex flex-col gap-1.5 text-xs text-muted-foreground">
+          {desenhados.map((ponto) => (
+            <li key={ponto.periodo} className="flex items-center justify-between gap-6">
+              <span>{ponto.label}</span>
+              <span className="italic" title={ponto.lacuna?.porque}>
+                {ponto.lacuna?.curto ?? "sem preço apurado"}
+              </span>
+            </li>
+          ))}
+        </ul>
+      </div>
     );
   }
 
@@ -349,6 +653,15 @@ export function GraficoDeImpacto({
           {desenhados.length} {desenhados.length === 1 ? "vigência" : "vigências"} com dado.
           {clicavel && " Clique numa vigência para abrir a tela inteira nela."}
           <EmAtualizacao ativo={carregando} className="ml-2 align-middle" />
+          {/*
+            A cobertura do recorte, quando ela não é inteira.
+
+            Um gráfico com duas barras e quatro buracos precisa dizer que os
+            buracos são ausência de medida — sem esta linha, quem lê conclui da
+            falta o que quiser, e o mais provável é "não houve alteração",
+            que é justamente o que não se sabe.
+          */}
+          <FraseDaCobertura cobertura={cobertura ?? null} periodicity={periodicity} />
         </div>
         {/*
           O seletor só aparece quando há mais dado do que a menor janela mostra:
@@ -361,7 +674,7 @@ export function GraficoDeImpacto({
             escolhida={periodicity}
             onEscolher={onPeriodicidade}
           />
-          {pontos.length > QUANTIDADES[0] && (
+          {totalCarregado > QUANTIDADES[0] && (
             <SeletorDeJanela janela={janela} onJanela={trocarJanela} />
           )}
         </div>
@@ -383,7 +696,15 @@ export function GraficoDeImpacto({
             width={92}
           />
           <ReferenceLine y={0} stroke="hsl(var(--border))" />
-          <Tooltip formatter={(v: number) => formatBrl(v)} contentStyle={{ fontSize: 12 }} />
+          {/*
+            `null` não é R$ 0,00 no tooltip tampouco: o Recharts não chama o
+            formatter para o ponto ausente, e a linha some da caixa em vez de
+            aparecer zerada.
+          */}
+          <Tooltip
+            formatter={(v) => (typeof v === "number" ? formatBrl(v) : "—")}
+            contentStyle={{ fontSize: 12 }}
+          />
           <Legend wrapperStyle={{ fontSize: 12 }} />
           <Bar
             dataKey={SERIES_DA_BARRA[0]}
@@ -407,6 +728,12 @@ export function GraficoDeImpacto({
               <Cell key={ponto.periodo} fillOpacity={opacidade(ponto)} />
             ))}
           </Bar>
+          {/*
+            `connectNulls` fica **falso** (o padrão, escrito por ser decisão):
+            ligar dois pontos por cima de uma vigência sem medida desenharia a
+            trajetória que ninguém mediu, que é a mesma mentira do zero, em
+            forma de reta.
+          */}
           <Line
             type="monotone"
             dataKey="liquido"
@@ -414,6 +741,7 @@ export function GraficoDeImpacto({
             stroke={COR_LIQUIDO}
             strokeWidth={2.5}
             dot={{ r: 3 }}
+            connectNulls={false}
           />
         </ComposedChart>
       </ResponsiveContainer>
@@ -421,6 +749,43 @@ export function GraficoDeImpacto({
   );
 }
 
+/**
+ * A cobertura do recorte, em uma linha — e só quando ela não é inteira.
+ *
+ * Ela nomeia as três ausências pelo que cada uma é, porque as três pedem
+ * conversas diferentes: sem preço apurado é trabalho de Curadoria; apurado
+ * noutra grandeza é uma troca de eixo ali no botão ao lado; sem comparação é
+ * uma comparação que ainda não foi calculada. Um "parcial" genérico
+ * apagaria a diferença, e é ela que diz o que fazer a seguir.
+ */
+function FraseDaCobertura({
+  cobertura,
+  periodicity,
+}: {
+  cobertura: CoberturaDoRecorte | null;
+  periodicity: string;
+}) {
+  if (cobertura === null) return null;
+  const faltando = cobertura.desenhadas - cobertura.calculadas;
+  if (faltando <= 0) return null;
+
+  const partes: string[] = [];
+  if (cobertura.semPreco > 0) partes.push(`${cobertura.semPreco} sem preço apurado`);
+  if (cobertura.outraGrandeza > 0)
+    partes.push(
+      `${cobertura.outraGrandeza} apurada${cobertura.outraGrandeza === 1 ? "" : "s"} só noutra grandeza`,
+    );
+  if (cobertura.semComparacao > 0)
+    partes.push(`${cobertura.semComparacao} sem comparação calculada`);
+
+  return (
+    <span className="mt-1 block text-brand-red">
+      {cobertura.calculadas} de {cobertura.desenhadas} vigências com valor apurado em R$
+      {periodicitySuffix(periodicity)} — {partes.join(", ")}. As demais ficam em branco: o resultado
+      delas é desconhecido, não zero.
+    </span>
+  );
+}
 
 /**
  * A troca de grandeza — R$/mês, R$/ano — quando o recorte tem mais de uma.

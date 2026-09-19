@@ -415,10 +415,19 @@ export interface ExtremosDaSerie {
  * a pior das seis.
  */
 export function extremosDaSerie(pontos: PontoDeImpacto[]): ExtremosDaSerie | null {
-  if (pontos.length < 2) return null;
-  let melhor = pontos[0];
-  let pior = pontos[0];
-  for (const ponto of pontos) {
+  /*
+    Só entra quem tem medida. A vigência sem preço apurado (`liquido: null`)
+    não é a melhor nem a pior de nada — e lê-la como zero faria dela a melhor
+    de um semestre de perdas, que é uma conclusão inventada a partir de uma
+    ausência.
+  */
+  const comMedida = pontos.filter(
+    (ponto): ponto is PontoDeImpacto & { liquido: number } => ponto.liquido !== null,
+  );
+  if (comMedida.length < 2) return null;
+  let melhor = comMedida[0];
+  let pior = comMedida[0];
+  for (const ponto of comMedida) {
     if (ponto.liquido > melhor.liquido) melhor = ponto;
     if (ponto.liquido < pior.liquido) pior = ponto;
   }

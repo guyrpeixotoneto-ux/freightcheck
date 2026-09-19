@@ -110,7 +110,15 @@ function movimentos(valor: number): Movimentos {
       { date: "2026-06-01", label: "01/06/2026" },
       { date: "2026-08-02", label: "02/08/2026" },
     ],
-    movements: [],
+    /*
+      O intervalo diz quantas alterações cada vigência teve — e é isso que
+      separa "não mudou nada" (zero de verdade) de "mudou e ninguém apurou"
+      (lacuna). Junho não teve alteração; agosto teve a que está em `entries`.
+    */
+    movements: [
+      { period: "2026-06-01", changes: 0 },
+      { period: "2026-08-02", changes: 1 },
+    ] as unknown as Movimentos["movements"],
     gaps: [],
     impact: { byPeriodicity: {}, notCalculable: 0 },
     lossesByPeriodicity: {},
@@ -184,12 +192,24 @@ describe("a série do gráfico de impacto", () => {
     await waitFor(() => expect(screen.queryByTestId("grafico-carregando")).toBeNull());
   });
 
-  it("diz o vazio só quando o intervalo foi lido e não tinha nada valorado", async () => {
+  it("intervalo lido e sem nada apurado: diz o desconhecido, e não desenha zeros", async () => {
+    /*
+      Agosto tem uma alteração e nenhuma linha com preço. O gráfico não pode
+      desenhar o zero — ele publica o estado, que é o que a pessoa precisa
+      saber para agir: a apuração está faltando, o resultado não é zero.
+    */
     buscar.mockResolvedValue({ ...movimentos(0), entries: [] });
 
     render(comCliente(<Tela scopeHash="pe" view={null} />, novoCliente()));
 
-    await waitFor(() => expect(screen.getByText(/Nenhuma alteração valorada/)).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByText("Impacto financeiro ainda não calculado")).toBeTruthy(),
+    );
+    expect(
+      screen.getByText(/ainda não possuem preço apurado\. O resultado é desconhecido, não zero\./),
+    ).toBeTruthy();
+    // E nenhum R$ 0 em tela para o que não foi apurado.
+    expect(screen.queryByText(/R\$\s?0/)).toBeNull();
   });
 
   it("mantém o gráfico anterior na troca de unidade, e o declara", async () => {
