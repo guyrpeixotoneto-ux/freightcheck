@@ -167,6 +167,7 @@ veículo, em vez de fingir a conta.
 | Duas alíquotas de ICMS na carreta | `carreta.icms` só no detalhe, fora da conferência |
 | Imposto do frete em outra fonte | recusa escrita no rodapé da conferência e na gaveta |
 | As duas colunas do menu são `R$ 0,00` por construção | o seletor de par publica o **movimento da alíquota** ao lado do dinheiro (`movimentoDeAliquotas`) — o maior movimento em p.p. e quantas se moveram, um balde por tributo, sem cor |
+| Nenhuma alíquota se move entre vigências neste acervo | o seletor publica também o **movimento da frota** (`frotaDoPar` em `candidatas-do-par.ts`) — quantos ativos entraram e saíram, ou "frota estável"; ver §8 |
 
 ---
 
@@ -182,3 +183,39 @@ veículo, em vez de fingir a conta.
 3. **O imposto sobre a prestação.** Ele é o que pesa todo mês, e chega quando a
    tabela de frete virar fonte apurada por este banco. Aí serão duas rubricas
    lado a lado — nunca uma só.
+
+---
+
+## 8. Alíquota parada, total diferente — e o que separa as duas frases
+
+Não há **uma** alteração de imposto no acervo. Consultando as alterações
+gravadas pelos dez códigos do catálogo (`cavalo.*` e `carreta.*` de montante,
+alíquota e valor de nota), o resultado é zero linhas: nenhum ativo presente em
+duas vigências teve alíquota ou montante mexido. Por isso o menu do par escreve
+`R$ 0,00 · sem movimento de alíquota · 0 alterações` em toda linha do histórico,
+e as três frases são verdadeiras.
+
+E, no mesmo par — março/2026 → agosto/2026 —, o total de PIS/COFINS da carreta
+que a própria tela publica cai de R$ 1.683.696,18 para R$ 1.584.322,25. A
+diferença não contradiz nada do parágrafo acima: **é frota**. Decompondo o mesmo
+recorte, R$ 205.347,91 de PIS/COFINS saíram com as 9 carretas ausentes e
+R$ 105.973,98 entraram com as 4 novas — os R$ 99.373,93 exatos da queda —, e o
+número de carretas presentes nas duas pontas que mudaram de valor é zero.
+É o mesmo efeito que faz a alíquota declarada média da carreta variar de uma
+vigência para outra com toda alíquota individual parada: a média é do conjunto, e
+o conjunto mudou.
+
+São duas grandezas, e a linha do menu passou a dizer as duas porque uma sozinha
+se lê errado:
+
+- **"0 alterações"** é sobre o ativo presente nas duas pontas — nenhuma variável
+  de imposto se moveu em nenhum deles;
+- **"4 entraram · 11 ativos saíram"** é sobre o conjunto — 4 carretas novas, 9
+  carretas e 2 cavalos ausentes —, e é o que explica dois totais diferentes sem
+  nenhuma alteração no meio. A linha soma o recorte da rubrica (cavalo e
+  carreta), como todo número de Custo Fixo.
+
+Frota parada sai escrita ("frota estável") pela mesma régua do `R$ 0,00`: a
+conta que deu zero se escreve, porque é ela que autoriza comparar os dois totais
+diretamente. E as duas nunca somam: são ativos de um lado e variáveis do outro,
+e um número com as duas coisas não existe em tela nenhuma do produto.

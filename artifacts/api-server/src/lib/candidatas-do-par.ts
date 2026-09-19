@@ -3,11 +3,14 @@ import {
   coberturaComum,
   computeChangeSet,
   formamParDeVigencias,
+  frotaDoEquipamento,
+  frotaPorTipo,
   getChangeSetForPair,
   listChanges,
   leituraDoImpacto,
   listComparableSnapshots,
   vigenciasQueCobrem,
+  type FrotaNoRecorte,
   type Operacao,
 } from "@workspace/comparison";
 
@@ -116,6 +119,32 @@ export interface MovimentoDePercentual {
   ambasDirecoes: boolean;
 }
 
+/**
+ * A frota entrando e saindo entre as duas vigências — ativos, nunca variáveis.
+ *
+ * É a outra metade do que separa duas vigências, e a que a contagem de
+ * alterações **não** conta: `alteracoes` são variáveis que se moveram num ativo
+ * presente nas duas pontas, e um ativo que entrou ou saiu não move variável
+ * nenhuma — ele muda o conjunto sobre o qual toda a conta é feita.
+ *
+ * Nasceu nos Impostos, e o par março/2026 → agosto/2026 do acervo é o caso
+ * inteiro: `0 alterações`, `sem movimento de alíquota` — e R$ 99 mil a menos de
+ * PIS/COFINS de carreta no total da tela, porque nove carretas saíram e quatro
+ * entraram, sem uma única alíquota se mover. As duas
+ * leituras estão certas e falam de coisas diferentes; sem esta terceira, quem lê
+ * o menu junta as duas e entende "o imposto não mudou", quando o que se pode
+ * afirmar é "nenhum ativo teve o imposto mexido".
+ *
+ * Genérico como o resto do módulo: quem pede diz o recorte, e aqui não há
+ * rubrica nenhuma.
+ */
+export interface MovimentoDaFrota {
+  /** Ativos presentes só na vigência "Para". */
+  entraram: number;
+  /** Ativos presentes só na candidata a "De". */
+  sairam: number;
+}
+
 /** Os números de um par, no recorte de quem perguntou. */
 export interface NumerosDoPar {
   alteracoes: number;
@@ -133,6 +162,15 @@ export interface NumerosDoPar {
    * Tributo que não moveu nada não vira balde: a lista traz só quem andou.
    */
   percentuais?: MovimentoDePercentual[];
+  /**
+   * O que entrou e o que saiu da frota entre as duas vigências.
+   *
+   * Opcional pela mesma régua dos percentuais, e com a mesma leitura: **ausente**
+   * é o recorte que não pediu a frota (`frotaDoPar`), e a linha dele segue como
+   * era; **presente e zerado** é o que pediu e viu a frota parada — que é notícia,
+   * e sai escrita, do mesmo jeito que o `R$ 0,00` de uma conta que deu zero.
+   */
+  frota?: MovimentoDaFrota;
   /**
    * Por que este recorte **não publica dinheiro** — e não "publicou zero".
    *
@@ -212,6 +250,14 @@ export interface ParCalculado {
   /** O "Para" fixado. */
   comparadaId: string;
   changeSetId: string;
+  /**
+   * A frota do par, já somada no recorte — só para quem pediu (`frotaDoPar`).
+   *
+   * Vem do motor (`frotaPorTipo`) e não das linhas, pela razão de sempre: um
+   * ativo que entrou ou saiu não produz linha de alteração nenhuma, então
+   * derivá-lo da lista daria zero exatamente onde há movimento.
+   */
+  frota?: FrotaNoRecorte;
 }
 
 export interface RecorteDaRubrica {
@@ -254,6 +300,16 @@ export interface RecorteDaRubrica {
    * cargos onde ele tem 6. É o mesmo `entityType` que `/qlp/comparacao` passa.
    */
   entityType?: string;
+  /**
+   * Pedir a frota do par junto das linhas — quem entrou e quem saiu.
+   *
+   * É uma consulta a mais por candidata (`frotaPorTipo`), e por isso é opt-in:
+   * as rubricas que não escrevem frota na linha do menu não a pagam. Quem liga
+   * recebe `par.frota` somada no mesmo recorte de equipamento da lista
+   * (`entityTypes`), de modo que o número da linha não conte um trecho que a
+   * rubrica nem audita.
+   */
+  frotaDoPar?: boolean;
   /**
    * As linhas e os números daquele recorte, a partir do que o motor devolveu.
    *
@@ -336,12 +392,25 @@ export async function candidatasDoPar(
       ...(recorte.entityType ? { entityType: recorte.entityType } : {}),
       limit: 5000,
     });
+    /* A frota é do recorte da rubrica, e não do snapshot inteiro: a soma sai
+       por `frotaDoEquipamento`, que é a mesma que os cartões das telas usam.
+       Sem `entityTypes`, somam-se os tipos que o par de fato tem — nunca uma
+       lista fixa que o recorte não declarou. */
+    const frota = recorte.frotaDoPar
+      ? await frotaPorTipo(db, resumo.id, destino.id).then((porTipo) =>
+          frotaDoEquipamento(
+            porTipo,
+            recorte.entityTypes ? [...recorte.entityTypes] : Object.keys(porTipo),
+          ),
+        )
+      : undefined;
     candidatos.push({
       id: candidata.id,
       numeros: recorte.numeros(rows, {
         baseId: candidata.id,
         comparadaId: destino.id,
         changeSetId: resumo.id,
+        ...(frota ? { frota } : {}),
       }),
     });
   }

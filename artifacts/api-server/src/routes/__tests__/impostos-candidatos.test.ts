@@ -215,6 +215,47 @@ describe("GET /impostos/candidatos", () => {
   }, 300_000);
 
   /**
+   * A FROTA DO PAR — e por que ela precisou entrar na linha.
+   *
+   * O menu escrevia três frases verdadeiras e insuficientes: `R$ 0,00`, `sem
+   * movimento de alíquota`, `0 alterações`. Verdadeiras porque no acervo não há
+   * **uma** alteração nos dez códigos de imposto — nenhum ativo presente nas duas
+   * pontas teve alíquota ou montante mexido. Insuficientes porque, no mesmo par,
+   * o total de PIS/COFINS que `/impostos/totais` publica muda: ativo entrando e
+   * saindo troca o conjunto sobre o qual a conta é feita, e isso não é alteração
+   * nenhuma.
+   *
+   * O que se exige aqui é a identidade, que é o que impede a linha de virar uma
+   * segunda régua: a frota do menu é, ativo por ativo, a mesma que
+   * `/impostos/comparacao` publica no resumo daquele par — o recorte de
+   * equipamento incluído.
+   */
+  it("publica a frota do par, igual à do resumo de /impostos/comparacao", async () => {
+    const lista = await vigencias();
+    const destino = lista[0];
+    const { body } = await get(`/impostos/candidatos?para=${destino.id}`);
+
+    const calculadas = body.candidatos.filter(
+      (c: { numeros: unknown }) => c.numeros !== null,
+    );
+    expect(calculadas.length).toBeGreaterThan(0);
+
+    for (const candidata of calculadas) {
+      /* Presente **sempre**: frota parada é `0 e 0`, e é notícia. Ausente seria
+         dizer que esta rota não olha frota, que é o contrário do que ela faz. */
+      expect(candidata.numeros.frota).toBeDefined();
+
+      const { body: comparacao } = await get(
+        `/impostos/comparacao?base=${candidata.id}&comparada=${destino.id}`,
+      );
+      expect(candidata.numeros.frota).toEqual({
+        entraram: comparacao.resumo.novosNaVigencia,
+        sairam: comparacao.resumo.ausentesNaComparada,
+      });
+    }
+  }, 300_000);
+
+  /**
    * O requisito 4, e o que ele **não** permite: a ausência de cálculo volta
    * `null`, nunca um zero. Um `alteracoes: 0` só pode existir ao lado de uma
    * comparação que de fato aconteceu.
